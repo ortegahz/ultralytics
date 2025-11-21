@@ -432,6 +432,9 @@ class Exporter:
             elif isinstance(self.model, DetectionModel):
                 dynamic["output0"] = {0: "batch", 2: "anchors"}  # shape(1, 84, 8400)
 
+        # output_names = ["reg1", "cls1", "reg2", "cls2", "reg3", "cls3"]  # sigmastar
+        # output_names = ["output", "output1", "output2", "output3", "output4", "output5"]  # rknn or engine
+
         torch.onnx.export(
             self.model.cpu() if dynamic else self.model,  # dynamic=True only compatible with cpu
             self.im.cpu() if dynamic else self.im,

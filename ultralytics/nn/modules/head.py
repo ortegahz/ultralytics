@@ -2,20 +2,19 @@
 """Model head modules."""
 
 import copy
-import math
 
+import math
 import torch
 import torch.nn as nn
 from torch.nn.init import constant_, xavier_uniform_
 
 from ultralytics.utils.tal import TORCH_1_10, dist2bbox, dist2rbox, make_anchors
-
 from .block import DFL, BNContrastiveHead, ContrastiveHead, Proto
 from .conv import Conv, DWConv
 from .transformer import MLP, DeformableTransformerDecoder, DeformableTransformerDecoderLayer
 from .utils import bias_init_with_prob, linear_init
 
-__all__ = "Detect", "Segment", "Pose", "Classify", "OBB", "RTDETRDecoder", "v10Detect"
+__all__ = "DetectFire", "Detect", "Segment", "Pose", "Classify", "OBB", "RTDETRDecoder", "v10Detect"
 
 
 class Detect(nn.Module):
@@ -72,6 +71,24 @@ class Detect(nn.Module):
         y = self._inference(x)
         return y if self.export else (y, x)
 
+    # def forward(self, x):
+    #     """
+    #     for rknn / engine / sigmastar export
+    #
+    #     Args:
+    #         x:
+    #
+    #     Returns:
+    #
+    #     """
+    #     y_ = []
+    #     for i in range(self.nl):
+    #         t1 = self.cv2[i](x[i])
+    #         t2 = self.cv3[i](x[i])
+    #         y_.append(t1)
+    #         y_.append(t2)
+    #     return y_
+
     def forward_end2end(self, x):
         """
         Performs forward pass of the v10Detect module.
@@ -100,16 +117,18 @@ class Detect(nn.Module):
         """Decode predicted bounding boxes and class probabilities based on multiple-level feature maps."""
         # Inference path
         shape = x[0].shape  # BCHW
-        x_cat = torch.cat([xi.view(shape[0], self.no, -1) for xi in x], 2)
+        _no = self.nc * 2 + self.reg_max * 4 if self.export else self.no
+        x_cat = torch.cat([xi.view(shape[0], _no, -1) for xi in x], 2)
         if self.dynamic or self.shape != shape:
             self.anchors, self.strides = (x.transpose(0, 1) for x in make_anchors(x, self.stride, 0.5))
             self.shape = shape
 
+        _nc = self.nc * 2 if self.export else self.nc
         if self.export and self.format in {"saved_model", "pb", "tflite", "edgetpu", "tfjs"}:  # avoid TF FlexSplitV ops
             box = x_cat[:, : self.reg_max * 4]
-            cls = x_cat[:, self.reg_max * 4 :]
+            cls = x_cat[:, self.reg_max * 4:]
         else:
-            box, cls = x_cat.split((self.reg_max * 4, self.nc), 1)
+            box, cls = x_cat.split((self.reg_max * 4, _nc), 1)
 
         if self.export and self.format in {"tflite", "edgetpu"}:
             # Precompute normalization factor to increase numerical stability
@@ -164,6 +183,56 @@ class Detect(nn.Module):
         scores, index = scores.flatten(1).topk(min(max_det, anchors))
         i = torch.arange(batch_size)[..., None]  # batch indices
         return torch.cat([boxes[i, index // nc], scores[..., None], (index % nc)[..., None].float()], dim=-1)
+
+
+class DetectFire(Detect):
+    """YOLO Fire head for fire detection models."""
+
+    def __init__(self, nc=80, ch=()):
+        """Initializes the YOLO detection layer with specified number of classes and channels."""
+        super().__init__(nc=nc, ch=ch)
+        c2, c3 = max((16, ch[0] // 4, self.reg_max * 4)), max(ch[0], min(self.nc, 100))  # channels
+        self.cv4 = (
+            nn.ModuleList(nn.Sequential(Conv(x, c3, 3), Conv(c3, c3, 3), nn.Conv2d(c3, self.nc, 1)) for x in ch)
+            if self.legacy
+            else nn.ModuleList(
+                nn.Sequential(
+                    nn.Sequential(DWConv(x, x, 3), Conv(x, c3, 1)),
+                    nn.Sequential(DWConv(c3, c3, 3), Conv(c3, c3, 1)),
+                    nn.Conv2d(c3, self.nc, 1),
+                )
+                for x in ch
+            )
+        )
+
+    # def forward(self, x):
+    #     """Concatenates and returns predicted bounding boxes and class probabilities."""
+    #     if self.end2end:
+    #         return self.forward_end2end(x)
+    #
+    #     for i in range(self.nl):
+    #         if self.training:  # If in training mode
+    #             x[i] = torch.cat((self.cv2[i](x[i]), self.cv4[i](x[i])), 1)  # Concatenate cv2 and cv4 outputs
+    #         elif self.export:
+    #             x[i] = torch.cat((self.cv2[i](x[i]), self.cv3[i](x[i]), self.cv4[i](x[i])), 1)
+    #         else:
+    #             x[i] = torch.cat((self.cv2[i](x[i]), self.cv4[i](x[i])), 1)
+    #     if self.training:  # Training path
+    #         return x
+    #     y = self._inference(x)
+    #     return y if self.export else (y, x)
+
+    def forward(self, x):
+        """rknn / engine / sigmastar onnx exporter."""
+        y_ = []
+        for i in range(self.nl):
+            t1 = self.cv2[i](x[i])
+            t2 = self.cv3[i](x[i])
+            t3 = self.cv4[i](x[i])
+            y_.append(t1)
+            y_.append(t2)
+            y_.append(t3)
+        return y_
 
 
 class Segment(Detect):
@@ -319,7 +388,7 @@ class WorldDetect(Detect):
 
         if self.export and self.format in {"saved_model", "pb", "tflite", "edgetpu", "tfjs"}:  # avoid TF FlexSplitV ops
             box = x_cat[:, : self.reg_max * 4]
-            cls = x_cat[:, self.reg_max * 4 :]
+            cls = x_cat[:, self.reg_max * 4:]
         else:
             box, cls = x_cat.split((self.reg_max * 4, self.nc), 1)
 
@@ -359,23 +428,23 @@ class RTDETRDecoder(nn.Module):
     export = False  # export mode
 
     def __init__(
-        self,
-        nc=80,
-        ch=(512, 1024, 2048),
-        hd=256,  # hidden dim
-        nq=300,  # num queries
-        ndp=4,  # num decoder points
-        nh=8,  # num head
-        ndl=6,  # num decoder layers
-        d_ffn=1024,  # dim of feedforward
-        dropout=0.0,
-        act=nn.ReLU(),
-        eval_idx=-1,
-        # Training args
-        nd=100,  # num denoising
-        label_noise_ratio=0.5,
-        box_noise_scale=1.0,
-        learnt_init_query=False,
+            self,
+            nc=80,
+            ch=(512, 1024, 2048),
+            hd=256,  # hidden dim
+            nq=300,  # num queries
+            ndp=4,  # num decoder points
+            nh=8,  # num head
+            ndl=6,  # num decoder layers
+            d_ffn=1024,  # dim of feedforward
+            dropout=0.0,
+            act=nn.ReLU(),
+            eval_idx=-1,
+            # Training args
+            nd=100,  # num denoising
+            label_noise_ratio=0.5,
+            box_noise_scale=1.0,
+            learnt_init_query=False,
     ):
         """
         Initializes the RTDETRDecoder module with the given parameters.
@@ -487,7 +556,7 @@ class RTDETRDecoder(nn.Module):
 
             valid_WH = torch.tensor([w, h], dtype=dtype, device=device)
             grid_xy = (grid_xy.unsqueeze(0) + 0.5) / valid_WH  # (1, h, w, 2)
-            wh = torch.ones_like(grid_xy, dtype=dtype, device=device) * grid_size * (2.0**i)
+            wh = torch.ones_like(grid_xy, dtype=dtype, device=device) * grid_size * (2.0 ** i)
             anchors.append(torch.cat([grid_xy, wh], -1).view(-1, h * w, 4))  # (1, h*w, 4)
 
         anchors = torch.cat(anchors, 1)  # (1, h*w*nl, 4)

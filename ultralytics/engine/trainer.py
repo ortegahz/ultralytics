@@ -257,6 +257,18 @@ class BaseTrainer:
                 )
                 v.requires_grad = True
 
+        # List of prefixes for layers that should not be frozen
+        cv4_layer_prefix = "cv4"
+        # Iterate over all parameters in the model
+        for k, v in self.model.named_parameters():
+            # Determine if the current parameter belongs to cv4; if not, freeze it
+            if cv4_layer_prefix in k:
+                LOGGER.info(f"Allowing gradients for layer '{k}'")
+                v.requires_grad = True
+            else:
+                LOGGER.info(f"Freezing layer '{k}'")
+                v.requires_grad = False
+
         # Check AMP
         self.amp = torch.tensor(self.args.amp).to(self.device)  # True or False
         if self.amp and RANK in {-1, 0}:  # Single-GPU and DDP

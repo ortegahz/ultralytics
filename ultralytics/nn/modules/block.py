@@ -895,7 +895,7 @@ class Attention(nn.Module):
         self.proj = Conv(dim, dim, 1, act=False)
         self.pe = Conv(dim, dim, 3, 1, g=dim, act=False)
 
-    def forward(self, x):
+    def forward_org(self, x):
         """
         Forward pass of the Attention module.
 
@@ -915,6 +915,67 @@ class Attention(nn.Module):
         attn = (q.transpose(-2, -1) @ k) * self.scale
         attn = attn.softmax(dim=-1)
         x = (v @ attn.transpose(-2, -1)).view(B, C, H, W) + self.pe(v.reshape(B, C, H, W))
+        x = self.proj(x)
+        return x
+
+    def forward(self, x):
+        """forward for rknn."""
+        B, C, H, W = x.shape
+        N = H * W
+        qkv = self.qkv(x)
+        q, k, v = qkv.view(B, self.num_heads, self.key_dim * 2 + self.head_dim, N).split(
+
+            [self.key_dim, self.key_dim, self.head_dim], dim=2
+
+        )
+        q1 = q.transpose(-2, -1)
+        q1_b, q1_c, q1_h, q1_w = q1.shape
+        k1_b, k1_c, k1_h, k1_w = k.shape
+        com = q1.size(-1)
+        q1_0, q1_1, q1_2, q1_3 = q1.split([1, 1, 1, 1], dim=1)
+        q1_0, q1_1, q1_2, q1_3 = q1_0.view(-1, com), q1_1.view(-1, com), q1_2.view(-1, com), q1_3.view(-1, com)
+        k_0, k_1, k_2, k_3 = k.split([1, 1, 1, 1], dim=1)
+        k_0, k_1, k_2, k_3 = k_0.view(com, -1), k_1.view(com, -1), k_2.view(com, -1), k_3.view(com, -1)
+        attn = torch.cat([
+            torch.matmul(q1_0, k_0),  # .view(1, q1_h, k1_w),
+            torch.matmul(q1_1, k_1),  # .view(1, q1_h, k1_w),
+            torch.matmul(q1_2, k_2),  # .view(1, q1_h, k1_w),
+            torch.matmul(q1_3, k_3),  # .view(1, q1_h, k1_w)
+        ], 0) * self.scale
+        attn = attn.view(1, 4, q1_h, k1_w)
+        attn = attn.softmax(dim=-1)
+        a1 = attn.transpose(-2, -1)
+        v1_b, v1_c, v1_h, v1_w = v.shape
+        a1_b, a1_c, a1_h, a1_w = a1.shape
+        com2 = v.size(-1)
+        v_0, v_1, v_2, v_3 = v.split([1, 1, 1, 1], dim=1)
+        v_0, v_1, v_2, v_3 = v_0.view(-1, com2), v_1.view(-1, com2), v_2.view(-1, com2), v_3.view(-1, com2)
+        a1_0, a1_1, a1_2, a1_3 = a1.split([1, 1, 1, 1], dim=1)
+        a1_0, a1_1, a1_2, a1_3 = a1_0.view(com2, -1), a1_1.view(com2, -1), a1_2.view(com2, -1), a1_3.view(com2, -1)
+        vat = torch.cat([
+            torch.matmul(v_0, a1_0),  # .view(1, v1_h, a1_w),
+            torch.matmul(v_1, a1_1),  # .view(1, v1_h, a1_w),
+            torch.matmul(v_2, a1_2),  # .view(1, v1_h, a1_w),
+            torch.matmul(v_3, a1_3),  # .view(1, v1_h, a1_w)
+        ], 0)
+        vat = vat.view(1, 4, v1_h, a1_w)
+        x = vat.view(B, C, H, W) + self.pe(v.reshape(B, C, H, W))
+        x = self.proj(x)
+        return x
+
+    def forward_engine(self, x):
+        B, C, H, W = x.shape
+        N = H * W
+        qkv = self.qkv(x)
+        q, k, v = qkv.view(B, self.num_heads, self.key_dim * 2 + self.head_dim, N).split(
+
+            [self.key_dim, self.key_dim, self.head_dim], dim=2
+
+        )
+        attn = torch.matmul(q.transpose(-2, -1), k) * self.scale
+        attn = attn.softmax(dim=-1)
+        vat = v @ attn.transpose(-2, -1)
+        x = vat.view(B, C, H, W) + self.pe(v.reshape(B, C, H, W))
         x = self.proj(x)
         return x
 

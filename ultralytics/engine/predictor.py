@@ -336,6 +336,9 @@ class BasePredictor:
 
         # Add predictions to image
         if self.args.save or self.args.show:
+            # if hasattr(result, 'boxes') and result.boxes is not None and len(result.boxes) > 1:
+            #     idx = result.boxes.conf.argmax().item()
+            #     result.boxes = result.boxes[idx:idx + 1]
             self.plotted_img = result.plot(
                 line_width=self.args.line_width,
                 boxes=self.args.show_boxes,
