@@ -23,7 +23,7 @@ yolo predict model=/home/manu/tmp/runs_yolo11/train13/weights/best.pt source=/ho
 
 yolo predict model=/home/manu/tmp/runs_yolo11/train13/weights/best.pt source=/media/manu/ST2000DM005-2U91/fire/data/aigc_20241230/AI图片/AIFirePicture3
 
-yolo predict model=/home/manu/mnt/8gpu_3090/runs_yolo11_cp/train/weights/best.pt source=/home/manu/tmp/person_sorted/images/val/1020_01939.jpg
+yolo predict model=/home/manu/mnt/8gpu_3090/runs_yolo11_cp/train/weights/best.pt source=/home/manu/tmp/64.mp4
 
 # train
 
