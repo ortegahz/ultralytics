@@ -23,7 +23,11 @@ yolo predict model=/home/manu/tmp/runs_yolo11/train13/weights/best.pt source=/ho
 
 yolo predict model=/home/manu/tmp/runs_yolo11/train13/weights/best.pt source=/media/manu/ST2000DM005-2U91/fire/data/aigc_20241230/AI图片/AIFirePicture3
 
+yolo predict model=/home/manu/mnt/8gpu_3090/runs_yolo11_cp/train/weights/best.pt source=/home/manu/tmp/person_sorted/images/val/1020_01939.jpg
+
 # train
+
+export PYTHONPATH=$PYTHONPATH:$(pwd)
 
 yolo detect train data=coco8.yaml model=yolo11n.pt epochs=100 imgsz=640 device=4,5,6,7
 
@@ -53,10 +57,13 @@ yolo detect train data=ultralytics/cfg/datasets/fire.yaml model=/home/Huangzhe/t
 
 yolo detect train data=ultralytics/cfg/datasets/fire.yaml model=/tmp/pycharm_project_278/ultralytics/cfg/models/11/yolo11s.yaml pretrained=/home/Huangzhe/test/manu-pc/tmp/runs_yolo11/train13/weights/best.pt epochs=10 imgsz=1280 device=0,1,2,3,4,5,6,7 project=/home/Huangzhe/test/manu-pc/tmp/runs_yolo11
 
+yolo detect train data=ultralytics/cfg/datasets/cp.yaml model=ultralytics/cfg/models/11/yolo11n.yaml epochs=100 imgsz=640 device=0,1,2,3,4,5,6,7 project=/home/Huangzhe/test/runs_yolo11_cp
+
 # export
 
 yolo export model=/home/manu/tmp/runs_yolo11/train14/weights/best.pt format=onnx opset=11
 
 # tensorboard
 
-tensorboard --logdir /home/manu/tmp/runs_yolo11/train/
+tensorboard --logdir /home/Huangzhe/test/manu-pc/tmp/runs_yolo11_cp/train2 --host 172.20.254.199
+http://172.20.254.199:6006/ 
