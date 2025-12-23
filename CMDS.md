@@ -25,6 +25,8 @@ yolo predict model=/home/manu/tmp/runs_yolo11/train13/weights/best.pt source=/me
 
 yolo predict model=/home/manu/mnt/8gpu_3090/runs_yolo11_cp/train/weights/best.pt source=/home/manu/tmp/64.mp4
 
+yolo predict model=/home/manu/mnt/8gpu_3090/runs_yolo11_cp/train5/weights/best.pt imgsz=1280 conf=0.1 source='/media/manu/ST8000DM004-2U91/CrowdHuman/海康识别/正中80报警.mp4' show
+
 # train
 
 export PYTHONPATH=$PYTHONPATH:$(pwd)
@@ -58,6 +60,12 @@ yolo detect train data=ultralytics/cfg/datasets/fire.yaml model=/home/Huangzhe/t
 yolo detect train data=ultralytics/cfg/datasets/fire.yaml model=/tmp/pycharm_project_278/ultralytics/cfg/models/11/yolo11s.yaml pretrained=/home/Huangzhe/test/manu-pc/tmp/runs_yolo11/train13/weights/best.pt epochs=10 imgsz=1280 device=0,1,2,3,4,5,6,7 project=/home/Huangzhe/test/manu-pc/tmp/runs_yolo11
 
 yolo detect train data=ultralytics/cfg/datasets/cp.yaml model=ultralytics/cfg/models/11/yolo11n.yaml epochs=100 imgsz=640 device=0,1,2,3,4,5,6,7 project=/home/Huangzhe/test/runs_yolo11_cp
+
+yolo detect train data=ultralytics/cfg/datasets/cp.yaml model=ultralytics/cfg/models/11/yolo11m.yaml epochs=128 imgsz=1280 device=0,1,2,3,4,5,6,7 project=/home/Huangzhe/test/runs_yolo11_cp
+
+yolo detect train data=ultralytics/cfg/datasets/wider-person.yaml model=ultralytics/cfg/models/11/yolo11s.yaml epochs=128 imgsz=1280 device=0,1,2,3,4,5,6,7 project=/home/Huangzhe/test/runs_yolo11_cp
+
+yolo detect train data=ultralytics/cfg/datasets/personne.yaml model=ultralytics/cfg/models/11/yolo11n.yaml epochs=128 imgsz=1280 device=0,1,2,3,4,5,6,7 project=/home/Huangzhe/test/runs_yolo11_cp
 
 # export
 
