@@ -46,8 +46,16 @@ OPTUNA_STUDY_NAME = "uav_fold4_yolo26n_ap50"
 # Optuna 报告脚本
 REPORT_SCRIPT = PROJECT_ROOT / "manu/report_optuna_trials.py"
 
-# 预训练模型
+# 预训练模型。
+# 仍使用普通 YOLO26n 权重初始化；P2 检测头新增的层没有对应权重，
+# 会保留模型构建时的随机初始化。
 MODEL_PATH = PROJECT_ROOT / "yolo26n.pt"
+
+# P2 模型结构。该配置使用 P2/P4、P3/P8、P4/P16、P5/P32 四个检测尺度，
+# 更适合当前的小目标 UAV 检测任务。
+MODEL_CFG = Path(__file__).resolve().parents[1] / (
+    "ultralytics/cfg/models/26/yolo26-p2.yaml"
+)
 
 # 数据集配置
 DATA_PATH = PROJECT_ROOT / "datasets/uav/data.yaml"
@@ -198,6 +206,11 @@ def train_with_best_params(
             f"找不到模型文件：{MODEL_PATH}"
         )
 
+    if not MODEL_CFG.exists():
+        raise FileNotFoundError(
+            f"找不到 P2 模型配置：{MODEL_CFG}"
+        )
+
     if not DATA_PATH.exists():
         raise FileNotFoundError(
             f"找不到数据集配置：{DATA_PATH}"
@@ -207,7 +220,8 @@ def train_with_best_params(
     print("=" * 80)
     print("开始正式训练")
     print("=" * 80)
-    print(f"Model       : {MODEL_PATH}")
+    print(f"Model config: {MODEL_CFG}")
+    print(f"Pretrained  : {MODEL_PATH}")
     print(f"Data        : {DATA_PATH}")
     print(f"Project     : {TRAIN_PROJECT}")
     print(f"Name        : {TRAIN_NAME}")
@@ -218,7 +232,10 @@ def train_with_best_params(
     print(f"Close mosaic: 5")
     print("=" * 80)
 
-    model = YOLO(str(MODEL_PATH))
+    # 先按 P2 YAML 构建模型，再加载普通 YOLO26n 的可匹配权重。
+    # P2 分支新增层以及形状不匹配的层由构建过程随机初始化。
+    model = YOLO(str(MODEL_CFG))
+    model.load(str(MODEL_PATH))
 
     model.train(
         # 数据集
