@@ -65,7 +65,7 @@ FITNESS_METRIC = "metrics/recall(B)"
 DEVICE = [0, 1, 2, 3]
 
 # 正式训练 epoch
-EPOCHS = 20
+EPOCHS = 30
 
 # Batch size。
 # Ultralytics 在多卡训练时，通常表示每张 GPU 的 batch size。
