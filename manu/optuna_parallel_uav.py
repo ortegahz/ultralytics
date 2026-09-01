@@ -21,7 +21,7 @@ PROJECT_ROOT = Path(
 MODEL_PATH = PROJECT_ROOT / "yolo26n.pt"
 DATA_PATH = PROJECT_ROOT / "datasets/uav/data.yaml"
 
-OUTPUT_ROOT = PROJECT_ROOT / "runs/optuna_uav"
+OUTPUT_ROOT = PROJECT_ROOT / "runs/optuna_uav_ap50"
 LOG_ROOT = OUTPUT_ROOT / "logs"
 
 # 每个 trial 使用全部四张 GPU
@@ -33,27 +33,31 @@ GPU_IDS = "0,1,2,3"
 # =========================
 
 def suggest_params(trial: optuna.Trial) -> dict:
-    """Generate one hyperparameter configuration."""
+    """Generate one hyperparameter configuration for tiny-object detection."""
+
     return {
         # SGD 初始学习率
+        # 使用对数采样，覆盖较低学习率，避免小目标定位不稳定
         "lr0": trial.suggest_float(
             "lr0",
-            0.005,
+            0.002,
             0.02,
+            log=True,
         ),
 
         # SGD momentum
         "momentum": trial.suggest_float(
             "momentum",
             0.90,
-            0.97,
+            0.96,
         ),
 
         # 权重衰减
+        # 极小目标任务不建议过强正则化
         "weight_decay": trial.suggest_float(
             "weight_decay",
-            1e-4,
-            1e-3,
+            1e-5,
+            5e-4,
             log=True,
         ),
 
@@ -65,17 +69,19 @@ def suggest_params(trial: optuna.Trial) -> dict:
         ),
 
         # Ultralytics scale
+        # 你的目标大多小于 16 px，避免过强缩放导致目标进一步变小
         "scale": trial.suggest_float(
             "scale",
-            0.2,
-            0.4,
+            0.0,
+            0.30,
         ),
 
         # Mosaic 概率
+        # 极小目标不建议长期使用过高 Mosaic
         "mosaic": trial.suggest_float(
             "mosaic",
-            0.3,
-            0.7,
+            0.0,
+            0.40,
         ),
     }
 
@@ -88,7 +94,7 @@ def read_best_metrics(results_csv: Path) -> tuple[float, dict]:
     """
     Read the best Recall and corresponding metrics.
 
-    Recall is used as the product-oriented objective.
+    Recall is used as the search objective.
     """
     if not results_csv.exists():
         raise FileNotFoundError(
@@ -117,7 +123,7 @@ def read_best_metrics(results_csv: Path) -> tuple[float, dict]:
         for row in rows
     ]
 
-    fitness_key = "metrics/recall(B)"
+    fitness_key = "metrics/mAP50(B)"
     valid_rows = []
 
     for row in rows:
@@ -355,13 +361,13 @@ def finish_trial(item: dict, output_root: Path) -> float:
     trial.set_user_attr("metrics", metrics)
     trial.set_user_attr("results_csv", str(results_csv))
 
-    # 以 Recall 作为 Optuna 的 fitness
-    fitness = float(metrics["recall"])
+    # 以 AP50 作为 Optuna 的 fitness
+    fitness = float(metrics["ap50"])
 
     print(
         f"[DONE] trial={trial_number} "
-        f"Recall={fitness:.6f} "
-        f"AP50={metrics['ap50']} "
+        f"AP50={fitness:.6f} "
+        f"Recall={metrics['recall']} "
         f"mAP50-95={metrics['map50_95']} "
         f"Precision={metrics['precision']}"
     )
@@ -390,7 +396,7 @@ def scheduler_main(args: argparse.Namespace) -> None:
     storage_url = f"sqlite:///{database_path}"
 
     study = optuna.create_study(
-        study_name="uav_fold4_yolo26n",
+        study_name="uav_fold4_yolo26n_ap50",
         storage=storage_url,
         load_if_exists=True,
         direction="maximize",
@@ -517,7 +523,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--n-trials",
         type=int,
-        default=8,
+        default=44,
         help="Total number of trials.",
     )
 

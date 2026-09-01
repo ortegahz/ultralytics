@@ -876,7 +876,17 @@ class BaseTrainer:
         metrics = self.validator(self)
         if metrics is None:
             return None, None
-        fitness = metrics.pop("fitness", -self.loss.detach().cpu().numpy())  # use loss as fitness measure if not found
+        fitness_metric = self.args.get("fitness_metric")
+        if fitness_metric:
+            fitness = metrics.get(fitness_metric)
+            if fitness is None:
+                raise KeyError(
+                    f"fitness_metric not found in validation metrics: {fitness_metric}"
+                )
+        else:
+            fitness = metrics.get("fitness", -self.loss.detach().cpu().numpy())
+
+        metrics.pop("fitness", None)
         if self.best_fitness is None or self.best_fitness < fitness:
             self.best_fitness = fitness
         return metrics, fitness

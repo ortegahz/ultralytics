@@ -12,6 +12,7 @@ data: # (str, optional) path to dataset file or classification directory/name
 epochs: 100 # (int) number of epochs to train for
 time: # (float, optional) max hours to train; overrides epochs if set
 patience: 100 # (int) early stop after N epochs without val improvement
+fitness_metric: # (str, optional) validation metric used for best.pt and early stopping, e.g. metrics/recall(B)
 batch: 16 # (int | float) batch size as int (e.g. 16), or float 0.0–1.0 for AutoBatch fraction of GPU memory
 imgsz: 640 # (int | list) train/val use int (square); predict/export may use [h,w]
 save: True # (bool) save train checkpoints and predict results
