@@ -8,10 +8,10 @@ from pathlib import Path
 import optuna
 
 DEFAULT_ROOT = Path(
-    "/tmp/pycharm_project_10ae9e2e/runs/optuna_uav_ap50"
+    "/tmp/pycharm_project_10ae9e2e/runs/optuna_uav_recall"
 )
 
-DEFAULT_STUDY_NAME = "uav_fold4_yolo26n_ap50"
+DEFAULT_STUDY_NAME = "uav_fold4_yolo26n_p2_recall"
 
 
 def read_csv_metrics(results_csv: Path) -> dict:
@@ -200,7 +200,7 @@ def main():
             "map50_95",
             "precision",
         ],
-        default="ap50",
+        default="recall",
         help="Metric used to sort trials.",
     )
 

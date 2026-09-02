@@ -7,7 +7,7 @@
 功能：
 1. 自动执行 report_optuna_trials.py；
 2. 从 Optuna study.best_trial 读取真正的最佳参数；
-3. 使用最佳参数进行 20 epoch 正式训练；
+3. 使用最佳参数进行正式训练；
 4. 使用 4 张 GPU；
 5. patience=0，不提前停止；
 6. 最后 5 个 epoch 关闭 Mosaic。
@@ -35,27 +35,19 @@ PROJECT_ROOT = Path(
 ).resolve()
 
 # Optuna 输出目录
-OPTUNA_ROOT = PROJECT_ROOT / "runs/optuna_uav_ap50"
+OPTUNA_ROOT = PROJECT_ROOT / "runs/optuna_uav_recall"
 
 # Optuna 数据库
 OPTUNA_DATABASE = OPTUNA_ROOT / "study.db"
 
 # Optuna study 名称
-OPTUNA_STUDY_NAME = "uav_fold4_yolo26n_ap50"
+OPTUNA_STUDY_NAME = "uav_fold4_yolo26n_p2_recall"
 
 # Optuna 报告脚本
 REPORT_SCRIPT = PROJECT_ROOT / "manu/report_optuna_trials.py"
 
-# 预训练模型。
-# 仍使用普通 YOLO26n 权重初始化；P2 检测头新增的层没有对应权重，
-# 会保留模型构建时的随机初始化。
-MODEL_PATH = PROJECT_ROOT / "yolo26n.pt"
-
-# P2 模型结构。该配置使用 P2/P4、P3/P8、P4/P16、P5/P32 四个检测尺度，
-# 更适合当前的小目标 UAV 检测任务。
-MODEL_CFG = Path(__file__).resolve().parents[1] / (
-    "ultralytics/cfg/models/26/yolo26-p2.yaml"
-)
+# 使用与 recall 搜索完全相同的 P2 预训练模型。
+MODEL_PATH = PROJECT_ROOT / "yolo26np2.pt"
 
 # 数据集配置
 DATA_PATH = PROJECT_ROOT / "datasets/uav/data.yaml"
@@ -80,7 +72,7 @@ EPOCHS = 30
 BATCH = 32
 
 # 数据加载线程
-WORKERS = 8
+WORKERS = 4
 
 # 随机种子
 SEED = 42
@@ -113,7 +105,7 @@ def run_report() -> None:
         "--study-name",
         OPTUNA_STUDY_NAME,
         "--sort-by",
-        "ap50",
+        "recall",
     ]
 
     subprocess.run(
@@ -127,7 +119,7 @@ def load_best_trial() -> optuna.trial.FrozenTrial:
     """
     从 Optuna 数据库中读取真正的 best_trial。
 
-    使用 report_optuna_trials.py 对应的 Optuna AP50 最优 trial。
+    使用 report_optuna_trials.py 对应的 Optuna Recall 最优 trial。
     """
     if not OPTUNA_DATABASE.exists():
         raise FileNotFoundError(
@@ -161,7 +153,7 @@ def load_best_trial() -> optuna.trial.FrozenTrial:
     print("=" * 80)
     print(f"Study       : {OPTUNA_STUDY_NAME}")
     print(f"Trial       : {best_trial.number}")
-    print(f"Optuna AP50 : {best_trial.value:.6f}")
+    print(f"Optuna Recall: {best_trial.value:.6f}")
     print(f"Params      :")
 
     for key, value in best_trial.params.items():
@@ -206,11 +198,6 @@ def train_with_best_params(
             f"找不到模型文件：{MODEL_PATH}"
         )
 
-    if not MODEL_CFG.exists():
-        raise FileNotFoundError(
-            f"找不到 P2 模型配置：{MODEL_CFG}"
-        )
-
     if not DATA_PATH.exists():
         raise FileNotFoundError(
             f"找不到数据集配置：{DATA_PATH}"
@@ -220,7 +207,6 @@ def train_with_best_params(
     print("=" * 80)
     print("开始正式训练")
     print("=" * 80)
-    print(f"Model config: {MODEL_CFG}")
     print(f"Pretrained  : {MODEL_PATH}")
     print(f"Data        : {DATA_PATH}")
     print(f"Project     : {TRAIN_PROJECT}")
@@ -232,10 +218,7 @@ def train_with_best_params(
     print(f"Close mosaic: 5")
     print("=" * 80)
 
-    # 先按 P2 YAML 构建模型，再加载普通 YOLO26n 的可匹配权重。
-    # P2 分支新增层以及形状不匹配的层由构建过程随机初始化。
-    model = YOLO(str(MODEL_CFG))
-    model.load(str(MODEL_PATH))
+    model = YOLO(str(MODEL_PATH))
 
     model.train(
         # 数据集
@@ -244,7 +227,7 @@ def train_with_best_params(
         # 输入尺寸
         imgsz=640,
 
-        # 正式训练 20 epoch
+        # 正式训练
         epochs=EPOCHS,
 
         # 四卡训练
@@ -264,7 +247,7 @@ def train_with_best_params(
         scale=float(params["scale"]),
         mosaic=float(params["mosaic"]),
 
-        # 最后 5 个 epoch 关闭 Mosaic
+        # 正式训练最后 5 个 epoch 关闭 Mosaic
         close_mosaic=5,
 
         # 不提前停止
@@ -283,10 +266,11 @@ def train_with_best_params(
         # 输出训练曲线和混淆矩阵等图像
         plots=True,
 
-        # Frame Difference 输入关闭 HSV 增强
+        # Frame Difference 输入关闭颜色增强
         hsv_h=0.0,
         hsv_s=0.0,
         hsv_v=0.0,
+        bgr=0.0,
 
         # 空间增强
         degrees=0.0,

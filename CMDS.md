@@ -6,6 +6,7 @@ screen python manu/optuna_parallel_uav.py
 
 # train
 screen python manu/train_uav.py
+screen python manu/train_uav_from_optuna.py
 
 # val
 yolo val \
@@ -24,6 +25,20 @@ yolo predict \
     iou=0.2 \
     max_det=5 \
     save=True
+
+yolo predict \
+    model=/tmp/pycharm_project_10ae9e2e/runs/detect/train-10/weights/best.pt \
+    source=/tmp/pycharm_project_10ae9e2e/datasets/uav/images/val \
+    imgsz=640 \
+    conf=0.001 \
+    iou=0.7 \
+    max_det=100 \
+    save=True \
+    save_txt=True \
+    save_conf=True \
+    project=/tmp/pycharm_project_10ae9e2e/runs/detect \
+    name=predict-analysis
+
 
 # tensorboard
 tensorboard \

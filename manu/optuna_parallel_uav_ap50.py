@@ -18,13 +18,11 @@ PROJECT_ROOT = Path(
     "/tmp/pycharm_project_10ae9e2e"
 ).resolve()
 
-MODEL_PATH = PROJECT_ROOT / "yolo26np2.pt"
+MODEL_PATH = PROJECT_ROOT / "yolo26n.pt"
 DATA_PATH = PROJECT_ROOT / "datasets/uav/data.yaml"
 
-OUTPUT_ROOT = PROJECT_ROOT / "runs/optuna_uav_recall"
+OUTPUT_ROOT = PROJECT_ROOT / "runs/optuna_uav_ap50"
 LOG_ROOT = OUTPUT_ROOT / "logs"
-
-FITNESS_KEY = "metrics/recall(B)"
 
 # 每个 trial 使用全部四张 GPU
 GPU_IDS = "0,1,2,3"
@@ -125,7 +123,7 @@ def read_best_metrics(results_csv: Path) -> tuple[float, dict]:
         for row in rows
     ]
 
-    fitness_key = FITNESS_KEY
+    fitness_key = "metrics/mAP50(B)"
     valid_rows = []
 
     for row in rows:
@@ -183,12 +181,6 @@ def worker_main(args: argparse.Namespace) -> None:
     print(f"  scale={args.scale}")
     print(f"  mosaic={args.mosaic}")
 
-    if not MODEL_PATH.exists():
-        raise FileNotFoundError(
-            f"P2 pretrained model not found: {MODEL_PATH}"
-        )
-
-    # Use the fully trained P2 checkpoint as the initialization for every trial.
     model = YOLO(str(MODEL_PATH))
 
     model.train(
@@ -239,9 +231,6 @@ def worker_main(args: argparse.Namespace) -> None:
 
         # 单类别 UAV
         single_cls=True,
-
-        # 以 Recall 作为训练过程中的 best.pt 选择指标，与 Optuna 目标一致
-        fitness_metric=FITNESS_KEY,
 
         # 复现性
         seed=42,
@@ -349,7 +338,7 @@ def launch_trial(
 # =========================
 
 def finish_trial(item: dict, output_root: Path) -> float:
-    """Wait for a trial and return its best Recall."""
+    """Wait for a trial and return its best mAP50-95."""
     process = item["process"]
     process.wait()
 
@@ -372,12 +361,12 @@ def finish_trial(item: dict, output_root: Path) -> float:
     trial.set_user_attr("metrics", metrics)
     trial.set_user_attr("results_csv", str(results_csv))
 
-    # 以 Recall 作为 Optuna 的 fitness
-    fitness = float(metrics["recall"])
+    # 以 AP50 作为 Optuna 的 fitness
+    fitness = float(metrics["ap50"])
 
     print(
         f"[DONE] trial={trial_number} "
-        f"Recall={fitness:.6f} "
+        f"AP50={fitness:.6f} "
         f"Recall={metrics['recall']} "
         f"mAP50-95={metrics['map50_95']} "
         f"Precision={metrics['precision']}"
@@ -407,7 +396,7 @@ def scheduler_main(args: argparse.Namespace) -> None:
     storage_url = f"sqlite:///{database_path}"
 
     study = optuna.create_study(
-        study_name="uav_fold4_yolo26n_p2_recall",
+        study_name="uav_fold4_yolo26n_ap50",
         storage=storage_url,
         load_if_exists=True,
         direction="maximize",
@@ -424,8 +413,6 @@ def scheduler_main(args: argparse.Namespace) -> None:
     print("=" * 70)
     print(f"Total trials       : {args.n_trials}")
     print(f"Parallel trials    : {args.parallel}")
-    print(f"Initial model     : {MODEL_PATH}")
-    print(f"Fitness           : {FITNESS_KEY}")
     print("GPUs per trial     : 4")
     print("Epochs per trial   : 10")
     print("Close mosaic       : 3")
@@ -536,14 +523,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--n-trials",
         type=int,
-        default=28,
+        default=44,
         help="Total number of trials.",
     )
 
     parser.add_argument(
         "--parallel",
         type=int,
-        default=2,
+        default=4,
         help="Number of simultaneous four-GPU trials.",
     )
 
