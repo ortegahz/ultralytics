@@ -216,13 +216,9 @@ def worker_main(args: argparse.Namespace) -> None:
         hsv_v=0.0,
         bgr=0.0,
 
-        # 论文相关固定配置
-        mixup=0.1,
-        close_mosaic=3,
-
-        # 当前版本如果 detection pipeline 不使用该参数，
-        # 它不会影响本次搜索
-        erasing=0.4,
+        # 与正式训练保持一致
+        mixup=0.0,
+        close_mosaic=5,
 
         # 搜索参数
         scale=args.scale,
@@ -428,7 +424,7 @@ def scheduler_main(args: argparse.Namespace) -> None:
     print(f"Fitness           : {FITNESS_KEY}")
     print("GPUs per trial     : 4")
     print("Epochs per trial   : 10")
-    print("Close mosaic       : 3")
+    print("Close mosaic       : 5")
     print(f"Output directory   : {output_root}")
     print(f"Optuna database    : {database_path}")
     print("=" * 70)
