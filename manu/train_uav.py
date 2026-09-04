@@ -5,7 +5,7 @@ model = YOLO("yolo26n.pt")
 
 results = model.train(
     # 你的 Frame Difference 数据集配置
-    data="datasets/uav/data.yaml",
+    data="/mnt/data/siping/datasets/manu/uav/data.yaml",
 
     # 输入尺寸
     imgsz=640,

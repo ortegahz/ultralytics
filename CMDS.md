@@ -3,6 +3,7 @@ pip install -e .
 
 # tune
 screen python manu/optuna_parallel_uav.py
+tail -f /tmp/pycharm_project_10ae9e2e/runs/optuna_uav_recall_sgpu/logs/trial_0008.log
 
 # train
 screen python manu/train_uav.py

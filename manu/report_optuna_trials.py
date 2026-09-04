@@ -8,7 +8,7 @@ from pathlib import Path
 import optuna
 
 DEFAULT_ROOT = Path(
-    "/tmp/pycharm_project_10ae9e2e/runs/optuna_uav_recall"
+    "/tmp/pycharm_project_10ae9e2e/runs/optuna_uav_recall_sgpu"
 )
 
 DEFAULT_STUDY_NAME = "uav_fold4_yolo26n_p2_recall"

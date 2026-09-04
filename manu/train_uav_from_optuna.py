@@ -247,8 +247,8 @@ def train_with_best_params(
         scale=float(params["scale"]),
         mosaic=float(params["mosaic"]),
 
-        # 正式训练最后 5 个 epoch 关闭 Mosaic
-        close_mosaic=5,
+        # 正式训练最后 8 个 epoch 关闭 Mosaic，为 3x3 极小目标留出足够的精细微调空间
+        close_mosaic=8,
 
         # 不提前停止
         patience=0,

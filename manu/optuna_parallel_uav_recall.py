@@ -6,7 +6,6 @@ import csv
 import os
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 import optuna
@@ -20,15 +19,15 @@ PROJECT_ROOT = Path(
 ).resolve()
 
 MODEL_PATH = PROJECT_ROOT / "yolo26np2.pt"
-DATA_PATH = "/mnt/data/siping/datasets/manu/uav/data.yaml"
+DATA_PATH = PROJECT_ROOT / "datasets/uav/data.yaml"
 
-OUTPUT_ROOT = PROJECT_ROOT / "runs/optuna_uav_recall_sgpu"
+OUTPUT_ROOT = PROJECT_ROOT / "runs/optuna_uav_recall"
 LOG_ROOT = OUTPUT_ROOT / "logs"
 
 FITNESS_KEY = "metrics/recall(B)"
 
-# 默认可用 GPU 列表（按单卡分配，例如 4 张 GPU 则并行 4 个 trial）
-GPU_IDS = [1, 2, 3]
+# 每个 trial 使用全部四张 GPU
+GPU_IDS = "0,1,2,3"
 
 
 # =========================
@@ -65,11 +64,10 @@ def suggest_params(trial: optuna.Trial) -> dict:
         ),
 
         # warmup epoch
-        # 10 epoch 快速搜索阶段，warmup 上限控制在 1.5 以免占去过大比例导致前期有效训练步数过少
         "warmup_epochs": trial.suggest_float(
             "warmup_epochs",
             0.5,
-            1.5,
+            3.0,
         ),
 
         # Ultralytics scale
@@ -169,13 +167,13 @@ def read_best_metrics(results_csv: Path) -> tuple[float, dict]:
 # =========================
 
 def worker_main(args: argparse.Namespace) -> None:
-    """Run one single-GPU YOLO training trial."""
+    """Run one four-GPU YOLO training trial."""
     from ultralytics import YOLO
 
     trial_name = f"trial_{args.trial_number:04d}"
     output_root = Path(args.output_root).resolve()
 
-    print(f"[WORKER] Starting {trial_name} on GPU {args.gpu_id}")
+    print(f"[WORKER] Starting {trial_name}")
     print(f"[WORKER] output: {output_root / trial_name}")
     print(f"[WORKER] params:")
     print(f"  lr0={args.lr0}")
@@ -200,8 +198,8 @@ def worker_main(args: argparse.Namespace) -> None:
         epochs=10,
         patience=0,
 
-        # 每个 trial 独立使用分配的单张 GPU
-        device=0,
+        # 每个 trial 使用四张 GPU
+        device=[0, 1, 2, 3],
         batch=32,
         imgsz=640,
 
@@ -218,9 +216,9 @@ def worker_main(args: argparse.Namespace) -> None:
         hsv_v=0.0,
         bgr=0.0,
 
-        # 与正式训练比例更一致：10 轮中最后 2~3 轮关闭 Mosaic
+        # 与正式训练保持一致
         mixup=0.0,
-        close_mosaic=2,
+        close_mosaic=5,
 
         # 搜索参数
         scale=args.scale,
@@ -255,7 +253,7 @@ def worker_main(args: argparse.Namespace) -> None:
         name=trial_name,
         exist_ok=False,
 
-        # 单卡 trial 适度分配 worker
+        # 四个 trial 同时运行时，降低 DataLoader worker 数
         workers=4,
 
         verbose=True,
@@ -270,9 +268,8 @@ def launch_trial(
         trial: optuna.Trial,
         params: dict,
         output_root: Path,
-        gpu_id: int,
 ):
-    """Launch one training subprocess on a specific GPU."""
+    """Launch one training subprocess."""
     trial_number = trial.number
     trial_name = f"trial_{trial_number:04d}"
 
@@ -289,8 +286,6 @@ def launch_trial(
         "--worker",
         "--trial-number",
         str(trial_number),
-        "--gpu-id",
-        str(gpu_id),
         "--output-root",
         str(output_root),
         "--lr0",
@@ -309,12 +304,12 @@ def launch_trial(
 
     env = os.environ.copy()
 
-    # 严格单卡隔离：只暴露分配的这一张 GPU 给子进程
-    env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+    # 每个 trial 都使用四张 GPU
+    env["CUDA_VISIBLE_DEVICES"] = GPU_IDS
 
-    # 防止并发子进程过度争抢 CPU 线程
-    env["OMP_NUM_THREADS"] = "2"
-    env["MKL_NUM_THREADS"] = "2"
+    # 防止每个 DDP 子进程过度争抢 CPU 线程
+    env["OMP_NUM_THREADS"] = "1"
+    env["MKL_NUM_THREADS"] = "1"
 
     log_handle = log_file.open(
         "w",
@@ -330,7 +325,7 @@ def launch_trial(
     )
 
     print(
-        f"[START] {trial_name} on GPU {gpu_id} "
+        f"[START] {trial_name} "
         f"pid={process.pid} "
         f"log={log_file}"
     )
@@ -339,7 +334,6 @@ def launch_trial(
         "trial": trial,
         "params": params,
         "trial_number": trial_number,
-        "gpu_id": gpu_id,
         "process": process,
         "log_handle": log_handle,
         "log_file": log_file,
@@ -380,7 +374,7 @@ def finish_trial(item: dict, output_root: Path) -> float:
     print(
         f"[DONE] trial={trial_number} "
         f"Recall={fitness:.6f} "
-        f"mAP50={metrics['ap50']} "
+        f"Recall={metrics['recall']} "
         f"mAP50-95={metrics['map50_95']} "
         f"Precision={metrics['precision']}"
     )
@@ -393,7 +387,7 @@ def finish_trial(item: dict, output_root: Path) -> float:
 # =========================
 
 def scheduler_main(args: argparse.Namespace) -> None:
-    """Run concurrent single-GPU trials across available GPUs."""
+    """Run four concurrent four-GPU trials."""
     output_root = Path(args.output_root).resolve()
 
     output_root.mkdir(
@@ -421,36 +415,33 @@ def scheduler_main(args: argparse.Namespace) -> None:
         ),
     )
 
-    # 确定可用的 GPU 列表与最大并发数
-    gpus = [int(x.strip()) for x in args.gpus.split(",") if x.strip()]
-    max_parallel = min(args.parallel, len(gpus))
-
     print("=" * 70)
     print("Optuna parallel search")
     print("=" * 70)
     print(f"Total trials       : {args.n_trials}")
-    print(f"Parallel trials    : {max_parallel}")
-    print(f"Allocated GPUs     : {gpus[:max_parallel]}")
-    print(f"Initial model      : {MODEL_PATH}")
-    print(f"Fitness            : {FITNESS_KEY}")
-    print("GPUs per trial     : 1 (single-GPU per trial)")
+    print(f"Parallel trials    : {args.parallel}")
+    print(f"Initial model     : {MODEL_PATH}")
+    print(f"Fitness           : {FITNESS_KEY}")
+    print("GPUs per trial     : 4")
     print("Epochs per trial   : 10")
-    print("Close mosaic       : 2")
+    print("Close mosaic       : 5")
     print(f"Output directory   : {output_root}")
     print(f"Optuna database    : {database_path}")
     print("=" * 70)
 
     completed_before = len(study.trials)
 
-    # 异步多 GPU 任务池调度
-    # 跟踪正在运行的任务列表: [{"trial": trial, "gpu_id": gpu, "process": proc, ...}]
-    active_items: list[dict] = []
-    available_gpus: list[int] = list(gpus[:max_parallel])
+    while len(study.trials) < args.n_trials:
+        active = []
 
-    while len(study.trials) < args.n_trials or active_items:
-        # 1. 如果有空闲 GPU 并且还有未完成/未启动的 trial 配额，启动新 trial
-        while available_gpus and (len(study.trials) < args.n_trials):
-            gpu_id = available_gpus.pop(0)
+        remaining = args.n_trials - len(study.trials)
+        batch_size = min(
+            args.parallel,
+            remaining,
+        )
+
+        # 生成当前批次的参数
+        for _ in range(batch_size):
             trial = study.ask()
             params = suggest_params(trial)
 
@@ -458,53 +449,35 @@ def scheduler_main(args: argparse.Namespace) -> None:
                 trial=trial,
                 params=params,
                 output_root=output_root,
-                gpu_id=gpu_id,
             )
-            active_items.append(item)
+            active.append(item)
 
-        if not active_items:
-            break
+        # 当前批次全部结束后，统一反馈给 Optuna
+        for item in active:
+            trial = item["trial"]
 
-        # 2. 检查是否有运行中的 trial 已经完成
-        finished_items = []
-        for item in active_items:
-            # poll() 为 None 表示子进程仍在运行
-            if item["process"].poll() is not None:
-                finished_items.append(item)
-
-        if finished_items:
-            for item in finished_items:
-                active_items.remove(item)
-                trial = item["trial"]
-                gpu_id = item["gpu_id"]
-                available_gpus.append(gpu_id)
-
-                try:
-                    fitness = finish_trial(
-                        item=item,
-                        output_root=output_root,
-                    )
-                    study.tell(
-                        trial,
-                        fitness,
-                    )
-                except Exception as exc:
-                    print(
-                        f"[FAILED] trial={trial.number}: {exc}"
-                    )
-                    study.tell(
-                        trial,
-                        state=optuna.trial.TrialState.FAIL,
-                    )
-
-                print(
-                    f"[INFO] trials in study: "
-                    f"{len(study.trials)}/{args.n_trials} "
-                    f"(Running: {len(active_items)})"
+            try:
+                fitness = finish_trial(
+                    item=item,
+                    output_root=output_root,
                 )
-        else:
-            # 短暂等待避免空轮询抢占 CPU
-            time.sleep(2)
+                study.tell(
+                    trial,
+                    fitness,
+                )
+            except Exception as exc:
+                print(
+                    f"[FAILED] trial={trial.number}: {exc}"
+                )
+                study.tell(
+                    trial,
+                    state=optuna.trial.TrialState.FAIL,
+                )
+
+        print(
+            f"[INFO] trials in study: "
+            f"{len(study.trials)}/{args.n_trials}"
+        )
 
     best_trial = study.best_trial
 
@@ -559,29 +532,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--n-trials",
         type=int,
-        default=256,
+        default=28,
         help="Total number of trials.",
     )
 
     parser.add_argument(
         "--parallel",
         type=int,
-        default=3,
-        help="Number of simultaneous single-GPU trials (default: 4).",
-    )
-
-    parser.add_argument(
-        "--gpus",
-        type=str,
-        default=",".join(map(str, GPU_IDS)),
-        help="Comma-separated list of GPU IDs to allocate (default: 0,1,2,3).",
-    )
-
-    parser.add_argument(
-        "--gpu-id",
-        type=int,
-        default=0,
-        help="GPU ID assigned to this worker (internal worker arg).",
+        default=2,
+        help="Number of simultaneous four-GPU trials.",
     )
 
     parser.add_argument(
