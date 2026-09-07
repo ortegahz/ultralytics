@@ -62,8 +62,8 @@ class HeatmapHead(nn.Module):
     def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
         feat = self.feat_conv(x)
         hm = torch.sigmoid(self.heatmap(feat))
-        # Clamp hm to avoid log(0) in loss
-        hm = torch.clamp(hm, min=1e-6, max=1.0 - 1e-6)
+        # Clamp hm to avoid log(0) and fp16 underflow/overflow
+        hm = torch.clamp(hm, min=1e-5, max=1.0 - 1e-5)
         offset = self.offset(feat)
         return {"heatmap": hm, "offset": offset}
 
@@ -167,11 +167,24 @@ class YOLO26HeatmapDetector(nn.Module):
             return
 
         ckpt = torch.load(weights_path, map_location="cpu")
-        state_dict = ckpt["model"].state_dict() if "model" in ckpt else ckpt.get("state_dict", ckpt)
+        if isinstance(ckpt, dict) and "model" in ckpt:
+            state_dict = ckpt["model"].state_dict() if hasattr(ckpt["model"], "state_dict") else ckpt["model"]
+        else:
+            state_dict = ckpt.get("state_dict", ckpt) if isinstance(ckpt, dict) else ckpt
 
-        # Match layers between YOLO26 / YOLO26-P2 and this backbone
-        # We match matching tensor shapes
+        # 1. 如果是同构 Heatmap 权重（直接完美匹配全部参数）
         own_state = self.state_dict()
+        if isinstance(state_dict, dict) and any(k in own_state for k in state_dict.keys()):
+            transferred = 0
+            for k, v in state_dict.items():
+                clean_k = k.replace("model.model.", "").replace("model.", "")
+                if clean_k in own_state and own_state[clean_k].shape == v.shape:
+                    own_state[clean_k].copy_(v)
+                    transferred += 1
+            print(f"[INFO] Loaded Heatmap pretrained weights from {weights_path.name}: {transferred}/{len(own_state)} layers matched directly.")
+            return
+
+        # 2. 如果是原生 YOLO26 / YOLO26-P2 骨干权重（做层级索引映射）
         transferred = 0
         skipped = 0
 

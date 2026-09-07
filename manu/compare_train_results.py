@@ -15,11 +15,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
-from dataclasses import dataclass
-from pathlib import Path
 import sys
-from typing import Optional
+from pathlib import Path
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -64,7 +61,6 @@ def configure_chinese_font():
 
 configure_chinese_font()
 
-
 # ======================== 用户配置区 ========================
 # 支持传入两种类型的模型权重路径或目录：
 # 1. 原始 YOLO26 模型（如 yolo26np2.pt、best.pt 等）
@@ -75,6 +71,7 @@ DEFAULT_MODELS = [
     # Heatmap 模型系列
     Path("runs/heatmap_uav/uav_gpu23_heatmap/weights/best_recall.pt"),
     Path("runs/heatmap_uav_s2/uav_gpu23_heatmap_stride2/weights/best_recall.pt"),
+    Path("runs/optuna_heatmap_stride2_640/trial_0031/weights/best.pt"),
 ]
 
 # 显示别名（留空则自动从文件名或目录名生成）
@@ -85,16 +82,18 @@ DEFAULT_DATA = "/mnt/data/siping/datasets/manu/uav/data.yaml"
 
 # 默认输出图表目录
 DEFAULT_OUTPUT_DIR = Path("runs/compare_eval")
+
+
 # ============================================================
 
 
 def merge_points_ensemble(
-    pts_yolo: np.ndarray,
-    scores_yolo: np.ndarray,
-    pts_hm: np.ndarray,
-    scores_hm: np.ndarray,
-    match_dist: float = 4.0,
-    boost_weight: float = 0.35,
+        pts_yolo: np.ndarray,
+        scores_yolo: np.ndarray,
+        pts_hm: np.ndarray,
+        scores_hm: np.ndarray,
+        match_dist: float = 4.0,
+        boost_weight: float = 0.35,
 ) -> tuple[np.ndarray, np.ndarray]:
     """非对称互证策略 (Heatmap-Anchor + YOLO Verification)：
 
@@ -107,7 +106,7 @@ def merge_points_ensemble(
         return pts_hm, scores_hm
 
     diff = pts_hm[:, np.newaxis, :] - pts_yolo[np.newaxis, :, :]  # (M, N, 2)
-    dists = np.sqrt(np.sum(diff**2, axis=-1))
+    dists = np.sqrt(np.sum(diff ** 2, axis=-1))
 
     merged_scores = scores_hm.copy()
     # 查找每个 Heatmap 点距离最近的 YOLO 点
@@ -156,8 +155,10 @@ def load_preds_cache(cache_path: Path) -> tuple[str, list[dict[str, np.ndarray]]
     all_points_raw = []
     for item in data["preds"]:
         all_points_raw.append({
-            "points": np.array(item["points"], dtype=np.float32) if item["points"] else np.zeros((0, 2), dtype=np.float32),
-            "scores": np.array(item["scores"], dtype=np.float32) if item["scores"] else np.zeros((0,), dtype=np.float32),
+            "points": np.array(item["points"], dtype=np.float32) if item["points"] else np.zeros((0, 2),
+                                                                                                 dtype=np.float32),
+            "scores": np.array(item["scores"], dtype=np.float32) if item["scores"] else np.zeros((0,),
+                                                                                                 dtype=np.float32),
         })
     print(f"[Cache] Loaded cached predictions from: {cache_path}")
     return model_type, all_points_raw
@@ -202,10 +203,10 @@ def load_eval_data(data_path: str, imgsz: int = 640, batch: int = 64):
 
 
 def run_inference_as_points(
-    model_path: Path,
-    val_loader,
-    device: str = "2",
-    imgsz: int = 640,
+        model_path: Path,
+        val_loader,
+        device: str = "2",
+        imgsz: int = 640,
 ) -> tuple[str, list[dict[str, np.ndarray]], list[np.ndarray], list[tuple[int, int]]]:
     """
     统一推理函数：无论输入是 YOLO 还是 Heatmap，输出都统一转换为点 (cx, cy) 格式。
@@ -285,11 +286,11 @@ def run_inference_as_points(
 
 
 def evaluate_model_at_thresholds(
-    all_points_raw: list[dict[str, np.ndarray]],
-    val_gt_list: list[np.ndarray],
-    val_sizes_list: list[tuple[int, int]],
-    dist_thresh: float = 4.0,
-    thresholds: list[float] | None = None,
+        all_points_raw: list[dict[str, np.ndarray]],
+        val_gt_list: list[np.ndarray],
+        val_sizes_list: list[tuple[int, int]],
+        dist_thresh: float = 4.0,
+        thresholds: list[float] | None = None,
 ) -> dict:
     """在统一距离阈值下，扫描置信度并获得最佳 F1、Recall 与 Precision。"""
     if thresholds is None:
@@ -326,6 +327,51 @@ def evaluate_model_at_thresholds(
     best_metrics["best_th"] = best_th
     best_metrics["curve"] = curve_data
     return best_metrics
+
+
+def plot_pr_curves(pr_curves_data: dict[str, list[dict]], output_dir: Path):
+    """绘制所有对比模型的 Precision-Recall (P-R) 曲线图。"""
+    fig, ax = plt.subplots(figsize=(8, 6), dpi=300)
+    colors = plt.cm.get_cmap("tab10", len(pr_curves_data))
+
+    for i, (label, curve) in enumerate(pr_curves_data.items()):
+        recalls = [pt["recall"] for pt in curve]
+        precisions = [pt["precision"] for pt in curve]
+        thresholds = [pt["threshold"] for pt in curve]
+
+        # 按 Recall 从小到大排序以便绘制平滑曲线
+        sorted_pairs = sorted(zip(recalls, precisions, thresholds), key=lambda x: x[0])
+        r_sorted = [p[0] for p in sorted_pairs]
+        p_sorted = [p[1] for p in sorted_pairs]
+        th_sorted = [p[2] for p in sorted_pairs]
+
+        ax.plot(r_sorted, p_sorted, "o-", label=label, color=colors(i), linewidth=2, markersize=5, alpha=0.9)
+
+        # 标注代表性阈值点 (如 0.20, 0.40, 0.60)
+        for r, p, th in zip(r_sorted, p_sorted, th_sorted):
+            if abs(th - 0.20) < 1e-4 or abs(th - 0.40) < 1e-4 or abs(th - 0.60) < 1e-4:
+                ax.annotate(
+                    f"th={th:.2f}",
+                    xy=(r, p),
+                    xytext=(5, -5),
+                    textcoords="offset points",
+                    fontsize=7,
+                    color=colors(i),
+                )
+
+    ax.set_title("UAV 极小目标模型 Precision-Recall 曲线 (Distance <= 4.0px)", fontsize=13, fontweight="bold", pad=12)
+    ax.set_xlabel("Recall (召回率)", fontsize=11, fontweight="bold")
+    ax.set_ylabel("Precision (精确率)", fontsize=11, fontweight="bold")
+    ax.set_xlim(0.65, 0.95)
+    ax.set_ylim(0.65, 1.02)
+    ax.grid(True, linestyle="--", alpha=0.4)
+    ax.legend(frameon=True, facecolor="white", edgecolor="none", fontsize=9, loc="lower left")
+
+    plt.tight_layout()
+    chart_path = output_dir / "compare_pr_curve.png"
+    plt.savefig(chart_path)
+    plt.close()
+    print(f"[Chart] Precision-Recall curve saved to: {chart_path}")
 
 
 def plot_metrics_barchart(summary_df: pd.DataFrame, output_dir: Path):
@@ -395,9 +441,12 @@ def main():
     parser.add_argument("--batch", type=int, default=64, help="Batch size")
     parser.add_argument("--dist_thresh", type=float, default=4.0, help="Distance threshold (pixels) for TP")
     parser.add_argument("--solo_thresh", type=float, default=0.35, help="Solo detection threshold for Ensemble")
-    parser.add_argument("--boost_weight", type=float, default=0.35, help="Boost weight when YOLO verifies Heatmap detection")
-    parser.add_argument("--ensemble", action="store_true", help="Enable Heterogeneous Ensemble fusion evaluation (default: disabled)")
-    parser.add_argument("--cache_dir", type=str, default="runs/compare_eval/cache", help="Directory to save/load prediction cache JSON")
+    parser.add_argument("--boost_weight", type=float, default=0.35,
+                        help="Boost weight when YOLO verifies Heatmap detection")
+    parser.add_argument("--ensemble", action="store_true",
+                        help="Enable Heterogeneous Ensemble fusion evaluation (default: disabled)")
+    parser.add_argument("--cache_dir", type=str, default="runs/compare_eval/cache",
+                        help="Directory to save/load prediction cache JSON")
     parser.add_argument("--no_cache", action="store_true", help="Force re-inference without using cache")
     parser.add_argument("--output_dir", type=str, default=str(DEFAULT_OUTPUT_DIR), help="Output directory")
     args = parser.parse_args()
@@ -445,6 +494,7 @@ def main():
 
     summary_rows = []
     collected_preds = {}
+    pr_curves_data = {}
 
     print("\n" + "=" * 80)
     print("Running Unified Point-Detection Evaluation (Apple-to-Apple)")
@@ -474,6 +524,7 @@ def main():
         res = evaluate_model_at_thresholds(
             raw_preds, gt_list, sizes_list, dist_thresh=args.dist_thresh
         )
+        pr_curves_data[label] = res["curve"]
 
         summary_rows.append({
             "Model": label,
@@ -497,7 +548,8 @@ def main():
             best_yolo_lbl = yolo_labels[0]
             best_hm_lbl = hm_labels[0]
             ens_label = f"Ensemble({best_yolo_lbl[:10]}+{best_hm_lbl[:10]})"
-            print(colorstr("bold", f"\n[Ensemble] Fusing {best_yolo_lbl} and {best_hm_lbl} (Heatmap-Anchor + YOLO Verification)..."))
+            print(colorstr("bold",
+                           f"\n[Ensemble] Fusing {best_yolo_lbl} and {best_hm_lbl} (Heatmap-Anchor + YOLO Verification)..."))
 
             yolo_raw = collected_preds[best_yolo_lbl]["preds"]
             hm_raw = collected_preds[best_hm_lbl]["preds"]
@@ -517,6 +569,7 @@ def main():
             res_ens = evaluate_model_at_thresholds(
                 ens_raw, gt_list_ref, sizes_list_ref, dist_thresh=args.dist_thresh
             )
+            pr_curves_data[ens_label] = res_ens["curve"]
 
             summary_rows.append({
                 "Model": ens_label,
@@ -535,10 +588,12 @@ def main():
 
     # 打印对比结果表格
     print("\n" + "=" * 95)
-    print(f"{'Model Label':<28} | {'Type':<8} | {'Best_Th':<8} | {'Recall':<8} | {'Precision':<10} | {'F1':<8} | {'TP':<6} | {'FP':<6}")
+    print(
+        f"{'Model Label':<28} | {'Type':<8} | {'Best_Th':<8} | {'Recall':<8} | {'Precision':<10} | {'F1':<8} | {'TP':<6} | {'FP':<6}")
     print("-" * 95)
     for _, r in summary_df.iterrows():
-        print(f"{r['Model'][:28]:<28} | {r['Type']:<8} | {r['Best_Th']:<8.2f} | {r['Recall']:<8.4f} | {r['Precision']:<10.4f} | {r['F1-Score']:<8.4f} | {r['TP']:<6} | {r['FP']:<6}")
+        print(
+            f"{r['Model'][:28]:<28} | {r['Type']:<8} | {r['Best_Th']:<8.2f} | {r['Recall']:<8.4f} | {r['Precision']:<10.4f} | {r['F1-Score']:<8.4f} | {r['TP']:<6} | {r['FP']:<6}")
     print("=" * 95)
 
     # 保存 CSV
@@ -556,8 +611,28 @@ def main():
         f.write("\n")
     print(f"[Summary] Markdown report saved to: {md_file}")
 
-    # 绘制对比柱状图
+    # 保存各模型全阈值 PR 曲线明细表
+    pr_rows = []
+    for m_label, curve in pr_curves_data.items():
+        for pt in curve:
+            pr_rows.append({
+                "Model": m_label,
+                "Threshold": pt["threshold"],
+                "Recall": pt["recall"],
+                "Precision": pt["precision"],
+                "F1-Score": pt["f1"],
+                "TP": pt["tp"],
+                "FP": pt["fp"],
+                "GT": pt["total_gt"],
+            })
+    pr_df = pd.DataFrame(pr_rows)
+    pr_csv_file = output_dir / "comparison_pr_curves_detail.csv"
+    pr_df.to_csv(pr_csv_file, index=False, encoding="utf-8-sig")
+    print(f"[Summary] PR Curves detail table saved to: {pr_csv_file}")
+
+    # 绘制对比柱状图与 PR 曲线图
     plot_metrics_barchart(summary_df, output_dir)
+    plot_pr_curves(pr_curves_data, output_dir)
 
 
 if __name__ == "__main__":

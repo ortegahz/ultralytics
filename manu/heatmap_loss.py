@@ -171,13 +171,20 @@ class FocalLoss(nn.Module):
             pred: (B, 1, H, W) in [0, 1]
             gt:   (B, 1, H, W) in [0, 1]
         """
+        # Ensure calculations are performed in float32 for numerical stability
+        pred = pred.float()
+        gt = gt.float()
+
         pos_inds = gt.eq(1.0).float()
         neg_inds = gt.lt(1.0).float()
 
         neg_weights = torch.pow(1.0 - gt, self.beta)
 
-        pos_loss = torch.log(pred.clamp(min=1e-6)) * torch.pow(1.0 - pred, self.alpha) * pos_inds
-        neg_loss = torch.log((1.0 - pred).clamp(min=1e-6)) * torch.pow(pred, self.alpha) * neg_weights * neg_inds
+        # Clamp prediction to avoid log(0) and gradient instability
+        pred_clamped = torch.clamp(pred, min=1e-5, max=1.0 - 1e-5)
+
+        pos_loss = torch.log(pred_clamped) * torch.pow(1.0 - pred_clamped, self.alpha) * pos_inds
+        neg_loss = torch.log(1.0 - pred_clamped) * torch.pow(pred_clamped, self.alpha) * neg_weights * neg_inds
 
         num_pos = pos_inds.sum()
         pos_loss = pos_loss.sum()

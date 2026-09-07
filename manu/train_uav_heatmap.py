@@ -47,7 +47,7 @@ def parse_args():
     parser.add_argument("--imgsz", type=int, default=640, help="Train image size")
     parser.add_argument("--epochs", type=int, default=30, help="Number of training epochs")
     parser.add_argument("--batch", type=int, default=32, help="Batch size per GPU")
-    parser.add_argument("--lr0", type=float, default=0.001, help="Initial learning rate")
+    parser.add_argument("--lr0", type=float, default=0.0001, help="Initial learning rate")
     parser.add_argument("--lrf", type=float, default=0.01, help="Final lr factor (lr0 * lrf)")
     parser.add_argument("--weight_decay", type=float, default=1e-4, help="Weight decay")
     parser.add_argument("--device", type=str, default="0", help="CUDA device(s), e.g. 0,1,2,3 or cpu")
@@ -57,6 +57,7 @@ def parse_args():
     parser.add_argument("--min_radius", type=int, default=1, help="Minimum Gaussian radius for point targets")
     parser.add_argument("--conf_thresh", type=float, default=0.20, help="Peak confidence threshold for evaluation")
     parser.add_argument("--dist_thresh", type=float, default=4.0, help="Distance threshold (pixels) for TP matching")
+    parser.add_argument("--max_grad_norm", type=float, default=1.0, help="Max gradient norm for clipping")
     return parser.parse_args()
 
 
@@ -170,11 +171,18 @@ def main():
             optimizer.zero_grad()
             with autocast(enabled=(device.type == "cuda")):
                 preds = model_module(imgs)
-                loss, loss_items = criterion(preds, targets)
+
+            # Compute loss in float32 for extreme resolution / large feature map stability
+            loss, loss_items = criterion(preds, targets)
+
+            if torch.isnan(loss) or torch.isinf(loss):
+                print(colorstr("red", f"\n[Warning] NaN/Inf loss encountered at Epoch {epoch}, Batch {batch_i}! Skipping step."))
+                optimizer.zero_grad()
+                continue
 
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10.0)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_grad_norm)
             scaler.step(optimizer)
             scaler.update()
 
@@ -264,28 +272,31 @@ def main():
                 f"{optimizer.param_groups[0]['lr']:.8f}\n"
             )
 
-        # Save latest
-        ckpt = {
-            "epoch": epoch,
-            "model": model.state_dict(),
-            "optimizer": optimizer.state_dict(),
-            "metrics": metrics,
-            "stride": args.stride,
-            "imgsz": args.imgsz,
-        }
-        torch.save(ckpt, weights_dir / "last.pt")
+            # Save latest (only if metrics and loss are valid, avoid saving contaminated NaN weights)
+            if not math.isnan(avg_loss) and not math.isnan(rec):
+                ckpt = {
+                    "epoch": epoch,
+                    "model": model.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "metrics": metrics,
+                    "stride": args.stride,
+                    "imgsz": args.imgsz,
+                }
+                torch.save(ckpt, weights_dir / "last.pt")
 
-        # Save best recall
-        if rec > best_recall:
-            best_recall = rec
-            torch.save(ckpt, weights_dir / "best_recall.pt")
-            print(colorstr("green", f"  --> New Best Recall: {best_recall:.4f} saved to best_recall.pt"))
+                # Save best recall
+                if rec > best_recall:
+                    best_recall = rec
+                    torch.save(ckpt, weights_dir / "best_recall.pt")
+                    print(colorstr("green", f"  --> New Best Recall: {best_recall:.4f} saved to best_recall.pt"))
 
-        # Save best F1
-        if f1 > best_f1:
-            best_f1 = f1
-            torch.save(ckpt, weights_dir / "best_f1.pt")
-            print(colorstr("magenta", f"  --> New Best F1: {best_f1:.4f} (@ th={best_th:.2f}) saved to best_f1.pt"))
+                # Save best F1
+                if f1 > best_f1:
+                    best_f1 = f1
+                    torch.save(ckpt, weights_dir / "best_f1.pt")
+                    print(colorstr("magenta", f"  --> New Best F1: {best_f1:.4f} (@ th={best_th:.2f}) saved to best_f1.pt"))
+            else:
+                print(colorstr("red", f"[Warning] Skipped saving weights at Epoch {epoch} due to NaN values."))
 
     print(colorstr("bold", f"\nTraining Complete! Best Recall: {best_recall:.4f}, Best F1: {best_f1:.4f}"))
     print(f"Weights saved at: {weights_dir}")

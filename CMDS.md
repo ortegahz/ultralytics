@@ -73,6 +73,19 @@ python manu/train_uav_heatmap.py \
     --project runs/heatmap_uav_s2 \
     --name uav_gpu23_heatmap_stride2
 
+screen -S uav_1280_resume python manu/train_uav_heatmap.py \
+    --data /mnt/data/siping/datasets/manu/uav/data.yaml \
+    --weights runs/heatmap_uav_s2_1280/uav_stride2_1280_ep70/weights/best_recall.pt \
+    --stride 2 \
+    --imgsz 1280 \
+    --epochs 20 \
+    --batch 8 \
+    --device 0 \
+    --lr0 0.00008 \
+    --max_grad_norm 1.0 \
+    --project runs/heatmap_uav_s2_1280 \
+    --name uav_stride2_1280_from_ep6
+
 python manu/infer_heatmap.py \
     --weights runs/heatmap_uav/uav_gpu23_heatmap/weights/best_recall.pt \
     --source /mnt/data/siping/datasets/manu/uav/images/val \
@@ -80,3 +93,59 @@ python manu/infer_heatmap.py \
     --device 1 \
     --save-dir runs/heatmap_infer_gt
 
+screen python manu/optuna_parallel_heatmap.py \
+    --gpus 1,2 \
+    --batch 32 \
+    --epochs 10 \
+    --n-trials 1024 \
+    --weights runs/heatmap_uav_s2/uav_gpu23_heatmap_stride2/weights/best_recall.pt
+
+tail -f runs/optuna_heatmap_stride2_640/logs/trial_0083.log
+
+python manu/diagnose_heatmap_badcases.py \
+    --weights runs/optuna_heatmap_stride2_640/trial_0031/weights/best.pt \
+    --imgsz 640 \
+    --stride 2 \
+    --device 2 \
+    --conf 0.20 \
+    --dist-thresh 4.0 \
+    --output-dir runs/badcase_analysis
+
+python manu/eval_distance_tolerances.py \
+    --weights runs/optuna_heatmap_stride2_640/trial_0031/weights/best.pt \
+    --device 2 \
+    --conf 0.20
+
+python manu/eval_adaptive_oks_pck.py \
+    --weights runs/optuna_heatmap_stride2_640/trial_0031/weights/best.pt \
+    --device 2 \
+    --min-radius 4.0 \
+    --alpha 0.5
+
+python manu/diagnose_heatmap_badcases.py \
+    --weights runs/optuna_heatmap_stride2_640/trial_0031/weights/best.pt \
+    --device 2 \
+    --dist-thresh 8.0 \
+    --conf 0.20
+
+python manu/export_top_missed_sequences.py \
+    --csv-file runs/badcase_analysis/fn_missed_analysis.csv \
+    --output-dir runs/badcase_analysis/top_missed_sequences \
+    --max-per-seq 100 \
+    --top-k-seqs 5
+
+python manu/generate_osd_videos.py \
+    --cache-file runs/badcase_analysis/inference_cache.pkl \
+    --output-dir runs/badcase_analysis/osd_videos \
+    --dist-thresh 8.0 \
+    --conf 0.20 \
+    --fps 25
+
+python manu/stat_recall_with_ensemble.py \
+    --heatmap-cache runs/badcase_analysis/inference_cache.pkl \
+    --yolo-weights runs/optuna_uav_recall_sgpu/trial_0028/weights/best.pt \
+    --device 2 \
+    --dist-thresh 8.0 \
+    --conf-hm 0.20 \
+    --conf-yolo 0.20 \
+    --size-split 28.0
