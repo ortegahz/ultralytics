@@ -58,6 +58,12 @@ def parse_args():
     parser.add_argument("--conf_thresh", type=float, default=0.20, help="Peak confidence threshold for evaluation")
     parser.add_argument("--dist_thresh", type=float, default=4.0, help="Distance threshold (pixels) for TP matching")
     parser.add_argument("--max_grad_norm", type=float, default=1.0, help="Max gradient norm for clipping")
+    parser.add_argument(
+        "--temporal-stem",
+        action="store_true",
+        default=False,
+        help="Use Learnable3FrameTemporalStem (default: False, preserves standard Conv)",
+    )
     return parser.parse_args()
 
 
@@ -116,7 +122,12 @@ def main():
     val_loader = build_dataloader(val_dataset, batch=total_batch, workers=args.workers, shuffle=False)
 
     # 2. Build Model
-    model = YOLO26HeatmapDetector(stride=args.stride, weights=args.weights, num_classes=1)
+    model = YOLO26HeatmapDetector(
+        stride=args.stride,
+        weights=args.weights,
+        num_classes=1,
+        use_temporal_stem=args.temporal_stem,
+    )
     model.to(device)
 
     # Multi-GPU DataParallel support if multiple GPUs specified

@@ -55,6 +55,18 @@ def parse_args():
         help="Output directory to save OSD mp4 videos",
     )
     parser.add_argument("--conf", type=float, default=0.20, help="Confidence threshold for predictions")
+    parser.add_argument(
+        "--conf-sky",
+        type=float,
+        default=None,
+        help="Optional lower confidence threshold for sky region (e.g. 0.06). If not set, uses --conf everywhere.",
+    )
+    parser.add_argument(
+        "--sky-ratio",
+        type=float,
+        default=0.60,
+        help="Upper fraction of image treated as sky (default: 0.60, meaning top 60%% is sky)",
+    )
     parser.add_argument("--dist-thresh", type=float, default=8.0, help="Distance tolerance in pixels (default: 8.0px)")
     parser.add_argument("--fps", type=float, default=25.0, help="Video framerate (default: 25)")
     parser.add_argument(
@@ -134,6 +146,8 @@ def render_osd_frame(
     conf_thresh: float,
     seq_name: str,
     frame_idx: int,
+    conf_sky: float | None = None,
+    sky_ratio: float = 0.60,
 ) -> tuple[np.ndarray, int, int, int]:
     """
     Draw HUD and bounding marks:
@@ -143,8 +157,16 @@ def render_osd_frame(
     canvas = frame.copy()
     h, w = canvas.shape[:2]
 
-    # Filter predictions by confidence
-    keep = pred_scores >= conf_thresh
+    # Filter predictions by confidence (supports dual-domain partitioned threshold)
+    if conf_sky is not None and len(pred_pts) > 0:
+        sky_y_boundary = h * sky_ratio
+        is_sky = pred_pts[:, 1] < sky_y_boundary
+        keep_sky = is_sky & (pred_scores >= conf_sky)
+        keep_ground = (~is_sky) & (pred_scores >= conf_thresh)
+        keep = keep_sky | keep_ground
+    else:
+        keep = pred_scores >= conf_thresh
+
     preds = pred_pts[keep]
     scores = pred_scores[keep]
 
@@ -203,7 +225,8 @@ def render_osd_frame(
     cv2.rectangle(overlay, (0, 0), (w, hud_h), (20, 20, 20), -1)
     cv2.addWeighted(overlay, 0.75, canvas, 0.25, 0, canvas)
 
-    info_left = f"SEQ: {seq_name} | Frame: {frame_idx:04d} | Conf>={conf_thresh:.2f} | Tol={dist_thresh:.1f}px"
+    conf_info = f"Conf>={conf_thresh:.2f}" if conf_sky is None else f"Sky>={conf_sky:.2f}|Gnd>={conf_thresh:.2f}"
+    info_left = f"SEQ: {seq_name} | Frame: {frame_idx:04d} | {conf_info} | Tol={dist_thresh:.1f}px"
     cv2.putText(canvas, info_left, (10, 21), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (255, 255, 255), 1, cv2.LINE_AA)
 
     info_right = f"GT: {len(gt_pts)}  TP: {tp_count}  FP: {fp_count}  FN: {fn_count}"
@@ -308,6 +331,8 @@ def main():
                 conf_thresh=args.conf,
                 seq_name=seq_name,
                 frame_idx=frame_idx,
+                conf_sky=args.conf_sky,
+                sky_ratio=args.sky_ratio,
             )
 
             total_tp += tp

@@ -68,12 +68,70 @@ class HeatmapHead(nn.Module):
         return {"heatmap": hm, "offset": offset}
 
 
+class Learnable3FrameTemporalStem(nn.Module):
+    """
+    Learnable temporal difference stem for 3-frame raw inputs: [I_t, I_{t-4}, I_{t-12}].
+    
+    Architecture:
+    1. Static spatial branch on current frame I_t (preserves high-res appearance & radiation profile).
+    2. Multi-temporal signed motion difference branch [I_t - I_{t-4}, I_t - I_{t-12}].
+       Preserves dipole signs (+bright / -dark) so conv kernels learn direction of flight.
+    3. Temporal channel attention gate: dynamically attends to fast motion vs slow creep.
+    4. Fused into 16 channels at stride 2 (P1 / 320x320) to seamlessly feed b1.
+    """
+
+    def __init__(self, out_channels: int = 16):
+        super().__init__()
+        # 1. Static appearance branch from current frame
+        self.spatial_stem = Conv(1, 8, k=3, s=2)  # (B, 8, H/2, W/2)
+
+        # 2. Signed motion difference branch
+        self.motion_stem = nn.Sequential(
+            Conv(2, 16, k=3, s=1),
+            Conv(16, 16, k=3, s=2),  # (B, 16, H/2, W/2)
+        )
+
+        # 3. Velocity-aware temporal channel gate
+        self.gate = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Conv2d(16, 8, 1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(8, 16, 1),
+            nn.Sigmoid(),
+        )
+
+        # 4. Fused representation
+        self.fuse = Conv(8 + 16, out_channels, k=3, s=1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (B, 3, H, W) -> [I_t, I_{t-4}, I_{t-12}]
+        curr = x[:, 0:1, :, :]
+        prev_mid = x[:, 1:2, :, :]
+        prev_long = x[:, 2:3, :, :]
+
+        # Static feature
+        feat_spatial = self.spatial_stem(curr)
+
+        # Signed temporal differences (no abs: network learns dipole positive/negative wavefronts)
+        diff_mid = curr - prev_mid
+        diff_long = curr - prev_long
+        diff_stack = torch.cat([diff_mid, diff_long], dim=1)
+
+        # Motion feature + temporal attention
+        feat_motion = self.motion_stem(diff_stack)
+        feat_motion = feat_motion * self.gate(feat_motion)
+
+        # Fused P1 feature (B, 16, H/2, W/2)
+        return self.fuse(torch.cat([feat_spatial, feat_motion], dim=1))
+
+
 class YOLO26HeatmapDetector(nn.Module):
     """
     Detector integrating YOLO26 backbone + P2 Neck with Heatmap Head.
     
     Default Stride is 4 (P2 layer, 160x160 for 640x640 input).
     Can optionally upsample P2 to P1 (Stride 2, 320x320 for 640x640 input) for extreme small target recall.
+    Uses standard YOLO26 b0 Conv(3, 16, 3, 2) which natively learns 3-channel temporal combinations.
     """
 
     def __init__(
@@ -81,15 +139,19 @@ class YOLO26HeatmapDetector(nn.Module):
         stride: int = 4,
         weights: str | Path | None = None,
         num_classes: int = 1,
+        use_temporal_stem: bool = False,
     ):
         super().__init__()
         assert stride in (2, 4), f"Only stride 4 (P2) or stride 2 (P1) is supported, got {stride}."
         self.stride = stride
         self.num_classes = num_classes
+        self.use_temporal_stem = use_temporal_stem
 
-        # Build YOLO26n backbone & P2 neck
         # Backbone:
-        self.b0 = Conv(3, 16, 3, 2)            # 0: P1 / 2 (320x320)
+        if use_temporal_stem:
+            self.b0 = Learnable3FrameTemporalStem(out_channels=16)  # 0: P1 / 2 (320x320)
+        else:
+            self.b0 = Conv(3, 16, 3, 2)            # 0: P1 / 2 (320x320)
         self.b1 = Conv(16, 32, 3, 2)           # 1: P2 / 4 (160x160)
         self.b2 = C3k2(32, 64, n=1, c3k=False, e=0.25)  # 2: P2 / 4
         self.b3 = Conv(64, 64, 3, 2)           # 3: P3 / 8 (80x80)

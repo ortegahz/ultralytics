@@ -149,3 +149,26 @@ python manu/stat_recall_with_ensemble.py \
     --conf-hm 0.20 \
     --conf-yolo 0.20 \
     --size-split 28.0
+
+python manu/make_sequence_video.py \
+    --data-root /mnt/data/siping/datasets/manu/anti-uav \
+    --seq wg2022_ir_020_split_03 \
+    --scale 2.0
+
+python manu/visualize_scr_normalization.py \
+    --data-root /mnt/data/siping/datasets/manu/anti-uav \
+    --seq wg2022_ir_020_split_03 \
+    --lag 3 \
+    --output-dir runs/scr_videos
+
+screen python manu/optuna_parallel_3frame_heatmap.py \
+    --data /mnt/data/siping/datasets/manu/uav_temporal_3frame/data.yaml \
+    --weights runs/optuna_heatmap_stride2_640/trial_0031/weights/best.pt \
+    --gpus 0,1,2,3 \
+    --n-trials 256 \
+    --epochs 10 \
+    --batch 32 \
+    --stride 2 \
+    --output-root runs/optuna_3frame_temporal_10ep
+
+tail -f runs/optuna_3frame_temporal_10ep/logs/trial_0000.log

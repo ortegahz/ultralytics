@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Compare YOLO26 and Heatmap UAV models fairly under unified Point-Detection Criteria (Distance <= 4.0px).
+Compare YOLO26 and Heatmap UAV models fairly under unified Point-Detection Criteria (Distance <= 8.0px).
 
 Supports:
 1. Standard YOLO26 weights (.pt) -> Converts bbox predictions to center points (cx, cy)
 2. Heatmap weights (.pt) -> Directly outputs peak points
-3. Evaluates all models on the validation dataset under the exact same distance threshold
-4. Searches best threshold, calculates Recall, Precision, and F1-Score
-5. Plots comparison bar charts and prints/saves Markdown and CSV reports
+3. Per-model dataset binding: automatically routes 3frame/temporal models to temporal dataset
+4. Evaluates all models under the exact same distance threshold (default 8.0px)
+5. Searches best threshold, calculates Recall, Precision, and F1-Score
+6. Plots comparison bar charts and prints/saves Markdown and CSV reports
 """
 
 from __future__ import annotations
@@ -72,6 +73,7 @@ DEFAULT_MODELS = [
     Path("runs/heatmap_uav/uav_gpu23_heatmap/weights/best_recall.pt"),
     Path("runs/heatmap_uav_s2/uav_gpu23_heatmap_stride2/weights/best_recall.pt"),
     Path("runs/optuna_heatmap_stride2_640/trial_0031/weights/best.pt"),
+    Path("runs/optuna_3frame_temporal_10ep/trial_0028_/weights/best.pt"),
 ]
 
 # 显示别名（留空则自动从文件名或目录名生成）
@@ -79,6 +81,7 @@ DEFAULT_LABELS = []
 
 # 默认数据集路径
 DEFAULT_DATA = "/mnt/data/siping/datasets/manu/uav/data.yaml"
+DEFAULT_TEMPORAL_DATA = "/mnt/data/siping/datasets/manu/uav_temporal_3frame/data.yaml"
 
 # 默认输出图表目录
 DEFAULT_OUTPUT_DIR = Path("runs/compare_eval")
@@ -87,12 +90,22 @@ DEFAULT_OUTPUT_DIR = Path("runs/compare_eval")
 # ============================================================
 
 
+def resolve_data_for_model(model_path: Path, default_data: str, temporal_data: str) -> str:
+    """根据模型路径关键字自动绑定对应的数据集。
+    含有 'temporal' 或 '3frame' 关键词的模型自动路由到 temporal_data，否则使用 default_data。
+    """
+    path_str = str(model_path).lower()
+    if "temporal" in path_str or "3frame" in path_str:
+        return temporal_data
+    return default_data
+
+
 def merge_points_ensemble(
         pts_yolo: np.ndarray,
         scores_yolo: np.ndarray,
         pts_hm: np.ndarray,
         scores_hm: np.ndarray,
-        match_dist: float = 4.0,
+        match_dist: float = 8.0,
         boost_weight: float = 0.35,
 ) -> tuple[np.ndarray, np.ndarray]:
     """非对称互证策略 (Heatmap-Anchor + YOLO Verification)：
@@ -289,7 +302,7 @@ def evaluate_model_at_thresholds(
         all_points_raw: list[dict[str, np.ndarray]],
         val_gt_list: list[np.ndarray],
         val_sizes_list: list[tuple[int, int]],
-        dist_thresh: float = 4.0,
+        dist_thresh: float = 8.0,
         thresholds: list[float] | None = None,
 ) -> dict:
     """在统一距离阈值下，扫描置信度并获得最佳 F1、Recall 与 Precision。"""
@@ -329,7 +342,7 @@ def evaluate_model_at_thresholds(
     return best_metrics
 
 
-def plot_pr_curves(pr_curves_data: dict[str, list[dict]], output_dir: Path):
+def plot_pr_curves(pr_curves_data: dict[str, list[dict]], output_dir: Path, dist_thresh: float = 8.0):
     """绘制所有对比模型的 Precision-Recall (P-R) 曲线图。"""
     fig, ax = plt.subplots(figsize=(8, 6), dpi=300)
     colors = plt.cm.get_cmap("tab10", len(pr_curves_data))
@@ -359,7 +372,12 @@ def plot_pr_curves(pr_curves_data: dict[str, list[dict]], output_dir: Path):
                     color=colors(i),
                 )
 
-    ax.set_title("UAV 极小目标模型 Precision-Recall 曲线 (Distance <= 4.0px)", fontsize=13, fontweight="bold", pad=12)
+    ax.set_title(
+        f"UAV 极小目标模型 Precision-Recall 曲线 (Distance <= {dist_thresh:.1f}px)",
+        fontsize=13,
+        fontweight="bold",
+        pad=12,
+    )
     ax.set_xlabel("Recall (召回率)", fontsize=11, fontweight="bold")
     ax.set_ylabel("Precision (精确率)", fontsize=11, fontweight="bold")
     ax.set_xlim(0.65, 0.95)
@@ -374,7 +392,7 @@ def plot_pr_curves(pr_curves_data: dict[str, list[dict]], output_dir: Path):
     print(f"[Chart] Precision-Recall curve saved to: {chart_path}")
 
 
-def plot_metrics_barchart(summary_df: pd.DataFrame, output_dir: Path):
+def plot_metrics_barchart(summary_df: pd.DataFrame, output_dir: Path, dist_thresh: float = 8.0):
     """参考 compare_train_results 风格绘制各模型最佳点检测指标对比柱状图。"""
     metrics = ["Recall", "Precision", "F1-Score"]
     n_metrics = len(metrics)
@@ -406,7 +424,12 @@ def plot_metrics_barchart(summary_df: pd.DataFrame, output_dir: Path):
                 rotation=0,
             )
 
-    ax.set_title("UAV 极小目标模型点检测基准对比 (Distance <= 4.0px)", fontsize=14, fontweight="bold", pad=15)
+    ax.set_title(
+        f"UAV 极小目标模型点检测基准对比 (Distance <= {dist_thresh:.1f}px)",
+        fontsize=14,
+        fontweight="bold",
+        pad=15,
+    )
     ax.set_xticks(x)
     ax.set_xticklabels(metrics, fontsize=12, fontweight="bold")
     ax.set_ylabel("Metric Value (0 ~ 1.0)", fontsize=11)
@@ -435,11 +458,17 @@ def main():
         default=None,
         help="Custom labels for each model",
     )
-    parser.add_argument("--data", type=str, default=DEFAULT_DATA, help="Path to data.yaml")
+    parser.add_argument("--data", type=str, default=DEFAULT_DATA, help="Default path to data.yaml (2-frame diff)")
+    parser.add_argument(
+        "--temporal_data",
+        type=str,
+        default=DEFAULT_TEMPORAL_DATA,
+        help="Path to data.yaml for 3-frame temporal models (raw frames)",
+    )
     parser.add_argument("--device", type=str, default="1", help="CUDA device index or cpu")
     parser.add_argument("--imgsz", type=int, default=640, help="Image size")
     parser.add_argument("--batch", type=int, default=64, help="Batch size")
-    parser.add_argument("--dist_thresh", type=float, default=4.0, help="Distance threshold (pixels) for TP")
+    parser.add_argument("--dist_thresh", type=float, default=8.0, help="Distance threshold (pixels) for TP")
     parser.add_argument("--solo_thresh", type=float, default=0.35, help="Solo detection threshold for Ensemble")
     parser.add_argument("--boost_weight", type=float, default=0.35,
                         help="Boost weight when YOLO verifies Heatmap detection")
@@ -483,41 +512,48 @@ def main():
     cache_dir = Path(args.cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    # 检查是否全部命中缓存
-    all_cached = (not args.no_cache) and all(
-        get_cache_path(cache_dir, p, args.data, args.imgsz).exists() for p in valid_models
-    )
+    # 缓存已构建的 DataLoader，避免重复加载
+    loaders_cache: dict[str, tuple] = {}
 
-    # 仅在需要实际跑模型推理，或者需要提取 GT 评测时才构建 DataLoader
-    print(colorstr("bold", f"Loading validation dataset: {args.data}"))
-    val_dataset, val_loader = load_eval_data(args.data, imgsz=args.imgsz, batch=args.batch)
+    def get_loader(data_yaml: str):
+        if data_yaml not in loaders_cache:
+            print(colorstr("bold", f"Loading validation dataset: {data_yaml}"))
+            d_set, d_loader = load_eval_data(data_yaml, imgsz=args.imgsz, batch=args.batch)
+            loaders_cache[data_yaml] = (d_set, d_loader)
+        return loaders_cache[data_yaml]
 
     summary_rows = []
     collected_preds = {}
     pr_curves_data = {}
 
     print("\n" + "=" * 80)
-    print("Running Unified Point-Detection Evaluation (Apple-to-Apple)")
+    print(f"Running Unified Point-Detection Evaluation (Apple-to-Apple, Dist <= {args.dist_thresh:.1f}px)")
     print("=" * 80)
 
     gt_list_ref = None
     sizes_list_ref = None
 
     for path, label in zip(valid_models, labels):
-        c_path = get_cache_path(cache_dir, path, args.data, args.imgsz)
+        # 自动解析当前模型绑定的数据集
+        model_data = resolve_data_for_model(path, args.data, args.temporal_data)
+        c_path = get_cache_path(cache_dir, path, model_data, args.imgsz)
+
         if not args.no_cache and c_path.exists():
             m_type, raw_preds = load_preds_cache(c_path)
             if gt_list_ref is None or sizes_list_ref is None:
-                gt_list_ref, sizes_list_ref = get_ground_truth_and_sizes(val_loader, imgsz=args.imgsz)
+                _, v_loader = get_loader(model_data)
+                gt_list_ref, sizes_list_ref = get_ground_truth_and_sizes(v_loader, imgsz=args.imgsz)
             gt_list = gt_list_ref
             sizes_list = sizes_list_ref
         else:
+            _, v_loader = get_loader(model_data)
             m_type, raw_preds, gt_list, sizes_list = run_inference_as_points(
-                path, val_loader, device=args.device, imgsz=args.imgsz
+                path, v_loader, device=args.device, imgsz=args.imgsz
             )
             save_preds_cache(c_path, m_type, raw_preds)
-            gt_list_ref = gt_list
-            sizes_list_ref = sizes_list
+            if gt_list_ref is None or sizes_list_ref is None:
+                gt_list_ref = gt_list
+                sizes_list_ref = sizes_list
 
         collected_preds[label] = {"type": m_type, "preds": raw_preds}
 
@@ -529,6 +565,7 @@ def main():
         summary_rows.append({
             "Model": label,
             "Type": m_type,
+            "Dataset": Path(model_data).parent.name,
             "Best_Th": res["best_th"],
             "Recall": res["recall"],
             "Precision": res["precision"],
@@ -574,6 +611,7 @@ def main():
             summary_rows.append({
                 "Model": ens_label,
                 "Type": "Ensemble",
+                "Dataset": "Ensemble",
                 "Best_Th": res_ens["best_th"],
                 "Recall": res_ens["recall"],
                 "Precision": res_ens["precision"],
@@ -587,14 +625,14 @@ def main():
     summary_df = pd.DataFrame(summary_rows)
 
     # 打印对比结果表格
-    print("\n" + "=" * 95)
+    print("\n" + "=" * 108)
     print(
-        f"{'Model Label':<28} | {'Type':<8} | {'Best_Th':<8} | {'Recall':<8} | {'Precision':<10} | {'F1':<8} | {'TP':<6} | {'FP':<6}")
-    print("-" * 95)
+        f"{'Model Label':<28} | {'Type':<8} | {'Dataset':<14} | {'Best_Th':<8} | {'Recall':<8} | {'Precision':<10} | {'F1':<8} | {'TP':<6} | {'FP':<6}")
+    print("-" * 108)
     for _, r in summary_df.iterrows():
         print(
-            f"{r['Model'][:28]:<28} | {r['Type']:<8} | {r['Best_Th']:<8.2f} | {r['Recall']:<8.4f} | {r['Precision']:<10.4f} | {r['F1-Score']:<8.4f} | {r['TP']:<6} | {r['FP']:<6}")
-    print("=" * 95)
+            f"{r['Model'][:28]:<28} | {r['Type']:<8} | {r['Dataset']:<14} | {r['Best_Th']:<8.2f} | {r['Recall']:<8.4f} | {r['Precision']:<10.4f} | {r['F1-Score']:<8.4f} | {r['TP']:<6} | {r['FP']:<6}")
+    print("=" * 108)
 
     # 保存 CSV
     csv_file = output_dir / "comparison_point_metrics.csv"
@@ -606,7 +644,8 @@ def main():
     with open(md_file, "w", encoding="utf-8") as f:
         f.write("# UAV 极小目标模型统一评测对比报告 (Apple-to-Apple)\n\n")
         f.write(f"- **判决基准**: 预测点与真实目标中心欧式距离 $\\le {args.dist_thresh:.1f}$ 像素即为 True Positive\n")
-        f.write(f"- **测试数据集**: `{args.data}` (图像总数: {len(val_dataset)})\n\n")
+        f.write(f"- **旧差分数据集 (2-frame diff)**: `{args.data}`\n")
+        f.write(f"- **新时序数据集 (3-frame raw)**: `{args.temporal_data}`\n\n")
         f.write(summary_df.to_markdown(index=False))
         f.write("\n")
     print(f"[Summary] Markdown report saved to: {md_file}")
@@ -631,8 +670,8 @@ def main():
     print(f"[Summary] PR Curves detail table saved to: {pr_csv_file}")
 
     # 绘制对比柱状图与 PR 曲线图
-    plot_metrics_barchart(summary_df, output_dir)
-    plot_pr_curves(pr_curves_data, output_dir)
+    plot_metrics_barchart(summary_df, output_dir, dist_thresh=args.dist_thresh)
+    plot_pr_curves(pr_curves_data, output_dir, dist_thresh=args.dist_thresh)
 
 
 if __name__ == "__main__":

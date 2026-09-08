@@ -89,7 +89,10 @@ def main():
     stride = ckpt.get("stride", args.stride)
     imgsz = ckpt.get("imgsz", args.imgsz)
 
-    model = YOLO26HeatmapDetector(stride=stride, num_classes=1)
+    # Check if checkpoint uses temporal stem
+    use_temporal = any("b0.motion_conv" in k for k in state_dict.keys())
+
+    model = YOLO26HeatmapDetector(stride=stride, num_classes=1, use_temporal_stem=use_temporal)
     model.load_state_dict(state_dict)
     model.to(device)
     model.eval()
