@@ -82,6 +82,7 @@ DEFAULT_LABELS = []
 # 默认数据集路径
 DEFAULT_DATA = "/mnt/data/siping/datasets/manu/uav/data.yaml"
 DEFAULT_TEMPORAL_DATA = "/mnt/data/siping/datasets/manu/uav_temporal_3frame/data.yaml"
+DEFAULT_HYBRID_CORR_DATA = "/mnt/data/siping/datasets/manu/uav_hybrid_corr/data.yaml"
 
 # 默认输出图表目录
 DEFAULT_OUTPUT_DIR = Path("runs/compare_eval")
@@ -90,13 +91,37 @@ DEFAULT_OUTPUT_DIR = Path("runs/compare_eval")
 # ============================================================
 
 
-def resolve_data_for_model(model_path: Path, default_data: str, temporal_data: str) -> str:
-    """根据模型路径关键字自动绑定对应的数据集。
-    含有 'temporal' 或 '3frame' 关键词的模型自动路由到 temporal_data，否则使用 default_data。
+def resolve_data_for_model(
+    model_path: Path,
+    default_data: str,
+    temporal_data: str,
+    hybrid_corr_data: str = DEFAULT_HYBRID_CORR_DATA,
+) -> str:
+    """根据模型路径关键字或权重结构自动绑定对应的数据集。
+    1. 含有 'corr' 或内部含有 'b0.corr_block' 的模型自动路由到 hybrid_corr_data
+    2. 含有 'temporal' 或 '3frame' 关键词的模型路由到 temporal_data
+    3. 其余模型使用 default_data (短帧差数据集)
     """
     path_str = str(model_path).lower()
+    if "corr" in path_str:
+        return hybrid_corr_data
     if "temporal" in path_str or "3frame" in path_str:
         return temporal_data
+
+    # 尝试从权重 state_dict 判定
+    try:
+        ckpt = torch.load(model_path, map_location="cpu")
+        state_dict = ckpt["model"] if "model" in ckpt else ckpt.get("state_dict", ckpt)
+        if hasattr(state_dict, "state_dict"):
+            state_dict = state_dict.state_dict()
+        if isinstance(state_dict, dict):
+            if any("b0.corr_block" in k for k in state_dict.keys()):
+                return hybrid_corr_data
+            if any("b0.motion_conv" in k for k in state_dict.keys()):
+                return temporal_data
+    except Exception:
+        pass
+
     return default_data
 
 
@@ -235,13 +260,23 @@ def run_inference_as_points(
     if is_heatmap_model(ckpt):
         model_type = "Heatmap"
         state_dict = ckpt["model"] if "model" in ckpt else ckpt
-        stride = ckpt.get("stride", 4)
-        model = YOLO26HeatmapDetector(stride=stride, num_classes=1)
+        if hasattr(state_dict, "state_dict"):
+            state_dict = state_dict.state_dict()
+        stride = ckpt.get("stride", 2 if any("fuse_p1" in k for k in state_dict.keys()) else 4)
+
+        # 自动识别时序特征模式
+        temporal_mode = "standard"
+        if any("b0.corr_block" in k for k in state_dict.keys()):
+            temporal_mode = "hybrid_corr"
+        elif any("b0.motion_conv" in k for k in state_dict.keys()):
+            temporal_mode = "signed_3frame"
+
+        model = YOLO26HeatmapDetector(stride=stride, num_classes=1, temporal_mode=temporal_mode)
         model.load_state_dict(state_dict)
         model.to(dev)
         model.eval()
 
-        print(colorstr("bold", f"[{model_path.name}] Evaluated as Heatmap Model (stride={stride})"))
+        print(colorstr("bold", f"[{model_path.name}] Evaluated as Heatmap Model (stride={stride}, mode={temporal_mode})"))
         with torch.no_grad():
             for batch in tqdm(val_loader, desc=f"Infer {model_path.stem[:15]}"):
                 imgs = batch["img"].to(dev, non_blocking=True).float() / 255.0
@@ -465,6 +500,12 @@ def main():
         default=DEFAULT_TEMPORAL_DATA,
         help="Path to data.yaml for 3-frame temporal models (raw frames)",
     )
+    parser.add_argument(
+        "--hybrid_corr_data",
+        type=str,
+        default=DEFAULT_HYBRID_CORR_DATA,
+        help="Path to data.yaml for hybrid correlation models [I_t, |I_t - I_{t-2}|, I_{t-8}]",
+    )
     parser.add_argument("--device", type=str, default="1", help="CUDA device index or cpu")
     parser.add_argument("--imgsz", type=int, default=640, help="Image size")
     parser.add_argument("--batch", type=int, default=64, help="Batch size")
@@ -534,8 +575,13 @@ def main():
     sizes_list_ref = None
 
     for path, label in zip(valid_models, labels):
-        # 自动解析当前模型绑定的数据集
-        model_data = resolve_data_for_model(path, args.data, args.temporal_data)
+        # 自动解析当前模型绑定的数据集 (支持 standard, 3frame, hybrid_corr)
+        model_data = resolve_data_for_model(
+            path,
+            default_data=args.data,
+            temporal_data=args.temporal_data,
+            hybrid_corr_data=args.hybrid_corr_data,
+        )
         c_path = get_cache_path(cache_dir, path, model_data, args.imgsz)
 
         if not args.no_cache and c_path.exists():

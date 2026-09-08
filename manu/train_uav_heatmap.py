@@ -64,6 +64,13 @@ def parse_args():
         default=False,
         help="Use Learnable3FrameTemporalStem (default: False, preserves standard Conv)",
     )
+    parser.add_argument(
+        "--temporal-mode",
+        type=str,
+        default="standard",
+        choices=["standard", "signed_3frame", "hybrid_corr"],
+        help="Temporal feature extraction mode: 'standard' (Conv 3ch), 'signed_3frame', 'hybrid_corr' (LocalCorrelation)",
+    )
     return parser.parse_args()
 
 
@@ -122,11 +129,16 @@ def main():
     val_loader = build_dataloader(val_dataset, batch=total_batch, workers=args.workers, shuffle=False)
 
     # 2. Build Model
+    temporal_mode = args.temporal_mode
+    if args.temporal_stem and temporal_mode == "standard":
+        temporal_mode = "signed_3frame"
+
     model = YOLO26HeatmapDetector(
         stride=args.stride,
         weights=args.weights,
         num_classes=1,
         use_temporal_stem=args.temporal_stem,
+        temporal_mode=temporal_mode,
     )
     model.to(device)
 

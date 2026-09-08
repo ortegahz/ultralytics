@@ -172,3 +172,21 @@ screen python manu/optuna_parallel_3frame_heatmap.py \
     --output-root runs/optuna_3frame_temporal_10ep
 
 tail -f runs/optuna_3frame_temporal_10ep/logs/trial_0000.log
+
+python3 manu/build_yolo_hybrid_corr_dataset.py \
+    --ref-dataset /mnt/data/siping/datasets/manu/uav \
+    --raw-root /mnt/data/siping/datasets/manu/anti-uav \
+    --output /mnt/data/siping/datasets/manu/uav_hybrid_corr \
+    --lag-diff 2 \
+    --lag-corr 8
+
+python3 manu/train_uav_heatmap.py \
+    --data /mnt/data/siping/datasets/manu/uav_hybrid_corr/data.yaml \
+    --weights runs/optuna_heatmap_stride2_640/trial_0031/weights/best.pt \
+    --stride 2 \
+    --temporal-mode hybrid_corr \
+    --device 0,1,2,3 \
+    --batch 16 \
+    --epochs 20 \
+    --project runs/uav_hybrid_corr \
+    --name exp_corr_v1

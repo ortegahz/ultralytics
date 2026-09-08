@@ -56,6 +56,13 @@ def parse_args():
     parser.add_argument("--device", type=str, default="2", help="CUDA device index or cpu")
     parser.add_argument("--conf", type=float, default=0.20, help="Confidence threshold to define detections")
     parser.add_argument(
+        "--temporal-mode",
+        type=str,
+        default="auto",
+        choices=["auto", "standard", "signed_3frame", "hybrid_corr"],
+        help="Temporal feature extraction mode: 'auto' (detect from weights/data), 'standard', 'signed_3frame', 'hybrid_corr'",
+    )
+    parser.add_argument(
         "--dist-thresh",
         type=float,
         default=8.0,
@@ -129,7 +136,12 @@ def make_diagnostic_crop(
     ch_hm = cv2.applyColorMap(hm_norm, cv2.COLORMAP_MAGMA)
 
     panels = [ch0, ch1, ch2, ch_hm]
-    titles = ["Ch0: Curr Gray", "Ch1: Diff(t-1)", "Ch2: Diff(t-2)", "Heatmap Output"]
+    titles = [
+        "Ch0: Curr Gray",
+        "Ch1: Diff(t-1) / Transient",
+        "Ch2: Diff(t-2) / Ref Frame",
+        "Heatmap Output",
+    ]
 
     for i, panel in enumerate(panels):
         if gt_xy is not None:
@@ -188,7 +200,19 @@ def run_or_load_inference(args, device: torch.device) -> list[dict]:
         state_dict = state_dict.state_dict()
 
     stride = ckpt.get("stride", args.stride)
-    model = YOLO26HeatmapDetector(stride=stride, num_classes=1)
+
+    # 自动识别时序特征模式
+    temporal_mode = args.temporal_mode
+    if temporal_mode == "auto":
+        if any("b0.corr_block" in k for k in state_dict.keys()):
+            temporal_mode = "hybrid_corr"
+        elif any("b0.motion_conv" in k for k in state_dict.keys()):
+            temporal_mode = "signed_3frame"
+        else:
+            temporal_mode = "standard"
+
+    print(colorstr("cyan", f"[INFO] Model Architecture: stride={stride}, temporal_mode={temporal_mode}"))
+    model = YOLO26HeatmapDetector(stride=stride, num_classes=1, temporal_mode=temporal_mode)
     model.load_state_dict(state_dict)
     model.to(device)
     model.eval()

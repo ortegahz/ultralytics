@@ -68,6 +68,120 @@ class HeatmapHead(nn.Module):
         return {"heatmap": hm, "offset": offset}
 
 
+class LocalCorrelationBlock(nn.Module):
+    """
+    Local Feature Correlation Layer (inspired by RAFT) for infrared moving small target detection.
+    
+    Extracts high-resolution features from current frame I_t (channel 0) and long-lag reference frame
+    I_{t-lag} (channel 2) using a shared lightweight stem, then computes normalized local dot-product 
+    correlation volume across a (2R + 1) x (2R + 1) displacement search window.
+    
+    Parameters:
+        radius (int): Search radius in feature pixels (radius=2 -> 5x5 = 25 velocity hypothesis channels).
+        feat_dim (int): Intermediate feature dimension for correlation matching (default: 16).
+        out_channels (int): Output projected channels (default: 16).
+    """
+
+    def __init__(self, radius: int = 2, feat_dim: int = 16, out_channels: int = 16):
+        super().__init__()
+        self.radius = radius
+        self.num_displacements = (2 * radius + 1) * (2 * radius + 1)  # 25 channels for R=2
+        
+        # Lightweight shared spatial feature stem for matching (downsampled to stride 2: 320x320)
+        self.match_stem = nn.Sequential(
+            Conv(1, feat_dim, k=3, s=2),
+            Conv(feat_dim, feat_dim, k=3, s=1),
+        )
+        
+        # Dimension projection for the correlation volume + short-term difference
+        self.proj = nn.Sequential(
+            Conv(self.num_displacements, out_channels, k=1, s=1),
+            Conv(out_channels, out_channels, k=3, s=1),
+        )
+
+    def forward(self, curr_gray: torch.Tensor, ref_gray: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            curr_gray: (B, 1, H, W) - Current frame I_t
+            ref_gray:  (B, 1, H, W) - Long-term reference frame I_{t-lag}
+        Returns:
+            corr_feat: (B, out_channels, H/2, W/2) - Spatio-temporal motion correlation feature
+        """
+        B, _, H, W = curr_gray.shape
+        r = self.radius
+
+        # 1. Extract normalized feature maps: (B, C, H', W')
+        f_curr = self.match_stem(curr_gray)
+        f_ref = self.match_stem(ref_gray)
+
+        # L2 normalize along channel dimension for cosine similarity
+        f_curr = F.normalize(f_curr, p=2, dim=1)
+        f_ref = F.normalize(f_ref, p=2, dim=1)
+
+        # 2. Pad reference feature map by search radius
+        # f_ref_pad: (B, C, H' + 2r, W' + 2r)
+        f_ref_pad = F.pad(f_ref, (r, r, r, r), mode="replicate")
+
+        # 3. Compute local dot-product correlation across (2r+1) x (2r+1) grid
+        _, C, H_feat, W_feat = f_curr.shape
+        corr_list = []
+        for dy in range(2 * r + 1):
+            for dx in range(2 * r + 1):
+                # Slice the shifted patch from reference feature map
+                ref_slice = f_ref_pad[:, :, dy : dy + H_feat, dx : dx + W_feat]
+                # Dot product along channel dimension -> (B, 1, H', W')
+                corr = torch.sum(f_curr * ref_slice, dim=1, keepdim=True)
+                corr_list.append(corr)
+
+        # Concat all displacement hypotheses: (B, 25, H', W')
+        corr_volume = torch.cat(corr_list, dim=1)
+
+        # 4. Project correlation volume to output feature space
+        return self.proj(corr_volume)
+
+
+class HybridCorrelationTemporalStem(nn.Module):
+    """
+    Hybrid Temporal Stem for 3-Channel Input: [I_t, |I_t - I_{t-2}|, I_{t-8}].
+    
+    1. Channel 0: I_t (Current frame gray) -> Static appearance stem.
+    2. Channel 1: |I_t - I_{t-2}| (Short difference) -> High-frequency transient motion stem.
+    3. Channel 0 & Channel 2: (I_t, I_{t-8}) -> LocalCorrelationBlock (5x5 velocity hypotheses).
+    4. Fuse all 3 complementary representations into 16 channels at Stride 2 (P1 / 320x320).
+    """
+
+    def __init__(self, out_channels: int = 16, corr_radius: int = 2):
+        super().__init__()
+        # 1. Static appearance branch from current frame I_t
+        self.spatial_stem = Conv(1, 8, k=3, s=2)  # (B, 8, H/2, W/2)
+
+        # 2. Short-term transient difference branch |I_t - I_{t-2}|
+        self.transient_stem = Conv(1, 8, k=3, s=2)  # (B, 8, H/2, W/2)
+
+        # 3. Long-term local feature correlation branch (I_t, I_{t-8})
+        self.corr_block = LocalCorrelationBlock(radius=corr_radius, feat_dim=16, out_channels=16)
+
+        # 4. Multimodal fusion: (8 + 8 + 16 = 32 channels) -> out_channels (16)
+        self.fuse = nn.Sequential(
+            Conv(8 + 8 + 16, out_channels, k=1, s=1),
+            Conv(out_channels, out_channels, k=3, s=1),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (B, 3, H, W)
+        curr = x[:, 0:1, :, :]      # I_t
+        diff_short = x[:, 1:2, :, :] # |I_t - I_{t-2}|
+        ref_long = x[:, 2:3, :, :]   # I_{t-8}
+
+        feat_spatial = self.spatial_stem(curr)
+        feat_transient = self.transient_stem(diff_short)
+        feat_corr = self.corr_block(curr, ref_long)
+
+        # Concat along channel dimension: (B, 32, H/2, W/2)
+        fused = torch.cat([feat_spatial, feat_transient, feat_corr], dim=1)
+        return self.fuse(fused)
+
+
 class Learnable3FrameTemporalStem(nn.Module):
     """
     Learnable temporal difference stem for 3-frame raw inputs: [I_t, I_{t-4}, I_{t-12}].
@@ -140,15 +254,19 @@ class YOLO26HeatmapDetector(nn.Module):
         weights: str | Path | None = None,
         num_classes: int = 1,
         use_temporal_stem: bool = False,
+        temporal_mode: str = "standard",  # 'standard' (Conv 3ch), 'signed_3frame', 'hybrid_corr'
     ):
         super().__init__()
         assert stride in (2, 4), f"Only stride 4 (P2) or stride 2 (P1) is supported, got {stride}."
         self.stride = stride
         self.num_classes = num_classes
         self.use_temporal_stem = use_temporal_stem
+        self.temporal_mode = temporal_mode
 
         # Backbone:
-        if use_temporal_stem:
+        if temporal_mode == "hybrid_corr":
+            self.b0 = HybridCorrelationTemporalStem(out_channels=16, corr_radius=2)
+        elif temporal_mode == "signed_3frame" or use_temporal_stem:
             self.b0 = Learnable3FrameTemporalStem(out_channels=16)  # 0: P1 / 2 (320x320)
         else:
             self.b0 = Conv(3, 16, 3, 2)            # 0: P1 / 2 (320x320)
