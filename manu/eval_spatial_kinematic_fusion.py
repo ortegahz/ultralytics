@@ -379,9 +379,9 @@ def evaluate_sequence(
     sky_y_boundary = img_h * sky_ratio
 
     for r in records_sorted:
-        gt_pts = r["gt_pts"]
-        pred_pts = r["pred_points"]
-        pred_scs = r["pred_scores"]
+        gt_pts = np.asarray(r["gt_pts"], dtype=np.float32)
+        pred_pts = np.asarray(r["pred_points"], dtype=np.float32)
+        pred_scs = np.asarray(r["pred_scores"], dtype=np.float32)
         n_gt = len(gt_pts)
 
         for k in stats:
@@ -492,8 +492,8 @@ def parse_args():
     parser.add_argument(
         "--cache-file",
         type=str,
-        default="runs/badcase_analysis/inference_cache.pkl",
-        help="Path to precomputed inference_cache.pkl",
+        default="runs/gmc_eval/uav_gmc_fusion_cache.pkl",
+        help="Path to precomputed inference_cache.pkl (supports uav_gmc_fusion_cache.pkl or legacy badcase cache)",
     )
     parser.add_argument("--weights", type=str, default="runs/optuna_heatmap_stride2_640/trial_0031/weights/best.pt")
     parser.add_argument("--data", type=str, default="/mnt/data/siping/datasets/manu/uav/data.yaml")

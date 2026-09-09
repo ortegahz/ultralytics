@@ -231,26 +231,27 @@ def main():
     )
     print("=" * 110)
 
-    # 2. Grid Search in the Precision-Preserving Golden Zone
+    # 2. Fast Grid Search in the Precision-Preserving Golden Zone
+    # Focused on top high-potential configurations (36 configs total, finishes in ~10 seconds)
     param_grid = []
-    for th_base in [0.24, 0.26, 0.28, 0.30]:
+    for th_base in [0.26, 0.28, 0.30]:
         for th_salvage in [0.08, 0.10, 0.12]:
-            for th_ground in [0.28, 0.32, 0.35]:
+            for th_ground in [0.30, 0.35]:
                 for min_hits in [3, 4]:
-                    for instant_conf in [0.26, 0.28, 0.30]:
-                        for coast in [False, True]:
-                            param_grid.append({
-                                "th_base": th_base,
-                                "th_salvage": th_salvage,
-                                "th_ground": th_ground,
-                                "min_hits": min_hits,
-                                "instant_conf": instant_conf,
-                                "output_coasting": coast,
-                            })
+                    param_grid.append({
+                        "th_base": th_base,
+                        "th_salvage": th_salvage,
+                        "th_ground": th_ground,
+                        "min_hits": min_hits,
+                        "match_dist": 12.0,
+                        "min_disp": 2.5,
+                        "instant_conf": 0.30,
+                        "output_coasting": False,
+                    })
 
     print(f"\n[INFO] Starting High-Precision Grid Search ({len(param_grid)} configurations)...")
-    print(f"{'Idx':<4} | {'th_base':<7} | {'th_salv':<7} | {'th_grnd':<7} | {'hits':<4} | {'inst':<5} | {'coast':<5} | {'TP':<5} | {'FP':<5} | {'Recall':<7} | {'Prec':<7} | {'F1-Score':<8} | {'Status'}")
-    print("-" * 110)
+    print(f"{'Idx':<4} | {'th_base':<7} | {'th_salv':<7} | {'th_grnd':<7} | {'hits':<4} | {'dist':<5} | {'inst':<5} | {'coast':<5} | {'TP':<5} | {'FP':<5} | {'Recall':<7} | {'Prec':<7} | {'F1-Score':<8} | {'Status'}")
+    print("-" * 115)
 
     best_f1 = m_base["f1"]
     best_config = None
@@ -265,8 +266,8 @@ def main():
             th_ground=p["th_ground"],
             min_hits=p["min_hits"],
             max_age=3,
-            match_dist=12.0,
-            min_disp=2.5,
+            match_dist=p["match_dist"],
+            min_disp=p["min_disp"],
             instant_conf=p["instant_conf"],
             output_coasting=p["output_coasting"],
             dist_thresh=args.dist_thresh,
@@ -284,13 +285,12 @@ def main():
             status = colorstr("green", "PASS")
             beaten_count += 1
 
-        if is_better or (idx % 25 == 0):
-            print(
-                f"{idx:<4} | {p['th_base']:<7.2f} | {p['th_salvage']:<7.2f} | {p['th_ground']:<7.2f} | "
-                f"{p['min_hits']:<4} | {p['instant_conf']:<5.2f} | {str(p['output_coasting']):<5} | "
-                f"{m_fuse['tp']:<5} | {m_fuse['fp']:<5} | {m_fuse['recall']:>6.2f}% | "
-                f"{m_fuse['precision']:>6.2f}% | {m_fuse['f1']:>8.4f} | {status}"
-            )
+        print(
+            f"{idx:<4} | {p['th_base']:<7.2f} | {p['th_salvage']:<7.2f} | {p['th_ground']:<7.2f} | "
+            f"{p['min_hits']:<4} | {p['match_dist']:<5.1f} | {p['instant_conf']:<5.2f} | {str(p['output_coasting']):<5} | "
+            f"{m_fuse['tp']:<5} | {m_fuse['fp']:<5} | {m_fuse['recall']:>6.2f}% | "
+            f"{m_fuse['precision']:>6.2f}% | {m_fuse['f1']:>8.4f} | {status}"
+        )
 
     print("=" * 110)
     print("\n" + "=" * 110)
