@@ -215,7 +215,8 @@ class TwoStageKinematicTracker:
         # Step C: Only UNMATCHED HIGH-CONFIDENCE detections can initiate new tracks
         for i in range(len(high_pts)):
             if i not in matched_high_dets:
-                self.tracks.append(PointKalmanTrack(high_pts[i], high_scs[i]))
+                is_instantly_confirmed = high_scs[i] >= self.instant_conf
+                self.tracks.append(PointKalmanTrack(high_pts[i], high_scs[i], is_confirmed=is_instantly_confirmed))
 
         # Step D: Filter stationary clutter & generate outputs
         surviving_tracks = []
@@ -237,16 +238,25 @@ class TwoStageKinematicTracker:
             #    the detection itself is strong (init_score >= instant_conf) and alive now,
             #    output immediately! (Eliminates the 2-frame cold start delay on clear targets)
             # 2. Multi-frame kinematic confirmed: hits >= min_hits and score >= min_track_score
-            is_instant = (t.time_since_update == 0) and (t.init_score >= self.instant_conf)
+            is_instant = (t.time_since_update == 0) and (t.init_score >= self.instant_conf or t.is_confirmed)
             is_kinematic_confirmed = (t.hits >= self.min_hits) and (t.score >= self.min_track_score)
 
             if is_instant or is_kinematic_confirmed:
-                if self.output_coasting or (t.time_since_update == 0):
+                if self.output_coasting:
+                    # Allow coasting output if track was firmly confirmed (hits >= min_hits)
+                    if t.time_since_update == 0 or (t.hits >= self.min_hits and t.score >= self.min_track_score):
+                        outputs.append({
+                            "id": t.track_id,
+                            "pos": t.get_pos(),
+                            "score": t.score,
+                            "is_coasting": t.time_since_update > 0,
+                        })
+                elif t.time_since_update == 0:
                     outputs.append({
                         "id": t.track_id,
                         "pos": t.get_pos(),
                         "score": t.score,
-                        "is_coasting": t.time_since_update > 0,
+                        "is_coasting": False,
                     })
 
         self.tracks = surviving_tracks
@@ -378,9 +388,10 @@ def evaluate_sequence(
             stats[k]["gt"] += n_gt
 
         # -------------------------------------------------------------
-        # Mode 1: Baseline Single-frame (th=0.20 or th_base)
+        # Mode 1: Gold Standard Baseline (Fixed at Optimal th=0.30)
+        # Directly mirrors the champion trial_0031 milestone
         # -------------------------------------------------------------
-        base_mask = pred_scs >= th_base
+        base_mask = pred_scs >= 0.30
         pts_base = pred_pts[base_mask]
         tp1, fp1, _ = match_predictions_to_gt(gt_pts, pts_base, dist_thresh)
         stats["baseline"]["tp"] += tp1
@@ -428,14 +439,22 @@ def evaluate_sequence(
         stats["tracker_only"]["fp"] += fp3
 
         # -------------------------------------------------------------
-        # Mode 4: Fusion (Scheme 2 Spatial Prior + Scheme 5 Kinematic Gating)
-        # High detections: In sky -> sc >= th_base; In ground -> sc >= th_ground
-        # Salvage detections: In sky -> th_salvage <= sc < th_base; In ground -> none (ground suppressed)
+        # Mode 4: Fusion (Scheme 2 Spatial/CFAR Prior + Scheme 5 Kinematic Gating)
         # -------------------------------------------------------------
         if len(pred_pts) > 0:
-            is_sky = pred_pts[:, 1] < sky_y_boundary
-            fusion_high_mask = (is_sky & (pred_scs >= th_base)) | ((~is_sky) & (pred_scs >= th_ground))
-            fusion_salvage_mask = is_sky & (pred_scs >= th_salvage) & (pred_scs < th_base)
+            var_map = r.get("var_map")
+            if var_map is not None:
+                # CFAR Continuous Variance Gating
+                pts_round = np.clip(np.round(pred_pts).astype(int), 0, 639)
+                clutter_vals = var_map[pts_round[:, 1], pts_round[:, 0]]
+                dyn_ths = th_salvage + clutter_vals * (th_ground - th_salvage)
+                fusion_high_mask = pred_scs >= np.maximum(th_base, dyn_ths)
+                fusion_salvage_mask = (pred_scs >= dyn_ths) & (~fusion_high_mask)
+            else:
+                # Geometric Partition Gating
+                is_sky = pred_pts[:, 1] < sky_y_boundary
+                fusion_high_mask = (is_sky & (pred_scs >= th_base)) | ((~is_sky) & (pred_scs >= th_ground))
+                fusion_salvage_mask = is_sky & (pred_scs >= th_salvage) & (pred_scs < th_base)
 
             high_pts_m4 = pred_pts[fusion_high_mask]
             high_scs_m4 = pred_scs[fusion_high_mask]
@@ -495,8 +514,12 @@ def parse_args():
     parser.add_argument("--min-track-score", type=float, default=0.07, help="Minimum track smoothed score (default: 0.07)")
     parser.add_argument("--instant-conf", type=float, default=0.30, help="High confidence threshold for 0-latency instant output (default: 0.30)")
     parser.add_argument("--min-disp", type=float, default=2.5, help="Min net displacement in pixels for aging tracks to suppress static clutter (default: 2.5px)")
+    parser.add_argument("--cfar-gating", action="store_true", default=False, help="Use continuous CFAR texture variance gating")
     parser.add_argument("--output-coasting", action="store_true", default=False, help="Whether to output coasting predictions")
-    parser.add_argument("--device", type=str, default="2")
+    parser.add_argument("--device", type=str, default="0")
+    parser.add_argument("--batch", type=int, default=32, help="Inference batch size")
+    parser.add_argument("--force-forward", action="store_true", default=False, help="Force full model forward pass on data")
+    parser.add_argument("--save-cache", type=str, default="", help="Optional path to save records as new cache pickle")
     return parser.parse_args()
 
 
@@ -512,16 +535,15 @@ def load_or_create_records(args) -> List[Dict]:
                 cache_path = cand
                 break
 
-    if cache_path.exists():
+    if cache_path.exists() and not getattr(args, "force_forward", False):
         print(colorstr("bold", colorstr("green", f"\n>>> Loading cached inferences from: {cache_path}")))
         with open(cache_path, "rb") as f:
             records = pickle.load(f)
         print(f"Loaded {len(records)} frame predictions in < 1 second.\n")
         return records
 
-    print(colorstr("yellow", f"[WARN] Cache file '{args.cache_file}' not found locally."))
-    print("If you are running on the server, please specify the path to inference_cache.pkl.")
-    print("Falling back to full PyTorch inference forward pass...")
+    print(colorstr("yellow", f"[INFO] Running direct Model Forward pass on dataset: {args.data}..."))
+    print(colorstr("cyan", f"[INFO] Target checkpoint: {args.weights}"))
 
     from ultralytics.data import build_dataloader, build_yolo_dataset
     from ultralytics.data.utils import check_det_dataset
@@ -546,12 +568,12 @@ def load_or_create_records(args) -> List[Dict]:
     cfg = get_cfg(DEFAULT_CFG)
     cfg.imgsz = 640
     cfg.data = args.data
-    val_dataset = build_yolo_dataset(cfg, data_dict["val"], batch=32, data=data_dict, mode="val", stride=32)
-    val_loader = build_dataloader(val_dataset, batch=32, workers=4, shuffle=False)
+    val_dataset = build_yolo_dataset(cfg, data_dict["val"], batch=args.batch, data=data_dict, mode="val", stride=32)
+    val_loader = build_dataloader(val_dataset, batch=args.batch, workers=4, shuffle=False)
 
     records = []
     with torch.no_grad():
-        for batch in tqdm(val_loader, desc="Model Forward"):
+        for batch in tqdm(val_loader, desc=f"Model Forward @ {args.data}"):
             imgs_tensor = batch["img"].to(device).float() / 255.0
             bboxes = batch["bboxes"]
             b_idx = batch["batch_idx"]
@@ -563,7 +585,7 @@ def load_or_create_records(args) -> List[Dict]:
                 heatmap=preds["heatmap"],
                 offset=preds["offset"],
                 stride=stride,
-                conf_thresh=0.03,
+                conf_thresh=0.02,  # 下探到 0.02，保留深空极暗弱信号打捞潜力
                 top_k=150,
             )
 
@@ -576,12 +598,31 @@ def load_or_create_records(args) -> List[Dict]:
                     gt_pts.append([float(box[0] * 640), float(box[1] * 640)])
                 gt_pts = np.array(gt_pts, dtype=np.float32) if len(gt_pts) > 0 else np.zeros((0, 2), dtype=np.float32)
 
+                # Compute normalized variance if cfar gating is requested
+                var_map = None
+                if getattr(args, "cfar_gating", False):
+                    ch0 = (imgs_tensor[b, 0] * 255.0).byte().cpu().numpy()
+                    gray_f = ch0.astype(np.float32)
+                    mean = cv2.blur(gray_f, (15, 15))
+                    mean_sq = cv2.blur(gray_f ** 2, (15, 15))
+                    var = np.maximum(mean_sq - mean ** 2, 0.0)
+                    std_dev = np.sqrt(var)
+                    var_map = np.clip((std_dev - 2.5) / 10.0, 0.0, 1.0)
+
                 records.append({
                     "im_name": im_name,
                     "gt_pts": gt_pts,
                     "pred_points": peaks_list[b]["points"].astype(np.float32),
                     "pred_scores": peaks_list[b]["scores"].astype(np.float32),
+                    "var_map": var_map,
                 })
+
+    if getattr(args, "save_cache", ""):
+        save_p = Path(args.save_cache)
+        save_p.parent.mkdir(parents=True, exist_ok=True)
+        with open(save_p, "wb") as f:
+            pickle.dump(records, f)
+        print(colorstr("bold", colorstr("green", f"\n[SUCCESS] Cached inferences saved to: {save_p.resolve()}\n")))
     return records
 
 
@@ -647,7 +688,7 @@ def main():
         m_trk = res["tracker_only"]
         m_fuse = res["fusion"]
 
-        print(f"{seq_name:<28} | {'1. Baseline (0.20)':<18} | {int(m_base['tp']):>5} / {int(m_base['gt']):<6} | {int(m_base['fp']):<6} | {m_base['recall']:>6.2f}% | {m_base['precision']:>6.2f}% | {m_base['f1']:>6.4f}")
+        print(f"{seq_name:<28} | {'1. Gold Base (0.30)':<18} | {int(m_base['tp']):>5} / {int(m_base['gt']):<6} | {int(m_base['fp']):<6} | {m_base['recall']:>6.2f}% | {m_base['precision']:>6.2f}% | {m_base['f1']:>6.4f}")
         print(f"{'':<28} | {'2. Spatial Gating':<18} | {int(m_spat['tp']):>5} / {int(m_spat['gt']):<6} | {int(m_spat['fp']):<6} | {m_spat['recall']:>6.2f}% | {m_spat['precision']:>6.2f}% | {m_spat['f1']:>6.4f}")
         print(f"{'':<28} | {'3. Kinematic Trk':<18} | {int(m_trk['tp']):>5} / {int(m_trk['gt']):<6} | {int(m_trk['fp']):<6} | {m_trk['recall']:>6.2f}% | {m_trk['precision']:>6.2f}% | {m_trk['f1']:>6.4f}")
         print(f"{'':<28} | {colorstr('bold', colorstr('green', '4. Fusion (2 + 5)')):<27} | {int(m_fuse['tp']):>5} / {int(m_fuse['gt']):<6} | {int(m_fuse['fp']):<6} | {m_fuse['recall']:>6.2f}% | {m_fuse['precision']:>6.2f}% | {m_fuse['f1']:>6.4f}")
@@ -663,7 +704,7 @@ def main():
         grand_metrics[k] = calc_metrics(grand_stats[k]["tp"], grand_stats[k]["fp"], grand_stats[k]["gt"])
 
     for mode_name, key in [
-        ("1. Standard Baseline (th=0.20)", "baseline"),
+        ("1. Gold Standard Baseline (Optimal th=0.30)", "baseline"),
         ("2. Pure Spatial Prior Gating", "spatial_only"),
         ("3. Pure Kinematic Filtering", "tracker_only"),
         ("4. FUSION: Spatial Gating + Kinematics", "fusion"),
