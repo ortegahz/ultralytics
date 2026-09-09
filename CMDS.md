@@ -190,3 +190,23 @@ python3 manu/train_uav_heatmap.py \
     --epochs 20 \
     --project runs/uav_hybrid_corr \
     --name exp_corr_v1
+
+screen python3 manu/optuna_finetune_40ep.py \
+    --gpus 0,1,2,3 \
+    --epochs 40 \
+    --batch 32 \
+    --n-trials 64 \
+    --output-root runs/optuna_heatmap_stride2_fine40
+
+tail -f /tmp/pycharm_project_10ae9e2e/runs/optuna_heatmap_stride2_fine40/logs/trial_0000.log
+
+python manu/train_irstd_unet.py \
+    --data /mnt/data/siping/datasets/manu/uav/data.yaml \
+    --device 0,1,2,3 \
+    --batch 32 \
+    --val_batch 24 \
+    --stride 2 \
+    --epochs 30 \
+    --lr0 0.0003 \
+    --project runs/irstd_unet \
+    --name uav_unet_stride2
