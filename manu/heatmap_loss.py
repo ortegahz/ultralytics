@@ -232,12 +232,18 @@ class RegL1Loss(nn.Module):
 class HeatmapLoss(nn.Module):
     """
     Combined Loss for Tiny Object Heatmap Detection:
-    Loss = hm_weight * FocalLoss + offset_weight * RegL1Loss
+    Loss = hm_weight * FocalLoss(alpha, beta) + offset_weight * RegL1Loss
     """
 
-    def __init__(self, hm_weight: float = 1.0, offset_weight: float = 0.5):
+    def __init__(
+        self,
+        hm_weight: float = 1.0,
+        offset_weight: float = 0.5,
+        focal_alpha: float = 2.0,
+        focal_beta: float = 4.0,
+    ):
         super().__init__()
-        self.focal_loss = FocalLoss(alpha=2.0, beta=4.0)
+        self.focal_loss = FocalLoss(alpha=focal_alpha, beta=focal_beta)
         self.offset_loss = RegL1Loss()
         self.hm_weight = hm_weight
         self.offset_weight = offset_weight

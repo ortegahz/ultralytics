@@ -116,13 +116,12 @@ def print_table(rows: list[dict]) -> None:
         "State",
         "Epoch",
         "Recall",
-        "AP50",
-        "mAP50-95",
         "Precision",
+        "F1",
         "lr0",
-        "momentum",
+        "focal_beta",
         "weight_decay",
-        "warmup",
+        "radius",
         "scale",
         "mosaic",
     ]
@@ -137,13 +136,12 @@ def print_table(rows: list[dict]) -> None:
                 str(row["state"]),
                 str(row["epoch"]),
                 format_number(row["recall"]),
-                format_number(row["ap50"]),
-                format_number(row["map50_95"]),
                 format_number(row["precision"]),
+                format_number(row.get("f1", "N/A")),
                 format_number(row["lr0"], 6),
-                format_number(row["momentum"], 6),
+                format_number(row.get("focal_beta", "N/A"), 2),
                 format_number(row["weight_decay"], 6),
-                format_number(row["warmup_epochs"], 4),
+                str(row.get("min_radius", "N/A")),
                 format_number(row["scale"], 4),
                 format_number(row["mosaic"], 4),
             ]
@@ -195,13 +193,12 @@ def main():
     parser.add_argument(
         "--sort-by",
         choices=[
+            "f1",
             "recall",
-            "ap50",
-            "map50_95",
             "precision",
         ],
-        default="recall",
-        help="Metric used to sort trials.",
+        default="f1",
+        help="Metric used to sort trials (default: f1).",
     )
 
     args = parser.parse_args()
@@ -228,24 +225,22 @@ def main():
             root=root,
         )
 
+        f1_val = trial.user_attrs.get("f1", metrics.get("f1", "N/A"))
+        rec_val = trial.user_attrs.get("recall", metrics.get("recall", "N/A"))
+        prec_val = trial.user_attrs.get("precision", metrics.get("precision", "N/A"))
+        ep_val = trial.user_attrs.get("epoch", metrics.get("epoch", "N/A"))
+
         record = {
             "trial": trial.number,
             "state": trial.state.name,
-            "epoch": metrics.get("epoch", "N/A"),
-            "recall": metrics.get("recall", "N/A"),
-            "ap50": metrics.get("ap50", "N/A"),
-            "map50_95": metrics.get("map50_95", "N/A"),
-            "precision": metrics.get("precision", "N/A"),
+            "epoch": ep_val,
+            "recall": rec_val,
+            "precision": prec_val,
+            "f1": f1_val,
             "lr0": trial.params.get("lr0", "N/A"),
-            "momentum": trial.params.get("momentum", "N/A"),
-            "weight_decay": trial.params.get(
-                "weight_decay",
-                "N/A",
-            ),
-            "warmup_epochs": trial.params.get(
-                "warmup_epochs",
-                "N/A",
-            ),
+            "focal_beta": trial.params.get("focal_beta", "N/A"),
+            "weight_decay": trial.params.get("weight_decay", "N/A"),
+            "min_radius": trial.params.get("min_radius", "N/A"),
             "scale": trial.params.get("scale", "N/A"),
             "mosaic": trial.params.get("mosaic", "N/A"),
         }
@@ -298,15 +293,14 @@ def main():
         print(f"Trial       : {best['trial']}")
         print(f"Epoch       : {best['epoch']}")
         print(f"Recall      : {format_number(best['recall'])}")
-        print(f"AP50        : {format_number(best['ap50'])}")
-        print(f"mAP50-95    : {format_number(best['map50_95'])}")
         print(f"Precision   : {format_number(best['precision'])}")
+        print(f"F1-Score    : {format_number(best.get('f1', 'N/A'))}")
 
         print("\nBest parameters:")
         print(f"  lr0           : {best['lr0']}")
-        print(f"  momentum      : {best['momentum']}")
+        print(f"  focal_beta    : {best.get('focal_beta', 'N/A')}")
         print(f"  weight_decay  : {best['weight_decay']}")
-        print(f"  warmup_epochs : {best['warmup_epochs']}")
+        print(f"  min_radius    : {best.get('min_radius', 'N/A')}")
         print(f"  scale         : {best['scale']}")
         print(f"  mosaic        : {best['mosaic']}")
 

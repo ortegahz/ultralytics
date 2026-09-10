@@ -210,3 +210,15 @@ python manu/train_irstd_unet.py \
     --lr0 0.0003 \
     --project runs/irstd_unet \
     --name uav_unet_stride2
+
+screen python manu/optuna_median_distributed.py \
+    --data /mnt/data/siping/datasets/manu/uav_gmc_median/data.yaml \
+    --weights runs/finetune_median/exp_6ep_median/weights/best_f1.pt \
+    --gpus 0,1,2,3 \
+    --epochs 3 \
+    --batch 32 \
+    --dist-thresh 8.0 \
+    --study-name median_sota_search \
+    --project runs/optuna_median_search
+
+tail -f /tmp/pycharm_project_10ae9e2e/runs/optuna_median_search/logs/trial_0000.log
