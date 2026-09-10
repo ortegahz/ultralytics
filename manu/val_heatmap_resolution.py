@@ -82,7 +82,8 @@ def main():
 
     ckpt_stride = ckpt.get("stride", args.stride)
     ckpt_imgsz = ckpt.get("imgsz", 640)
-    print(f"Checkpoint trained at imgsz={ckpt_imgsz}, stride={ckpt_stride}")
+    ckpt_upsample = ckpt.get("upsample_mode", "nearest")
+    print(f"Checkpoint trained at imgsz={ckpt_imgsz}, stride={ckpt_stride}, upsample_mode={ckpt_upsample}")
     print(colorstr("bold", f"Evaluating target resolution: imgsz={args.imgsz}, stride={ckpt_stride}"))
 
     # 如果指定按分辨率等比放缩容差，保持物理视场角容差一致
@@ -95,7 +96,7 @@ def main():
         print(f"Distance threshold fixed: {effective_dist_thresh:.1f}px")
 
     # 1. 实例化全卷积模型并加载权重
-    model = YOLO26HeatmapDetector(stride=ckpt_stride, num_classes=1)
+    model = YOLO26HeatmapDetector(stride=ckpt_stride, num_classes=1, upsample_mode=ckpt_upsample)
     model.load_state_dict(state_dict)
     model.to(device)
     model.eval()

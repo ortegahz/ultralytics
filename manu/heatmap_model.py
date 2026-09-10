@@ -239,6 +239,37 @@ class Learnable3FrameTemporalStem(nn.Module):
         return self.fuse(torch.cat([feat_spatial, feat_motion], dim=1))
 
 
+class PixelShuffleUpsample(nn.Module):
+    """
+    Sub-pixel convolution upsampling module for tiny point-like targets.
+    Learns continuous sub-pixel interpolation instead of nearest neighbor staircase artifacts.
+    """
+
+    def __init__(self, in_channels: int, out_channels: int, scale_factor: int = 2):
+        super().__init__()
+        self.scale_factor = scale_factor
+        # Conv expands channels to out_channels * (scale_factor ** 2)
+        self.conv = nn.Conv2d(
+            in_channels,
+            out_channels * (scale_factor**2),
+            kernel_size=3,
+            padding=1,
+            bias=True,
+        )
+        self.ps = nn.PixelShuffle(scale_factor)
+        self.act = nn.SiLU(inplace=True)
+        self._init_weights(in_channels, out_channels)
+
+    def _init_weights(self, in_channels: int, out_channels: int):
+        # ICNR initialization or nearest-equivalent initialization for smooth start
+        nn.init.kaiming_normal_(self.conv.weight, mode="fan_out", nonlinearity="relu")
+        if self.conv.bias is not None:
+            nn.init.zeros_(self.conv.bias)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.act(self.ps(self.conv(x)))
+
+
 class YOLO26HeatmapDetector(nn.Module):
     """
     Detector integrating YOLO26 backbone + P2 Neck with Heatmap Head.
@@ -255,6 +286,7 @@ class YOLO26HeatmapDetector(nn.Module):
         num_classes: int = 1,
         use_temporal_stem: bool = False,
         temporal_mode: str = "standard",  # 'standard' (Conv 3ch), 'signed_3frame', 'hybrid_corr'
+        upsample_mode: str = "nearest",  # 'nearest', 'pixelshuffle'
     ):
         super().__init__()
         assert stride in (2, 4), f"Only stride 4 (P2) or stride 2 (P1) is supported, got {stride}."
@@ -262,6 +294,7 @@ class YOLO26HeatmapDetector(nn.Module):
         self.num_classes = num_classes
         self.use_temporal_stem = use_temporal_stem
         self.temporal_mode = temporal_mode
+        self.upsample_mode = upsample_mode
 
         # Backbone:
         if temporal_mode == "hybrid_corr":
@@ -282,27 +315,42 @@ class YOLO26HeatmapDetector(nn.Module):
         self.b10 = C2PSA(256, 256, n=1)        # 10: P5 / 32
 
         # Neck (FPN top-down to P2):
-        self.up1 = nn.Upsample(scale_factor=2, mode="nearest") # 11: 40x40
-        self.c13 = C3k2(256 + 128, 128, n=1, c3k=True)        # 13: 40x40
-
-        self.up2 = nn.Upsample(scale_factor=2, mode="nearest") # 14: 80x80
-        self.c16 = C3k2(128 + 128, 64, n=1, c3k=True)         # 16: 80x80
-
-        self.up3 = nn.Upsample(scale_factor=2, mode="nearest") # 17: 160x160
-        self.c19 = C3k2(64 + 64, 32, n=1, c3k=True)           # 19: P2 feature (32 channels, stride 4)
+        if upsample_mode == "pixelshuffle":
+            self.up1 = PixelShuffleUpsample(in_channels=256, out_channels=128, scale_factor=2)  # 20x20 -> 40x40
+            self.c13 = C3k2(128 + 128, 128, n=1, c3k=True)
+            self.up2 = PixelShuffleUpsample(in_channels=128, out_channels=64, scale_factor=2)   # 40x40 -> 80x80
+            self.c16 = C3k2(64 + 128, 64, n=1, c3k=True)
+            self.up3 = PixelShuffleUpsample(in_channels=64, out_channels=32, scale_factor=2)    # 80x80 -> 160x160
+            self.c19 = C3k2(32 + 64, 32, n=1, c3k=True)
+        else:
+            self.up1 = nn.Upsample(scale_factor=2, mode="nearest") # 11: 40x40
+            self.c13 = C3k2(256 + 128, 128, n=1, c3k=True)        # 13: 40x40
+            self.up2 = nn.Upsample(scale_factor=2, mode="nearest") # 14: 80x80
+            self.c16 = C3k2(128 + 128, 64, n=1, c3k=True)         # 16: 80x80
+            self.up3 = nn.Upsample(scale_factor=2, mode="nearest") # 17: 160x160
+            self.c19 = C3k2(64 + 64, 32, n=1, c3k=True)           # 19: P2 feature (32 channels, stride 4)
 
         # Neck (PAN bottom-up):
         self.down1 = Conv(32, 32, 3, 2)                        # 20: 80x80
         self.c22 = C3k2(32 + 64, 64, n=1, c3k=True)           # 22: P3 feature
 
         # Final fusion onto P2 (re-injecting enriched semantic context from P3 to P2)
-        self.up_p2 = nn.Upsample(scale_factor=2, mode="nearest")
-        self.fuse_p2 = Conv(32 + 64, 64, 3, 1)                # 64 channels at stride 4
+        if upsample_mode == "pixelshuffle":
+            self.up_p2 = PixelShuffleUpsample(in_channels=64, out_channels=64, scale_factor=2)
+            self.fuse_p2 = Conv(32 + 64, 64, 3, 1)
+        else:
+            self.up_p2 = nn.Upsample(scale_factor=2, mode="nearest")
+            self.fuse_p2 = Conv(32 + 64, 64, 3, 1)                # 64 channels at stride 4
 
         if stride == 2:
             # Stride 2 branch: upsample P2 to P1 and fuse with backbone b0
-            self.up_p1 = nn.Upsample(scale_factor=2, mode="nearest")
-            self.fuse_p1 = Conv(64 + 16, 48, 3, 1)            # 48 channels at stride 2
+            if upsample_mode == "pixelshuffle":
+                # P2 feature is 64 channels; upsample to 64 channels at stride 2 (320x320)
+                self.up_p1 = PixelShuffleUpsample(in_channels=64, out_channels=64, scale_factor=2)
+                self.fuse_p1 = Conv(64 + 16, 48, 3, 1)        # 48 channels at stride 2
+            else:
+                self.up_p1 = nn.Upsample(scale_factor=2, mode="nearest")
+                self.fuse_p1 = Conv(64 + 16, 48, 3, 1)        # 48 channels at stride 2
             head_in_ch = 48
         else:
             head_in_ch = 64
@@ -352,16 +400,22 @@ class YOLO26HeatmapDetector(nn.Module):
         else:
             state_dict = ckpt.get("state_dict", ckpt) if isinstance(ckpt, dict) else ckpt
 
-        # 1. 如果是同构 Heatmap 权重（直接完美匹配全部参数）
+        # 1. 如果是同构 Heatmap 权重（直接完美匹配大部分参数）
         own_state = self.state_dict()
         if isinstance(state_dict, dict) and any(k in own_state for k in state_dict.keys()):
             transferred = 0
+            skipped = 0
             for k, v in state_dict.items():
                 clean_k = k.replace("model.model.", "").replace("model.", "")
-                if clean_k in own_state and own_state[clean_k].shape == v.shape:
-                    own_state[clean_k].copy_(v)
-                    transferred += 1
-            print(f"[INFO] Loaded Heatmap pretrained weights from {weights_path.name}: {transferred}/{len(own_state)} layers matched directly.")
+                if clean_k in own_state:
+                    if own_state[clean_k].shape == v.shape:
+                        own_state[clean_k].copy_(v)
+                        transferred += 1
+                    else:
+                        skipped += 1
+                else:
+                    skipped += 1
+            print(f"[INFO] Loaded Heatmap pretrained weights from {weights_path.name}: {transferred}/{len(own_state)} layers matched directly, {skipped} skipped.")
             return
 
         # 2. 如果是原生 YOLO26 / YOLO26-P2 骨干权重（做层级索引映射）
