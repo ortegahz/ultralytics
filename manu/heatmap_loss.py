@@ -229,24 +229,62 @@ class RegL1Loss(nn.Module):
         return loss / (num_pos * 2 + 1e-6)
 
 
+class SoftIoULoss(nn.Module):
+    """
+    Soft-IoU loss function for infrared small target detection.
+    
+    L_soft_iou = 1 - (sum(P * G) + eps) / (sum(P) + sum(G) - sum(P * G) + eps)
+    If pure background (sum(G) == 0), penalizes mean false-alarm activations.
+    """
+
+    def __init__(self, eps: float = 1e-6):
+        super().__init__()
+        self.eps = eps
+
+    def forward(self, pred: torch.Tensor, gt: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            pred: (B, 1, H, W) in [0, 1]
+            gt:   (B, 1, H, W) in [0, 1]
+        """
+        pred = pred.float()
+        gt = gt.float()
+
+        intersection = torch.sum(pred * gt, dim=(2, 3))
+        union = torch.sum(pred, dim=(2, 3)) + torch.sum(gt, dim=(2, 3)) - intersection
+
+        has_target = (torch.sum(gt, dim=(2, 3)) > 1e-3).float()
+
+        iou = (intersection + self.eps) / (union + self.eps)
+        loss_pos = 1.0 - iou
+        _, _, H, W = pred.shape
+        loss_neg = torch.sum(pred, dim=(2, 3)) / float(H * W)
+
+        loss = has_target * loss_pos + (1.0 - has_target) * loss_neg
+        return loss.mean()
+
+
 class HeatmapLoss(nn.Module):
     """
     Combined Loss for Tiny Object Heatmap Detection:
-    Loss = hm_weight * FocalLoss(alpha, beta) + offset_weight * RegL1Loss
+    Loss = hm_weight * FocalLoss(alpha, beta) + offset_weight * RegL1Loss + soft_iou_weight * SoftIoULoss
     """
 
     def __init__(
         self,
         hm_weight: float = 1.0,
         offset_weight: float = 0.5,
+        soft_iou_weight: float = 0.0,
         focal_alpha: float = 2.0,
         focal_beta: float = 4.0,
     ):
         super().__init__()
         self.focal_loss = FocalLoss(alpha=focal_alpha, beta=focal_beta)
         self.offset_loss = RegL1Loss()
+        self.soft_iou_loss = SoftIoULoss() if soft_iou_weight > 0.0 else None
         self.hm_weight = hm_weight
         self.offset_weight = offset_weight
+        self.soft_iou_weight = soft_iou_weight
 
     def forward(
         self,
@@ -260,8 +298,16 @@ class HeatmapLoss(nn.Module):
 
         total_loss = self.hm_weight * loss_hm + self.offset_weight * loss_offset
         loss_items = {
-            "loss_total": float(total_loss.detach().item()),
+            "loss_total": 0.0,
             "loss_hm": float(loss_hm.detach().item()),
             "loss_offset": float(loss_offset.detach().item()),
+            "loss_iou": 0.0,
         }
+
+        if self.soft_iou_loss is not None and self.soft_iou_weight > 0.0:
+            loss_iou = self.soft_iou_loss(preds["heatmap"], targets["heatmap"])
+            total_loss = total_loss + self.soft_iou_weight * loss_iou
+            loss_items["loss_iou"] = float(loss_iou.detach().item())
+
+        loss_items["loss_total"] = float(total_loss.detach().item())
         return total_loss, loss_items
