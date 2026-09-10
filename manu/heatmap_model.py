@@ -276,7 +276,7 @@ class YOLO26HeatmapDetector(nn.Module):
     
     Default Stride is 4 (P2 layer, 160x160 for 640x640 input).
     Can optionally upsample P2 to P1 (Stride 2, 320x320 for 640x640 input) for extreme small target recall.
-    Uses standard YOLO26 b0 Conv(3, 16, 3, 2) which natively learns 3-channel temporal combinations.
+    Supports scale='n' (width=0.25) and scale='s' (width=0.50).
     """
 
     def __init__(
@@ -287,75 +287,89 @@ class YOLO26HeatmapDetector(nn.Module):
         use_temporal_stem: bool = False,
         temporal_mode: str = "standard",  # 'standard' (Conv 3ch), 'signed_3frame', 'hybrid_corr'
         upsample_mode: str = "nearest",  # 'nearest', 'pixelshuffle'
+        scale: str = "n",  # 'n' or 's'
     ):
         super().__init__()
         assert stride in (2, 4), f"Only stride 4 (P2) or stride 2 (P1) is supported, got {stride}."
+        assert scale in ("n", "s"), f"Only scale 'n' or 's' is supported, got {scale}."
         self.stride = stride
+        self.scale = scale
         self.num_classes = num_classes
         self.use_temporal_stem = use_temporal_stem
         self.temporal_mode = temporal_mode
         self.upsample_mode = upsample_mode
 
+        # Width scale multiplier (n: 0.25 -> 1x base; s: 0.50 -> 2x base)
+        w = 1 if scale == "n" else 2
+
+        c_p1 = 16 * w    # 16 or 32
+        c_p2 = 32 * w    # 32 or 64
+        c_p2_out = 64 * w  # 64 or 128
+        c_p3 = 64 * w    # 64 or 128
+        c_p3_out = 128 * w  # 128 or 256
+        c_p4 = 128 * w   # 128 or 256
+        c_p5 = 256 * w   # 256 or 512
+
         # Backbone:
         if temporal_mode == "hybrid_corr":
-            self.b0 = HybridCorrelationTemporalStem(out_channels=16, corr_radius=2)
+            self.b0 = HybridCorrelationTemporalStem(out_channels=c_p1, corr_radius=2)
         elif temporal_mode == "signed_3frame" or use_temporal_stem:
-            self.b0 = Learnable3FrameTemporalStem(out_channels=16)  # 0: P1 / 2 (320x320)
+            self.b0 = Learnable3FrameTemporalStem(out_channels=c_p1)
         else:
-            self.b0 = Conv(3, 16, 3, 2)            # 0: P1 / 2 (320x320)
-        self.b1 = Conv(16, 32, 3, 2)           # 1: P2 / 4 (160x160)
-        self.b2 = C3k2(32, 64, n=1, c3k=False, e=0.25)  # 2: P2 / 4
-        self.b3 = Conv(64, 64, 3, 2)           # 3: P3 / 8 (80x80)
-        self.b4 = C3k2(64, 128, n=1, c3k=False, e=0.25) # 4: P3 / 8
-        self.b5 = Conv(128, 128, 3, 2)         # 5: P4 / 16 (40x40)
-        self.b6 = C3k2(128, 128, n=1, c3k=True) # 6: P4 / 16
-        self.b7 = Conv(128, 256, 3, 2)         # 7: P5 / 32 (20x20)
-        self.b8 = C3k2(256, 256, n=1, c3k=True) # 8: P5 / 32
-        self.b9 = SPPF(256, 256, 5, 3, True)   # 9: P5 / 32
-        self.b10 = C2PSA(256, 256, n=1)        # 10: P5 / 32
+            self.b0 = Conv(3, c_p1, 3, 2)                         # 0: P1 / 2
+        self.b1 = Conv(c_p1, c_p2, 3, 2)                          # 1: P2 / 4
+        self.b2 = C3k2(c_p2, c_p2_out, n=1, c3k=False, e=0.25)    # 2: P2 / 4
+        self.b3 = Conv(c_p2_out, c_p3, 3, 2)                      # 3: P3 / 8
+        self.b4 = C3k2(c_p3, c_p3_out, n=1, c3k=False, e=0.25)    # 4: P3 / 8
+        self.b5 = Conv(c_p3_out, c_p4, 3, 2)                      # 5: P4 / 16
+        self.b6 = C3k2(c_p4, c_p4, n=1, c3k=True)                 # 6: P4 / 16
+        self.b7 = Conv(c_p4, c_p5, 3, 2)                          # 7: P5 / 32
+        self.b8 = C3k2(c_p5, c_p5, n=1, c3k=True)                 # 8: P5 / 32
+        self.b9 = SPPF(c_p5, c_p5, 5, 3, True)                    # 9: P5 / 32
+        self.b10 = C2PSA(c_p5, c_p5, n=1)                         # 10: P5 / 32
 
         # Neck (FPN top-down to P2):
         if upsample_mode == "pixelshuffle":
-            self.up1 = PixelShuffleUpsample(in_channels=256, out_channels=128, scale_factor=2)  # 20x20 -> 40x40
-            self.c13 = C3k2(128 + 128, 128, n=1, c3k=True)
-            self.up2 = PixelShuffleUpsample(in_channels=128, out_channels=64, scale_factor=2)   # 40x40 -> 80x80
-            self.c16 = C3k2(64 + 128, 64, n=1, c3k=True)
-            self.up3 = PixelShuffleUpsample(in_channels=64, out_channels=32, scale_factor=2)    # 80x80 -> 160x160
-            self.c19 = C3k2(32 + 64, 32, n=1, c3k=True)
+            self.up1 = PixelShuffleUpsample(in_channels=c_p5, out_channels=c_p4, scale_factor=2)
+            self.c13 = C3k2(c_p4 + c_p4, c_p4, n=1, c3k=True)
+            self.up2 = PixelShuffleUpsample(in_channels=c_p4, out_channels=c_p3, scale_factor=2)
+            self.c16 = C3k2(c_p3 + c_p3_out, c_p3, n=1, c3k=True)
+            self.up3 = PixelShuffleUpsample(in_channels=c_p3, out_channels=c_p2, scale_factor=2)
+            self.c19 = C3k2(c_p2 + c_p2_out, c_p2, n=1, c3k=True)
         else:
-            self.up1 = nn.Upsample(scale_factor=2, mode="nearest") # 11: 40x40
-            self.c13 = C3k2(256 + 128, 128, n=1, c3k=True)        # 13: 40x40
-            self.up2 = nn.Upsample(scale_factor=2, mode="nearest") # 14: 80x80
-            self.c16 = C3k2(128 + 128, 64, n=1, c3k=True)         # 16: 80x80
-            self.up3 = nn.Upsample(scale_factor=2, mode="nearest") # 17: 160x160
-            self.c19 = C3k2(64 + 64, 32, n=1, c3k=True)           # 19: P2 feature (32 channels, stride 4)
+            self.up1 = nn.Upsample(scale_factor=2, mode="nearest")
+            self.c13 = C3k2(c_p5 + c_p4, c_p4, n=1, c3k=True)
+            self.up2 = nn.Upsample(scale_factor=2, mode="nearest")
+            self.c16 = C3k2(c_p4 + c_p3_out, c_p3, n=1, c3k=True)
+            self.up3 = nn.Upsample(scale_factor=2, mode="nearest")
+            self.c19 = C3k2(c_p3 + c_p2_out, c_p2, n=1, c3k=True)
 
         # Neck (PAN bottom-up):
-        self.down1 = Conv(32, 32, 3, 2)                        # 20: 80x80
-        self.c22 = C3k2(32 + 64, 64, n=1, c3k=True)           # 22: P3 feature
+        self.down1 = Conv(c_p2, c_p2, 3, 2)
+        self.c22 = C3k2(c_p2 + c_p3, c_p3, n=1, c3k=True)
 
         # Final fusion onto P2 (re-injecting enriched semantic context from P3 to P2)
         if upsample_mode == "pixelshuffle":
-            self.up_p2 = PixelShuffleUpsample(in_channels=64, out_channels=64, scale_factor=2)
-            self.fuse_p2 = Conv(32 + 64, 64, 3, 1)
+            self.up_p2 = PixelShuffleUpsample(in_channels=c_p3, out_channels=c_p2_out, scale_factor=2)
+            self.fuse_p2 = Conv(c_p2 + c_p2_out, c_p2_out, 3, 1)
         else:
             self.up_p2 = nn.Upsample(scale_factor=2, mode="nearest")
-            self.fuse_p2 = Conv(32 + 64, 64, 3, 1)                # 64 channels at stride 4
+            self.fuse_p2 = Conv(c_p2 + c_p3, c_p2_out, 3, 1)
 
         if stride == 2:
             # Stride 2 branch: upsample P2 to P1 and fuse with backbone b0
+            c_p1_fuse = 48 * w
             if upsample_mode == "pixelshuffle":
-                # P2 feature is 64 channels; upsample to 64 channels at stride 2 (320x320)
-                self.up_p1 = PixelShuffleUpsample(in_channels=64, out_channels=64, scale_factor=2)
-                self.fuse_p1 = Conv(64 + 16, 48, 3, 1)        # 48 channels at stride 2
+                self.up_p1 = PixelShuffleUpsample(in_channels=c_p2_out, out_channels=c_p2_out, scale_factor=2)
+                self.fuse_p1 = Conv(c_p2_out + c_p1, c_p1_fuse, 3, 1)
             else:
                 self.up_p1 = nn.Upsample(scale_factor=2, mode="nearest")
-                self.fuse_p1 = Conv(64 + 16, 48, 3, 1)        # 48 channels at stride 2
-            head_in_ch = 48
+                self.fuse_p1 = Conv(c_p2_out + c_p1, c_p1_fuse, 3, 1)
+            head_in_ch = c_p1_fuse
         else:
-            head_in_ch = 64
+            head_in_ch = c_p2_out
 
-        self.head = HeatmapHead(in_channels=head_in_ch, head_conv=64, num_classes=num_classes)
+        self.head = HeatmapHead(in_channels=head_in_ch, head_conv=64 * w, num_classes=num_classes)
 
         if weights:
             self.load_pretrained(weights)
