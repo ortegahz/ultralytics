@@ -73,6 +73,12 @@ def parse_args():
         default="runs/optuna_median_search/trial_0022/weights/best.pt",
         help="Path to Trial 22 checkpoint",
     )
+    parser.add_argument(
+        "--p0-weights",
+        type=str,
+        default="runs/p0_residual_highway/exp_p0_highway_8ep/weights/best_recall.pt",
+        help="Path to previous P0 highway checkpoint for feature warm-start (default: best_recall.pt)",
+    )
     parser.add_argument("--imgsz", type=int, default=640)
     parser.add_argument("--stride", type=int, default=2)
     parser.add_argument("--epochs", type=int, default=8, help="Number of epochs (default: 8)")
@@ -85,7 +91,7 @@ def parse_args():
     parser.add_argument("--device", type=str, default="0,1,2,3", help="CUDA devices (e.g. '0,1,2,3')")
     parser.add_argument("--workers", type=int, default=8, help="DataLoader workers")
     parser.add_argument("--project", type=str, default="runs/p0_residual_highway")
-    parser.add_argument("--name", type=str, default="exp_p0_highway_8ep")
+    parser.add_argument("--name", type=str, default="exp_p0_spatial_gate_8ep")
     parser.add_argument("--dist_thresh", type=float, default=8.0, help="GJB evaluation tolerance (default: 8.0px)")
     parser.add_argument("--max_grad_norm", type=float, default=1.0)
     return parser.parse_args()
@@ -182,6 +188,36 @@ def main():
         else:
             skipped += 1
     print(f"[INFO] Loaded Base Checkpoint: {matched} layers matched, {skipped} layers untouched (P0 Highway).")
+
+    # Optional: Warm-start P0 Highway feature extraction layers from previous checkpoint
+    if args.p0_weights:
+        p0_path = Path(args.p0_weights)
+        if not p0_path.is_absolute():
+            for cand in [REPO_ROOT / p0_path, Path("/tmp/pycharm_project_10ae9e2e") / p0_path]:
+                if cand.exists():
+                    p0_path = cand
+                    break
+        if p0_path.exists():
+            print(colorstr("bold", f"[INFO] Warm-starting P0 feature extractors from: {p0_path}"))
+            p0_ckpt = torch.load(p0_path, map_location="cpu")
+            p0_state = p0_ckpt["model"] if "model" in p0_ckpt else p0_ckpt.get("state_dict", p0_ckpt)
+            if hasattr(p0_state, "state_dict"):
+                p0_state = p0_state.state_dict()
+
+            p0_matched = 0
+            for pk, pv in p0_state.items():
+                clean_pk = pk.replace("module.", "").replace("model.model.", "").replace("model.", "")
+                # Only inherit feature extractors (stem, dw, pw, bn, proj), NEVER overwrite gate scalar!
+                if "p0_highway" in clean_pk and "gate" not in clean_pk and "spatial_gate_net" not in clean_pk:
+                    if clean_pk in own_state and own_state[clean_pk].shape == pv.shape:
+                        own_state[clean_pk].copy_(pv)
+                        p0_matched += 1
+            # Strictly ensure scalar gate starts from 0.0 (Zero Regression Guarantee)
+            if hasattr(model, "p0_highway") and hasattr(model.p0_highway, "gate"):
+                model.p0_highway.gate.data.zero_()
+            print(colorstr("green", f"[WARM-START SUCCESS] Loaded {p0_matched} P0 feature tensors. Scalar gate alpha strictly reset to 0.0!"))
+        else:
+            print(colorstr("yellow", f"[WARN] P0 warm-start checkpoint not found: {args.p0_weights}, training P0 from scratch."))
 
     # STRICT FREEZING: Freeze entire base model, ONLY train p0_highway!
     frozen_params = 0

@@ -272,20 +272,27 @@ class PixelShuffleUpsample(nn.Module):
 
 class P0ResidualHighway(nn.Module):
     """
-    Full-Resolution (P0 / 640x640) Residual Highway for Infrared Tiny Object Detection.
+    Full-Resolution (P0 / 640x640) Residual Highway with Spatial SCR Gate.
     
     Architecture:
     1. Direct full-resolution feature extraction on raw 640x640 input (preserves 1~2px point impulses).
-       - Stem: Conv(3 -> 16, k=3, s=1)
+       - Motion/anomaly input isolation: focuses on GMC short-diff and temporal median residual (channels 1 & 2),
+         or full 3 channels while using temporal dynamics to generate spatial gating.
+       - Stem: Conv(in_channels -> 16, k=3, s=1)
        - Depthwise Separable Conv(16 -> 16, k=3, s=1) for local contrast without downsampling blur.
     2. Spatial max-pooling (2x2) downsampling to Stride 2 (320x320) to capture local peak point energy.
     3. Dimension alignment to match P1 fusion channels (48 channels).
-    4. Learnable zero-initialized residual gate (gate=0.0):
-       Guarantees mathematical identity to baseline checkpoint at epoch 0 step 0.
+    4. Motion-Guided Spatial SCR Gate:
+       - Computes local temporal energy mask from diff channels at 320x320: M(x, y) in [0, 1].
+       - Multiplied with learnable zero-initialized scalar gate (alpha=0.0):
+         F_res = alpha * M(x, y) * feat_p1_res
+       - Ensures mathematical identity at step 0 (alpha=0.0), while dynamically cutting off
+         static ground clutter & sensor fixed-pattern noise in non-moving regions.
     """
 
-    def __init__(self, in_channels: int = 3, out_channels: int = 48):
+    def __init__(self, in_channels: int = 3, out_channels: int = 48, use_spatial_gate: bool = True):
         super().__init__()
+        self.use_spatial_gate = use_spatial_gate
         self.p0_stem = Conv(in_channels, 16, k=3, s=1)
         # Depthwise Separable block at full 640x640 resolution
         self.p0_dw = nn.Conv2d(16, 16, kernel_size=3, padding=1, groups=16, bias=False)
@@ -299,6 +306,17 @@ class P0ResidualHighway(nn.Module):
         # Project 16 channels to P1 channel dimension (48)
         self.proj = Conv(16, out_channels, k=1, s=1)
 
+        # Motion-Guided Spatial SCR Gate: extracts spatial motion confidence from diff & median channels
+        if self.use_spatial_gate:
+            # Inputs: diff and median channels (channels 1 & 2 from input x) -> 2 channels
+            # Downsampled to 320x320 via MaxPool to align with P1
+            self.spatial_gate_net = nn.Sequential(
+                nn.Conv2d(2, 8, kernel_size=3, stride=1, padding=1, bias=True),
+                nn.SiLU(inplace=True),
+                nn.Conv2d(8, 1, kernel_size=1, stride=1, bias=True),
+                nn.Sigmoid(),
+            )
+
         # Zero-initialized scalar gate (strictly starts from 0.0)
         self.gate = nn.Parameter(torch.zeros(1))
 
@@ -308,9 +326,15 @@ class P0ResidualHighway(nn.Module):
         nn.init.kaiming_normal_(self.p0_dw.weight, mode="fan_out", nonlinearity="relu")
         nn.init.constant_(self.p0_bn.weight, 1.0)
         nn.init.constant_(self.p0_bn.bias, 0.0)
+        if self.use_spatial_gate:
+            for m in self.spatial_gate_net.modules():
+                if isinstance(m, nn.Conv2d):
+                    nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
+                    if m.bias is not None:
+                        nn.init.zeros_(m.bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: (B, 3, 640, 640)
+        # x: (B, 3, 640, 640), channels: [I_t, GMC_Diff, Median_Residual]
         feat_p0 = self.p0_stem(x)
         feat_p0 = self.p0_act(self.p0_bn(self.p0_dw(feat_p0)))
         feat_p0 = self.p0_pw(feat_p0)
@@ -318,6 +342,13 @@ class P0ResidualHighway(nn.Module):
         # 640x640 -> 320x320 via MaxPool
         feat_p1_res = self.pool(feat_p0)
         feat_p1_res = self.proj(feat_p1_res)
+
+        if self.use_spatial_gate and x.shape[1] >= 3:
+            # Extract GMC short-diff and temporal median residual channels
+            temporal_diff = x[:, 1:3, :, :]  # (B, 2, 640, 640)
+            temporal_p1 = self.pool(temporal_diff)  # (B, 2, 320, 320)
+            spatial_mask = self.spatial_gate_net(temporal_p1)  # (B, 1, 320, 320) in [0, 1]
+            return self.gate * spatial_mask * feat_p1_res
 
         return self.gate * feat_p1_res
 
@@ -426,7 +457,7 @@ class YOLO26HeatmapDetector(nn.Module):
 
         # P0 Residual Highway: full-resolution 640x640 residual stream with zero-init gate
         if self.use_p0_highway:
-            self.p0_highway = P0ResidualHighway(in_channels=3, out_channels=head_in_ch)
+            self.p0_highway = P0ResidualHighway(in_channels=3, out_channels=head_in_ch, use_spatial_gate=True)
         else:
             self.p0_highway = None
 
