@@ -1,3 +1,6 @@
+# env
+cd /tmp/pycharm_project_10ae9e2e && conda activate uav
+
 # install
 pip install -e .
 
@@ -222,3 +225,24 @@ screen python manu/optuna_median_distributed.py \
     --project runs/optuna_median_search
 
 tail -f /tmp/pycharm_project_10ae9e2e/runs/optuna_median_search/logs/trial_0000.log
+
+screen python manu/optuna_soft_iou_distributed.py \
+    --weights runs/optuna_median_search/trial_0022/weights/best.pt \
+    --data /mnt/data/siping/datasets/manu/uav_gmc_median/data.yaml \
+    --gpus 0,1,2,3 \
+    --n-trials 1024 \
+    --epochs 3 \
+    --batch 32 \
+    --stride 2 \
+    --output-root runs/optuna_soft_iou_search
+tail -f /tmp/pycharm_project_10ae9e2e/runs/optuna_soft_iou_search/logs/trial_0001.log
+python -c "
+import pandas as pd
+df = pd.read_csv('runs/optuna_soft_iou_search/optuna_summary.csv')
+best = df[df['status'] == 'COMPLETE'].sort_values(by='f1', ascending=False).iloc[0]
+print('\n' + '='*50 + ' 🏆 CHAMPION TRIAL ' + '='*50)
+for k, v in best.items():
+    print(f'{k:<20}: {v}')
+print('='*119)
+print(f'Best Model Checkpoint: runs/optuna_soft_iou_search/{best[\"trial\"]}/weights/best.pt\n')
+"
