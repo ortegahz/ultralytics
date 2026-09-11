@@ -270,6 +270,58 @@ class PixelShuffleUpsample(nn.Module):
         return self.act(self.ps(self.conv(x)))
 
 
+class P0ResidualHighway(nn.Module):
+    """
+    Full-Resolution (P0 / 640x640) Residual Highway for Infrared Tiny Object Detection.
+    
+    Architecture:
+    1. Direct full-resolution feature extraction on raw 640x640 input (preserves 1~2px point impulses).
+       - Stem: Conv(3 -> 16, k=3, s=1)
+       - Depthwise Separable Conv(16 -> 16, k=3, s=1) for local contrast without downsampling blur.
+    2. Spatial max-pooling (2x2) downsampling to Stride 2 (320x320) to capture local peak point energy.
+    3. Dimension alignment to match P1 fusion channels (48 channels).
+    4. Learnable zero-initialized residual gate (gate=0.0):
+       Guarantees mathematical identity to baseline checkpoint at epoch 0 step 0.
+    """
+
+    def __init__(self, in_channels: int = 3, out_channels: int = 48):
+        super().__init__()
+        self.p0_stem = Conv(in_channels, 16, k=3, s=1)
+        # Depthwise Separable block at full 640x640 resolution
+        self.p0_dw = nn.Conv2d(16, 16, kernel_size=3, padding=1, groups=16, bias=False)
+        self.p0_bn = nn.BatchNorm2d(16)
+        self.p0_act = nn.SiLU(inplace=True)
+        self.p0_pw = Conv(16, 16, k=1, s=1)
+
+        # Maxpool preserves the maximum impulse response without spatial averaging
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+
+        # Project 16 channels to P1 channel dimension (48)
+        self.proj = Conv(16, out_channels, k=1, s=1)
+
+        # Zero-initialized scalar gate (strictly starts from 0.0)
+        self.gate = nn.Parameter(torch.zeros(1))
+
+        self._init_weights()
+
+    def _init_weights(self):
+        nn.init.kaiming_normal_(self.p0_dw.weight, mode="fan_out", nonlinearity="relu")
+        nn.init.constant_(self.p0_bn.weight, 1.0)
+        nn.init.constant_(self.p0_bn.bias, 0.0)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (B, 3, 640, 640)
+        feat_p0 = self.p0_stem(x)
+        feat_p0 = self.p0_act(self.p0_bn(self.p0_dw(feat_p0)))
+        feat_p0 = self.p0_pw(feat_p0)
+
+        # 640x640 -> 320x320 via MaxPool
+        feat_p1_res = self.pool(feat_p0)
+        feat_p1_res = self.proj(feat_p1_res)
+
+        return self.gate * feat_p1_res
+
+
 class YOLO26HeatmapDetector(nn.Module):
     """
     Detector integrating YOLO26 backbone + P2 Neck with Heatmap Head.
@@ -277,6 +329,7 @@ class YOLO26HeatmapDetector(nn.Module):
     Default Stride is 4 (P2 layer, 160x160 for 640x640 input).
     Can optionally upsample P2 to P1 (Stride 2, 320x320 for 640x640 input) for extreme small target recall.
     Supports scale='n' (width=0.25) and scale='s' (width=0.50).
+    Optionally attaches P0ResidualHighway for full-resolution high-frequency impulse retention.
     """
 
     def __init__(
@@ -288,6 +341,7 @@ class YOLO26HeatmapDetector(nn.Module):
         temporal_mode: str = "standard",  # 'standard' (Conv 3ch), 'signed_3frame', 'hybrid_corr'
         upsample_mode: str = "nearest",  # 'nearest', 'pixelshuffle'
         scale: str = "n",  # 'n' or 's'
+        use_p0_highway: bool = False,
     ):
         super().__init__()
         assert stride in (2, 4), f"Only stride 4 (P2) or stride 2 (P1) is supported, got {stride}."
@@ -298,6 +352,7 @@ class YOLO26HeatmapDetector(nn.Module):
         self.use_temporal_stem = use_temporal_stem
         self.temporal_mode = temporal_mode
         self.upsample_mode = upsample_mode
+        self.use_p0_highway = use_p0_highway
 
         # Width scale multiplier (n: 0.25 -> 1x base; s: 0.50 -> 2x base)
         w = 1 if scale == "n" else 2
@@ -369,6 +424,12 @@ class YOLO26HeatmapDetector(nn.Module):
         else:
             head_in_ch = c_p2_out
 
+        # P0 Residual Highway: full-resolution 640x640 residual stream with zero-init gate
+        if self.use_p0_highway:
+            self.p0_highway = P0ResidualHighway(in_channels=3, out_channels=head_in_ch)
+        else:
+            self.p0_highway = None
+
         self.head = HeatmapHead(in_channels=head_in_ch, head_conv=64 * w, num_classes=num_classes)
 
         if weights:
@@ -400,6 +461,9 @@ class YOLO26HeatmapDetector(nn.Module):
 
     def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
         feat = self.extract_features(x)
+        if self.p0_highway is not None:
+            # Inject P0 full-resolution residual with zero-init gate
+            feat = feat + self.p0_highway(x)
         return self.head(feat)
 
     def load_pretrained(self, weights_path: str | Path):

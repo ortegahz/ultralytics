@@ -158,12 +158,26 @@ class FocalLoss(nn.Module):
           (1 - y_pred)^alpha * log(y_pred)                  if y_true == 1
           (1 - y_true)^beta * (y_pred)^alpha * log(1-y_pred) otherwise
         )
+
+    Supports:
+    - Standard CenterNet Focal Loss (relaxation_tau=0.0)
+    - Gaussian Neighborhood / Contrast Adaptive Relaxation (relaxation_tau > 0.0):
+      Weak/diffuse infrared impulses receive softer penalties near target centers,
+      preventing over-suppression of low-SCR targets.
     """
 
-    def __init__(self, alpha: float = 2.0, beta: float = 4.0):
+    def __init__(
+        self,
+        alpha: float = 2.0,
+        beta: float = 4.0,
+        relaxation_tau: float = 0.0,
+        pos_weight: float = 1.0,
+    ):
         super().__init__()
         self.alpha = alpha
         self.beta = beta
+        self.relaxation_tau = relaxation_tau
+        self.pos_weight = pos_weight
 
     def forward(self, pred: torch.Tensor, gt: torch.Tensor) -> torch.Tensor:
         """
@@ -178,7 +192,13 @@ class FocalLoss(nn.Module):
         pos_inds = gt.eq(1.0).float()
         neg_inds = gt.lt(1.0).float()
 
-        neg_weights = torch.pow(1.0 - gt, self.beta)
+        # Adaptive Gaussian relaxation on negative penalty near target neighborhood
+        if self.relaxation_tau > 0.0:
+            # (1 - gt) is reduced by factor (1 - tau * gt) near the Gaussian shoulder
+            effective_gt = torch.clamp(gt * (1.0 + self.relaxation_tau), 0.0, 1.0)
+            neg_weights = torch.pow(1.0 - effective_gt, self.beta)
+        else:
+            neg_weights = torch.pow(1.0 - gt, self.beta)
 
         # Clamp prediction to avoid log(0) and gradient instability
         pred_clamped = torch.clamp(pred, min=1e-5, max=1.0 - 1e-5)
@@ -187,7 +207,7 @@ class FocalLoss(nn.Module):
         neg_loss = torch.log(1.0 - pred_clamped) * torch.pow(pred_clamped, self.alpha) * neg_weights * neg_inds
 
         num_pos = pos_inds.sum()
-        pos_loss = pos_loss.sum()
+        pos_loss = pos_loss.sum() * self.pos_weight
         neg_loss = neg_loss.sum()
 
         if num_pos == 0:
@@ -277,9 +297,16 @@ class HeatmapLoss(nn.Module):
         soft_iou_weight: float = 0.0,
         focal_alpha: float = 2.0,
         focal_beta: float = 4.0,
+        relaxation_tau: float = 0.0,
+        pos_weight: float = 1.0,
     ):
         super().__init__()
-        self.focal_loss = FocalLoss(alpha=focal_alpha, beta=focal_beta)
+        self.focal_loss = FocalLoss(
+            alpha=focal_alpha,
+            beta=focal_beta,
+            relaxation_tau=relaxation_tau,
+            pos_weight=pos_weight,
+        )
         self.offset_loss = RegL1Loss()
         self.soft_iou_loss = SoftIoULoss() if soft_iou_weight > 0.0 else None
         self.hm_weight = hm_weight
