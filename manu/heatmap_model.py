@@ -414,18 +414,19 @@ class YOLO26HeatmapDetector(nn.Module):
         else:
             state_dict = ckpt.get("state_dict", ckpt) if isinstance(ckpt, dict) else ckpt
 
-        # 1. 如果是同构 Heatmap 权重（直接完美匹配大部分参数）
+        # 1. 如果是同构/子集 Heatmap 权重（直接按名字与 shape 匹配）
         own_state = self.state_dict()
         if isinstance(state_dict, dict) and any(k in own_state for k in state_dict.keys()):
             transferred = 0
             skipped = 0
             for k, v in state_dict.items():
-                clean_k = k.replace("model.model.", "").replace("model.", "")
+                clean_k = k.replace("module.", "").replace("model.model.", "").replace("model.", "")
                 if clean_k in own_state:
                     if own_state[clean_k].shape == v.shape:
                         own_state[clean_k].copy_(v)
                         transferred += 1
                     else:
+                        print(f"[WARN] Shape mismatch for {clean_k}: checkpoint {v.shape} vs model {own_state[clean_k].shape}, skipping.")
                         skipped += 1
                 else:
                     skipped += 1
@@ -437,8 +438,8 @@ class YOLO26HeatmapDetector(nn.Module):
         skipped = 0
 
         for k, v in state_dict.items():
-            # Strip model. prefix if exists
-            clean_k = k.replace("model.model.", "").replace("model.", "")
+            # Strip module. / model. prefix if exists
+            clean_k = k.replace("module.", "").replace("model.model.", "").replace("model.", "")
             
             # Map YOLO layer indices to our module names
             # e.g., '0.' -> 'b0.', '1.' -> 'b1.', '2.' -> 'b2.' ...

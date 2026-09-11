@@ -51,7 +51,7 @@ from manu.heatmap_model import YOLO26HeatmapDetector
 def parse_args():
     parser = argparse.ArgumentParser(description="Train YOLO26s P1 High-Res Heatmap Detector")
     parser.add_argument("--data", type=str, default="/mnt/data/siping/datasets/manu/uav_gmc_median/data.yaml")
-    parser.add_argument("--weights", type=str, default="yolo26s.pt", help="Official initial weights (yolo26s.pt)")
+    parser.add_argument("--weights", type=str, default="runs/scale_ab_test/yolo26s_p2_5ep/weights/best_f1.pt", help="Initial weights path (e.g. runs/scale_ab_test/yolo26s_p2_5ep/weights/best_f1.pt or yolo26s.pt)")
     parser.add_argument("--device", type=str, default="0,1,2,3", help="CUDA device IDs, e.g. '0,1,2,3'")
     parser.add_argument("--batch", type=int, default=16, help="Batch size per GPU (default: 16, total = batch * num_gpus)")
     parser.add_argument("--epochs", type=int, default=8, help="Number of training epochs (default: 8)")
@@ -79,6 +79,22 @@ def parse_args():
 
 def main():
     args = parse_args()
+
+    # Fallback search if specified weights path relative or standard
+    weights_candidate = Path(args.weights)
+    if not weights_candidate.exists():
+        alt_paths = [
+            REPO_ROOT / args.weights,
+            Path("/tmp/pycharm_project_10ae9e2e") / args.weights,
+            Path("runs/scale_ab_test/yolo26s_p2_5ep/weights/best_f1.pt"),
+            Path("yolo26s.pt"),
+            Path("weights/yolo26s.pt"),
+        ]
+        for alt in alt_paths:
+            if alt.exists():
+                weights_candidate = alt
+                break
+    args.weights = str(weights_candidate)
 
     save_dir = Path(args.project) / args.name
     save_dir.mkdir(parents=True, exist_ok=True)
