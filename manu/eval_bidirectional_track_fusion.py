@@ -580,6 +580,8 @@ def evaluate_sequence_bidirectional(
     res = {}
     for k in stats:
         res[k] = calc_metrics(stats[k]["tp"], stats[k]["fp"], stats[k]["gt"])
+    res["bidi_frame_dets"] = bidi_frame_dets
+    res["records_sorted"] = records_sorted
     return res
 
 
