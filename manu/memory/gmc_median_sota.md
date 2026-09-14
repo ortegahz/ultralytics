@@ -34,9 +34,18 @@
 
 ---
 
-## 三、单帧冠军模型诞生：Trial 22 突破 F1 0.9058
+## 三、单帧模型的演进与迭代：从 Trial 22 到绝对新 SOTA Trial 0474
 
-在 `uav_gmc_median` 数据集上，通过 4-GPU 分布式 Optuna 搜索（`optuna_median_distributed.py`），锁定了 **Focal Loss 负样本软化黄金参数 $\beta=2.4$**，诞生了单帧最强模型 **`Trial 22`**（`runs/optuna_median_search/trial_0022/weights/best.pt`）。
+在 `uav_gmc_median` 数据集上，通过 4-GPU 分布式 Optuna 搜索（`optuna_median_distributed.py`），早期锁定了 **Focal Loss 负样本软化黄金参数 $\beta=2.4$**，诞生了单帧最强基座 **`Trial 22`**（`runs/optuna_median_search/trial_0022/weights/best.pt`，F1=0.9057）。
+
+后续通过 **P0-NAS 宏微协同架构扩展搜索**（584+ 轮充分收敛），在绝对物理冻结 Trial 22 底模的前提下，引入 `standard_dw + pixel_unshuffle + diff_only (depth=2)` 细粒度高频残差组件，诞生了**全项目单帧历史绝对最高 SOTA 冠军模型：`Trial 0474`**（`runs/optuna_p0_nas/trial_0474/weights/best.pt`）。
+
+### 官方验证集绝对对账表（统一 Distance <= 8.0px，验证集 31,613 帧，GT = 25,111）：
+
+| 模型权重 / 方案代号 | 架构与核心机制 | 最佳门限 | Recall (召回率) | Precision (精确率) | F1-Score | TP 命中数 | FP 虚警数 | FAR (单帧虚警率) | 核心定性与地位 |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Trial 22 (旧单帧底模)** | 纯单帧无侧支 (Stride=2 P1) | 0.25 | 86.11% | 95.51% | 0.9057 | 21,622 | 1,012 | 0.0320 个/帧 | 历史单帧基座标杆 |
+| **★ Trial 0474 (NEW SOTA)** | **冻结底模 + P0-NAS 黄金微架构** | **0.25** | **86.19%** | **95.57%** | **0.9064** | **21,643 (+21)**| **1,004 (-8)** | **0.0318 个/帧** | **★ 全面超越！全指标正向刷新单帧历史最高纪录！** |
 
 ### 全门限官方扫表实测大盘（统一 Distance <= 8.0px，GT = 25,111）：
 

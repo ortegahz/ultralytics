@@ -246,3 +246,14 @@ for k, v in best.items():
 print('='*119)
 print(f'Best Model Checkpoint: runs/optuna_soft_iou_search/{best[\"trial\"]}/weights/best.pt\n')
 "
+
+screen python manu/optuna_p0_nas_distributed.py \
+    --data /mnt/data/siping/datasets/manu/uav_gmc_median/data.yaml \
+    --weights runs/optuna_median_search/trial_0022/weights/best.pt \
+    --gpus 0,1,2,3 \
+    --n-trials 4096 \
+    --epochs 3 \
+    --batch 32 \
+    --output-root runs/optuna_p0_nas
+tail -f /tmp/pycharm_project_10ae9e2e/runs/optuna_p0_nas/logs/trial_0000.log
+python manu/report_p0_nas_status.py --output-root runs/optuna_p0_nas

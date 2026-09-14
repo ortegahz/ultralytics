@@ -272,82 +272,164 @@ class PixelShuffleUpsample(nn.Module):
 
 class P0ResidualHighway(nn.Module):
     """
-    Full-Resolution (P0 / 640x640) Residual Highway with Spatial SCR Gate.
+    Searchable Full-Resolution (P0 / 640x640) Residual Highway for Tiny Infrared UAV Detection.
     
-    Architecture:
-    1. Direct full-resolution feature extraction on raw 640x640 input (preserves 1~2px point impulses).
-       - Motion/anomaly input isolation: focuses on GMC short-diff and temporal median residual (channels 1 & 2),
-         or full 3 channels while using temporal dynamics to generate spatial gating.
-       - Stem: Conv(in_channels -> 16, k=3, s=1)
-       - Depthwise Separable Conv(16 -> 16, k=3, s=1) for local contrast without downsampling blur.
-    2. Spatial max-pooling (2x2) downsampling to Stride 2 (320x320) to capture local peak point energy.
-    3. Dimension alignment to match P1 fusion channels (48 channels).
-    4. Motion-Guided Spatial SCR Gate:
-       - Computes local temporal energy mask from diff channels at 320x320: M(x, y) in [0, 1].
-       - Multiplied with learnable zero-initialized scalar gate (alpha=0.0):
-         F_res = alpha * M(x, y) * feat_p1_res
-       - Ensures mathematical identity at step 0 (alpha=0.0), while dynamically cutting off
-         static ground clutter & sensor fixed-pattern noise in non-moving regions.
+    Guarantees:
+    1. Base Model 100% Frozen & Protected.
+    2. ResNet Identity Shortcut Barrier: gate strictly initializes to 0.0.
+    3. Micro-Capacity Guardrail: trainable parameters tightly capped under 15k.
+    
+    Configurable Micro-Architecture Space:
+    - stem_type:
+        * 'standard_dw': Conv(3->16, k=3) -> DWConv(16->16, k=3) -> PWConv(16->16)
+        * 'dilated_multi_scale': Parallel d=1 (1px pulse) & d=2 (3~4px pulse) branches
+        * 'directional_strip': DWConv(1x3) + DWConv(3x1) orthogonal directional filtering
+    - downsample_mode:
+        * 'maxpool': MaxPool2d(2, 2) preserving peak impulse energy without blurring
+        * 'pixel_unshuffle': PixelUnshuffle(2) lossless spatial-to-channel phase remapping
+        * 'strided_dw': Learnable strided depthwise conv (k=3, s=2)
+    - gate_input_mode:
+        * 'diff_only': Inputs only GMC diff & median residual (2 channels) - cuts ground clutter
+        * 'context_modulated': Inputs all 3 channels [I_t, Diff, Median] with illumination gating
+    - gate_mid_channels: [4, 8, 16]
+    - gate_depth: 1 (1x1 conv) or 2 (3x3 DWConv spatial smoother + 1x1 conv)
+    - fusion_mode:
+        * 'scalar_gate': Global scalar alpha * M(x, y)
+        * 'channel_spatial_gate': Channel-wise 48-dim vector A_ch * M(x, y)
     """
 
-    def __init__(self, in_channels: int = 3, out_channels: int = 48, use_spatial_gate: bool = True):
+    def __init__(
+        self,
+        in_channels: int = 3,
+        out_channels: int = 48,
+        use_spatial_gate: bool = True,
+        stem_type: str = "standard_dw",
+        downsample_mode: str = "maxpool",
+        gate_input_mode: str = "diff_only",
+        gate_mid_channels: int = 8,
+        gate_depth: int = 2,
+        fusion_mode: str = "scalar_gate",
+    ):
         super().__init__()
         self.use_spatial_gate = use_spatial_gate
-        self.p0_stem = Conv(in_channels, 16, k=3, s=1)
-        # Depthwise Separable block at full 640x640 resolution
-        self.p0_dw = nn.Conv2d(16, 16, kernel_size=3, padding=1, groups=16, bias=False)
-        self.p0_bn = nn.BatchNorm2d(16)
-        self.p0_act = nn.SiLU(inplace=True)
-        self.p0_pw = Conv(16, 16, k=1, s=1)
+        self.stem_type = stem_type
+        self.downsample_mode = downsample_mode
+        self.gate_input_mode = gate_input_mode
+        self.gate_mid_channels = gate_mid_channels
+        self.gate_depth = gate_depth
+        self.fusion_mode = fusion_mode
 
-        # Maxpool preserves the maximum impulse response without spatial averaging
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+        # 1. Stem Feature Extractor (640x640 full-resolution)
+        if stem_type == "dilated_multi_scale":
+            self.p0_stem = Conv(in_channels, 16, k=3, s=1)
+            self.branch_d1 = nn.Conv2d(16, 8, kernel_size=3, padding=1, dilation=1, bias=False)
+            self.branch_d2 = nn.Conv2d(16, 8, kernel_size=3, padding=2, dilation=2, bias=False)
+            self.branch_bn = nn.BatchNorm2d(16)
+            self.branch_act = nn.SiLU(inplace=True)
+            self.p0_pw = Conv(16, 16, k=1, s=1)
+        elif stem_type == "directional_strip":
+            self.p0_stem = Conv(in_channels, 16, k=3, s=1)
+            self.strip_h = nn.Conv2d(16, 16, kernel_size=(1, 3), padding=(0, 1), groups=16, bias=False)
+            self.strip_v = nn.Conv2d(16, 16, kernel_size=(3, 1), padding=(1, 0), groups=16, bias=False)
+            self.strip_bn = nn.BatchNorm2d(16)
+            self.strip_act = nn.SiLU(inplace=True)
+            self.p0_pw = Conv(16, 16, k=1, s=1)
+        else:  # standard_dw
+            self.p0_stem = Conv(in_channels, 16, k=3, s=1)
+            self.p0_dw = nn.Conv2d(16, 16, kernel_size=3, padding=1, groups=16, bias=False)
+            self.p0_bn = nn.BatchNorm2d(16)
+            self.p0_act = nn.SiLU(inplace=True)
+            self.p0_pw = Conv(16, 16, k=1, s=1)
 
-        # Project 16 channels to P1 channel dimension (48)
-        self.proj = Conv(16, out_channels, k=1, s=1)
-
-        # Motion-Guided Spatial SCR Gate: extracts spatial motion confidence from diff & median channels
-        if self.use_spatial_gate:
-            # Inputs: diff and median channels (channels 1 & 2 from input x) -> 2 channels
-            # Downsampled to 320x320 via MaxPool to align with P1
-            self.spatial_gate_net = nn.Sequential(
-                nn.Conv2d(2, 8, kernel_size=3, stride=1, padding=1, bias=True),
+        # 2. Downsampling & Energy Remapping (640x640 -> 320x320)
+        if downsample_mode == "pixel_unshuffle":
+            self.pool = nn.PixelUnshuffle(downscale_factor=2)  # 16ch -> 64ch
+            in_proj_ch = 64
+        elif downsample_mode == "strided_dw":
+            self.pool = nn.Sequential(
+                nn.Conv2d(16, 16, kernel_size=3, stride=2, padding=1, groups=16, bias=False),
+                nn.BatchNorm2d(16),
                 nn.SiLU(inplace=True),
-                nn.Conv2d(8, 1, kernel_size=1, stride=1, bias=True),
-                nn.Sigmoid(),
             )
+            in_proj_ch = 16
+        else:  # maxpool
+            self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+            in_proj_ch = 16
 
-        # Zero-initialized scalar gate (strictly starts from 0.0)
-        self.gate = nn.Parameter(torch.zeros(1))
+        # Project downsampled channels to P1 channel dimension (48)
+        self.proj = Conv(in_proj_ch, out_channels, k=1, s=1)
+
+        # 3. Spatial Gate Network M(x, y)
+        if self.use_spatial_gate:
+            gate_in_ch = 2 if gate_input_mode == "diff_only" else 3
+            if gate_depth == 1:
+                self.spatial_gate_net = nn.Sequential(
+                    nn.Conv2d(gate_in_ch, gate_mid_channels, kernel_size=1, stride=1, bias=True),
+                    nn.SiLU(inplace=True),
+                    nn.Conv2d(gate_mid_channels, 1, kernel_size=1, stride=1, bias=True),
+                    nn.Sigmoid(),
+                )
+            else:  # gate_depth == 2 (spatial smoother)
+                self.spatial_gate_net = nn.Sequential(
+                    nn.Conv2d(gate_in_ch, gate_mid_channels, kernel_size=3, stride=1, padding=1, bias=True),
+                    nn.SiLU(inplace=True),
+                    nn.Conv2d(gate_mid_channels, 1, kernel_size=1, stride=1, bias=True),
+                    nn.Sigmoid(),
+                )
+
+        # 4. Zero-Initialized Gate Barrier
+        if fusion_mode == "channel_spatial_gate":
+            # 48-dimensional channel gate vector, strictly zero-initialized
+            self.gate = nn.Parameter(torch.zeros(1, out_channels, 1, 1))
+        else:
+            # Scalar gate, strictly zero-initialized
+            self.gate = nn.Parameter(torch.zeros(1))
 
         self._init_weights()
 
     def _init_weights(self):
-        nn.init.kaiming_normal_(self.p0_dw.weight, mode="fan_out", nonlinearity="relu")
-        nn.init.constant_(self.p0_bn.weight, 1.0)
-        nn.init.constant_(self.p0_bn.bias, 0.0)
-        if self.use_spatial_gate:
-            for m in self.spatial_gate_net.modules():
-                if isinstance(m, nn.Conv2d):
-                    nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
-                    if m.bias is not None:
-                        nn.init.zeros_(m.bias)
+        for name, m in self.named_modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1.0)
+                nn.init.constant_(m.bias, 0.0)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x: (B, 3, 640, 640), channels: [I_t, GMC_Diff, Median_Residual]
-        feat_p0 = self.p0_stem(x)
-        feat_p0 = self.p0_act(self.p0_bn(self.p0_dw(feat_p0)))
-        feat_p0 = self.p0_pw(feat_p0)
+        if self.stem_type == "dilated_multi_scale":
+            feat_stem = self.p0_stem(x)
+            f1 = self.branch_d1(feat_stem)
+            f2 = self.branch_d2(feat_stem)
+            feat_p0 = self.branch_act(self.branch_bn(torch.cat([f1, f2], dim=1)))
+            feat_p0 = self.p0_pw(feat_p0)
+        elif self.stem_type == "directional_strip":
+            feat_stem = self.p0_stem(x)
+            f_h = self.strip_h(feat_stem)
+            f_v = self.strip_v(f_h)
+            feat_p0 = self.strip_act(self.strip_bn(f_v))
+            feat_p0 = self.p0_pw(feat_p0)
+        else:
+            feat_p0 = self.p0_stem(x)
+            feat_p0 = self.p0_act(self.p0_bn(self.p0_dw(feat_p0)))
+            feat_p0 = self.p0_pw(feat_p0)
 
-        # 640x640 -> 320x320 via MaxPool
-        feat_p1_res = self.pool(feat_p0)
-        feat_p1_res = self.proj(feat_p1_res)
+        # Downsample to 320x320 and project to 48 channels
+        feat_p1_res = self.proj(self.pool(feat_p0))
 
-        if self.use_spatial_gate and x.shape[1] >= 3:
-            # Extract GMC short-diff and temporal median residual channels
-            temporal_diff = x[:, 1:3, :, :]  # (B, 2, 640, 640)
-            temporal_p1 = self.pool(temporal_diff)  # (B, 2, 320, 320)
-            spatial_mask = self.spatial_gate_net(temporal_p1)  # (B, 1, 320, 320) in [0, 1]
+        if self.use_spatial_gate:
+            if self.gate_input_mode == "diff_only" and x.shape[1] >= 3:
+                # GMC short-diff + temporal median residual (channels 1 & 2)
+                gate_in = x[:, 1:3, :, :]
+            else:
+                gate_in = x[:, :3, :, :]
+
+            # Spatial gate downsampled to 320x320
+            gate_in_down = nn.functional.max_pool2d(gate_in, kernel_size=2, stride=2)
+            spatial_mask = self.spatial_gate_net(gate_in_down)  # (B, 1, 320, 320) in [0, 1]
+
             return self.gate * spatial_mask * feat_p1_res
 
         return self.gate * feat_p1_res
@@ -373,6 +455,7 @@ class YOLO26HeatmapDetector(nn.Module):
         upsample_mode: str = "nearest",  # 'nearest', 'pixelshuffle'
         scale: str = "n",  # 'n' or 's'
         use_p0_highway: bool = False,
+        p0_highway_kwargs: dict | None = None,
     ):
         super().__init__()
         assert stride in (2, 4), f"Only stride 4 (P2) or stride 2 (P1) is supported, got {stride}."
@@ -457,7 +540,8 @@ class YOLO26HeatmapDetector(nn.Module):
 
         # P0 Residual Highway: full-resolution 640x640 residual stream with zero-init gate
         if self.use_p0_highway:
-            self.p0_highway = P0ResidualHighway(in_channels=3, out_channels=head_in_ch, use_spatial_gate=True)
+            p0_kwargs = {} if p0_highway_kwargs is None else p0_highway_kwargs
+            self.p0_highway = P0ResidualHighway(in_channels=3, out_channels=head_in_ch, **p0_kwargs)
         else:
             self.p0_highway = None
 
