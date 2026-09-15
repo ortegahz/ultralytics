@@ -268,11 +268,14 @@ class BidirectionalTemporalSmoother:
         self,
         stitch_max_gap: int = 4,
         stitch_max_dist: float = 25.0,
-        min_hits_for_infill: int = 4,
+        min_hits_for_infill: int = 5,
         max_infill_gap: int = 3,
         min_track_hits: int = 3,
         min_track_score: float = 0.08,
         instant_conf: float = 0.25,
+        min_rigid_displacement: float = 2.0,
+        max_rigid_variance: float = 0.5,
+        min_hits_for_prune: int = 8,
     ):
         self.stitch_max_gap = stitch_max_gap
         self.stitch_max_dist = stitch_max_dist
@@ -281,6 +284,9 @@ class BidirectionalTemporalSmoother:
         self.min_track_hits = min_track_hits
         self.min_track_score = min_track_score
         self.instant_conf = instant_conf
+        self.min_rigid_displacement = min_rigid_displacement
+        self.max_rigid_variance = max_rigid_variance
+        self.min_hits_for_prune = min_hits_for_prune
 
     def stitch_tracklets(self, tracks: List[PointKalmanTrack]) -> List[PointKalmanTrack]:
         """
@@ -352,6 +358,15 @@ class BidirectionalTemporalSmoother:
             obs_frames = sorted(trk.observations.keys())
             if not obs_frames:
                 continue
+
+            # Rigid Static Pruner: Cull completely frozen sensor bad pixels / static glints
+            if self.min_rigid_displacement > 0 and len(obs_frames) >= self.min_hits_for_prune:
+                pts_arr = np.array([trk.observations[f][0] for f in obs_frames], dtype=np.float32)
+                if len(pts_arr) > 1:
+                    net_disp = float(np.linalg.norm(pts_arr[-1] - pts_arr[0]))
+                    pos_var = float(np.var(pts_arr[:, 0]) + np.var(pts_arr[:, 1]))
+                    if net_disp < self.min_rigid_displacement and pos_var < self.max_rigid_variance:
+                        continue  # Purge static sensor bad pixel / frozen reflection
 
             # Determine whether this track qualifies for infill
             can_infill = trk.hits >= self.min_hits_for_infill
@@ -488,11 +503,14 @@ def evaluate_sequence_bidirectional(
         smoother_config = {
             "stitch_max_gap": 4,
             "stitch_max_dist": 25.0,
-            "min_hits_for_infill": 4,
+            "min_hits_for_infill": 5,
             "max_infill_gap": 3,
             "min_track_hits": 3,
             "min_track_score": 0.08,
             "instant_conf": 0.25,
+            "min_rigid_displacement": 2.0,
+            "max_rigid_variance": 0.5,
+            "min_hits_for_prune": 8,
         }
 
     records_sorted = sorted(records, key=lambda r: natural_sort_key(r["im_name"]))
@@ -607,7 +625,10 @@ def parse_args():
     parser.add_argument("--min-track-score", type=float, default=0.08, help="Min track score (default: 0.08)")
     parser.add_argument("--stitch-gap", type=int, default=4, help="Max frame gap for tracklet stitching (default: 4)")
     parser.add_argument("--infill-gap", type=int, default=3, help="Max internal gap for infill (default: 3)")
-    parser.add_argument("--min-hits-infill", type=int, default=4, help="Min track hits to qualify for infill (default: 4)")
+    parser.add_argument("--min-hits-infill", type=int, default=5, help="Min track hits to qualify for infill (default: 5)")
+    parser.add_argument("--min-rigid-disp", type=float, default=2.0, help="Min net displacement for rigid static pruner (default: 2.0px)")
+    parser.add_argument("--max-rigid-var", type=float, default=0.5, help="Max coordinate variance for rigid static pruner (default: 0.5px²)")
+    parser.add_argument("--min-hits-prune", type=int, default=8, help="Min track hits required to trigger pruner (default: 8)")
     parser.add_argument("--sequences", type=str, default="", help="Optional sequence filtering")
     return parser.parse_args()
 
@@ -661,6 +682,9 @@ def main():
         "min_track_hits": args.min_hits,
         "min_track_score": args.min_track_score,
         "instant_conf": args.instant_conf,
+        "min_rigid_displacement": args.min_rigid_disp,
+        "max_rigid_variance": args.max_rigid_var,
+        "min_hits_for_prune": args.min_hits_prune,
     }
 
     grand_stats = {
