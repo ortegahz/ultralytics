@@ -60,6 +60,9 @@
   sshfs -p 32222 huangzhe@192.168.99.40:/mnt/data/siping/datasets /home/manu/mnt/datasets
   ```
 
-### 3. 数据集坐标对齐铁律 (Zero Coordinate Drift)
+### 3. 数据集坐标对齐与 DataLoader 零漂移铁律 (Zero Coordinate Drift & Pipeline Alignment)
 - 官方数据集（如 `/mnt/data/siping/datasets/manu/uav` 及镜像集 `uav_gmc_median`）是经过严格规范预裁切与坐标归一化的，`labels/val/*.txt` 与图像呈现绝对严格对齐；
-- **严禁脱离官方标准验证集自立评估流**：直接拿 raw 序列做自适应 letterbox 缩放会引入像素级 padding 漂移，造成假性严重漏检与误报；任何新特征生成必须采用 1:1 就地镜像转换。
+- **严禁脱离官方标准验证集自立评估流**：直接拿 raw 序列做自适应 letterbox 缩放会引入像素级 padding 漂移，造成假性严重漏检与误报；任何新特征生成必须采用 1:1 就地镜像转换；
+- **【核心教训与铁律】严禁手写 OpenCV 自定义 DataLoader 替代官方 YOLO 数据管道**：
+  - *历史重大 Bug 复盘*：在时序特征实验中，因手写 OpenCV 读取与目录硬匹配，导致训练样本被严重截断一半（43,008 丢掉 21,594 仅剩 21,414），且验证阶段因缺失 Letterbox 与标准化对齐，使原本收敛在 **F1=0.9064 (FP=1004)** 的底模在 Ep 00 基线检验中暴跌至 **F1=0.8953 (FP 虚增至 1580)**；
+  - *标准规范*：任何新模块微调，输入端必须封装或直接复用 `ultralytics.data.build_yolo_dataset` 与 `build_dataloader`，确保训练集满额 43,008、验证集满额 31,613 帧，零色域/Letterbox 漂移，Epoch 00 必须 100% 浮点数级无损复现当前 SOTA 标称指标！

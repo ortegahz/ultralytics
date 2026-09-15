@@ -257,3 +257,14 @@ screen python manu/optuna_p0_nas_distributed.py \
     --output-root runs/optuna_p0_nas
 tail -f /tmp/pycharm_project_10ae9e2e/runs/optuna_p0_nas/logs/trial_0000.log
 python manu/report_p0_nas_status.py --output-root runs/optuna_p0_nas
+
+screen python manu/optuna_temporal_nas.py \
+    --data /mnt/data/siping/datasets/manu/uav_gmc_median/data.yaml \
+    --cache-root /mnt/data/siping/datasets/manu/uav_s2_diff_cache \
+    --weights runs/optuna_p0_nas/trial_0474/weights/best.pt \
+    --output-root runs/optuna_temporal_nas \
+    --gpus 0,1,2,3 \
+    --n-trials 1000 \
+    --epochs 3 \
+    --batch 16
+tail -f /tmp/pycharm_project_10ae9e2e/runs/optuna_temporal_nas/logs/trial_0000.log
