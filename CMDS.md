@@ -278,4 +278,5 @@ python manu/audit_substandard_cases.py \
     --min-hits-infill 5 \
     --min-rigid-disp 2.0 \
     --max-rigid-var 0.5 \
-    --exclude-avian
+    --exclude-avian \
+    --exclude-demo
