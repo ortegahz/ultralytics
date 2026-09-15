@@ -268,3 +268,14 @@ screen python manu/optuna_temporal_nas.py \
     --epochs 3 \
     --batch 16
 tail -f /tmp/pycharm_project_10ae9e2e/runs/optuna_temporal_nas/logs/trial_0000.log
+
+python manu/audit_substandard_cases.py \
+    --cache-file runs/gmc_eval/uav_median_trial0474_cache.pkl \
+    --dist-thresh 12.0 \
+    --th-base 0.22 \
+    --th-salvage 0.06 \
+    --th-ground 0.35 \
+    --min-hits-infill 5 \
+    --min-rigid-disp 2.0 \
+    --max-rigid-var 0.5 \
+    --exclude-avian
