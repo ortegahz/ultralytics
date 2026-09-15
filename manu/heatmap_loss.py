@@ -150,6 +150,125 @@ def generate_heatmaps_and_targets(
     }
 
 
+class EnergyPreservingFocalLoss(nn.Module):
+    """
+    Sub-pixel Energy-Preserving Focal Loss for Infrared Tiny Object Detection.
+
+    Mathematical Formulation:
+    Standard CenterNet Focal Loss enforces a strict point-wise Gaussian target:
+        L_pos = - (1 - y_pred)^alpha * log(y_pred) at center
+    When a 1~2px infrared optical impulse falls on the boundary of discrete grid cells
+    (sub-pixel phase offset dx, dy in [0, 1]), the physical optical energy is distributed
+    across the 2x2 or 3x3 local neighborhood. Rigidly penalizing the center pixel as if it
+    were an isolated 1.0 peak suppresses predicted response peaks down to 0.15~0.22,
+    leading to massive false-negative truncations at standard operating threshold th=0.25.
+
+    EnergyPreservingFocalLoss introduces:
+    1. Local Energy Integration Loss (L_energy):
+       Calculates the integrated volume under the local 3x3 Gaussian surface around GT centers:
+           E_pred = sum_{(u, v) in N_3x3} y_pred(x+u, y+v)
+           E_gt   = sum_{(u, v) in N_3x3} y_gt(x+u, y+v)
+       Penalizes the discrepancy in total optical impulse energy via smooth L1 loss:
+           L_energy = SmoothL1(E_pred, E_gt)
+    2. Sub-pixel Peak Max Pooling Gating:
+       Instead of punishing y_pred at a single discrete integer coordinate, checks the 3x3 local
+       maximum: if the peak has formed in the immediate sub-pixel neighborhood, softens the center
+       loss to prevent negative gradients from tearing down valid nearby peaks.
+    3. Strict Zero Regression Property:
+       When energy_weight=0.0 and peak_pool=False, mathematically identical to standard CenterNet Focal Loss.
+    """
+
+    def __init__(
+        self,
+        alpha: float = 2.0,
+        beta: float = 2.4,
+        energy_weight: float = 0.25,
+        peak_pool: bool = True,
+        pos_weight: float = 1.0,
+    ):
+        super().__init__()
+        self.alpha = alpha
+        self.beta = beta
+        self.energy_weight = energy_weight
+        self.peak_pool = peak_pool
+        self.pos_weight = pos_weight
+
+    def forward(
+        self,
+        pred: torch.Tensor,
+        gt: torch.Tensor,
+        ind: torch.Tensor | None = None,
+        mask: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, dict[str, float]]:
+        """
+        Args:
+            pred: (B, 1, H, W) in [0, 1]
+            gt:   (B, 1, H, W) in [0, 1]
+            ind:  (B, max_objs) flat indices of target centers
+            mask: (B, max_objs) boolean mask of valid targets
+        """
+        pred = pred.float()
+        gt = gt.float()
+        B, C, H, W = pred.shape
+
+        pos_inds = gt.eq(1.0).float()
+        neg_inds = gt.lt(1.0).float()
+        neg_weights = torch.pow(1.0 - gt, self.beta)
+
+        pred_clamped = torch.clamp(pred, min=1e-5, max=1.0 - 1e-5)
+
+        # Standard point-wise focal components
+        if self.peak_pool:
+            # 3x3 local max-pool response for pos_loss to tolerate 1px sub-pixel sampling jitter
+            pred_max = F.max_pool2d(pred_clamped, kernel_size=3, stride=1, padding=1)
+            # Use max response within 3x3 for center target evaluation
+            effective_pos_pred = torch.where(pos_inds > 0, pred_max, pred_clamped)
+            pos_loss = torch.log(effective_pos_pred) * torch.pow(1.0 - effective_pos_pred, self.alpha) * pos_inds
+        else:
+            pos_loss = torch.log(pred_clamped) * torch.pow(1.0 - pred_clamped, self.alpha) * pos_inds
+
+        neg_loss = torch.log(1.0 - pred_clamped) * torch.pow(pred_clamped, self.alpha) * neg_weights * neg_inds
+
+        num_pos = pos_inds.sum()
+        focal_pos = (pos_loss.sum() * self.pos_weight)
+        focal_neg = neg_loss.sum()
+
+        if num_pos > 0:
+            focal_total = -(focal_pos + focal_neg) / num_pos
+        else:
+            focal_total = -focal_neg
+
+        # Local Energy Preservation Component
+        energy_loss = torch.tensor(0.0, device=pred.device)
+        if self.energy_weight > 0.0 and ind is not None and mask is not None and mask.any():
+            # Compute 3x3 integrated energy around each target center using average pooling
+            kernel_size = 3
+            pred_sum = F.avg_pool2d(pred, kernel_size=kernel_size, stride=1, padding=1) * (kernel_size * kernel_size)
+            gt_sum = F.avg_pool2d(gt, kernel_size=kernel_size, stride=1, padding=1) * (kernel_size * kernel_size)
+
+            # Flatten spatial dimensions to (B, H*W)
+            pred_sum_flat = pred_sum.view(B, -1)
+            gt_sum_flat = gt_sum.view(B, -1)
+
+            # Gather target energies at target coordinates
+            valid_mask = mask.bool()
+            # Gather at target indices
+            pred_e = torch.gather(pred_sum_flat, dim=1, index=ind)
+            gt_e = torch.gather(gt_sum_flat, dim=1, index=ind)
+
+            # Smooth L1 error between predicted and target optical energy
+            energy_diff = F.smooth_l1_loss(pred_e[valid_mask], gt_e[valid_mask], reduction="sum", beta=0.1)
+            valid_targets = valid_mask.float().sum()
+            if valid_targets > 0:
+                energy_loss = energy_diff / valid_targets
+
+        total_hm_loss = focal_total + self.energy_weight * energy_loss
+        return total_hm_loss, {
+            "loss_focal": float(focal_total.detach().item()),
+            "loss_energy": float(energy_loss.detach().item()),
+        }
+
+
 class FocalLoss(nn.Module):
     """
     Modified Focal Loss for Heatmap Regression (CenterNet / CornerNet style).
@@ -288,6 +407,7 @@ class HeatmapLoss(nn.Module):
     """
     Combined Loss for Tiny Object Heatmap Detection:
     Loss = hm_weight * FocalLoss(alpha, beta) + offset_weight * RegL1Loss + soft_iou_weight * SoftIoULoss
+    Supports optional EnergyPreservingFocalLoss when use_energy_preservation=True.
     """
 
     def __init__(
@@ -296,17 +416,30 @@ class HeatmapLoss(nn.Module):
         offset_weight: float = 0.5,
         soft_iou_weight: float = 0.0,
         focal_alpha: float = 2.0,
-        focal_beta: float = 4.0,
+        focal_beta: float = 2.4,
         relaxation_tau: float = 0.0,
         pos_weight: float = 1.0,
+        use_energy_preservation: bool = False,
+        energy_weight: float = 0.25,
+        peak_pool: bool = True,
     ):
         super().__init__()
-        self.focal_loss = FocalLoss(
-            alpha=focal_alpha,
-            beta=focal_beta,
-            relaxation_tau=relaxation_tau,
-            pos_weight=pos_weight,
-        )
+        self.use_energy_preservation = use_energy_preservation
+        if use_energy_preservation:
+            self.focal_loss = EnergyPreservingFocalLoss(
+                alpha=focal_alpha,
+                beta=focal_beta,
+                energy_weight=energy_weight,
+                peak_pool=peak_pool,
+                pos_weight=pos_weight,
+            )
+        else:
+            self.focal_loss = FocalLoss(
+                alpha=focal_alpha,
+                beta=focal_beta,
+                relaxation_tau=relaxation_tau,
+                pos_weight=pos_weight,
+            )
         self.offset_loss = RegL1Loss()
         self.soft_iou_loss = SoftIoULoss() if soft_iou_weight > 0.0 else None
         self.hm_weight = hm_weight
@@ -318,18 +451,32 @@ class HeatmapLoss(nn.Module):
         preds: dict[str, torch.Tensor],
         targets: dict[str, torch.Tensor],
     ) -> tuple[torch.Tensor, dict[str, float]]:
-        loss_hm = self.focal_loss(preds["heatmap"], targets["heatmap"])
+        loss_items = {
+            "loss_total": 0.0,
+            "loss_hm": 0.0,
+            "loss_offset": 0.0,
+            "loss_iou": 0.0,
+            "loss_energy": 0.0,
+        }
+
+        if self.use_energy_preservation:
+            loss_hm, hm_details = self.focal_loss(
+                preds["heatmap"],
+                targets["heatmap"],
+                ind=targets.get("ind"),
+                mask=targets.get("mask"),
+            )
+            loss_items["loss_energy"] = hm_details.get("loss_energy", 0.0)
+        else:
+            loss_hm = self.focal_loss(preds["heatmap"], targets["heatmap"])
+
         loss_offset = self.offset_loss(
             preds["offset"], targets["offset"], targets["ind"], targets["mask"]
         )
 
         total_loss = self.hm_weight * loss_hm + self.offset_weight * loss_offset
-        loss_items = {
-            "loss_total": 0.0,
-            "loss_hm": float(loss_hm.detach().item()),
-            "loss_offset": float(loss_offset.detach().item()),
-            "loss_iou": 0.0,
-        }
+        loss_items["loss_hm"] = float(loss_hm.detach().item())
+        loss_items["loss_offset"] = float(loss_offset.detach().item())
 
         if self.soft_iou_loss is not None and self.soft_iou_weight > 0.0:
             loss_iou = self.soft_iou_loss(preds["heatmap"], targets["heatmap"])

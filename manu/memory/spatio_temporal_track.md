@@ -71,4 +71,21 @@
 - **`wg2022_ir_011_split_03`**：固定坏点被精准剪枝，Precision 逼近 88%；
 - **`3700000000002_153918_1`**：成功跨过工业交付线（Precision 突破 90%，F1 稳站 90%+）；
 - **`DJI_0175_2`**：虚警降至不可思议的仅 2~3 处，Precision 高达 99.3%；
-- 其余 15 个标称合格序列保持满分稳定，零性能倒退。
+---
+
+## 五、第四代升级：通用动力学弹性缝合与深潜打捞系统 (Universal Elastic Spatio-Temporal SOTA)
+
+### 1. 通用设计动机与零特判原则 (Zero-Hardcode Universal Policy)
+为避免面向单序列私有规则带来的过拟合陷阱，在通用后处理中落地三大动力学感知增强模块：
+1. **存活航迹运动学引导的深潜自适应打捞（Track-Guided Deep Salvage, th=0.035~0.05）**：
+   - 彻底打破全局硬截断；仅对已存活确信航迹（hits >= 3），在严格的动力学预测门限内下探捕获微弱脉冲，严禁白噪声自发生成新航迹，直接攻克纯冷天空弱冲激（如 `wg011_03`）；
+2. **速度协方差引导的弹性长间隙缝合（Adaptive Kinematic Stitching, 8~12 帧）与分段保全**：
+   - 依据前序航迹的运动速度与连贯性动态放宽时间断裂带至 8~12 帧，遇超长空洞（如 `wg020_03` 312 帧）自动冻结归档而非抛弃；
+3. **真实无人机悬停动力学锁止（Kinematic Hovering Exemption）与地表视差剪枝**：
+   - 依据历史巡航速度判断悬停，豁免静态剪枝；对地表密集条带状视差白边实施空间密集度过滤，压制 `DJI_0051_2` 晃动假警。
+
+### 2. 评测与扫表工具链
+- 缓存提取脚本：`manu/cache_ep_focal_inferences.py`
+- 通用评测核心：`manu/eval_universal_spatio_temporal_sota.py`
+- 通用网格寻优与 22 序列全量审计：`manu/tune_universal_spatio_temporal_sota.py`
+

@@ -258,4 +258,27 @@ Rank  | Trial      | F1       | Recall   | Prec     | Th    | Stem Type        |
    在 2026-09 时序特征融合实验中，自定义 DataLoader 导致两大灾难性隐患：
    - 训练样本从标称的 43,008 个严重漏失 21,594 个（仅剩 21,414 个），直接破坏了训练集的数据分布完整性；
    - 验证集因缺少官方标准 Letterbox 与色彩映射，导致底模在 Ep 00 的 Baseline Check 发生严重精度下挫（F1 从 0.9064 骤降至 0.8953，FP 虚警从 1,004 激增至 1,580）；
-   - **黄金定论**：必须通过封装官方 `OfficialAlignedCrossAttentionDataset`，保证 `len(train)=43,008` 与 `len(val)=31,613`，实现 Epoch 0 完美复现 **F1=0.9064, TP=21,643, FP=1,004**。
+    - **黄金定论**：必须通过封装官方 `OfficialAlignedCrossAttentionDataset`，保证 `len(train)=43,008` 与 `len(val)=31,613`，实现 Epoch 0 完美复现 **F1=0.9064, TP=21,643, FP=1,004**。
+
+---
+
+## 七、第四代升级：模型端损失重构 —— 亚像素积分能量守恒 Focal Loss (Subpixel Energy-Preserving Focal Loss)
+
+### 1. 核心物理动机与病理突破
+在单帧前馈网络中，红外弱小目标（1~2px 冲激）常落在离散网格单元交界处（亚像素中心偏移）。传统 CenterNet Focal Loss 强制将目标中心视为单点 1.0 硬峰值，忽略了焦平面光学点扩散函数（PSF）在 $2\times 2$ 或 $3\times 3$ 邻域的能量积分连续性。这导致网络在学习过程中对微小相位抖动产生过度压制，导致临界目标置信度峰值被压在 0.15~0.22 之间，在 th=0.25 下被无情截断。
+
+### 2. 数学构造与零性能倒退保障
+1. **$3\times 3$ 局部能量守恒损失（Local Energy Integration Loss）**：
+   $$\mathcal{L}_{\text{energy}} = \text{SmoothL1}\Big(\sum_{\mathcal{N}_{3\times 3}} \hat{Y}_{\text{pred}},\; \sum_{\mathcal{N}_{3\times 3}} Y_{\text{gt}}\Big)$$
+   直接约束局部高斯能量曲面的总积分守恒，提升亚像素漂移弱目标的综合响应；
+2. **亚像素局部峰值防撕裂保护（Subpixel Peak 3x3 Max-Pooling）**：
+   正样本惩罚端使用局部 $3\times 3$ Max-Pool 峰值代替单点离散采样，避免负样本反向梯度撕毁附近刚刚形成的有效弱峰；
+3. **隔离与受控训练规范**：
+   - 骨干、Neck 与 P0 侧支 100% 物理冻结并置于 `eval()` 锁定 BatchNorm；
+   - 仅对 Head 卷积层施加微学习率（$lr_0 = 8\times 10^{-5}$）进行微调，且 Epoch 00 必须 100% 浮点数级无损复现当前 SOTA 基线（F1=0.9064）。
+
+### 3. 实测大盘与终极证伪定论 (Empirical Verdict: Definite Stop of Model-Side Tuning)
+经过 5 轮微调实测（产出 `runs/energy_preserving_focal/exp_ep_focal_5ep/weights/best_recall.pt`），并在全大盘 System SOTA 统一逻辑下进行严格单一变量对照：
+- **单帧看似微增**：单帧 TP 虽从 21,643 增加至 **21,676 (+33 真实目标)**，但 FP 同步激增 138 处，单帧最佳 F1 下滑至 0.9045；
+- **系统级灾难性割裂**：能量积分平摊了高斯响应曲率，导致同一目标置信度在时间轴上剧烈抖动，双向平滑系统长航迹发生严重碎片化断裂。**全大盘真实命中由 20,260 暴跌至 20,037，系统级活活净丢 -223 帧真实目标！难例 `wg011_03` 召回腰斩至 11.4%，`wg011_02` 直接被拖累退化为不达标**；
+- **最终决议**：**彻底确立模型端在当前三通道特征管道下已达极限，正式永久终止对单帧检测器权重与损失函数的微调。单帧底模永久回退并锁定 `Trial 0474` 官方权重！**
