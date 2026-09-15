@@ -201,21 +201,30 @@ def main():
 
         # 5x5 target patch
         r = 2
-        t0 = float(np.max(ch0[max(0, cy-r):cy+r+1, max(0, cx-r):cx+r+1]))
-        t1 = float(np.max(ch1[max(0, cy-r):cy+r+1, max(0, cx-r):cx+r+1]))
-        t2 = float(np.max(ch2[max(0, cy-r):cy+r+1, max(0, cx-r):cx+r+1]))
+        y_min, y_max = max(0, cy - r), min(img.shape[0], cy + r + 1)
+        x_min, x_max = max(0, cx - r), min(img.shape[1], cx + r + 1)
+        if y_min >= y_max or x_min >= x_max:
+            continue
+        t0 = float(np.max(ch0[y_min:y_max, x_min:x_max]))
+        t1 = float(np.max(ch1[y_min:y_max, x_min:x_max]))
+        t2 = float(np.max(ch2[y_min:y_max, x_min:x_max]))
 
         # Annulus background on ch0
         r_out = 10
         r_in = 5
-        out_patch = ch0[max(0, cy-r_out):cy+r_out+1, max(0, cx-r_out):cx+r_out+1]
-        mask = np.ones_like(out_patch, dtype=bool)
-        h_p, w_p = out_patch.shape
-        cy_p, cx_p = h_p // 2, w_p // 2
-        mask[max(0, cy_p-r_in):cy_p+r_in+1, max(0, cx_p-r_in):cx_p+r_in+1] = False
-        bg_pixels = out_patch[mask]
-        mu_b = float(np.mean(bg_pixels)) if len(bg_pixels) > 0 else 0.0
-        sig_b = float(np.std(bg_pixels)) if len(bg_pixels) > 0 else 0.0
+        out_y_min, out_y_max = max(0, cy - r_out), min(img.shape[0], cy + r_out + 1)
+        out_x_min, out_x_max = max(0, cx - r_out), min(img.shape[1], cx + r_out + 1)
+        out_patch = ch0[out_y_min:out_y_max, out_x_min:out_x_max]
+        if out_patch.size == 0:
+            mu_b, sig_b = 0.0, 0.0
+        else:
+            mask = np.ones_like(out_patch, dtype=bool)
+            h_p, w_p = out_patch.shape
+            cy_p, cx_p = cy - out_y_min, cx - out_x_min
+            mask[max(0, cy_p - r_in):min(h_p, cy_p + r_in + 1), max(0, cx_p - r_in):min(w_p, cx_p + r_in + 1)] = False
+            bg_pixels = out_patch[mask]
+            mu_b = float(np.mean(bg_pixels)) if len(bg_pixels) > 0 else 0.0
+            sig_b = float(np.std(bg_pixels)) if len(bg_pixels) > 0 else 0.0
 
         # Model prediction from cache
         rec = cache_records.get(p.name, None)
@@ -260,9 +269,12 @@ def main():
         img = cv2.imread(str(p), cv2.IMREAD_UNCHANGED)
         if img is not None and len(img.shape) == 3 and img.shape[2] == 3:
             r = 2
-            ch0_vals.append(float(np.max(img[max(0, cy-r):cy+r+1, max(0, cx-r):cx+r+1, 0])))
-            ch1_vals.append(float(np.max(img[max(0, cy-r):cy+r+1, max(0, cx-r):cx+r+1, 1])))
-            ch2_vals.append(float(np.max(img[max(0, cy-r):cy+r+1, max(0, cx-r):cx+r+1, 2])))
+            y_min, y_max = max(0, cy - r), min(img.shape[0], cy + r + 1)
+            x_min, x_max = max(0, cx - r), min(img.shape[1], cx + r + 1)
+            if y_min < y_max and x_min < x_max:
+                ch0_vals.append(float(np.max(img[y_min:y_max, x_min:x_max, 0])))
+                ch1_vals.append(float(np.max(img[y_min:y_max, x_min:x_max, 1])))
+                ch2_vals.append(float(np.max(img[y_min:y_max, x_min:x_max, 2])))
 
     print(f"• Mean Intensity on Target across All {len(gt_frames)} Frames:")
     print(f"  - Channel 0 (Raw Infrared Gray)    : {np.mean(ch0_vals):.2f}")

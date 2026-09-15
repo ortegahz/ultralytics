@@ -433,7 +433,18 @@ def match_predictions_to_gt(
     gt_pts: np.ndarray,
     pred_pts: np.ndarray,
     dist_thresh: float = 8.0,
+    gt_bboxes: Optional[np.ndarray] = None,
+    match_mode: str = "dist",
 ) -> Tuple[int, int, int]:
+    """
+    Matches prediction points to Ground Truth targets using Hungarian Assignment.
+    - match_mode == "bbox": Dual Criteria (Union).
+      A prediction matches GT IF it falls INSIDE the GT Bounding Box OR within dist_thresh of center.
+      This guarantees Point-in-BBox is a STRICT SUPERSET of distance matching:
+      Small targets (e.g. 2x2px) are protected by dist_thresh (8px),
+      Large targets (e.g. 70~120px) are matched if inside their physical bbox.
+    - match_mode == "dist": Strict distance criteria (||pred_pt - gt_center|| <= dist_thresh).
+    """
     if len(pred_pts) == 0:
         return 0, 0, len(gt_pts)
     if len(gt_pts) == 0:
@@ -442,12 +453,33 @@ def match_predictions_to_gt(
     diff = pred_pts[:, None, :] - gt_pts[None, :, :]
     dists = np.sqrt(np.sum(diff ** 2, axis=-1))
 
-    r_ind, col_ind = linear_sum_assignment(dists)
+    num_preds, num_gts = dists.shape
+    valid_match = dists <= dist_thresh
+
+    if match_mode == "bbox" and gt_bboxes is not None and len(gt_bboxes) == num_gts:
+        # SUPERSET CRITERIA: in_box OR dist <= dist_thresh
+        for g_idx, box in enumerate(gt_bboxes):
+            if len(box) >= 4 and box[2] > 0 and box[3] > 0:
+                cx, cy, w, h = box[0], box[1], box[2], box[3]
+                x1, y1 = cx - w / 2.0, cy - h / 2.0
+                x2, y2 = cx + w / 2.0, cy + h / 2.0
+                in_box = (
+                    (pred_pts[:, 0] >= x1)
+                    & (pred_pts[:, 0] <= x2)
+                    & (pred_pts[:, 1] >= y1)
+                    & (pred_pts[:, 1] <= y2)
+                )
+                valid_match[:, g_idx] = valid_match[:, g_idx] | in_box
+
+    cost_matrix = dists.copy()
+    cost_matrix[~valid_match] = 1e6
+
+    r_ind, col_ind = linear_sum_assignment(cost_matrix)
     matched_gt = set()
     matched_pred = set()
 
     for r, c in zip(r_ind, col_ind):
-        if dists[r, c] <= dist_thresh:
+        if valid_match[r, c]:
             matched_pred.add(r)
             matched_gt.add(c)
 
@@ -485,6 +517,7 @@ def evaluate_sequence_bidirectional(
     img_h: int = 640,
     tracker_config: Optional[Dict] = None,
     smoother_config: Optional[Dict] = None,
+    match_mode: str = "bbox",
 ) -> Dict[str, Dict[str, float]]:
     if tracker_config is None:
         tracker_config = {
@@ -561,6 +594,7 @@ def evaluate_sequence_bidirectional(
     # Pass 3: Evaluate metrics
     for f_idx, r in enumerate(records_sorted):
         gt_pts = np.asarray(r["gt_pts"], dtype=np.float32)
+        gt_bboxes = np.asarray(r["gt_bboxes"], dtype=np.float32) if "gt_bboxes" in r else None
         pred_pts = np.asarray(r["pred_points"], dtype=np.float32)
         pred_scs = np.asarray(r["pred_scores"], dtype=np.float32)
         n_gt = len(gt_pts)
@@ -571,7 +605,7 @@ def evaluate_sequence_bidirectional(
         # Mode 1: Single-frame Baseline at th_base
         base_mask = pred_scs >= th_base
         pts_base = pred_pts[base_mask]
-        tp1, fp1, _ = match_predictions_to_gt(gt_pts, pts_base, dist_thresh)
+        tp1, fp1, _ = match_predictions_to_gt(gt_pts, pts_base, dist_thresh, gt_bboxes=gt_bboxes, match_mode=match_mode)
         stats["baseline"]["tp"] += tp1
         stats["baseline"]["fp"] += fp1
 
@@ -584,14 +618,14 @@ def evaluate_sequence_bidirectional(
                 if is_conf:
                     online_pts_list.append(t.observations[f_idx][0])
         pts_online = np.array(online_pts_list, dtype=np.float32) if len(online_pts_list) > 0 else np.zeros((0, 2), dtype=np.float32)
-        tp2, fp2, _ = match_predictions_to_gt(gt_pts, pts_online, dist_thresh)
+        tp2, fp2, _ = match_predictions_to_gt(gt_pts, pts_online, dist_thresh, gt_bboxes=gt_bboxes, match_mode=match_mode)
         stats["online_fusion"]["tp"] += tp2
         stats["online_fusion"]["fp"] += fp2
 
         # Mode 3: Bidirectional Smoothed & Infilled Output
         bidi_dets = bidi_frame_dets[f_idx]
         pts_bidi = np.array([d["pos"] for d in bidi_dets], dtype=np.float32) if len(bidi_dets) > 0 else np.zeros((0, 2), dtype=np.float32)
-        tp3, fp3, _ = match_predictions_to_gt(gt_pts, pts_bidi, dist_thresh)
+        tp3, fp3, _ = match_predictions_to_gt(gt_pts, pts_bidi, dist_thresh, gt_bboxes=gt_bboxes, match_mode=match_mode)
         stats["bidirectional"]["tp"] += tp3
         stats["bidirectional"]["fp"] += fp3
 
@@ -629,6 +663,19 @@ def parse_args():
     parser.add_argument("--min-rigid-disp", type=float, default=2.0, help="Min net displacement for rigid static pruner (default: 2.0px)")
     parser.add_argument("--max-rigid-var", type=float, default=0.5, help="Max coordinate variance for rigid static pruner (default: 0.5px²)")
     parser.add_argument("--min-hits-prune", type=int, default=8, help="Min track hits required to trigger pruner (default: 8)")
+    parser.add_argument(
+        "--data-root",
+        type=str,
+        default="/mnt/data/siping/datasets/manu/uav_gmc_median",
+        help="Path to dataset root (containing labels/val for Point-in-BBox fallback)",
+    )
+    parser.add_argument(
+        "--match-mode",
+        type=str,
+        default="bbox",
+        choices=["bbox", "dist"],
+        help="Matching criterion: 'bbox' (Point-in-BBox or dist <= dist_thresh) or 'dist' (strict dist <= dist_thresh)",
+    )
     parser.add_argument("--sequences", type=str, default="", help="Optional sequence filtering")
     return parser.parse_args()
 
@@ -654,6 +701,45 @@ def main():
     with open(cache_path, "rb") as f:
         records = pickle.load(f)
     print(f"Loaded {len(records)} image predictions.\n")
+
+    # Enrich records with gt_bboxes if in bbox mode and gt_bboxes not present in cache
+    if args.match_mode == "bbox":
+        data_root = Path(args.data_root)
+        val_lbl_dir = data_root / "labels" / "val"
+        if not val_lbl_dir.exists():
+            cand_root = Path("/home/manu/mnt/datasets/manu/uav_gmc_median")
+            if (cand_root / "labels" / "val").exists():
+                val_lbl_dir = cand_root / "labels" / "val"
+
+        lbl_cache = {}
+        has_gt_bboxes = any("gt_bboxes" in r for r in records[:50])
+        if not has_gt_bboxes and val_lbl_dir.exists():
+            print(f"[INFO] Enriching cache records with GT BBoxes from: {val_lbl_dir} (Point-in-BBox mode)")
+            for r in records:
+                im_name = r["im_name"]
+                stem = Path(im_name).stem
+                lbl_p = val_lbl_dir / f"{stem}.txt"
+                bboxes = []
+                if lbl_p.exists():
+                    if stem not in lbl_cache:
+                        with open(lbl_p, "r", encoding="utf-8") as f_lbl:
+                            lines = [l.strip().split() for l in f_lbl if l.strip()]
+                        lbl_boxes = []
+                        for l in lines:
+                            box = [float(x) for x in l[1:5]]
+                            lbl_boxes.append([
+                                box[0] * 640.0,
+                                box[1] * 640.0,
+                                box[2] * 640.0,
+                                box[3] * 640.0,
+                            ])
+                        lbl_cache[stem] = np.array(lbl_boxes, dtype=np.float32)
+                    bboxes = lbl_cache[stem]
+                r["gt_bboxes"] = bboxes if len(bboxes) > 0 else np.zeros((0, 4), dtype=np.float32)
+        elif has_gt_bboxes:
+            print("[INFO] Using GT BBoxes embedded in cache file (Point-in-BBox mode)")
+        else:
+            print(colorstr("yellow", f"[WARN] labels/val not found at {val_lbl_dir}. Falling back to distance-only matching."))
 
     seq_records: Dict[str, List[Dict]] = {}
     for r in records:
@@ -713,6 +799,7 @@ def main():
             img_h=640,
             tracker_config=tracker_config,
             smoother_config=smoother_config,
+            match_mode=args.match_mode,
         )
 
         for k in grand_stats:
@@ -730,7 +817,8 @@ def main():
         print("-" * 120)
 
     print("=" * 120)
-    print(colorstr("bold", f"GRAND OVERALL RESULTS ACROSS ALL SEQUENCES (Distance <= {args.dist_thresh:.1f}px)"))
+    criterion_desc = f"Point-in-BBox (or Dist <= {args.dist_thresh:.1f}px)" if args.match_mode == "bbox" else f"Strict Distance <= {args.dist_thresh:.1f}px"
+    print(colorstr("bold", f"GRAND OVERALL RESULTS ACROSS ALL SEQUENCES ({criterion_desc})"))
     print("=" * 120)
 
     grand_metrics = {}

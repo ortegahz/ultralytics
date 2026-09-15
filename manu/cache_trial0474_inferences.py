@@ -182,19 +182,26 @@ def main():
                 im_name = Path(im_files[b]).name if im_files[b] else f"img_{b}"
 
                 gt_pts = []
+                gt_bboxes = []
                 for box in gt_norm:
                     gt_x = float(box[0] * args.imgsz)
                     gt_y = float(box[1] * args.imgsz)
+                    gt_w = float(box[2] * args.imgsz)
+                    gt_h = float(box[3] * args.imgsz)
                     gt_pts.append([gt_x, gt_y])
+                    gt_bboxes.append([gt_x, gt_y, gt_w, gt_h])
                 gt_pts = np.array(gt_pts, dtype=np.float32) if len(gt_pts) > 0 else np.zeros((0, 2), dtype=np.float32)
+                gt_bboxes = np.array(gt_bboxes, dtype=np.float32) if len(gt_bboxes) > 0 else np.zeros((0, 4), dtype=np.float32)
 
                 pts_fp16 = peaks_list[b]["points"].astype(np.float16)
                 scs_fp16 = peaks_list[b]["scores"].astype(np.float16)
                 gt_fp16 = gt_pts.astype(np.float16)
+                gt_bbox_fp16 = gt_bboxes.astype(np.float16)
 
                 records.append({
                     "im_name": im_name,
                     "gt_pts": gt_fp16,
+                    "gt_bboxes": gt_bbox_fp16,
                     "pred_points": pts_fp16,
                     "pred_scores": scs_fp16,
                 })

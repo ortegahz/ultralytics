@@ -61,6 +61,19 @@ def parse_args():
     parser.add_argument("--max-rigid-var", type=float, default=0.5, help="Max coordinate variance for rigid static pruner (default: 0.5px²)")
     parser.add_argument("--img-h", type=int, default=640)
     parser.add_argument("--img-w", type=int, default=640)
+    parser.add_argument(
+        "--data-root",
+        type=str,
+        default="/mnt/data/siping/datasets/manu/uav_gmc_median",
+        help="Path to dataset root (containing labels/val for Point-in-BBox fallback)",
+    )
+    parser.add_argument(
+        "--match-mode",
+        type=str,
+        default="bbox",
+        choices=["bbox", "dist"],
+        help="Matching criterion: 'bbox' (Point-in-BBox or dist <= dist_thresh) or 'dist' (strict dist <= dist_thresh)",
+    )
     # Delivery criteria thresholds (in percentage, matching calc_metrics scale 0~100)
     parser.add_argument("--min-f1", type=float, default=88.0, help="Delivery criteria min F1 (%)")
     parser.add_argument("--min-recall", type=float, default=85.0, help="Delivery criteria min Recall (%)")
@@ -103,6 +116,47 @@ def main():
     with open(cache_path, "rb") as f:
         records = pickle.load(f)
 
+    # Enrich records with gt_bboxes if in bbox mode and gt_bboxes not present in cache
+    if args.match_mode == "bbox":
+        data_root = Path(args.data_root)
+        val_lbl_dir = data_root / "labels" / "val"
+        if not val_lbl_dir.exists():
+            cand_root = Path("/home/manu/mnt/datasets/manu/uav_gmc_median")
+            if (cand_root / "labels" / "val").exists():
+                val_lbl_dir = cand_root / "labels" / "val"
+
+        lbl_cache = {}
+        has_gt_bboxes = any("gt_bboxes" in r for r in records[:50])
+        if not has_gt_bboxes and val_lbl_dir.exists():
+            print(f"[INFO] Enriching cache records with GT BBoxes from: {val_lbl_dir} (Point-in-BBox mode)")
+            for r in records:
+                im_name = r["im_name"]
+                stem = Path(im_name).stem
+                lbl_p = val_lbl_dir / f"{stem}.txt"
+                bboxes = []
+                if lbl_p.exists():
+                    if stem not in lbl_cache:
+                        with open(lbl_p, "r", encoding="utf-8") as f_lbl:
+                            lines = [l.strip().split() for l in f_lbl if l.strip()]
+                        lbl_boxes = []
+                        for l in lines:
+                            # YOLO format: class cx cy w h (normalized)
+                            box = [float(x) for x in l[1:5]]
+                            # Convert to pixel cx, cy, w, h
+                            lbl_boxes.append([
+                                box[0] * args.img_w,
+                                box[1] * args.img_h,
+                                box[2] * args.img_w,
+                                box[3] * args.img_h,
+                            ])
+                        lbl_cache[stem] = np.array(lbl_boxes, dtype=np.float32)
+                    bboxes = lbl_cache[stem]
+                r["gt_bboxes"] = bboxes if len(bboxes) > 0 else np.zeros((0, 4), dtype=np.float32)
+        elif has_gt_bboxes:
+            print("[INFO] Using GT BBoxes embedded in cache file (Point-in-BBox mode)")
+        else:
+            print(colorstr("yellow", f"[WARN] labels/val not found at {val_lbl_dir}. Falling back to distance-only matching."))
+
     seq_records: Dict[str, List[Dict]] = {}
     for r in records:
         seq = extract_seq_name(r["im_name"])
@@ -135,6 +189,7 @@ def main():
     print("\n" + "=" * 125)
     print("🔍 AUDITING ALL VALIDATION SEQUENCES AGAINST INDUSTRIAL DELIVERY CRITERIA")
     print(f"Delivery Standards: F1 >= {args.min_f1:.1f}% | Recall >= {args.min_recall:.1f}% | Precision >= {args.min_prec:.1f}%")
+    print(f"Matching Criterion: {'Point-in-BBox (or dist <= ' + str(args.dist_thresh) + 'px)' if args.match_mode == 'bbox' else 'Strict Distance <= ' + str(args.dist_thresh) + 'px'}")
     print("=" * 125)
 
     # Confirmed natural avian clutter sequences (human expert verified: physical birds gliding / flapping)
@@ -179,6 +234,7 @@ def main():
             img_h=args.img_h,
             tracker_config=tracker_config,
             smoother_config=smoother_config,
+            match_mode=args.match_mode,
         )
 
         bidi = eval_res["bidirectional"]
