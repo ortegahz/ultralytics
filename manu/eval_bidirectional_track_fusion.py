@@ -165,6 +165,8 @@ class OnlineAdaptiveTracker:
         min_displacement: float = 2.5,
         sky_ratio: float = 0.60,
         img_h: int = 640,
+        th_deep_salvage: float = 0.0,
+        min_hits_deep_salvage: int = 3,
     ):
         self.max_age = max_age
         self.min_hits = min_hits
@@ -174,6 +176,9 @@ class OnlineAdaptiveTracker:
         self.instant_conf = instant_conf
         self.min_displacement = min_displacement
         self.sky_y_boundary = img_h * sky_ratio
+        # Phase-A Module 2: Track-Gated Deep Salvage (only for mature tracks, sky region)
+        self.th_deep_salvage = th_deep_salvage
+        self.min_hits_deep_salvage = min_hits_deep_salvage
 
         self.active_tracks: List[PointKalmanTrack] = []
         self.finished_tracks: List[PointKalmanTrack] = []
@@ -189,6 +194,8 @@ class OnlineAdaptiveTracker:
         high_scs: np.ndarray,
         salvage_pts: np.ndarray,
         salvage_scs: np.ndarray,
+        deep_pts: Optional[np.ndarray] = None,
+        deep_scs: Optional[np.ndarray] = None,
     ):
         # 1. Kalman prediction
         for t in self.active_tracks:
@@ -223,6 +230,31 @@ class OnlineAdaptiveTracker:
                 if dists_salvage[r_idx, c_idx] <= cur_gate:
                     trk.update(salvage_pts[c_idx], salvage_scs[c_idx], frame_idx)
                     matched_tracks.add(orig_track_idx)
+
+        # Step B2 (Phase-A): Track-Gated Deep Salvage.
+        # Mature tracks (hits >= min_hits_deep_salvage) may probe into the deep weak band
+        # (th_deep_salvage <= conf < th_salvage) strictly within kinematic gating.
+        # Deep candidates are FORBIDDEN from initiating new tracks (white-noise isolation).
+        if (
+            self.th_deep_salvage > 0.0
+            and deep_pts is not None
+            and len(deep_pts) > 0
+        ):
+            unmatched_deep = [i for i in range(len(self.active_tracks)) if i not in matched_tracks]
+            mature_unmatched = [
+                i for i in unmatched_deep if self.active_tracks[i].hits >= self.min_hits_deep_salvage
+            ]
+            if len(mature_unmatched) > 0:
+                t_deep_pos = np.array([self.active_tracks[i].get_pos() for i in mature_unmatched])
+                dists_deep = np.linalg.norm(t_deep_pos[:, None, :] - deep_pts[None, :, :], axis=-1)
+                r_deep, c_deep = linear_sum_assignment(dists_deep)
+                for r_idx, c_idx in zip(r_deep, c_deep):
+                    orig_track_idx = mature_unmatched[r_idx]
+                    trk = self.active_tracks[orig_track_idx]
+                    # Conservative gate: no maneuver expansion for deep weak pulses
+                    if dists_deep[r_idx, c_idx] <= self.match_dist:
+                        trk.update(deep_pts[c_idx], deep_scs[c_idx], frame_idx)
+                        matched_tracks.add(orig_track_idx)
 
         # Step C: Only UNMATCHED HIGH-CONFIDENCE detections initiate new tracks
         for i in range(len(high_pts)):
@@ -276,6 +308,18 @@ class BidirectionalTemporalSmoother:
         min_rigid_displacement: float = 2.0,
         max_rigid_variance: float = 0.5,
         min_hits_for_prune: int = 8,
+        # ---------------- Phase-A Extensions (all default OFF = legacy SOTA) ----------------
+        stitch_long_gap: int = 0,
+        stitch_max_vel_diff: float = 4.0,
+        hover_vel_thresh: float = 0.0,
+        hover_infill_gap: int = 15,
+        coast_max_frames: int = 0,
+        coast_damping: float = 0.85,
+        min_hits_hover: int = 8,
+        hover_sky_only: bool = True,
+        min_rigid_disp_sky: Optional[float] = None,
+        sky_ratio: float = 0.60,
+        img_h: int = 640,
     ):
         self.stitch_max_gap = stitch_max_gap
         self.stitch_max_dist = stitch_max_dist
@@ -287,6 +331,21 @@ class BidirectionalTemporalSmoother:
         self.min_rigid_displacement = min_rigid_displacement
         self.max_rigid_variance = max_rigid_variance
         self.min_hits_for_prune = min_hits_for_prune
+        # Phase-A Module 1: Elastic Long Stitching (velocity-coherent extended gap)
+        self.stitch_long_gap = max(stitch_long_gap, stitch_max_gap)
+        self.stitch_max_vel_diff = stitch_max_vel_diff
+        # Phase-A Module 3: Hover-Lock Coasting (kinematic zero-velocity lock)
+        self.hover_vel_thresh = hover_vel_thresh
+        self.hover_infill_gap = hover_infill_gap
+        self.coast_max_frames = coast_max_frames
+        self.coast_damping = coast_damping
+        self.min_hits_hover = min_hits_hover
+        # Ground static = bad pixel / clutter domain (physically purge-prone); hover-lock
+        # defaults to sky-only. Ground hover can be re-enabled via hover_sky_only=False.
+        self.hover_sky_only = hover_sky_only
+        # Phase-A: Sky-aware rigid pruner (bad-pixel pruning relaxed in sky for real hover targets)
+        self.min_rigid_disp_sky = min_rigid_disp_sky
+        self.sky_y_boundary = img_h * sky_ratio
 
     def stitch_tracklets(self, tracks: List[PointKalmanTrack]) -> List[PointKalmanTrack]:
         """
@@ -328,10 +387,64 @@ class BidirectionalTemporalSmoother:
                         matched_merged = True
                         break
 
+            # Phase-A Module 1: Elastic Long Stitching.
+            # For extended dropouts (darkening/flutters/stop-go), allow gaps up to
+            # stitch_long_gap when the endpoint velocities are kinematically coherent.
+            if not matched_merged and self.stitch_long_gap > self.stitch_max_gap:
+                for prev in merged:
+                    gap = trk.start_frame - prev.last_observed_frame
+                    if self.stitch_max_gap < gap <= self.stitch_long_gap:
+                        prev_last_pos = prev.observations[prev.last_observed_frame][0]
+                        prev_v = prev.get_velocity()
+                        trk_first_pos = trk.observations[trk.start_frame][0]
+                        trk_v = trk.get_velocity()
+
+                        # Velocity coherence: both endpoints must agree on the motion state
+                        # (covers stop-go: both near-zero; covers cruise: similar vectors)
+                        if np.linalg.norm(prev_v - trk_v) > self.stitch_max_vel_diff:
+                            continue
+
+                        extrapolated_pos = prev_last_pos + prev_v * gap
+                        spatial_dist = np.linalg.norm(extrapolated_pos - trk_first_pos)
+                        allowed_dist = max(self.stitch_max_dist, 10.0 * gap)
+                        if spatial_dist <= allowed_dist:
+                            for f_idx, obs in trk.observations.items():
+                                prev.observations[f_idx] = obs
+                            prev.hits += trk.hits
+                            prev.last_frame = max(prev.last_frame, trk.last_frame)
+                            prev.last_observed_frame = max(prev.last_observed_frame, trk.last_observed_frame)
+                            prev.score = max(prev.score, trk.score)
+                            prev.is_confirmed = prev.is_confirmed or trk.is_confirmed
+                            matched_merged = True
+                            break
+
             if not matched_merged:
                 merged.append(trk)
 
         return merged
+
+    def _append_synthetic(
+        self,
+        frame_outputs: List[List[Dict]],
+        f_idx: int,
+        pos: np.ndarray,
+        score: float,
+        track_id: int,
+        dedup_radius: float = 6.0,
+    ):
+        """
+        Append a synthetically generated (infilled / coasted) detection. When dedup_radius > 0,
+        skip if any existing detection in the same frame already covers this position (avoids
+        double-counting a GT target as 1 TP + 1 FP when a coasted track overlaps a live one).
+        Legacy infill paths pass dedup_radius=0.0 to preserve bit-exact legacy behavior.
+        """
+        if not (0 <= f_idx < len(frame_outputs)):
+            return
+        if dedup_radius > 0.0:
+            for d in frame_outputs[f_idx]:
+                if np.linalg.norm(d["pos"] - pos) <= dedup_radius:
+                    return
+        frame_outputs[f_idx].append({"pos": pos, "score": score, "track_id": track_id, "infilled": True})
 
     def smooth_and_infill(
         self,
@@ -342,6 +455,8 @@ class BidirectionalTemporalSmoother:
         Produce smoothed frame-by-frame outputs:
         1. Prefix recovery: for confirmed tracks (hits >= min_hits), output warmup frames.
         2. Infill: for confirmed stable tracks, fill small gaps (<= max_infill_gap).
+        3. Phase-A Hover-Lock: for mature near-static tracks, fill extended gaps and
+           coast beyond the last observation (kinematic zero-velocity lock).
         """
         # frame_outputs[f] = list of detections: {"pos": (x, y), "score": s, "track_id": id}
         frame_outputs: List[List[Dict]] = [[] for _ in range(num_frames)]
@@ -365,11 +480,31 @@ class BidirectionalTemporalSmoother:
                 if len(pts_arr) > 1:
                     net_disp = float(np.linalg.norm(pts_arr[-1] - pts_arr[0]))
                     pos_var = float(np.var(pts_arr[:, 0]) + np.var(pts_arr[:, 1]))
-                    if net_disp < self.min_rigid_displacement and pos_var < self.max_rigid_variance:
-                        continue  # Purge static sensor bad pixel / frozen reflection
+                    # Phase-A: sky tracks (real hovering drones) may use a relaxed threshold
+                    centroid_y = float(np.mean(pts_arr[:, 1]))
+                    effective_rigid_disp = self.min_rigid_displacement
+                    if self.min_rigid_disp_sky is not None and centroid_y < self.sky_y_boundary:
+                        effective_rigid_disp = self.min_rigid_disp_sky
+                    if effective_rigid_disp > 0:
+                        if net_disp < effective_rigid_disp and pos_var < self.max_rigid_variance:
+                            continue  # Purge static sensor bad pixel / frozen reflection
+                    elif centroid_y < self.sky_y_boundary:
+                        pass  # Sky tracks fully exempted from rigid pruning
+                    else:
+                        if net_disp < self.min_rigid_displacement and pos_var < self.max_rigid_variance:
+                            continue
 
             # Determine whether this track qualifies for infill
             can_infill = trk.hits >= self.min_hits_for_infill
+            # Phase-A Hover-Lock qualification: mature track with quasi-static motion.
+            # hover_sky_only=True restricts the lock to the sky region (ground static
+            # tracks are the bad-pixel / clutter domain and must not be revived).
+            can_hover = (
+                self.hover_vel_thresh > 0.0
+                and trk.hits >= self.min_hits_hover
+                and trk.get_velocity_norm() <= self.hover_vel_thresh
+                and (trk.get_pos()[1] < self.sky_y_boundary or not self.hover_sky_only)
+            )
 
             # 1. Output all direct observations (including warmup prefix frames)
             for f_idx in obs_frames:
@@ -388,23 +523,56 @@ class BidirectionalTemporalSmoother:
                     f1 = obs_frames[i]
                     f2 = obs_frames[i + 1]
                     gap = f2 - f1
-                    if 1 < gap <= (self.max_infill_gap + 1):
-                        p1 = trk.observations[f1][0]
-                        p2 = trk.observations[f2][0]
-                        s1 = trk.observations[f1][1]
-                        s2 = trk.observations[f2][1]
-                        # Linear interpolation between p1 and p2
+                    if gap <= 1:
+                        continue
+
+                    p1 = trk.observations[f1][0]
+                    p2 = trk.observations[f2][0]
+                    s1 = trk.observations[f1][1]
+                    s2 = trk.observations[f2][1]
+
+                    # Legacy infill: short gaps (<= max_infill_gap + 1)
+                    is_legacy_gap = gap <= (self.max_infill_gap + 1)
+                    # Phase-A Hover infill: extended gaps where the apparent speed across
+                    # the gap is quasi-static (linear interpolation is then physically exact)
+                    apparent_speed = float(np.linalg.norm(p2 - p1)) / float(gap)
+                    is_hover_gap = (
+                        can_hover
+                        and gap <= (self.hover_infill_gap + 1)
+                        and apparent_speed <= self.hover_vel_thresh
+                    )
+
+                    if is_legacy_gap or is_hover_gap:
+                        # Legacy gaps bypass dedup (bit-exact legacy behavior);
+                        # Phase-A hover gaps use 6px dedup against live detections.
+                        d_radius = 0.0 if is_legacy_gap else 6.0
                         for step, missing_f in enumerate(range(f1 + 1, f2), start=1):
                             alpha = step / gap
                             interp_pos = (1.0 - alpha) * p1 + alpha * p2
                             interp_score = (1.0 - alpha) * s1 + alpha * s2
-                            if 0 <= missing_f < num_frames:
-                                frame_outputs[missing_f].append({
-                                    "pos": interp_pos,
-                                    "score": interp_score,
-                                    "track_id": trk.track_id,
-                                    "infilled": True,
-                                })
+                            self._append_synthetic(frame_outputs, missing_f, interp_pos, interp_score, trk.track_id, dedup_radius=d_radius)
+
+            # 3. Phase-A Hover-Lock trailing coast: after the last observation, hold the
+            # lock for up to coast_max_frames with damped kinematic extrapolation. Only for
+            # mature tracks whose terminal velocity indicates hover (not fly-away).
+            if (
+                self.coast_max_frames > 0
+                and can_hover
+                and len(obs_frames) >= 2
+            ):
+                f_last = obs_frames[-1]
+                p_last = trk.observations[f_last][0]
+                s_last = trk.observations[f_last][1]
+                v_last = trk.get_velocity()
+                damp_sum = 0.0
+                for k in range(1, self.coast_max_frames + 1):
+                    missing_f = f_last + k
+                    if missing_f >= num_frames:
+                        break
+                    damp_sum += self.coast_damping ** k
+                    coast_pos = p_last + v_last * damp_sum
+                    coast_score = s_last * (self.coast_damping ** k)
+                    self._append_synthetic(frame_outputs, missing_f, coast_pos, coast_score, trk.track_id)
 
         return frame_outputs
 
@@ -503,6 +671,66 @@ def calc_metrics(tp: int, fp: int, total_gt: int) -> Dict[str, float]:
     }
 
 
+def merge_bbox_expert(
+    pred_pts: np.ndarray,
+    pred_scs: np.ndarray,
+    bbox_rec: Optional[Dict],
+    size_gate: float,
+    conf_min: float,
+    dedup_radius: float,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Phase-A Module 4: Size-Gated Dual-Expert Fusion.
+    Merge large-body YOLO26 Bbox centers (min(w,h) >= size_gate, conf >= conf_min) into the
+    heatmap point stream, deduplicating against existing heatmap candidates (dedup_radius)
+    and against each other (greedy by score). Large bodies break the heatmap point-impulse
+    prior (energy scattered across building edges), while Bbox anchors capture them natively.
+    """
+    if bbox_rec is None:
+        return pred_pts, pred_scs
+    boxes = np.asarray(bbox_rec.get("pred_boxes", np.zeros((0, 4))), dtype=np.float32).reshape(-1, 4)
+    scores = np.asarray(bbox_rec.get("box_scores", np.zeros((0,))), dtype=np.float32).reshape(-1)
+    pred_pts = np.asarray(pred_pts, dtype=np.float32).reshape(-1, 2)
+    pred_scs = np.asarray(pred_scs, dtype=np.float32).reshape(-1)
+    if len(boxes) == 0:
+        return pred_pts, pred_scs
+
+    sizes = np.minimum(boxes[:, 2], boxes[:, 3])
+    keep = (scores >= conf_min) & (sizes >= size_gate)
+    if not np.any(keep):
+        return pred_pts, pred_scs
+    centers = boxes[keep][:, :2].copy()
+    kept_scores = scores[keep].copy()
+
+    # Self-dedup among bbox centers (greedy by descending score)
+    order = np.argsort(-kept_scores)
+    centers = centers[order]
+    kept_scores = kept_scores[order]
+    kept_centers = []
+    kept_scs = []
+    for c, s in zip(centers, kept_scores):
+        if all(np.linalg.norm(c - kc) > dedup_radius for kc in kept_centers):
+            kept_centers.append(c)
+            kept_scs.append(s)
+    if len(kept_centers) == 0:
+        return pred_pts, pred_scs
+    centers = np.array(kept_centers, dtype=np.float32)
+    kept_scores = np.array(kept_scs, dtype=np.float32)
+
+    # Dedup against existing heatmap candidates
+    if len(pred_pts) > 0:
+        d = np.linalg.norm(centers[:, None, :] - pred_pts[None, :, :], axis=-1)
+        min_d = d.min(axis=1)
+        centers = centers[min_d > dedup_radius]
+        kept_scores = kept_scores[min_d > dedup_radius]
+        if len(centers) == 0:
+            return pred_pts, pred_scs
+
+    merged_pts = np.concatenate([pred_pts, centers], axis=0)
+    merged_scs = np.concatenate([pred_scs, kept_scores], axis=0)
+    return merged_pts, merged_scs
+
+
 # ==============================================================================
 # 5. Full Sequence Evaluation Engine
 # ==============================================================================
@@ -518,6 +746,10 @@ def evaluate_sequence_bidirectional(
     tracker_config: Optional[Dict] = None,
     smoother_config: Optional[Dict] = None,
     match_mode: str = "bbox",
+    bbox_records_by_name: Optional[Dict[str, Dict]] = None,
+    size_gate: float = 40.0,
+    bbox_conf_min: float = 0.40,
+    bbox_dedup_radius: float = 20.0,
 ) -> Dict[str, Dict[str, float]]:
     if tracker_config is None:
         tracker_config = {
@@ -546,6 +778,10 @@ def evaluate_sequence_bidirectional(
             "min_hits_for_prune": 8,
         }
 
+    # Ensure smoother knows the sky partition (for sky-aware rigid pruning)
+    smoother_config.setdefault("sky_ratio", sky_ratio)
+    smoother_config.setdefault("img_h", img_h)
+
     records_sorted = sorted(records, key=lambda r: natural_sort_key(r["im_name"]))
     num_frames = len(records_sorted)
 
@@ -558,11 +794,20 @@ def evaluate_sequence_bidirectional(
     online_tracker = OnlineAdaptiveTracker(**tracker_config)
     smoother = BidirectionalTemporalSmoother(**smoother_config)
     sky_y_boundary = img_h * sky_ratio
+    th_deep = float(tracker_config.get("th_deep_salvage", 0.0))
 
     # Pass 1: Run online tracking across all frames
     for f_idx, r in enumerate(records_sorted):
         pred_pts = np.asarray(r["pred_points"], dtype=np.float32)
         pred_scs = np.asarray(r["pred_scores"], dtype=np.float32)
+
+        # Phase-A Module 4: merge large-body Bbox expert points (before tiering)
+        if bbox_records_by_name is not None:
+            bbox_rec = bbox_records_by_name.get(Path(r["im_name"]).stem)
+            if bbox_rec is not None:
+                pred_pts, pred_scs = merge_bbox_expert(
+                    pred_pts, pred_scs, bbox_rec, size_gate, bbox_conf_min, bbox_dedup_radius
+                )
 
         if len(pred_pts) > 0:
             is_sky = pred_pts[:, 1] < sky_y_boundary
@@ -577,13 +822,27 @@ def evaluate_sequence_bidirectional(
             salvage_pts, salvage_scs = filter_dense_clutter_clusters(
                 salvage_pts, salvage_scs, cluster_radius=25.0, max_neighbors=2
             )
+
+            # Phase-A Module 2: deep weak band (sky only, strictly below salvage floor)
+            if th_deep > 0.0:
+                deep_mask = is_sky & (pred_scs >= th_deep) & (pred_scs < min(th_salvage, th_base))
+                deep_pts = pred_pts[deep_mask]
+                deep_scs = pred_scs[deep_mask]
+                deep_pts, deep_scs = filter_dense_clutter_clusters(
+                    deep_pts, deep_scs, cluster_radius=25.0, max_neighbors=2
+                )
+            else:
+                deep_pts = np.zeros((0, 2), dtype=np.float32)
+                deep_scs = np.zeros((0,), dtype=np.float32)
         else:
             high_pts = np.zeros((0, 2), dtype=np.float32)
             high_scs = np.zeros((0,), dtype=np.float32)
             salvage_pts = np.zeros((0, 2), dtype=np.float32)
             salvage_scs = np.zeros((0,), dtype=np.float32)
+            deep_pts = np.zeros((0, 2), dtype=np.float32)
+            deep_scs = np.zeros((0,), dtype=np.float32)
 
-        online_tracker.step(f_idx, high_pts, high_scs, salvage_pts, salvage_scs)
+        online_tracker.step(f_idx, high_pts, high_scs, salvage_pts, salvage_scs, deep_pts, deep_scs)
 
     all_tracks = online_tracker.finalize()
 
@@ -663,6 +922,21 @@ def parse_args():
     parser.add_argument("--min-rigid-disp", type=float, default=2.0, help="Min net displacement for rigid static pruner (default: 2.0px)")
     parser.add_argument("--max-rigid-var", type=float, default=0.5, help="Max coordinate variance for rigid static pruner (default: 0.5px²)")
     parser.add_argument("--min-hits-prune", type=int, default=8, help="Min track hits required to trigger pruner (default: 8)")
+    # ------------------------- Phase-A Extension Flags (all default OFF = legacy SOTA) -------------------------
+    parser.add_argument("--th-deep", type=float, default=0.0, help="[P1] Deep salvage floor in sky (default: 0.0 = OFF, e.g. 0.04)")
+    parser.add_argument("--min-hits-deep", type=int, default=3, help="[P1] Min track hits to unlock deep salvage (default: 3)")
+    parser.add_argument("--stitch-long-gap", type=int, default=0, help="[P2] Elastic long stitching max gap (default: 0 = OFF, e.g. 12)")
+    parser.add_argument("--stitch-vel-diff", type=float, default=4.0, help="[P2] Max endpoint velocity mismatch for long stitch (default: 4.0 px/f)")
+    parser.add_argument("--hover-vel", type=float, default=0.0, help="[P3] Hover velocity threshold (default: 0.0 = OFF, e.g. 0.8 px/f)")
+    parser.add_argument("--hover-infill-gap", type=int, default=15, help="[P3] Max quasi-static internal gap to infill (default: 15)")
+    parser.add_argument("--coast-frames", type=int, default=0, help="[P3] Hover-lock trailing coast frames (default: 0 = OFF, e.g. 15)")
+    parser.add_argument("--min-hits-hover", type=int, default=8, help="[P3] Min track hits to qualify for hover-lock (default: 8)")
+    parser.add_argument("--hover-sky-only", type=int, default=1, choices=[0, 1], help="[P3] Restrict hover-lock to sky region (1=sky only [default], 0=any region)")
+    parser.add_argument("--min-rigid-disp-sky", type=float, default=-1.0, help="[P3] Sky-specific rigid prune threshold (-1 = OFF/legacy, 0 = sky fully exempt)")
+    parser.add_argument("--bbox-cache", type=str, default="", help="[P4] Optional YOLO26 Bbox expert cache (.pkl) for size-gated dual-expert fusion")
+    parser.add_argument("--size-gate", type=float, default=40.0, help="[P4] Min bbox size min(w,h) in px to activate Bbox expert (default: 40)")
+    parser.add_argument("--bbox-conf", type=float, default=0.40, help="[P4] Min bbox confidence to activate Bbox expert (default: 0.40)")
+    parser.add_argument("--bbox-dedup", type=float, default=20.0, help="[P4] Dedup radius between Bbox centers and heatmap candidates (default: 20px)")
     parser.add_argument(
         "--data-root",
         type=str,
@@ -748,6 +1022,32 @@ def main():
 
     filter_seqs = [s.strip() for s in args.sequences.split(",") if s.strip()]
 
+    # ------------------------- Phase-A configuration -------------------------
+    bbox_records_by_name = None
+    if args.bbox_cache:
+        bbox_path = Path(args.bbox_cache)
+        if not bbox_path.is_absolute():
+            for cand in [PROJECT_ROOT / bbox_path, Path("/tmp/pycharm_project_10ae9e2e") / bbox_path]:
+                if cand.exists():
+                    bbox_path = cand
+                    break
+        if bbox_path.exists():
+            with open(bbox_path, "rb") as f_b:
+                bbox_records = pickle.load(f_b)
+            bbox_records_by_name = {Path(r["im_name"]).stem: r for r in bbox_records}
+            print(colorstr("cyan", f"[PHASE-A] Loaded Bbox expert cache: {len(bbox_records)} frames from {bbox_path}"))
+        else:
+            print(colorstr("red", f"[PHASE-A][WARN] Bbox cache not found: {args.bbox_cache} (dual-expert disabled)"))
+
+    phase_a_enabled = (
+        args.th_deep > 0.0
+        or args.stitch_long_gap > 0
+        or args.hover_vel > 0.0
+        or args.coast_frames > 0
+        or args.min_rigid_disp_sky >= 0.0
+        or bbox_records_by_name is not None
+    )
+
     tracker_config = {
         "max_age": args.max_age,
         "min_hits": args.min_hits,
@@ -758,6 +1058,8 @@ def main():
         "min_displacement": args.min_disp,
         "sky_ratio": args.sky_ratio,
         "img_h": 640,
+        "th_deep_salvage": args.th_deep,
+        "min_hits_deep_salvage": args.min_hits_deep,
     }
 
     smoother_config = {
@@ -771,15 +1073,34 @@ def main():
         "min_rigid_displacement": args.min_rigid_disp,
         "max_rigid_variance": args.max_rigid_var,
         "min_hits_for_prune": args.min_hits_prune,
+        "stitch_long_gap": args.stitch_long_gap,
+        "stitch_max_vel_diff": args.stitch_vel_diff,
+        "hover_vel_thresh": args.hover_vel,
+        "hover_infill_gap": args.hover_infill_gap,
+        "coast_max_frames": args.coast_frames,
+        "min_hits_hover": args.min_hits_hover,
+        "hover_sky_only": bool(args.hover_sky_only),
+        "min_rigid_disp_sky": (None if args.min_rigid_disp_sky < 0 else args.min_rigid_disp_sky),
     }
+
+    # Legacy configs (Phase-A disabled) for side-by-side comparison
+    legacy_tracker_config = {k: v for k, v in tracker_config.items() if k not in ("th_deep_salvage", "min_hits_deep_salvage")}
+    legacy_smoother_config = dict(smoother_config)
+    for k in ("stitch_long_gap", "hover_vel_thresh", "coast_max_frames"):
+        legacy_smoother_config[k] = 0
+    legacy_smoother_config["min_rigid_disp_sky"] = None
 
     grand_stats = {
         "baseline": {"tp": 0, "fp": 0, "gt": 0},
         "online_fusion": {"tp": 0, "fp": 0, "gt": 0},
         "bidirectional": {"tp": 0, "fp": 0, "gt": 0},
     }
+    if phase_a_enabled:
+        grand_stats["phase_a"] = {"tp": 0, "fp": 0, "gt": 0}
 
     print("=" * 120)
+    if phase_a_enabled:
+        print(colorstr("cyan", "[PHASE-A ENABLED] Deep salvage / Elastic stitch / Hover-Lock / Dual-Expert active. Row 4 shows enhanced result (Row 3 = legacy)."))
     print(f"{'Sequence Name':<28} | {'Mode':<22} | {'TP / GT':<14} | {'FP':<6} | {'Recall':<8} | {'Prec':<8} | {'F1-Score':<8}")
     print("=" * 120)
 
@@ -789,6 +1110,22 @@ def main():
             continue
 
         recs = seq_records[seq_name]
+        res_legacy = None
+        if phase_a_enabled:
+            # Legacy pass first (Phase-A disabled) for side-by-side comparison
+            res_legacy = evaluate_sequence_bidirectional(
+                records=recs,
+                dist_thresh=args.dist_thresh,
+                th_base=args.th_base,
+                th_salvage=args.th_salvage,
+                th_ground=args.th_ground,
+                sky_ratio=args.sky_ratio,
+                img_h=640,
+                tracker_config=legacy_tracker_config,
+                smoother_config=legacy_smoother_config,
+                match_mode=args.match_mode,
+            )
+
         res = evaluate_sequence_bidirectional(
             records=recs,
             dist_thresh=args.dist_thresh,
@@ -800,12 +1137,24 @@ def main():
             tracker_config=tracker_config,
             smoother_config=smoother_config,
             match_mode=args.match_mode,
+            bbox_records_by_name=bbox_records_by_name,
+            size_gate=args.size_gate,
+            bbox_conf_min=args.bbox_conf,
+            bbox_dedup_radius=args.bbox_dedup,
         )
 
-        for k in grand_stats:
+        for k in ("baseline", "online_fusion"):
             grand_stats[k]["tp"] += int(res[k]["tp"])
             grand_stats[k]["fp"] += int(res[k]["fp"])
             grand_stats[k]["gt"] += int(res[k]["gt"])
+
+        if phase_a_enabled:
+            for k in ("tp", "fp", "gt"):
+                grand_stats["bidirectional"][k] += int(res_legacy["bidirectional"][k])
+                grand_stats["phase_a"][k] += int(res["bidirectional"][k])
+        else:
+            for k in ("tp", "fp", "gt"):
+                grand_stats["bidirectional"][k] += int(res["bidirectional"][k])
 
         m_base = res["baseline"]
         m_onl = res["online_fusion"]
@@ -813,7 +1162,13 @@ def main():
 
         print(f"{seq_name:<28} | {'1. Single Base':<22} | {int(m_base['tp']):>5} / {int(m_base['gt']):<6} | {int(m_base['fp']):<6} | {m_base['recall']:>6.2f}% | {m_base['precision']:>6.2f}% | {m_base['f1']:>6.4f}")
         print(f"{'':<28} | {'2. Online Fusion':<22} | {int(m_onl['tp']):>5} / {int(m_onl['gt']):<6} | {int(m_onl['fp']):<6} | {m_onl['recall']:>6.2f}% | {m_onl['precision']:>6.2f}% | {m_onl['f1']:>6.4f}")
-        print(f"{'':<28} | {colorstr('bold', colorstr('green', '3. Bidirectional SOTA')):<31} | {int(m_bidi['tp']):>5} / {int(m_bidi['gt']):<6} | {int(m_bidi['fp']):<6} | {m_bidi['recall']:>6.2f}% | {m_bidi['precision']:>6.2f}% | {m_bidi['f1']:>6.4f}")
+
+        if phase_a_enabled:
+            print(f"{'':<28} | {'3. Bidirectional (legacy)':<22} | {int(res_legacy['bidirectional']['tp']):>5} / {int(res_legacy['bidirectional']['gt']):<6} | {int(res_legacy['bidirectional']['fp']):<6} | {res_legacy['bidirectional']['recall']:>6.2f}% | {res_legacy['bidirectional']['precision']:>6.2f}% | {res_legacy['bidirectional']['f1']:>6.4f}")
+            m_pa = res["bidirectional"]
+            print(f"{'':<28} | {colorstr('bold', colorstr('green', '4. Phase-A Enhanced')):<31} | {int(m_pa['tp']):>5} / {int(m_pa['gt']):<6} | {int(m_pa['fp']):<6} | {m_pa['recall']:>6.2f}% | {m_pa['precision']:>6.2f}% | {m_pa['f1']:>6.4f}")
+        else:
+            print(f"{'':<28} | {colorstr('bold', colorstr('green', '3. Bidirectional SOTA')):<31} | {int(m_bidi['tp']):>5} / {int(m_bidi['gt']):<6} | {int(m_bidi['fp']):<6} | {m_bidi['recall']:>6.2f}% | {m_bidi['precision']:>6.2f}% | {m_bidi['f1']:>6.4f}")
         print("-" * 120)
 
     print("=" * 120)
@@ -825,15 +1180,19 @@ def main():
     for k in grand_stats:
         grand_metrics[k] = calc_metrics(grand_stats[k]["tp"], grand_stats[k]["fp"], grand_stats[k]["gt"])
 
-    for mode_name, key in [
+    mode_rows = [
         (f"1. Single-Frame Baseline (th={args.th_base})", "baseline"),
-        ("2. Online Adaptive Fusion (Previous SOTA)", "online_fusion"),
-        ("3. 🔥 Bidirectional Smoothed & Infilled Fusion", "bidirectional"),
-    ]:
+        ("2. Online Adaptive Fusion", "online_fusion"),
+        ("3. Bidirectional Smoothed Fusion (legacy)", "bidirectional"),
+    ]
+    if phase_a_enabled:
+        mode_rows.append(("4. 🔥 PHASE-A ENHANCED FUSION (Deep Salvage + Elastic Stitch + Hover-Lock + Dual-Expert)", "phase_a"))
+
+    for mode_name, key in mode_rows:
         gm = grand_metrics[key]
         far = gm["fp"] / max(1, len(records))
-        line = f"{mode_name:<46} | TP: {gm['tp']:>5}/{gm['gt']:<5} | FP: {gm['fp']:<6} | Recall: {gm['recall']:>6.2f}% | Prec: {gm['precision']:>6.2f}% | F1: {gm['f1']:>6.4f} | FAR: {far:.4f}/frame"
-        if key == "bidirectional":
+        line = f"{mode_name:<92} | TP: {gm['tp']:>5}/{gm['gt']:<5} | FP: {gm['fp']:<6} | Recall: {gm['recall']:>6.2f}% | Prec: {gm['precision']:>6.2f}% | F1: {gm['f1']:>6.4f} | FAR: {far:.4f}/frame"
+        if key in ("bidirectional", "phase_a"):
             print(colorstr("bold", colorstr("green", line)))
         else:
             print(line)

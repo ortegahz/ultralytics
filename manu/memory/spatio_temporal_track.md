@@ -101,3 +101,15 @@
 - 通用评测核心：`manu/eval_universal_spatio_temporal_sota.py`
 - 通用网格寻优与 22 序列全量审计：`manu/tune_universal_spatio_temporal_sota.py`
 
+### 3. 全盘坐标上升终局判决（2026-09-16）
+上述三大通用模块经 `manu/tune_phase_a_fusion.py` 在全盘 24 序列上逐级锁定最优后，**未产生可交付净增益**：
+
+| 配置 | F1 | Recall | Precision | TP | FP |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| Legacy 基线 (Strict Dist) | 0.9194 | 90.06% | 93.89% | 22,616 | 1,472 |
+| 深潜最优 `deep=0.035/hits=4` | 0.9204 | 90.65% | 93.48% | 22,762 | 1,588 |
+
+- 最优仅 **deep salvage** 生效，`ΔF1=+0.0010`，靠 `Recall +0.59pp` 换 `Precision -0.41pp`，新增检测边际精度仅 55.7%；
+- 弹性长缝合、悬停锁止、天空剪枝、双专家均无净增益；悬停档甚至 `F1 -0.0029`（FP +380）；
+- 第四代升级判定为**边际收益，不构成 SOTA 突破**；已交付绝对标杆仍为 0.9194（Strict）/ 0.9209（In-BBox）。详见 `memory/oracle_probe_and_phase_a.md` 第五节。
+
