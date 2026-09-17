@@ -65,4 +65,12 @@
 - **严禁脱离官方标准验证集自立评估流**：直接拿 raw 序列做自适应 letterbox 缩放会引入像素级 padding 漂移，造成假性严重漏检与误报；任何新特征生成必须采用 1:1 就地镜像转换；
 - **【核心教训与铁律】严禁手写 OpenCV 自定义 DataLoader 替代官方 YOLO 数据管道**：
   - *历史重大 Bug 复盘*：在时序特征实验中，因手写 OpenCV 读取与目录硬匹配，导致训练样本被严重截断一半（43,008 丢掉 21,594 仅剩 21,414），且验证阶段因缺失 Letterbox 与标准化对齐，使原本收敛在 **F1=0.9064 (FP=1004)** 的底模在 Ep 00 基线检验中暴跌至 **F1=0.8953 (FP 虚增至 1580)**；
-  - *标准规范*：任何新模块微调，输入端必须封装或直接复用 `ultralytics.data.build_yolo_dataset` 与 `build_dataloader`，确保训练集满额 43,008、验证集满额 31,613 帧，零色域/Letterbox 漂移，Epoch 00 必须 100% 浮点数级无损复现当前 SOTA 标称指标！
+   - *标准规范*：任何新模块微调，输入端必须封装或直接复用 `ultralytics.data.build_yolo_dataset` 与 `build_dataloader`，确保训练集满额 43,008、验证集满额 31,613 帧，零色域/Letterbox 漂移，Epoch 00 必须 100% 浮点数级无损复现当前 SOTA 标称指标！
+
+### 4. 图像分辨率与坐标空间契约铁律 (Resolution & Coordinate Space Contract) 【2026-09-17 新增，必读】
+- **数据集是混合分辨率，绝不是统一的 640×640**：`uav_gmc_median` 验证集存在 `512×512` 与 `640×512` 两种原生尺寸（`DJI_0051_2`/`DJI_0175_2` 等为 512×512，`wg2022_ir_*`/`02_6321` 等为 640×512）。凡是将归一化坐标统一乘 640 做 y 轴换算的脚本，都会产生约 50px 的系统性偏移，采样到纯背景；
+- **两个坐标空间严禁混用**：
+  1. **原生图像空间**：`labels/val/*.txt` 归一化是相对原生图（`box[0]*W, box[1]*H`），用于直接采样图像像素/通道；
+  2. **640×640 Letterbox 空间**：推理缓存 `uav_median_trial0474_cache.pkl` 里的 `gt_pts` 与 `pred_points` 均在 Ultralytics 等比例 letterbox + padding 后的 640×640 画布内（`cache_trial0474_inferences.py` 用 dataloader 的 `batch["bboxes"]*imgsz` 生成，是正确的）。评测链路（如 `eval_bidirectional_track_fusion.py`）自洽地工作在此空间；
+- **正确姿势**：采样图像通道用原生坐标；算模型响应距离直接复用缓存内的 `gt_pts`（无需反推 letterbox），按帧内索引配对；
+- **已修复脚本**：`probe_wg020_03_deep.py`、`analyze_wg020_03_gt_trajectory.py` 已改为逐图读真实尺寸；历史结论中凡依赖 640×640 假设的（如"走走停停 39.3%"、"829.6px 里程"、"时序通道坍塌"）均已作废。

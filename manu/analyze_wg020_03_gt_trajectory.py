@@ -25,6 +25,7 @@ from pathlib import Path
 import re
 import sys
 
+import cv2
 import numpy as np
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -48,7 +49,6 @@ def parse_args():
         help="Path to dataset root",
     )
     parser.add_argument("--seq", type=str, default="wg2022_ir_020_split_03")
-    parser.add_argument("--imgsz", type=int, default=640)
     return parser.parse_args()
 
 
@@ -80,21 +80,23 @@ def main():
     gt_records = []
     for f_idx, p in enumerate(img_files):
         lbl_p = val_lbl_dir / f"{p.stem}.txt"
-        if lbl_p.exists():
-            with open(lbl_p, "r", encoding="utf-8") as f:
-                lines = [l.strip().split() for l in f if l.strip()]
-            if lines:
-                box = [float(x) for x in lines[0][1:5]]
-                cx = box[0] * args.imgsz
-                cy = box[1] * args.imgsz
-                bw = box[2] * args.imgsz
-                bh = box[3] * args.imgsz
-                gt_records.append({
-                    "seq_frame_idx": f_idx,
-                    "stem": p.stem,
-                    "pos": np.array([cx, cy], dtype=np.float32),
-                    "size": np.array([bw, bh], dtype=np.float32),
-                })
+        if not lbl_p.exists():
+            continue
+        with open(lbl_p, "r", encoding="utf-8") as f:
+            lines = [l.strip().split() for l in f if l.strip()]
+        if not lines:
+            continue
+        img = cv2.imread(str(p), cv2.IMREAD_UNCHANGED)
+        if img is None:
+            continue
+        img_h, img_w = img.shape[:2]
+        box = [float(x) for x in lines[0][1:5]]
+        gt_records.append({
+            "seq_frame_idx": f_idx,
+            "stem": p.stem,
+            "pos": np.array([box[0] * img_w, box[1] * img_h], dtype=np.float32),
+            "size": np.array([box[2] * img_w, box[3] * img_h], dtype=np.float32),
+        })
 
     total_gt = len(gt_records)
     print(f"[INFO] Frames with Valid Ground Truth: {total_gt} / {len(img_files)}")
