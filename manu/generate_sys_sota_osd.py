@@ -25,6 +25,7 @@ import argparse
 from pathlib import Path
 import pickle
 import re
+import subprocess
 import sys
 
 import cv2
@@ -64,6 +65,7 @@ def parse_args():
         default="DJI_0175_2",
         help="Target sequence name",
     )
+    parser.add_argument("--all-seqs", action="store_true", help="Evaluate or render every validation sequence")
     parser.add_argument(
         "--output-dir",
         type=str,
@@ -80,6 +82,7 @@ def parse_args():
     parser.add_argument("--img-h", type=int, default=640)
     parser.add_argument("--img-w", type=int, default=640)
     parser.add_argument("--fps", type=float, default=25.0)
+    parser.add_argument("--no-video", action="store_true", help="Evaluate the sequence and print metrics without rendering video")
     return parser.parse_args()
 
 
@@ -116,6 +119,7 @@ def render_osd_frame(
     cum_tp: int,
     cum_fp: int,
     cum_gt: int,
+    gt_sizes: np.ndarray | None = None,
 ) -> tuple[np.ndarray, int, int, int]:
     canvas = frame.copy()
     h, w = canvas.shape[:2]
@@ -151,7 +155,13 @@ def render_osd_frame(
         color = (0, 255, 0) if is_hit else (0, 165, 255)  # Green for Hit, Orange for Missed
         box_r = int(round(dist_thresh))
 
-        cv2.rectangle(canvas, (ix - box_r, iy - box_r), (ix + box_r, iy + box_r), color, 1)
+        if gt_sizes is not None and g_i < len(gt_sizes):
+            gw, gh = gt_sizes[g_i]
+            half_w, half_h = max(2, int(round(gw / 2))), max(2, int(round(gh / 2)))
+            cv2.rectangle(canvas, (ix - half_w, iy - half_h), (ix + half_w, iy + half_h), color, 1)
+            cv2.putText(canvas, f"GT {gw:.1f}x{gh:.1f}px", (ix + box_r + 2, max(14, iy - half_h - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.38, color, 1, cv2.LINE_AA)
+        else:
+            cv2.rectangle(canvas, (ix - box_r, iy - box_r), (ix + box_r, iy + box_r), color, 1)
         cv2.drawMarker(canvas, (ix, iy), color, cv2.MARKER_CROSS, 6, 1)
 
         status_text = f"GT-{g_i+1}" if is_hit else f"GT-{g_i+1}[FN]"
@@ -185,16 +195,17 @@ def render_osd_frame(
     info_left = f"SYS SOTA | {seq_name} | F:{frame_idx:04d}/{total_frames:04d} | Tol={dist_thresh:.1f}px"
     cv2.putText(canvas, info_left, (10, 21), cv2.FONT_HERSHEY_SIMPLEX, 0.46, (255, 255, 255), 1, cv2.LINE_AA)
 
-    info_right = f"Cum: Rec:{cur_rec:.1f}% Prec:{cur_prec:.1f}% F1:{cur_f1:.2f} | Frame TP:{tp_count} FP:{fp_count} FN:{fn_count}"
+    size_text = ""
+    if gt_sizes is not None and len(gt_sizes):
+        size_text = " | GT: " + ",".join(f"{w:.1f}x{h:.1f}px" for w, h in gt_sizes)
+    info_right = f"Cum: Rec:{cur_rec:.1f}% Prec:{cur_prec:.1f}% F1:{cur_f1:.2f} | Frame TP:{tp_count} FP:{fp_count} FN:{fn_count}{size_text}"
     text_size = cv2.getTextSize(info_right, cv2.FONT_HERSHEY_SIMPLEX, 0.42, 1)[0]
     cv2.putText(canvas, info_right, (w - text_size[0] - 12, 21), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 255, 255), 1, cv2.LINE_AA)
 
     return canvas, tp_count, fp_count, fn_count
 
 
-def main():
-    args = parse_args()
-
+def run_sequence(args):
     cache_path = Path(args.cache_file)
     if not cache_path.is_absolute():
         for cand in [
@@ -214,10 +225,28 @@ def main():
     with open(cache_path, "rb") as f:
         records = pickle.load(f)
 
+    data_path = Path(args.data)
+    if not data_path.is_absolute():
+        data_path = PROJECT_ROOT / data_path
+    label_dir = data_path.parent / "labels" / "val" if data_path.suffix in (".yaml", ".yml") else data_path / "labels" / "val"
+    if not label_dir.exists():
+        label_dir = Path("/mnt/data/siping/datasets/manu/uav_gmc_median/labels/val")
+    for record in records:
+        if "gt_bboxes" not in record:
+            boxes = []
+            label_path = label_dir / f"{Path(record['im_name']).stem}.txt"
+            if label_path.exists():
+                for line in label_path.read_text(encoding="utf-8").splitlines():
+                    parts = line.split()
+                    if len(parts) >= 5:
+                        _, cx, cy, width, height = map(float, parts[:5])
+                        boxes.append([cx * 640.0, cy * 640.0, width * 640.0, height * 640.0])
+            record["gt_bboxes"] = np.asarray(boxes, dtype=np.float32).reshape(-1, 4)
+
     # Filter records for the target sequence
     seq_records = []
     for r in records:
-        if args.seq in r["im_name"]:
+        if extract_seq_name(r["im_name"]) == args.seq:
             seq_records.append(r)
 
     if not seq_records:
@@ -275,6 +304,13 @@ def main():
     )
     print("=" * 80 + "\n")
 
+    if args.no_video:
+        print(colorstr("green", f"[NO-VIDEO] System SOTA metrics for {args.seq}: "
+            f"GT={bidi_metrics['gt']} TP={bidi_metrics['tp']} FP={bidi_metrics['fp']} "
+            f"FN={bidi_metrics['gt'] - bidi_metrics['tp']} Recall={bidi_metrics['recall']:.2f}% "
+            f"Precision={bidi_metrics['precision']:.2f}% F1={bidi_metrics['f1']:.4f}"))
+        return bidi_metrics
+
     # Locate image files
     img_lookup = {}
     data_path = Path(args.data)
@@ -317,6 +353,8 @@ def main():
     for f_idx, r in enumerate(tqdm(records_sorted, desc=f"Rendering {args.seq}")):
         im_name = r["im_name"]
         gt_pts = np.asarray(r["gt_pts"], dtype=np.float32)
+        gt_bboxes = np.asarray(r.get("gt_bboxes", np.zeros((len(gt_pts), 4))), dtype=np.float32)
+        gt_sizes = gt_bboxes[:, 2:4] if len(gt_bboxes) == len(gt_pts) else None
         sys_dets = bidi_frame_dets[f_idx]
 
         # Load image
@@ -350,6 +388,7 @@ def main():
             cum_tp=cum_tp,
             cum_fp=cum_fp,
             cum_gt=cum_gt,
+            gt_sizes=gt_sizes,
         )
 
         cum_tp += tp
@@ -367,6 +406,43 @@ def main():
     print(colorstr("green", f"\n[SUCCESS] OSD Video generated successfully: {out_video_path}"))
     print(f"Final Cumulative Metrics: GT={cum_gt} TP={cum_tp} FP={cum_fp} FN={cum_gt - cum_tp} | "
           f"Recall={cum_tp / max(1, cum_gt) * 100:.2f}% Prec={cum_tp / max(1, cum_tp + cum_fp) * 100:.2f}%\n")
+
+
+def main():
+    args = parse_args()
+    if args.all_seqs:
+        totals = {"gt": 0, "tp": 0, "fp": 0}
+        cache_path = Path(args.cache_file)
+        if not cache_path.is_absolute():
+            for candidate in (PROJECT_ROOT / cache_path, Path("/tmp/pycharm_project_10ae9e2e") / cache_path, Path("/home/manu/mnt/pycharm_project_10ae9e2e") / cache_path):
+                if candidate.exists():
+                    cache_path = candidate
+                    break
+        with open(cache_path, "rb") as handle:
+            records = pickle.load(handle)
+        sequences = sorted({extract_seq_name(record["im_name"]) for record in records}, key=natural_sort_key)
+        print(f"[INFO] Processing {len(sequences)} validation sequences")
+        for index, sequence in enumerate(sequences, 1):
+            print(f"[INFO] [{index}/{len(sequences)}] {sequence}", flush=True)
+            sequence_args = argparse.Namespace(**vars(args))
+            sequence_args.seq = sequence
+            sequence_args.all_seqs = False
+            results = run_sequence(sequence_args)
+            if results is not None:
+                for key in ("gt", "tp", "fp"):
+                    totals[key] += int(results[key])
+        if args.no_video:
+            total_fn = totals["gt"] - totals["tp"]
+            total_recall = totals["tp"] / max(1, totals["gt"]) * 100.0
+            total_precision = totals["tp"] / max(1, totals["tp"] + totals["fp"]) * 100.0
+            total_f1 = 2 * total_recall * total_precision / max(1e-6, total_recall + total_precision)
+            print("\n" + "=" * 90)
+            print("OVERALL SYSTEM SOTA RESULTS")
+            print(f"GT={totals['gt']} TP={totals['tp']} FP={totals['fp']} FN={total_fn}")
+            print(f"Recall={total_recall:.4f}% Precision={total_precision:.4f}% F1={total_f1:.6f}")
+            print("=" * 90)
+        return
+    run_sequence(args)
 
 
 if __name__ == "__main__":

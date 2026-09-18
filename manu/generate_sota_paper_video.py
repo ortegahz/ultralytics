@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import re
+import subprocess
 import sys
 
 import cv2
@@ -51,6 +52,17 @@ IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
 def natural_sort_key(path: Path | str):
     s = Path(path).stem
     return [int(text) if text.isdigit() else text.lower() for text in re.split(r"(\d+)", s)]
+
+
+def letterbox_bgr(image: np.ndarray, size: int) -> np.ndarray:
+    height, width = image.shape[:2]
+    scale = min(size / height, size / width)
+    new_width, new_height = round(width * scale), round(height * scale)
+    resized = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
+    pad_w, pad_h = size - new_width, size - new_height
+    left, right = pad_w // 2, pad_w - pad_w // 2
+    top, bottom = pad_h // 2, pad_h - pad_h // 2
+    return cv2.copyMakeBorder(resized, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(114, 114, 114))
 
 
 def find_sequence_dir(raw_root: Path, seq_name: str) -> Path | None:
@@ -292,19 +304,24 @@ def parse_args():
         default="wg2022_ir_011_split_03",
         help="Target sequence name",
     )
+    parser.add_argument(
+        "--all-seqs",
+        action="store_true",
+        help="Generate one diagnostic video for every official validation sequence",
+    )
     parser.add_argument("--imgsz", type=int, default=640)
     parser.add_argument("--stride", type=int, default=2)
     parser.add_argument(
         "--det-conf",
         type=float,
-        default=0.05,
-        help="Base sensitivity threshold for clean cold-sky background (default: 0.05)",
+        default=0.22,
+        help="Base detection threshold for the presentation tracker (default: 0.22)",
     )
     parser.add_argument(
         "--clutter-conf",
         type=float,
-        default=0.25,
-        help="Strict threshold for high-variance clutter (default: 0.25)",
+        default=0.35,
+        help="Strict threshold for high-variance clutter (default: 0.35)",
     )
     parser.add_argument("--max-age", type=int, default=4, help="Max coasting age for Kalman track (default: 4)")
     parser.add_argument("--min-hits", type=int, default=3, help="Min consecutive hits to confirm track (default: 3)")
@@ -339,8 +356,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def main():
-    args = parse_args()
+def generate_video(args):
     device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() and args.device != "cpu" else "cpu")
 
     # 1. Resolve Weights Path
@@ -513,7 +529,7 @@ def main():
             raw_img_path = raw_image_map.get(frame_num)
             if raw_img_path and raw_img_path.exists():
                 raw_ir_orig = cv2.imread(str(raw_img_path))
-                raw_ir_bgr = cv2.resize(raw_ir_orig, (args.imgsz, args.imgsz))
+                raw_ir_bgr = letterbox_bgr(raw_ir_orig, args.imgsz)
             else:
                 ch0 = (imgs_tensor[0, 0] * 255.0).byte().cpu().numpy()
                 raw_ir_bgr = cv2.cvtColor(ch0, cv2.COLOR_GRAY2BGR)
@@ -558,11 +574,10 @@ def main():
                 peaks_low["points"] = peaks_low["points"][keep]
                 peaks_low["scores"] = peaks_low["scores"][keep]
 
-            # GT points
-            gt_pts = []
-            for b in bboxes.cpu().numpy():
-                gt_pts.append([b[0] * args.imgsz, b[1] * args.imgsz])
-            gt_pts = np.array(gt_pts, dtype=np.float32) if len(gt_pts) > 0 else np.zeros((0, 2), dtype=np.float32)
+            # GT boxes and centers in the official letterboxed 640x640 coordinate space.
+            gt_boxes = bboxes.cpu().numpy().astype(np.float32)
+            gt_pts = gt_boxes[:, :2] * args.imgsz if len(gt_boxes) else np.zeros((0, 2), dtype=np.float32)
+            gt_sizes = gt_boxes[:, 2:4] * args.imgsz if len(gt_boxes) else np.zeros((0, 2), dtype=np.float32)
             total_gt += len(gt_pts)
 
             # Tracker update
@@ -594,9 +609,15 @@ def main():
             panel_left = raw_ir_bgr.copy()
 
             # 绘制真值 GT（绿色十字与直角准星）
-            for gx, gy in gt_pts:
+            for (gx, gy), (gw, gh) in zip(gt_pts, gt_sizes):
                 ix, iy = int(round(gx)), int(round(gy))
-                draw_corner_brackets(panel_left, ix, iy, size=24, arm=5, color=(0, 255, 0), thickness=1)
+                half_w, half_h = max(2, int(round(gw / 2))), max(2, int(round(gh / 2)))
+                x1, y1 = max(0, ix - half_w), max(0, iy - half_h)
+                x2, y2 = min(args.imgsz - 1, ix + half_w), min(args.imgsz - 1, iy + half_h)
+                cv2.rectangle(panel_left, (x1, y1), (x2, y2), (0, 255, 0), 1)
+                bracket_size = int(np.clip(max(24.0, float(gw), float(gh)), 24.0, float(args.imgsz)))
+                draw_corner_brackets(panel_left, ix, iy, size=bracket_size, arm=5, color=(0, 255, 0), thickness=1)
+                cv2.putText(panel_left, f"GT {gw:.1f}x{gh:.1f}px", (x1, max(14, y1 - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0, 255, 0), 1, cv2.LINE_AA)
 
             # 绘制跟踪航迹（青色实线平滑尾迹 + 航迹方框；橙色表示瞬态暗化推算）
             for t in active_tracks:
@@ -659,12 +680,17 @@ def main():
             curr_raw_rec = (raw_20_tp / max(1, total_gt)) * 100.0
             curr_trk_rec = (trk_tp / max(1, total_gt)) * 100.0
             curr_trk_prec = (trk_tp / max(1, trk_tp + trk_fp)) * 100.0
+            gt_size_text = " | ".join(f"{w:.1f}x{h:.1f}px" for w, h in gt_sizes) if len(gt_sizes) else "none"
 
             add_header(
                 panel_left,
                 f"SOTA INFRARED | {args.seq} | F:{idx:03d}/{total_frames:03d}",
-                f"Recall: {curr_trk_rec:.1f}% | Prec: {curr_trk_prec:.1f}%",
+                f"GT SIZE: {gt_size_text} | R:{curr_trk_rec:.1f}% P:{curr_trk_prec:.1f}%",
             )
+            size_overlay = panel_left.copy()
+            cv2.rectangle(size_overlay, (8, 42), (min(args.imgsz - 8, 250), 70), (15, 15, 15), -1)
+            cv2.addWeighted(size_overlay, 0.78, panel_left, 0.22, 0, panel_left)
+            cv2.putText(panel_left, f"GT PIXEL SIZE: {gt_size_text}", (14, 61), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 255, 0), 1, cv2.LINE_AA)
             add_header(
                 panel_right,
                 "HEATMAP SURFACE (Trial 0474 P0-NAS S2)",
@@ -690,6 +716,26 @@ def main():
     print(f"Ours SOTA + CFAR + Tracker : Recall = {final_trk_rec:.2f}% (TP={trk_tp}), Prec = {final_trk_prec:.2f}% (FP={trk_fp}), F1 = {final_f1:.2f}%")
     print(f"Saved Video Output         : {vid_path.resolve()}")
     print("=" * 80 + "\n")
+
+
+def main():
+    args = parse_args()
+    if not args.all_seqs:
+        generate_video(args)
+        return
+    data_path = Path(args.data)
+    if not data_path.is_absolute():
+        data_path = PROJECT_ROOT / data_path
+    data_dict = check_det_dataset(str(data_path))
+    image_dir = Path(data_dict["val"])
+    sequence_names = sorted({path.stem.rsplit("__", 1)[0] for path in image_dir.iterdir() if path.suffix.lower() in IMAGE_SUFFIXES}, key=natural_sort_key)
+    print(f"[INFO] Generating {len(sequence_names)} validation sequence videos")
+    for index, sequence in enumerate(sequence_names, 1):
+        print(f"[INFO] [{index}/{len(sequence_names)}] {sequence}", flush=True)
+        sequence_args = argparse.Namespace(**vars(args))
+        sequence_args.seq = sequence
+        sequence_args.all_seqs = False
+        generate_video(sequence_args)
 
 
 if __name__ == "__main__":

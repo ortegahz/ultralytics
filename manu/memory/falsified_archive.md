@@ -505,3 +505,16 @@
   2. Zero-Init Gate 只能保证 Epoch 0 不回退，不能阻止训练后负迁移；负样本霸权再次使 Gate/旁路倾向于压低弱目标召回；
   3. 若要解锁 HC1/HC2 的前端死区，必须改变输入管道并进行 Phase-B Twin A/B 冷启动，无法由当前冻结旁路方案保证；但其全盘收益有限，不建议投入百小时盲目重训；
   4. 当前生产基线仍锁定 `Trial 0474 + 双向平滑 + 刚性坏点剪枝`，In-BBox `F1=0.9209`；单帧模型永久保持 Trial 0474。
+
+## 二十五、系统 SOTA OSD 视频复现与全盘指标对账（2026-09-18）
+
+- **视频脚本**：`manu/generate_sys_sota_osd.py`。它直接加载 `uav_median_trial0474_cache.pkl`，调用官方 `evaluate_sequence_bidirectional()`，生成 `Trial 0474 + 双向平滑 + 刚性坏点剪枝` 的逐帧 OSD，不再使用早期 `generate_sota_paper_video.py` 的在线 Kalman/CFAR 演示逻辑作为系统 SOTA 指标。
+- **严格交付参数**：`th_base=0.22 / th_salvage=0.06 / th_ground=0.35 / min_hits_infill=5 / min_rigid_disp=2.0 / max_rigid_var=0.5 / dist_thresh=8.0 / match_mode=bbox`。
+- **全量 24 序列快速对账结果**：
+  - `GT=25,111 / TP=22,654 / FP=1,434 / FN=2,457`；
+  - `Recall=90.2154% / Precision=94.0468% / F1=0.92091303`；
+  - 与官方 In-BBox 交付 SOTA `F1=0.9209` 浮点级一致。
+- **曾出现的错误汇总及根因**：早期批量脚本用 `if args.seq in r["im_name"]` 过滤序列，导致 `5_1` 等短序列名误匹配其他序列，错误得到 `GT=26,752 / TP=24,275 / FP=1,655 / F1=0.921567`。已修为 `extract_seq_name(r["im_name"]) == args.seq`；以后序列过滤必须使用严格解析，禁止字符串包含匹配。
+- **视频与快速评测选项**：`--no-video` 只执行官方系统 SOTA评估并打印逐序列及全盘累计指标；不加该选项才渲染 MP4。`--all-seqs` 批量处理全部验证序列。
+- **OSD 内容**：显示 GT/系统检测的 TP、FP、FN、累计 Recall/Precision/F1；GT 框及 `GT wxh px` 像素尺寸标签；系统输出包含真实观测与 infill 标记。注意视频显示的是 In-BBox 交付口径，严格 Distance 口径应另行运行 `--match-mode dist`。
+- **工程边界**：官方系统 SOTA是离线双向非因果后处理，适合汇报视频和全盘复现，不应称为实时在线跟踪；早期 `generate_sota_paper_video.py` 的在线 Tracker 仅用于视觉演示，其低阈值候选累计 FP 不能代表交付 SOTA。
