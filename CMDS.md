@@ -294,3 +294,15 @@ screen python -u manu/optuna_p0_nas_distributed.py \
     --study-name p0_nas_search_4096 \
     --output-root runs/optuna_p0_nas
 python manu/report_p0_nas_status.py
+
+screen python -u manu/optuna_velocity_highway_nas.py \
+  --output-root runs/optuna_velocity_highway_nas \
+  --data /mnt/data/siping/datasets/manu/uav_gmc_median/data.yaml \
+  --cache-root /mnt/data/siping/datasets/manu/uav_velocity_cache \
+  --weights runs/optuna_p0_nas/trial_0474/weights/best.pt \
+  --gpus 0,1,2,3 \
+  --trials 4096 \
+  --epochs 3 \
+  --batch 32 \
+  --workers 4
+tail -f runs/optuna_velocity_highway_nas/trial_0000/worker.log
