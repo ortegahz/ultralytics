@@ -280,3 +280,17 @@ python manu/audit_substandard_cases.py \
     --max-rigid-var 0.5 \
     --exclude-avian \
     --exclude-demo
+
+screen python -u manu/optuna_p0_nas_distributed.py \
+    --data /mnt/data/siping/datasets/manu/uav_gmc_median/data.yaml \
+    --weights runs/optuna_median_search/trial_0022/weights/best.pt \
+    --gpus 0,1,2,3 \
+    --n-trials 4096 \
+    --epochs 3 \
+    --batch 32 \
+    --imgsz 640 \
+    --stride 2 \
+    --dist-thresh 8.0 \
+    --study-name p0_nas_search_4096 \
+    --output-root runs/optuna_p0_nas
+python manu/report_p0_nas_status.py
