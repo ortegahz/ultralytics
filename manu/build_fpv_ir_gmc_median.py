@@ -91,6 +91,18 @@ def parse_args():
     parser.add_argument("--stride-step", type=int, default=2, help="Temporal sampling stride step for median (default: 2)")
     parser.add_argument("--downscale", type=int, default=2, help="Downscale factor for fast GMC estimation (default: 2)")
     parser.add_argument("--workers", type=int, default=8, help="Number of parallel worker processes (default: 8)")
+    parser.add_argument(
+        "--max-frames",
+        type=int,
+        default=0,
+        help="Maximum frames per sequence; uses the first contiguous segment",
+    )
+    parser.add_argument(
+        "--seq-path",
+        type=str,
+        default="",
+        help="Direct path to one sequence directory containing images/ and labels/",
+    )
     return parser.parse_args()
 
 
@@ -147,6 +159,7 @@ def process_single_ir_sequence(
     window: int,
     stride_step: int,
     downscale: int,
+    max_frames: int = 0,
 ) -> dict:
     """
     Process one IR sequence directory:
@@ -160,6 +173,9 @@ def process_single_ir_sequence(
 
     ir_img_dir = seq_dir / "ir" / "images"
     ir_lbl_dir = seq_dir / "ir" / "labels"
+    if not ir_img_dir.exists():
+        ir_img_dir = seq_dir / "images"
+        ir_lbl_dir = seq_dir / "labels"
 
     if not ir_img_dir.exists():
         return {"seq": seq_name, "success": 0, "fail": 0, "status": "no_ir_dir"}
@@ -171,6 +187,22 @@ def process_single_ir_sequence(
 
     if not img_paths:
         return {"seq": seq_name, "success": 0, "fail": 0, "status": "no_images"}
+
+    if max_frames > 0:
+        contiguous_paths = [img_paths[0]]
+        expected_number = None
+        first_number = re.search(r"(\d+)$", img_paths[0].stem)
+        if first_number:
+            expected_number = int(first_number.group(1)) + 1
+            for path in img_paths[1:]:
+                match = re.search(r"(\d+)$", path.stem)
+                if not match or int(match.group(1)) != expected_number:
+                    break
+                contiguous_paths.append(path)
+                expected_number += 1
+                if len(contiguous_paths) >= max_frames:
+                    break
+        img_paths = contiguous_paths[:max_frames]
 
     estimator = FastGMCEstimator(downscale=downscale)
     success_cnt = 0
@@ -265,7 +297,13 @@ def process_single_ir_sequence(
         # 6. Copy or create label file
         src_lbl_file = ir_lbl_dir / f"{stem}.txt"
         if src_lbl_file.exists():
-            shutil.copy(src_lbl_file, dst_lbl_path)
+            lines = []
+            for line in src_lbl_file.read_text(encoding="utf-8").splitlines():
+                parts = line.split()
+                if len(parts) >= 5:
+                    parts[0] = "0"
+                    lines.append(" ".join(parts))
+            dst_lbl_path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
         else:
             dst_lbl_path.write_text("", encoding="utf-8")
 
@@ -278,7 +316,14 @@ def process_single_ir_sequence(
         if evict_idx in affine_step1:
             del affine_step1[evict_idx]
 
-    return {"seq": seq_name, "success": success_cnt, "fail": fail_cnt, "status": "ok"}
+    return {
+        "seq": seq_name,
+        "success": success_cnt,
+        "fail": fail_cnt,
+        "status": "ok",
+        "first_frame": img_paths[0].name,
+        "last_frame": img_paths[-1].name,
+    }
 
 
 def process_split(
@@ -291,6 +336,7 @@ def process_split(
     stride_step: int,
     downscale: int,
     workers: int,
+    max_frames: int = 0,
 ):
     split_dir = fpv_root / split_name
     if not split_dir.exists():
@@ -334,6 +380,7 @@ def process_split(
                 window=window,
                 stride_step=stride_step,
                 downscale=downscale,
+                max_frames=max_frames,
             )
             total_success += res["success"]
             total_fail += res["fail"]
@@ -349,6 +396,7 @@ def process_split(
                     window,
                     stride_step,
                     downscale,
+                    max_frames,
                 ): sd.name
                 for sd in seq_dirs
             }
@@ -388,35 +436,61 @@ def main():
     args = parse_args()
     fpv_root = Path(args.fpv_root)
     output_root = Path(args.output_dir)
-
-    if not fpv_root.exists():
-        for cand in [
-            Path("/mnt/data/siping/datasets/fpv_data"),
-            Path("/home/manu/mnt/datasets/fpv_data"),
-        ]:
-            if cand.exists():
-                fpv_root = cand
-                break
-
-    if not fpv_root.exists():
-        print(f"[ERROR] fpv_data root not found: {args.fpv_root}")
-        sys.exit(1)
-
     t_start = time.time()
-    splits = ["val", "train"] if args.split == "all" else [args.split]
 
-    for sp in splits:
-        process_split(
-            fpv_root=fpv_root,
-            output_root=output_root,
-            split_name=sp,
-            target_seq=args.seq,
-            num_seqs=args.num_seqs,
+    if args.seq_path:
+        seq_path = Path(args.seq_path).resolve()
+        if not seq_path.exists():
+            print(f"[ERROR] Sequence directory not found: {seq_path}")
+            sys.exit(1)
+        out_img_dir = output_root / "images" / "val"
+        out_lbl_dir = output_root / "labels" / "val"
+        out_img_dir.mkdir(parents=True, exist_ok=True)
+        out_lbl_dir.mkdir(parents=True, exist_ok=True)
+        result = process_single_ir_sequence(
+            seq_name=seq_path.name,
+            seq_dir_str=str(seq_path),
+            out_img_dir_str=str(out_img_dir),
+            out_lbl_dir_str=str(out_lbl_dir),
             window=args.window,
             stride_step=args.stride_step,
             downscale=args.downscale,
-            workers=args.workers,
+            max_frames=args.max_frames,
         )
+        print(
+            f"[DONE] Sequence {result['seq']}: {result['success']} frames, {result['fail']} failed "
+            f"({result.get('first_frame', '?')} -> {result.get('last_frame', '?')})"
+        )
+    else:
+        if not fpv_root.exists():
+            for cand in [
+                Path("/mnt/data/siping/datasets/fpv_data"),
+                Path("/home/manu/mnt/datasets/fpv_data"),
+            ]:
+                if cand.exists():
+                    fpv_root = cand
+                    break
+
+        if not fpv_root.exists():
+            print(f"[ERROR] fpv_data root not found: {args.fpv_root}")
+            sys.exit(1)
+
+        t_start = time.time()
+        splits = ["val", "train"] if args.split == "all" else [args.split]
+
+        for sp in splits:
+            process_split(
+                fpv_root=fpv_root,
+                output_root=output_root,
+                split_name=sp,
+                target_seq=args.seq,
+                num_seqs=args.num_seqs,
+                window=args.window,
+                stride_step=args.stride_step,
+                downscale=args.downscale,
+                workers=args.workers,
+                max_frames=args.max_frames,
+            )
 
     write_data_yaml(output_root)
     total_time = time.time() - t_start
