@@ -1,37 +1,37 @@
 #!/usr/bin/env python3
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 """
-Generate Full YOLO26-format Aligned Temporal Median Dataset:
-Input Composition: [I_t, |I_t - W(I_{t-2})|, (I_t - B_t)^+]
+Build the 4-channel signed median dataset by extending the OFFICIAL 3-channel uav_gmc_median:
+
+Input Composition: [(I_t - B_t)^+, |I_t - W(I_{t-2})|, I_t, (B_t - I_t)^+]
 where:
-  - Channel 0: I_t (Raw infrared frame from official dataset)
-  - Channel 1: |I_t - W(I_{t-2})| (2-lag GMC aligned difference)
-  - Channel 2: (I_t - B_t)^+ (GMC-aligned sliding window temporal median background residual)
+  - Channel 0: (I_t - B_t)^+ (byte-exact decode of the official median JPG, model RGB order)
+  - Channel 1: |I_t - W(I_{t-2})| (byte-exact decode of the official median JPG)
+  - Channel 2: I_t (byte-exact decode of the official median JPG)
+  - Channel 3: (B_t - I_t)^+ (NEW dark residual, computed from raw frames with the same
+    GMC-aligned sliding-window median pipeline)
+
+Channels 0-2 are read directly from the official uav_gmc_median JPGs so the frozen Trial 0474
+base model receives pixel-identical inputs and the Epoch-0 baseline reproduces SOTA exactly.
+Only the dark residual channel is newly computed from the raw sequences.
 
 Features:
-1. 100% mirrors filenames and labels from reference YOLO dataset (e.g. /mnt/data/siping/datasets/manu/uav).
+1. 100% mirrors filenames and labels from the reference dataset.
 2. Guarantees 0.0px label coordinate drift.
 3. Multi-processing parallel generation across all sequences for train and val splits.
 4. Generates standard data.yaml pointing to the new dataset.
 
 Usage on Server:
-    # 1. Build validation split first (quick test, ~5 mins):
     python manu/build_full_median_dataset.py \
-        --ref-dataset /mnt/data/siping/datasets/manu/uav \
+        --ref-dataset /mnt/data/siping/datasets/manu/uav_gmc_median \
         --raw-root /mnt/data/siping/datasets/manu/anti-uav \
-        --output /mnt/data/siping/datasets/manu/uav_gmc_median \
-        --splits val \
-        --window 21 \
-        --workers 16
-
-    # 2. Build full dataset (train + val, ~20 mins):
-    python manu/build_full_median_dataset.py \
-        --ref-dataset /mnt/data/siping/datasets/manu/uav \
-        --raw-root /mnt/data/siping/datasets/manu/anti-uav \
-        --output /mnt/data/siping/datasets/manu/uav_gmc_median \
+        --output /mnt/data/siping/datasets/manu/uav_gmc_median_signed \
         --splits train,val \
         --window 21 \
         --workers 16
+
+IMPORTANT: --ref-dataset MUST point to the official 3-channel uav_gmc_median (the dataset the
+SOTA model was trained/evaluated on), NOT the raw uav dataset.
 """
 
 from __future__ import annotations
@@ -55,20 +55,20 @@ def parse_args():
     parser.add_argument(
         "--ref-dataset",
         type=str,
-        default="/mnt/data/siping/datasets/manu/uav",
-        help="Path to official reference YOLO dataset",
+        default="/mnt/data/siping/datasets/manu/uav_gmc_median",
+        help="Path to the OFFICIAL 3-channel uav_gmc_median dataset (pixel + label source)",
     )
     parser.add_argument(
         "--raw-root",
         type=str,
         default="/mnt/data/siping/datasets/manu/anti-uav",
-        help="Root directory containing raw sequences",
+        help="Root directory containing raw sequences (dark residual median source only)",
     )
     parser.add_argument(
         "--output",
         type=str,
-        default="/mnt/data/siping/datasets/manu/uav_gmc_median",
-        help="Output directory for full median dataset",
+        default="/mnt/data/siping/datasets/manu/uav_gmc_median_signed",
+        help="Output directory for the 4-channel signed median dataset",
     )
     parser.add_argument(
         "--splits",
@@ -177,6 +177,7 @@ class FastGMCEstimator:
 def process_sequence_chunk(
     seq_name: str,
     img_names: list[str],
+    ref_img_dir_str: str,
     ref_lbl_dir_str: str,
     raw_root_str: str,
     out_img_dir_str: str,
@@ -189,25 +190,25 @@ def process_sequence_chunk(
     out_img_p = Path(out_img_dir_str)
     out_lbl_p = Path(out_lbl_dir_str)
     ref_lbl_p = Path(ref_lbl_dir_str)
+    ref_img_p = Path(ref_img_dir_str)
 
+    # Raw frames are ONLY needed to compute the new dark residual median background.
     cache: dict[str, Path] = {}
     seq_dir = find_sequence_folder(raw_root, seq_name, cache)
-    if seq_dir is None:
-        return {"seq": seq_name, "success": 0, "fail": len(img_names), "status": "missing_seq"}
 
-    frames = [f for f in seq_dir.iterdir() if f.is_file() and f.suffix.lower() in IMAGE_SUFFIXES]
-    frames.sort(key=natural_key)
-    if not frames:
-        return {"seq": seq_name, "success": 0, "fail": len(img_names), "status": "no_raw_frames"}
-
+    frames: list[Path] = []
     idx_map = {}
-    for list_i, f in enumerate(frames):
-        match = re.search(r"(\d+)$", f.stem)
-        idx_map[int(match.group(1)) if match else list_i] = list_i
+    if seq_dir is not None:
+        frames = [f for f in seq_dir.iterdir() if f.is_file() and f.suffix.lower() in IMAGE_SUFFIXES]
+        frames.sort(key=natural_key)
+        for list_i, f in enumerate(frames):
+            match = re.search(r"(\d+)$", f.stem)
+            idx_map[int(match.group(1)) if match else list_i] = list_i
 
     estimator = FastGMCEstimator(downscale=downscale)
     success_cnt = 0
     fail_cnt = 0
+    dark_zero_cnt = 0
 
     sorted_im_names = sorted(img_names, key=natural_key)
     frame_cache: dict[int, np.ndarray] = {}
@@ -217,59 +218,56 @@ def process_sequence_chunk(
         src_lbl_file = ref_lbl_p / f"{Path(im_name).stem}.txt"
         dst_lbl_file = out_lbl_p / f"{Path(im_name).stem}.txt"
 
-        _, frame_idx = parse_seq_and_frame(im_name)
-        curr_list_idx = idx_map.get(frame_idx, min(frame_idx, len(frames) - 1))
-
-        # 2. 读取当前帧
-        if curr_list_idx not in frame_cache:
-            im_curr = cv2.imread(str(frames[curr_list_idx]), cv2.IMREAD_GRAYSCALE)
-            frame_cache[curr_list_idx] = im_curr
-        else:
-            im_curr = frame_cache[curr_list_idx]
-
-        if im_curr is None:
+        # 2. Channels 0-2: byte-exact decode of the official 3-channel median JPG.
+        src_img_file = ref_img_p / im_name
+        orig = cv2.imread(str(src_img_file), cv2.IMREAD_COLOR)
+        if orig is None or orig.ndim != 3 or orig.shape[2] != 3:
             fail_cnt += 1
             continue
 
-        # 3. 2-lag GMC 对齐差分: |I_t - W(I_{t-2})|
-        # 采用 Clamp 回退机制（不足 2 帧时回退到第 0 帧，确保 100% 不漏掉哪怕 1 张图片）
-        idx_prev2 = max(0, curr_list_idx - 2)
-        if idx_prev2 not in frame_cache:
-            im_prev2 = cv2.imread(str(frames[idx_prev2]), cv2.IMREAD_GRAYSCALE)
-            frame_cache[idx_prev2] = im_prev2
-        else:
-            im_prev2 = frame_cache[idx_prev2]
+        _, frame_idx = parse_seq_and_frame(im_name)
+        curr_list_idx = idx_map.get(frame_idx, min(frame_idx, len(frames) - 1)) if frames else 0
 
-        H2 = estimator.compute_affine(im_prev2, im_curr)
-        diff2 = cv2.absdiff(im_curr, estimator.warp(im_prev2, H2))
-
-        # 4. 时域滑动窗口 GMC 对齐中值背景残差: (I_t - B_t)^+
-        history_warped = []
-        for step in range(1, window + 1):
-            h_idx = max(0, curr_list_idx - step * stride_step)
-            if h_idx not in frame_cache:
-                im_h = cv2.imread(str(frames[h_idx]), cv2.IMREAD_GRAYSCALE)
-                frame_cache[h_idx] = im_h
+        # 3. Raw current frame (for the dark residual subtraction only).
+        im_curr = None
+        if frames:
+            if curr_list_idx not in frame_cache:
+                im_curr = cv2.imread(str(frames[curr_list_idx]), cv2.IMREAD_GRAYSCALE)
+                frame_cache[curr_list_idx] = im_curr
             else:
-                im_h = frame_cache[h_idx]
+                im_curr = frame_cache[curr_list_idx]
 
-            if im_h is not None:
-                H_h = estimator.compute_affine(im_h, im_curr)
-                history_warped.append(estimator.warp(im_h, H_h))
+        # 4. Dark residual (B_t - I_t)^+ from the same median window pipeline as the bright channel.
+        res_dark = None
+        if im_curr is not None:
+            history_warped = []
+            for step in range(1, window + 1):
+                h_idx = max(0, curr_list_idx - step * stride_step)
+                if h_idx not in frame_cache:
+                    im_h = cv2.imread(str(frames[h_idx]), cv2.IMREAD_GRAYSCALE)
+                    frame_cache[h_idx] = im_h
+                else:
+                    im_h = frame_cache[h_idx]
 
-        if len(history_warped) >= 3:
-            stack = np.stack(history_warped, axis=0)
-            median_bg = np.median(stack, axis=0).astype(np.float32)
-            res_median = np.clip(im_curr.astype(np.float32) - median_bg, 0, 255).astype(np.uint8)
-        else:
-            res_median = diff2
+                if im_h is not None:
+                    H_h = estimator.compute_affine(im_h, im_curr)
+                    history_warped.append(estimator.warp(im_h, H_h))
 
-        # 5. 组合 3 通道: [I_t, diff2_gmc, res_median]
-        merged = np.stack([im_curr, diff2, res_median], axis=-1)
+            if len(history_warped) >= 3:
+                stack = np.stack(history_warped, axis=0)
+                median_bg = np.median(stack, axis=0).astype(np.float32)
+                res_dark = np.clip(median_bg - im_curr.astype(np.float32), 0, 255).astype(np.uint8)
 
-        # 6. 保存图像与复制标签（文件名与内容 100% 相同）
-        dst_img_file = out_img_p / im_name
-        cv2.imwrite(str(dst_img_file), merged)
+        if res_dark is None:
+            res_dark = np.zeros(orig.shape[:2], dtype=np.uint8)
+            dark_zero_cnt += 1
+
+        # 5. Model RGB order of the original [I_t, diff2, res_bright] BGR file + dark channel.
+        merged = np.stack([orig[:, :, 2], orig[:, :, 1], orig[:, :, 0], res_dark], axis=-1)
+
+        dst_img_file = out_img_p / f"{Path(im_name).stem}.png"
+        if not cv2.imwrite(str(dst_img_file), merged):
+            raise RuntimeError(f"Failed to write 4-channel image: {dst_img_file}")
 
         if src_lbl_file.exists():
             shutil.copy(src_lbl_file, dst_lbl_file)
@@ -283,7 +281,8 @@ def process_sequence_chunk(
         if evict_idx in frame_cache:
             del frame_cache[evict_idx]
 
-    return {"seq": seq_name, "success": success_cnt, "fail": fail_cnt, "status": "ok"}
+    status = "ok" if dark_zero_cnt == 0 else f"ok_dark_zero={dark_zero_cnt}"
+    return {"seq": seq_name, "success": success_cnt, "fail": fail_cnt, "status": status}
 
 
 def process_split(
@@ -334,6 +333,7 @@ def process_split(
                 process_sequence_chunk,
                 seq_name,
                 img_names,
+                str(ref_img_dir),
                 str(ref_lbl_dir),
                 str(raw_root),
                 str(out_img_dir),
@@ -364,10 +364,11 @@ def process_split(
 
 
 def write_data_yaml(out_dir: Path):
-    yaml_content = f"""# Ultralytics UAV Dataset: Aligned Temporal Median Mode [I_t, |I_t - W(I_{{t-2}})|, (I_t - B_t)^+]
+    yaml_content = f"""# Ultralytics UAV Dataset: Signed Median Mode [(I_t - B_t)^+, |I_t - W(I_{{t-2}})|, I_t, (B_t - I_t)^+]
 path: {out_dir.resolve()}
 train: images/train
 val: images/val
+channels: 4
 
 names:
   0: uav
@@ -384,7 +385,10 @@ def main():
     out_dir = Path(args.output).resolve()
 
     if not ref_dir.is_dir():
-        for cand in [Path("/mnt/data/siping/datasets/manu/uav"), Path("/home/manu/mnt/datasets/manu/uav")]:
+        for cand in [
+            Path("/mnt/data/siping/datasets/manu/uav_gmc_median"),
+            Path("/home/manu/mnt/datasets/manu/uav_gmc_median"),
+        ]:
             if cand.is_dir():
                 ref_dir = cand
                 break
@@ -395,9 +399,9 @@ def main():
                 break
 
     print("=" * 90)
-    print("   UAV Tiny Object Detection: Full Aligned Temporal Median Dataset Builder")
-    print(f"   Reference Dataset : {ref_dir}")
-    print(f"   Raw Video Root    : {raw_root}")
+    print("   UAV Tiny Object Detection: 4-Channel Signed Median Dataset Builder")
+    print(f"   Pixel/Label Source: {ref_dir} (official uav_gmc_median, channels 0-2 byte-exact)")
+    print(f"   Raw Video Root    : {raw_root} (dark residual median source only)")
     print(f"   Target Output     : {out_dir}")
     print(f"   Median Window     : {args.window} frames (step: {args.stride_step}) | Workers: {args.workers}")
     print("=" * 90)

@@ -255,13 +255,16 @@ class BaseDataset(Dataset):
                             f"{self.prefix}Removing stale *.npy image file {fn} with {npy_channels} channels, expected {self.channels}"
                         )
                         Path(fn).unlink(missing_ok=True)
-                        im = imread(f, flags=self.cv2_flag)
+                        read_flags = cv2.IMREAD_UNCHANGED if self.channels > 3 else self.cv2_flag
+                        im = imread(f, flags=read_flags)
                 except Exception as e:
                     LOGGER.warning(f"{self.prefix}Removing corrupt *.npy image file {fn} due to: {e}")
                     Path(fn).unlink(missing_ok=True)
-                    im = imread(f, flags=self.cv2_flag)  # BGR
+                    read_flags = cv2.IMREAD_UNCHANGED if self.channels > 3 else self.cv2_flag
+                    im = imread(f, flags=read_flags)
             else:  # read image
-                im = imread(f, flags=self.cv2_flag)  # BGR
+                read_flags = cv2.IMREAD_UNCHANGED if self.channels > 3 else self.cv2_flag
+                im = imread(f, flags=read_flags)  # BGR or unchanged multispectral image
             if im is None:
                 raise FileNotFoundError(f"Image Not Found {f}")
 

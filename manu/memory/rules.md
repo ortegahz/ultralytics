@@ -74,3 +74,10 @@
   2. **640×640 Letterbox 空间**：推理缓存 `uav_median_trial0474_cache.pkl` 里的 `gt_pts` 与 `pred_points` 均在 Ultralytics 等比例 letterbox + padding 后的 640×640 画布内（`cache_trial0474_inferences.py` 用 dataloader 的 `batch["bboxes"]*imgsz` 生成，是正确的）。评测链路（如 `eval_bidirectional_track_fusion.py`）自洽地工作在此空间；
 - **正确姿势**：采样图像通道用原生坐标；算模型响应距离直接复用缓存内的 `gt_pts`（无需反推 letterbox），按帧内索引配对；
 - **已修复脚本**：`probe_wg020_03_deep.py`、`analyze_wg020_03_gt_trajectory.py` 已改为逐图读真实尺寸；历史结论中凡依赖 640×640 假设的（如"走走停停 39.3%"、"829.6px 里程"、"时序通道坍塌"）均已作废。
+
+### 5. 输入通道语义与多通道数据契约铁律 (Channel Semantics Contract) 【2026-09-21 新增，必读】
+- **铁律：任何扩展现有数据集通道数的操作，已有通道必须逐字节读取官方数据集图像，严禁从 raw 序列重新生成。** Trial 0474 训练/评测时看到的是官方 `uav_gmc_median` **JPG 有损压缩后的解码像素**；从 raw 以无损 PNG 重生成前三通道（即使 GMC/中值管道参数完全相同）会使基线从 **0.9064 漂移至 0.9023**（TP −206 / FP −35），直接丧失 Epoch 0 浮点级零回归校验能力，导致整个对照实验失去判决价值；
+- **铁律：官方 `Format._format_img` 仅在通道数 == 3 时执行 BGR→RGB 翻转（`img[::-1]`），N≠3 通道图像不会翻转。** 因此多通道数据生成阶段就必须把已有通道按**模型实际接收顺序**写入（Trial 0474 为 `[(I_t−B_t)^+, |I_t−W(I_{t-2})|, I_t]`），训练脚本直接 `x[:, :3]` 切片，**严禁在训练端做隐式重排**。违反此条会使模型收到完全相反的通道序，基线暴跌至 **0.6492**；
+- **多通道读取支持**：`ultralytics/data/base.py::load_image` 已改为 `cv2.IMREAD_UNCHANGED if self.channels > 3 else self.cv2_flag`（含 stale/corrupt `.npy` 回退路径），配合 `data.yaml` 中显式声明 `channels: N` 生效；4 通道及以上数据必须以 PNG 等无损格式落盘（JPEG 不支持 4 通道且会引入有损伪影）；
+- **强制校验**：任何通道扩展实验在正式训练前，必须先跑 **Epoch 0 零回归校验**并确认与 SOTA 标称值浮点级一致（Trial 0474 单帧：`F1=0.9064 / Recall=86.19% / Precision=95.57% / TP=21,643 / FP=1,004`），否则立即停止，不得带着错位基线训练。
+
