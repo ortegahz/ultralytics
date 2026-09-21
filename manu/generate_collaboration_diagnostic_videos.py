@@ -42,6 +42,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from manu.eval_bidirectional_track_fusion import match_predictions_to_gt
+
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
 
 TARGET_HARD_CASES = [
@@ -98,7 +100,12 @@ def parse_args():
     )
     parser.add_argument("--imgsz", type=int, default=640, help="Video panel resolution (640x640)")
     parser.add_argument("--fps", type=float, default=25.0, help="Video framerate")
-    parser.add_argument("--conf", type=float, default=0.22, help="Detection threshold if show-dets is enabled")
+    parser.add_argument("--conf", type=float, default=0.22, help="Fallback detection threshold")
+    parser.add_argument("--search-threshold", action="store_true", help="Search the best threshold independently for each sequence")
+    parser.add_argument("--th-min", type=float, default=0.05, help="Minimum threshold for per-sequence search")
+    parser.add_argument("--th-max", type=float, default=0.50, help="Maximum threshold for per-sequence search")
+    parser.add_argument("--th-step", type=float, default=0.01, help="Threshold step for per-sequence search")
+    parser.add_argument("--dist-thresh", type=float, default=8.0, help="Matching distance in letterbox pixels")
     return parser.parse_args()
 
 
@@ -311,6 +318,24 @@ def add_banner(panel: np.ndarray, title: str, subtitle: str, bg_color=(25, 25, 2
     cv2.putText(panel, subtitle, (panel.shape[1] - ts[0] - 12, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 255, 255), 1, cv2.LINE_AA)
 
 
+def evaluate_threshold(records: list[dict], threshold: float, dist_thresh: float) -> dict:
+    stats = {"tp": 0, "fp": 0, "gt": 0}
+    for record in records:
+        gt_pts = np.asarray(record.get("gt_pts", []), dtype=np.float32)
+        gt_bboxes = np.asarray(record.get("gt_bboxes", []), dtype=np.float32)
+        points = np.asarray(record.get("pred_points", []), dtype=np.float32)
+        scores = np.asarray(record.get("pred_scores", []), dtype=np.float32)
+        points = points[scores >= threshold]
+        tp, fp, _ = match_predictions_to_gt(gt_pts, points, dist_thresh, gt_bboxes=gt_bboxes, match_mode="bbox")
+        stats["tp"] += tp
+        stats["fp"] += fp
+        stats["gt"] += len(gt_pts)
+    stats["recall"] = 100.0 * stats["tp"] / max(1, stats["gt"])
+    stats["precision"] = 100.0 * stats["tp"] / max(1, stats["tp"] + stats["fp"])
+    stats["f1"] = 2.0 * stats["recall"] * stats["precision"] / max(1e-6, stats["recall"] + stats["precision"])
+    return stats
+
+
 def generate_sequence_video(
     seq_name: str,
     data_root: Path,
@@ -321,6 +346,11 @@ def generate_sequence_video(
     imgsz: int = 640,
     fps: float = 25.0,
     conf_thresh: float = 0.22,
+    search_threshold: bool = False,
+    th_min: float = 0.05,
+    th_max: float = 0.50,
+    th_step: float = 0.01,
+    dist_thresh: float = 8.0,
 ):
     val_img_dir = data_root / "images" / "val"
     val_lbl_dir = data_root / "labels" / "val"
@@ -335,7 +365,18 @@ def generate_sequence_video(
         return
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    vid_path = out_dir / f"{seq_name}_diagnostic_demo.mp4"
+    if search_threshold and cache_by_stem:
+        sequence_records = [record for stem, record in cache_by_stem.items() if stem.startswith(f"{seq_name}__")]
+        thresholds = np.arange(th_min, th_max + th_step * 0.5, th_step)
+        threshold_results = [(float(threshold), evaluate_threshold(sequence_records, float(threshold), dist_thresh)) for threshold in thresholds]
+        conf_thresh, best_stats = max(threshold_results, key=lambda item: (item[1]["f1"], item[1]["recall"], item[1]["precision"]))
+        print(
+            f"[THRESHOLD] {seq_name}: th={conf_thresh:.2f} TP={best_stats['tp']} FP={best_stats['fp']} "
+            f"GT={best_stats['gt']} R={best_stats['recall']:.2f}% P={best_stats['precision']:.2f}% F1={best_stats['f1']:.4f}"
+        )
+    else:
+        best_stats = None
+    vid_path = out_dir / f"{seq_name}_diagnostic_demo_th{conf_thresh:.2f}.mp4"
 
     out_w = imgsz * 2
     out_h = imgsz
@@ -474,7 +515,7 @@ def generate_sequence_video(
         add_banner(
             panel_left,
             f"INFRARED RAW | {seq_name} | Frame {f_idx:04d}/{total_frames:04d}",
-            f"{gt_size_str}",
+            f"{gt_size_str} | th={conf_thresh:.2f}",
         )
         add_banner(
             panel_right,
@@ -551,6 +592,11 @@ def main():
             imgsz=args.imgsz,
             fps=args.fps,
             conf_thresh=args.conf,
+            search_threshold=args.search_threshold,
+            th_min=args.th_min,
+            th_max=args.th_max,
+            th_step=args.th_step,
+            dist_thresh=args.dist_thresh,
         )
 
 
