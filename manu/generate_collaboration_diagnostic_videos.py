@@ -80,9 +80,8 @@ def parse_args():
     parser.add_argument(
         "--seq",
         type=str,
-        default="all",
-        choices=["all"] + TARGET_HARD_CASES,
-        help="Target sequence name or 'all' to generate all 4 hard cases",
+        default="",
+        help="Sequence name or filename prefix; empty means all sequences in the dataset",
     )
     parser.add_argument(
         "--right-panel",
@@ -350,6 +349,8 @@ def generate_sequence_video(
 
     for f_idx, img_p in enumerate(tqdm(img_files, desc=f"Video: {seq_name}")):
         lbl_p = val_lbl_dir / f"{img_p.stem}.txt"
+        source_img = cv2.imread(str(img_p))
+        source_h, source_w = source_img.shape[:2] if source_img is not None else (imgsz, imgsz)
         gt_boxes = []
         if lbl_p.exists():
             with open(lbl_p, "r", encoding="utf-8") as f:
@@ -358,10 +359,10 @@ def generate_sequence_video(
                 # class cx cy w h (normalized)
                 b = [float(x) for x in l[1:5]]
                 gt_boxes.append([
-                    b[0] * imgsz,
-                    b[1] * imgsz,
-                    b[2] * imgsz,
-                    b[3] * imgsz,
+                    b[0] * source_w,
+                    b[1] * source_h,
+                    b[2] * source_w,
+                    b[3] * source_h,
                 ])
         gt_boxes = np.array(gt_boxes, dtype=np.float32) if len(gt_boxes) > 0 else np.zeros((0, 4), dtype=np.float32)
         n_gt = len(gt_boxes)
@@ -371,8 +372,25 @@ def generate_sequence_video(
         img_bgr = cv2.imread(str(img_p))
         if img_bgr is None:
             img_bgr = np.zeros((imgsz, imgsz, 3), dtype=np.uint8)
-        elif img_bgr.shape[0] != imgsz or img_bgr.shape[1] != imgsz:
-            img_bgr = cv2.resize(img_bgr, (imgsz, imgsz))
+        else:
+            orig_h, orig_w = img_bgr.shape[:2]
+            scale = min(imgsz / orig_w, imgsz / orig_h)
+            resized_w, resized_h = round(orig_w * scale), round(orig_h * scale)
+            img_bgr = cv2.resize(img_bgr, (resized_w, resized_h), interpolation=cv2.INTER_LINEAR)
+            pad_x = (imgsz - resized_w) // 2
+            pad_y = (imgsz - resized_h) // 2
+            img_bgr = cv2.copyMakeBorder(
+                img_bgr,
+                pad_y,
+                imgsz - resized_h - pad_y,
+                pad_x,
+                imgsz - resized_w - pad_x,
+                cv2.BORDER_CONSTANT,
+                value=(114, 114, 114),
+            )
+            gt_boxes[:, 0] = gt_boxes[:, 0] * scale + pad_x
+            gt_boxes[:, 1] = gt_boxes[:, 1] * scale + pad_y
+            gt_boxes[:, 2:] *= scale
 
         # Channel 0 is raw IR
         raw_ir_bgr = cv2.cvtColor(img_bgr[:, :, 0], cv2.COLOR_GRAY2BGR)
@@ -513,7 +531,14 @@ def main():
     if not out_dir.is_absolute():
         out_dir = PROJECT_ROOT / out_dir
 
-    seqs_to_run = TARGET_HARD_CASES if args.seq == "all" else [args.seq]
+    if args.seq:
+        seqs_to_run = [args.seq]
+    else:
+        seqs_to_run = sorted(
+            {re.sub(r"___seg\d+$", "", Path(p).stem.split("__", 1)[0]) for p in cache_by_stem}
+            or {"longquanshan_ir_1"},
+            key=natural_sort_key,
+        )
 
     for s in seqs_to_run:
         generate_sequence_video(

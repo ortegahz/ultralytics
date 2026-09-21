@@ -38,6 +38,7 @@ from manu.heatmap_model import YOLO26HeatmapDetector
 from manu.eval_bidirectional_track_fusion import (
     evaluate_sequence_bidirectional,
     extract_seq_name,
+    match_predictions_to_gt,
     natural_sort_key,
 )
 
@@ -70,6 +71,10 @@ def parse_args():
     parser.add_argument("--dist-thresh", type=float, default=8.0, help="Evaluation tolerance (default: 8.0px)")
     parser.add_argument("--match-mode", type=str, default="bbox", choices=["bbox", "dist"], help="Matching mode")
     parser.add_argument("--skip-inference-if-cached", action="store_true", help="Skip model forward if cache pkl already exists")
+    parser.add_argument("--search-threshold", action="store_true", help="Search the best single-frame confidence threshold")
+    parser.add_argument("--th-min", type=float, default=0.05, help="Minimum threshold for search")
+    parser.add_argument("--th-max", type=float, default=0.50, help="Maximum threshold for search")
+    parser.add_argument("--th-step", type=float, default=0.01, help="Threshold search step")
     return parser.parse_args()
 
 
@@ -183,7 +188,46 @@ def run_caching(model, stride, data_path: Path, cache_out: Path, args, device):
     return records
 
 
+def evaluate_single_frame_threshold(records: list[dict], threshold: float, dist_thresh: float, match_mode: str) -> dict:
+    stats = {"tp": 0, "fp": 0, "gt": 0}
+    for record in records:
+        gt_pts = np.asarray(record["gt_pts"], dtype=np.float32)
+        gt_bboxes = np.asarray(record.get("gt_bboxes", []), dtype=np.float32)
+        pred_pts = np.asarray(record["pred_points"], dtype=np.float32)
+        pred_scores = np.asarray(record["pred_scores"], dtype=np.float32)
+        pred_pts = pred_pts[pred_scores >= threshold]
+        tp, fp, _ = match_predictions_to_gt(
+            gt_pts,
+            pred_pts,
+            dist_thresh,
+            gt_bboxes=gt_bboxes,
+            match_mode=match_mode,
+        )
+        stats["tp"] += tp
+        stats["fp"] += fp
+        stats["gt"] += len(gt_pts)
+    recall = 100.0 * stats["tp"] / max(1, stats["gt"])
+    precision = 100.0 * stats["tp"] / max(1, stats["tp"] + stats["fp"])
+    stats["recall"] = recall
+    stats["precision"] = precision
+    stats["f1"] = 2.0 * recall * precision / max(1e-6, recall + precision)
+    return stats
+
+
 def evaluate_sota_on_cache(records: list[dict], args):
+    if args.search_threshold:
+        thresholds = np.arange(args.th_min, args.th_max + args.th_step * 0.5, args.th_step)
+        results = [evaluate_single_frame_threshold(records, float(th), args.dist_thresh, args.match_mode) for th in thresholds]
+        best = max(results, key=lambda result: (result["f1"], result["recall"], result["precision"]))
+        best_index = results.index(best)
+        print("\nSINGLE-FRAME THRESHOLD SEARCH")
+        print(f"Best threshold: {thresholds[best_index]:.3f} | TP={best['tp']} FP={best['fp']} GT={best['gt']} | "
+              f"Recall={best['recall']:.2f}% Precision={best['precision']:.2f}% F1={best['f1']:.4f}")
+        print("Threshold search candidates:")
+        for threshold, result in zip(thresholds, results):
+            print(f"  th={threshold:.3f}: R={result['recall']:.2f}% P={result['precision']:.2f}% F1={result['f1']:.4f} TP={result['tp']} FP={result['fp']}")
+        return
+
     print(colorstr("bold", "\n========================================================================================="))
     print(colorstr("bold", f"EVALUATING SYSTEM SOTA ON FPV IR DATASET ({len(records)} frames)"))
     print(colorstr("bold", "========================================================================================="))

@@ -103,6 +103,11 @@ def parse_args():
         default="",
         help="Direct path to one sequence directory containing images/ and labels/",
     )
+    parser.add_argument(
+        "--all-segments",
+        action="store_true",
+        help="In direct-sequence mode, process every contiguous numeric segment",
+    )
     return parser.parse_args()
 
 
@@ -160,6 +165,8 @@ def process_single_ir_sequence(
     stride_step: int,
     downscale: int,
     max_frames: int = 0,
+    image_paths: list[Path] | None = None,
+    labeled_only: bool = False,
 ) -> dict:
     """
     Process one IR sequence directory:
@@ -181,10 +188,11 @@ def process_single_ir_sequence(
         return {"seq": seq_name, "success": 0, "fail": 0, "status": "no_ir_dir"}
 
     img_paths = sorted(
-        [p for p in ir_img_dir.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_SUFFIXES],
+        image_paths
+        if image_paths is not None
+        else [p for p in ir_img_dir.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_SUFFIXES],
         key=natural_key,
     )
-
     if not img_paths:
         return {"seq": seq_name, "success": 0, "fail": 0, "status": "no_images"}
 
@@ -240,6 +248,9 @@ def process_single_ir_sequence(
     for curr_idx in range(num_frames):
         img_p = img_paths[curr_idx]
         stem = img_p.stem
+        src_lbl_file = ir_lbl_dir / f"{stem}.txt"
+        if labeled_only and not src_lbl_file.is_file():
+            continue
 
         # Target filenames
         dst_im_name = f"{seq_name}__{stem}.jpg"
@@ -295,7 +306,6 @@ def process_single_ir_sequence(
         cv2.imwrite(str(dst_img_path), merged_3ch)
 
         # 6. Copy or create label file
-        src_lbl_file = ir_lbl_dir / f"{stem}.txt"
         if src_lbl_file.exists():
             lines = []
             for line in src_lbl_file.read_text(encoding="utf-8").splitlines():
@@ -324,6 +334,23 @@ def process_single_ir_sequence(
         "first_frame": img_paths[0].name,
         "last_frame": img_paths[-1].name,
     }
+
+
+def split_contiguous_paths(paths: list[Path]) -> list[list[Path]]:
+    segments = []
+    current = []
+    previous_number = None
+    for path in sorted(paths, key=natural_key):
+        match = re.search(r"(\d+)$", path.stem)
+        number = int(match.group(1)) if match else None
+        if current and (number is None or previous_number is None or number != previous_number + 1):
+            segments.append(current)
+            current = []
+        current.append(path)
+        previous_number = number
+    if current:
+        segments.append(current)
+    return segments
 
 
 def process_split(
@@ -447,20 +474,36 @@ def main():
         out_lbl_dir = output_root / "labels" / "val"
         out_img_dir.mkdir(parents=True, exist_ok=True)
         out_lbl_dir.mkdir(parents=True, exist_ok=True)
-        result = process_single_ir_sequence(
-            seq_name=seq_path.name,
-            seq_dir_str=str(seq_path),
-            out_img_dir_str=str(out_img_dir),
-            out_lbl_dir_str=str(out_lbl_dir),
-            window=args.window,
-            stride_step=args.stride_step,
-            downscale=args.downscale,
-            max_frames=args.max_frames,
-        )
-        print(
-            f"[DONE] Sequence {result['seq']}: {result['success']} frames, {result['fail']} failed "
-            f"({result.get('first_frame', '?')} -> {result.get('last_frame', '?')})"
-        )
+        img_dir = seq_path / "ir" / "images"
+        lbl_dir = seq_path / "ir" / "labels"
+        if not img_dir.exists():
+            img_dir = seq_path / "images"
+            lbl_dir = seq_path / "labels"
+        all_paths = [p for p in img_dir.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_SUFFIXES]
+        segments = split_contiguous_paths(all_paths) if args.all_segments else [sorted(all_paths, key=natural_key)]
+        total_success = total_fail = 0
+        for segment_index, segment_paths in enumerate(segments):
+            if args.max_frames > 0:
+                segment_paths = segment_paths[: args.max_frames]
+            segment_name = f"{seq_path.name}___seg{segment_index:03d}"
+            result = process_single_ir_sequence(
+                seq_name=segment_name,
+                seq_dir_str=str(seq_path),
+                out_img_dir_str=str(out_img_dir),
+                out_lbl_dir_str=str(out_lbl_dir),
+                window=args.window,
+                stride_step=args.stride_step,
+                downscale=args.downscale,
+                image_paths=segment_paths,
+                labeled_only=True,
+            )
+            total_success += result["success"]
+            total_fail += result["fail"]
+            print(
+                f"[DONE] {result['seq']}: {result['success']} labeled frames, {result['fail']} failed "
+                f"({result.get('first_frame', '?')} -> {result.get('last_frame', '?')})"
+            )
+        print(f"[DONE] Total labeled frames: {total_success}, failed: {total_fail}, segments: {len(segments)}")
     else:
         if not fpv_root.exists():
             for cand in [
