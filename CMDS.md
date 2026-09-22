@@ -306,3 +306,39 @@ screen python -u manu/optuna_velocity_highway_nas.py \
   --batch 32 \
   --workers 4
 tail -f runs/optuna_velocity_highway_nas/trial_0000/worker.log
+
+python manu/process_ir_video_sota.py \
+  --input "/mnt/data/xxxu/龙泉山/ir/VIDEO00010_19700101_001550.h264" \
+  --output "runs/paper_diagnostic_videos/VIDEO00002_001415_sota.mp4" \
+  --weights "runs/optuna_p0_nas/trial_0474/weights/best.pt" \
+  --device 1
+
+screen python manu/process_ir_videos_parallel.py \
+  --input-root "/mnt/data/xxxu/龙泉山/ir" \
+  --output-dir "runs/paper_diagnostic_videos/longquanshan" \
+  --weights "runs/optuna_p0_nas/trial_0474/weights/best.pt" \
+  --gpus 0,1,2,3 \
+  --workers-per-gpu 8
+
+python manu/extract_video_frames.py \
+  --input-root "/mnt/data/xxxu/龙泉山/ir" \
+  --output-root "/mnt/data/siping/datasets/manu/龙泉山/frames_ir_jpg" \
+  --recursive \
+  --format jpg \
+  --jpg-quality 95
+
+screen python manu/preannotate_parallel.py \
+  --frames-root "/mnt/data/siping/datasets/manu/龙泉山/frames_ir_jpg" \
+  --output-root "/mnt/data/siping/datasets/manu/龙泉山/preannot_v1" \
+  --split train \
+  --hm-weights runs/optuna_p0_nas/trial_0474/weights/best.pt \
+  --bbox-weights runs/optuna_uav_recall_sgpu/trial_0028/weights/best.pt \
+  --gpus 0,1,2,3 \
+  --workers-per-gpu 1 \
+  --batch-size 2 \
+  --yolo-batch-size 2 \
+  --cpu-threads 1 \
+  --chunk-size 64 \
+  --hm-conf 0.06 \
+  --bbox-conf 0.06 \
+  --overwrite
