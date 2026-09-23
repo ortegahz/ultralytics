@@ -305,3 +305,37 @@
 - 推荐最终流程：原始 train + 新域部分通过视频 + hard case（过采样）训练；新域部分通过视频留作回归；原始 val 永不加入训练；每 epoch 检查原始 val Precision/F1 与新域分桶 Recall。
 - 新域增广训练与过去“改变输入通道”的实验不同：若保持 Trial 0474 三通道语义和结构不变，可以尝试受控低学习率全参域适应；仍应优先保留 Trial 0474 冻结基线、原始 val 回归闸门和 Adapter/冻结侧支备选。
 
+## 九、领域迁移阶段目标、FPV/龙泉山零样本与黑热模式 Handle（2026-09-23）
+
+### 1. 当前阶段目标重新定性
+- Anti-UAV 4th 算法设计阶段已经结束；当前进入**特定业务吊舱红外域的领域迁移阶段**。
+- 核心目标不是证明 Trial 0474 对所有陌生场景的通用泛化，而是证明：在当前新业务域上，通过受控微调或等价的域适配预处理，可以达到预先约定的工程 Recall/FAR/Precision 指标，并且原 Anti-UAV 4th val 能力不退化。
+- 数据划分应服务于工程可行性证明：本域 train 用于适配；同域独立 new-domain val 用于迭代和阈值选择；同域未见视频 held-out regression 必须封存，只能在封版后一次性验收；Anti-UAV 4th val 作为不可退化闸门。
+- 若零样本已经在真实新域上达标，不应强行微调；应将“冻结 Trial 0474 直接满足工程指标”作为主结论，微调仅作为可选优化。
+
+### 2. FPV 数据集零样本实验记录
+- 已有 FPV 实验脚本：`manu/build_fpv_ir_gmc_median.py` 生成 `[I_t, |I_t-W(I_{t-2})|, (I_t-B_t)^+]`；`manu/eval_fpv_ir_zero_shot.py` 使用 Trial 0474 批量推理并生成稀疏预测缓存。
+- 原 `fpv_data` 记录：67 个序列、61,999 帧、60,620 GT；单帧 `th=0.22` 为 Recall=99.48%、Precision=99.33%、F1=99.4082%、TP=60,306、FP=404；双向平滑+剪枝反而降至 F1=98.8552%，因此 FPV 类似场景优先采用单帧输出。
+- 对 `fpv_data_4` 执行同样命令后得到完全相同的规模和指标：67 序列、61,999 帧、60,620 GT、单帧 F1=99.4082%。这高度提示 `fpv_data_4` 可能是原 `fpv_data` 的复制或内容相同版本；后续若要作为新证据，必须比较序列清单、文件数量和文件哈希，确认确实不是同一数据。
+- FPV 处理耗时：67 序列、61,999 帧，`build_fpv_ir_gmc_median.py` 使用 8 个 sequence workers，约 14.1 分钟；批量 Trial 0474 推理约 7.1 分钟。该链路比龙泉山实时视频处理快，主要因为预处理离线并按序列并行、模型使用 batch 推理。
+
+### 3. 龙泉山素材与无 GT 推理链
+- 交付视频恢复后的灰度帧已落在 `/mnt/data/siping/datasets/manu/龙泉山/frames_ir_jpg/<VIDEO_SEQUENCE>/`，共约 165,223 张 640×512 灰度 JPG、24 个视频序列。
+- 已新增 `manu/organize_ir_frames_dataset.py`：默认将各视频子目录整理为 `train/<sequence>/ir/images/`，使用软链接而不是复制 15GB 原图；生成 `organize_train_manifest.json`。特征生成继续使用 `manu/build_fpv_ir_gmc_median.py`。
+- 由于 `manu/eval_fpv_ir_zero_shot.py` 固定读取 `data.yaml` 的 `val` split，当前无 GT 推理临时将 `val: images/train` 指向训练目录；空 label 被正确读取为 165,223 个 background，但不能据此解释 Recall/Precision/F1。
+- 龙泉山无 GT Trial 0474 推理结果：165,223 帧、24 序列、单帧共输出 106,451 个预测点；系统后处理输出 149,163 个预测点。报告中的 `GT=0、Recall=0、Precision=0、F1=0` 仅表示无标签，不能作为模型性能结论。
+- 无 GT 缓存仍有工程价值：`runs/zero_shot_eval/longquanshan_trial0474_cache.pkl` 保存每帧 `im_name`、`pred_points`、`pred_scores`，可用于 OSD 视频和人工观察，但必须等人工标注后重新计算正式指标。
+- 诊断视频脚本 `manu/generate_collaboration_diagnostic_videos.py` 已新增 `--split {train,val,test}`，可从 `images/train` 读取无 GT 特征集，生成左侧原始帧/局部放大、右侧特征或合成 heatmap 的视频。无 GT 时不得使用 `--search-threshold`。
+- `manu/generate_sys_sota_osd.py` 适合从缓存生成系统级 OSD，但无 GT 时其累计指标同样无意义；`generate_optimized_paper_video.py` 依赖 GT 做逐序列参数优化，不适用于当前无 GT 数据。
+
+### 4. 黑热模式 Handle 实验（重要新增结论）
+- 新业务中的 `VIDEO00032_19700101_014453` 观察到目标为**黑热模式**：目标相对背景呈暗目标，而 Trial 0474 训练域主要按白热正残差建模。
+- 结构性原因：当前第三通道为 `(I_t-B_t)^+`，只保留亮于背景的正残差；黑热目标在原灰度极性下使该通道响应显著减弱甚至接近零，导致时域特征少一类有效证据。直接把已生成三通道中的某一通道反相是不正确的。
+- 正确 Handle 是在原始灰度帧级别做极性转换：`I'_t = 255 - I_t`；然后**从反相后的完整帧序列重新计算** GMC 两步差分和 21 帧时域中值残差，形成同一训练契约的三通道 `[I'_t, |I'_t-W(I'_{t-2})|, (I'_t-B'_t)^+]`，再送入冻结 Trial 0474。
+- 已新增一体化实验脚本：`manu/run_whitehot_sequence_paper_video.py`。默认处理 `VIDEO00032_19700101_014453`，不修改原始帧，执行：黑热逐帧反相 → GMC+21 帧中值特征生成 → Trial 0474 batch 推理 → 生成论文式诊断视频。输出目录默认是 `/mnt/data/siping/datasets/manu/longquanshan_whitehot_VIDEO00032_19700101_014453/`，视频位于其 `paper_diagnostic/` 子目录。
+- 该脚本默认右侧显示合成 HM、左侧显示 Ch0 原始红外和局部 RAW/CLAHE 放大；使用 `--right-panel features` 可改为四宫格输入特征显示。反相版本的原始帧和特征均独立保存，便于复核。
+- 当前“黑热转换后大幅提升召回”只是视频人工观感，**尚无人工 GT 支持的定量 Recall/Precision/FAR**，不得写成正式指标。下一步必须优先标注该视频或至少抽取连续代表片段做人工 GT，对原始黑热输入与反相输入做同一帧集合 A/B：Recall、Precision、FAR、连续漏检长度、目标处 HM 分数。
+- 若黑热/白热模式在产品侧可可靠获知，优先采用**模式感知预处理 Handle**，不必立即重训：白热走原始 Trial 0474 管道，黑热走 `I'=255-I` 后的同构管道。两条分支共享同一冻结权重，工程上只增加模式选择和缓存/预处理逻辑。
+- 只有在以下情况成立时才进入微调：① 黑热模式无法可靠获得或存在错判；② 反相不是严格灰度极性转换（存在 LUT、伽马、动态范围差异）；③ 多个独立黑热视频经反相后仍达不到工程验收阈值。届时保持三通道语义和模型结构不变，优先做冻结底模/Adapter 受控微调；原 Anti-UAV 4th val 必须作为不可退化闸门。
+- 当前推荐生产策略：`mode=white_hot` 直接使用原始 Trial 0474；`mode=black_hot` 先逐帧反相，再重新生成 GMC+Median，不允许把黑热原图直接喂给白热特征管道，也不允许只反转输出 HM 或已生成的单一通道。
+

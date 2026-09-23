@@ -65,8 +65,9 @@ def parse_args():
         "--data-root",
         type=str,
         default="/mnt/data/siping/datasets/manu/uav_gmc_median",
-        help="Path to dataset root (containing images/val and labels/val)",
+        help="Path to dataset root (containing images/<split> and labels/<split>)",
     )
+    parser.add_argument("--split", type=str, default="val", choices=["train", "val", "test"])
     parser.add_argument(
         "--cache-file",
         type=str,
@@ -351,9 +352,10 @@ def generate_sequence_video(
     th_max: float = 0.50,
     th_step: float = 0.01,
     dist_thresh: float = 8.0,
+    split: str = "val",
 ):
-    val_img_dir = data_root / "images" / "val"
-    val_lbl_dir = data_root / "labels" / "val"
+    val_img_dir = data_root / "images" / split
+    val_lbl_dir = data_root / "labels" / split
 
     img_files = sorted(
         [p for p in val_img_dir.glob(f"*{seq_name}*") if p.suffix.lower() in IMAGE_SUFFIXES],
@@ -536,13 +538,13 @@ def main():
     data_root = Path(args.data_root)
 
     # Auto fallback for remote or local mounts
-    if not (data_root / "labels" / "val").exists():
+    if not (data_root / "images" / args.split).exists():
         for cand in [
             Path("/mnt/data/siping/datasets/manu/uav_gmc_median"),
             Path("/home/manu/mnt/datasets/manu/uav_gmc_median"),
             PROJECT_ROOT / "datasets/uav_gmc_median",
         ]:
-            if (cand / "labels" / "val").exists():
+            if (cand / "images" / args.split).exists():
                 data_root = cand
                 break
 
@@ -597,6 +599,7 @@ def main():
             th_max=args.th_max,
             th_step=args.th_step,
             dist_thresh=args.dist_thresh,
+            split=args.split,
         )
 
 

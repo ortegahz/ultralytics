@@ -342,3 +342,14 @@ screen python manu/preannotate_parallel.py \
   --hm-conf 0.06 \
   --bbox-conf 0.06 \
   --overwrite
+
+python manu/render_yolo_labels_video.py \
+  --dataset-root "/mnt/data/siping/datasets/manu/龙泉山/preannot_v1" \
+  --split train \
+  --seq "VIDEO00004_19700101_002438" \
+  --output "runs/preannot_review/VIDEO00004_review.mp4" \
+  --fps 25 \
+  --scale 2 \
+  --show-centers
+
+VIDEO00032_19700101_014453_diagnostic_demo_th0.22
