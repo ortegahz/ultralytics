@@ -39,6 +39,11 @@
   2. **新增特征分支强制配备零初始化恒等门控**（`alpha = 0.0`），保证第 0 步严格等价于底模，实现 Zero Regression 零性能倒退底线保障；
   3. 详见专章：`memory/progressive_residual_training.md`。
 
+### 7. 【核心铁律七】主 memory 与精简版 memory 必须同步维护！
+- **双版本职责**：`manu/memory.md` 与 `manu/memory/` 保存完整技术事实；`manu/memory_compact.md` 保存用于外部模型咨询的精简背景。
+- **同步义务**：以后凡是新增、修正或废止主 memory 中的实验事实、指标、SOTA、工程铁律或阶段结论，必须在同一任务中同步更新 `manu/memory_compact.md` 的对应内容；不得只更新其中一份。
+- **一致性要求**：精简版可以省略细节，但不得保留与主 memory 冲突的结论、指标或当前基线；更新时间必须同步刷新。
+
 ---
 
 ## 二、远程服务器集群与挂载环境配置 (Server & Mount Config)
