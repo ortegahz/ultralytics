@@ -45,12 +45,12 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from ultralytics.data.utils import check_det_dataset
 from ultralytics.utils import colorstr
-from manu.eval_bidirectional_track_fusion import (
+from manu.evaluation.eval_bidirectional_track_fusion import (
     evaluate_sequence_bidirectional,
     extract_seq_name,
     natural_sort_key,
 )
-from manu.optimize_per_sequence_video import optimize_sequence_params
+from manu.postprocess.optimize_per_sequence_video import optimize_sequence_params
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
 

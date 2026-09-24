@@ -18,9 +18,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from manu.build_fpv_ir_gmc_median import IMAGE_SUFFIXES, natural_key, process_single_ir_sequence
-from manu.eval_fpv_ir_zero_shot import load_sota_model, run_caching
-from manu.generate_collaboration_diagnostic_videos import generate_sequence_video
+from manu.data.build_fpv_ir_gmc_median import IMAGE_SUFFIXES, natural_key, process_single_ir_sequence
+from manu.evaluation.eval_fpv_ir_zero_shot import load_sota_model, run_caching
+from manu.videos.generate_collaboration_diagnostic_videos import generate_sequence_video
 
 
 def parse_args():

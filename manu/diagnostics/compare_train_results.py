@@ -38,7 +38,7 @@ from ultralytics.data.utils import check_det_dataset
 from ultralytics.cfg import get_cfg
 from ultralytics.utils import DEFAULT_CFG, colorstr
 from manu.models.heatmap_model import YOLO26HeatmapDetector
-from manu.heatmap_evaluate import extract_peaks, evaluate_point_detections
+from manu.evaluation.heatmap_evaluate import extract_peaks, evaluate_point_detections
 
 
 def configure_chinese_font():

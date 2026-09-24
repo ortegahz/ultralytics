@@ -22,7 +22,7 @@ from ultralytics.data import build_dataloader, build_yolo_dataset
 from ultralytics.data.utils import check_det_dataset
 from ultralytics.utils import DEFAULT_CFG, colorstr
 from manu.models.dark_residual_highway_module import DarkResidualHighway
-from manu.heatmap_evaluate import extract_peaks, find_best_f1_threshold
+from manu.evaluation.heatmap_evaluate import extract_peaks, find_best_f1_threshold
 from manu.models.heatmap_loss import HeatmapLoss, generate_heatmaps_and_targets
 from manu.models.heatmap_model import YOLO26HeatmapDetector
 

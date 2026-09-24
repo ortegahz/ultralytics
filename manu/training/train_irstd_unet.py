@@ -43,7 +43,7 @@ from ultralytics.utils import DEFAULT_CFG, colorstr
 from manu.models.irstd_unet_model import IRSTDNet
 from manu.models.irstd_loss import IRSTDLoss
 from manu.models.heatmap_loss import generate_heatmaps_and_targets
-from manu.heatmap_evaluate import extract_peaks, find_best_f1_threshold
+from manu.evaluation.heatmap_evaluate import extract_peaks, find_best_f1_threshold
 
 
 def parse_args():

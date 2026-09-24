@@ -19,7 +19,7 @@ import numpy as np
 import torch
 
 from manu.models.heatmap_model import YOLO26HeatmapDetector
-from manu.heatmap_evaluate import extract_peaks
+from manu.evaluation.heatmap_evaluate import extract_peaks
 
 
 def find_gt_boxes(img_path: Path) -> list[tuple[float, float, float, float]]:

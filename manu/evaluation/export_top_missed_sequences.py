@@ -21,7 +21,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from ultralytics.data.utils import check_det_dataset
-from manu.diagnose_heatmap_badcases import make_diagnostic_crop
+from manu.diagnostics.diagnose_heatmap_badcases import make_diagnostic_crop
 
 
 def parse_args():

@@ -352,5 +352,17 @@ python manu/render_yolo_labels_video.py \
   --scale 2 \
   --show-centers
 
+python manu/diagnostics/probe_heatmap_regions_video.py \
+  --features-dir /mnt/data/siping/datasets/manu/longquanshan_ir_gmc_median/images/train \
+  --pattern 'VIDEO00005_19700101_002959__frame_*.jpg' \
+  --output-dir runs/heatmap_probe/VIDEO00005_19700101_002959_ds320 \
+  --weights runs/optuna_p0_nas/trial_0474/weights/best.pt \
+  --spatial-downsample 160 \
+  --region-threshold 0.06 \
+  --main-threshold 0.22 \
+  --min-area 4 \
+  --device 0 \
+  --fps 25
+
 VIDEO00032_19700101_014453_diagnostic_demo_th0.22.mp4
 VIDEO00005_19700101_002959_diagnostic_demo_th0.22.mp4

@@ -550,7 +550,7 @@ def load_or_create_records(args) -> List[Dict]:
     from ultralytics.cfg import get_cfg
     from ultralytics.utils import DEFAULT_CFG
     from manu.models.heatmap_model import YOLO26HeatmapDetector
-    from manu.heatmap_evaluate import extract_peaks
+    from manu.evaluation.heatmap_evaluate import extract_peaks
 
     device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() and args.device != "cpu" else "cpu")
     ckpt = torch.load(args.weights, map_location="cpu")

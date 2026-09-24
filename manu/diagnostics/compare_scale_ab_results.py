@@ -32,7 +32,7 @@ from ultralytics.cfg import get_cfg
 from ultralytics.data import build_dataloader, build_yolo_dataset
 from ultralytics.data.utils import check_det_dataset
 from ultralytics.utils import DEFAULT_CFG, colorstr
-from manu.heatmap_evaluate import extract_peaks, find_best_f1_threshold
+from manu.evaluation.heatmap_evaluate import extract_peaks, find_best_f1_threshold
 from manu.models.heatmap_model import YOLO26HeatmapDetector
 
 

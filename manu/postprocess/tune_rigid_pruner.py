@@ -35,7 +35,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from ultralytics.utils import colorstr
-from manu.eval_bidirectional_track_fusion import (
+from manu.evaluation.eval_bidirectional_track_fusion import (
     calc_metrics,
     evaluate_sequence_bidirectional,
     extract_seq_name,

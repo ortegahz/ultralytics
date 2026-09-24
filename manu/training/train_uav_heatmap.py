@@ -36,7 +36,7 @@ from ultralytics.utils import DEFAULT_CFG, LOGGER, colorstr
 
 from manu.models.heatmap_model import YOLO26HeatmapDetector
 from manu.models.heatmap_loss import HeatmapLoss, generate_heatmaps_and_targets
-from manu.heatmap_evaluate import extract_peaks, evaluate_point_detections, find_best_f1_threshold
+from manu.evaluation.heatmap_evaluate import extract_peaks, evaluate_point_detections, find_best_f1_threshold
 
 
 def parse_args():

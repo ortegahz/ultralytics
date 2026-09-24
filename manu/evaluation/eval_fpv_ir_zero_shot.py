@@ -33,9 +33,9 @@ from ultralytics.cfg import get_cfg
 from ultralytics.data import build_dataloader, build_yolo_dataset
 from ultralytics.data.utils import check_det_dataset
 from ultralytics.utils import DEFAULT_CFG, colorstr
-from manu.heatmap_evaluate import extract_peaks
+from manu.evaluation.heatmap_evaluate import extract_peaks
 from manu.models.heatmap_model import YOLO26HeatmapDetector
-from manu.eval_bidirectional_track_fusion import (
+from manu.evaluation.eval_bidirectional_track_fusion import (
     evaluate_sequence_bidirectional,
     extract_seq_name,
     match_predictions_to_gt,

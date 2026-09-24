@@ -30,7 +30,7 @@ from ultralytics.cfg import get_cfg
 from ultralytics.utils import DEFAULT_CFG, colorstr
 
 from manu.models.irstd_unet_model import IRSTDNet
-from manu.heatmap_evaluate import extract_peaks, evaluate_point_detections, find_best_f1_threshold
+from manu.evaluation.heatmap_evaluate import extract_peaks, evaluate_point_detections, find_best_f1_threshold
 
 
 def parse_args():

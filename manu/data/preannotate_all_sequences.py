@@ -21,9 +21,9 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from ultralytics import YOLO
-from manu.build_full_median_dataset import FastGMCEstimator
-from manu.heatmap_evaluate import extract_peaks
-from manu.preannotate_hm_bbox import (
+from manu.data.build_full_median_dataset import FastGMCEstimator
+from manu.evaluation.heatmap_evaluate import extract_peaks
+from manu.data.preannotate_hm_bbox import (
     letterbox_gray,
     letterbox_params,
     load_hm_model,

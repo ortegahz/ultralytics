@@ -40,7 +40,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from ultralytics.utils import colorstr
-from manu.eval_universal_spatio_temporal_sota import (
+from manu.evaluation.eval_universal_spatio_temporal_sota import (
     evaluate_sequence_universal,
     extract_seq_name,
 )

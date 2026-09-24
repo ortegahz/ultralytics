@@ -43,7 +43,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from ultralytics.utils import colorstr
-from manu.heatmap_evaluate import extract_peaks, find_best_f1_threshold
+from manu.evaluation.heatmap_evaluate import extract_peaks, find_best_f1_threshold
 from manu.models.heatmap_loss import HeatmapLoss, generate_heatmaps_and_targets
 from manu.models.heatmap_model import YOLO26HeatmapDetector
 from manu.models.temporal_tubelet_module import TemporalDiffCacheDataset, TemporalTubeletHighwayFromDiff

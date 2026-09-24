@@ -24,7 +24,7 @@ from ultralytics.data import build_dataloader, build_yolo_dataset
 from ultralytics.data.utils import check_det_dataset
 from ultralytics.cfg import get_cfg
 from ultralytics.utils import DEFAULT_CFG, colorstr
-from manu.heatmap_evaluate import evaluate_point_detections
+from manu.evaluation.heatmap_evaluate import evaluate_point_detections
 
 
 def parse_args():

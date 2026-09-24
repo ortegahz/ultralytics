@@ -18,8 +18,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from manu.generate_sota_paper_video import PointTracker, create_paper_insets, letterbox_bgr
-from manu.heatmap_evaluate import extract_peaks
+from manu.videos.generate_sota_paper_video import PointTracker, create_paper_insets, letterbox_bgr
+from manu.evaluation.heatmap_evaluate import extract_peaks
 from manu.models.heatmap_model import YOLO26HeatmapDetector
 
 

@@ -40,7 +40,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from ultralytics.utils import colorstr
-from manu.eval_spatial_kinematic_fusion import (
+from manu.evaluation.eval_spatial_kinematic_fusion import (
     extract_seq_name,
     evaluate_sequence,
     calc_metrics,

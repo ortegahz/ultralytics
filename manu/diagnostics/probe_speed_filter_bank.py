@@ -51,7 +51,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from ultralytics.utils import colorstr
 
-from manu.build_s2_median_dataset import FastGMCEstimator
+from manu.data.build_s2_median_dataset import FastGMCEstimator
 
 DEFAULT_SEQS = "wg2022_ir_020_split_03,wg2022_ir_011_split_03,DJI_0051_2,02_6321_0274-2773"
 DEFAULT_BG_SEQS = "wg2022_ir_020_split_05"

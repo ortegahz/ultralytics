@@ -16,7 +16,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from ultralytics.data.utils import check_det_dataset
-from manu.stat_gt_bbox_sizes import find_label_file
+from manu.evaluation.stat_gt_bbox_sizes import find_label_file
 
 
 def main():

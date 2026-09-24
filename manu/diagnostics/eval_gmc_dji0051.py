@@ -38,7 +38,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from manu.models.heatmap_model import YOLO26HeatmapDetector
-from manu.heatmap_evaluate import extract_peaks, evaluate_point_detections
+from manu.evaluation.heatmap_evaluate import extract_peaks, evaluate_point_detections
 
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp"}

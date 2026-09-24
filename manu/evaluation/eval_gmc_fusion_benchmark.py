@@ -53,7 +53,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from ultralytics.utils import colorstr
 from manu.models.heatmap_model import YOLO26HeatmapDetector
-from manu.heatmap_evaluate import extract_peaks
+from manu.evaluation.heatmap_evaluate import extract_peaks
 
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp"}
