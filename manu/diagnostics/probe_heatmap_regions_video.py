@@ -13,12 +13,14 @@ import sys
 import cv2
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from manu.models.heatmap_model import YOLO26HeatmapDetector
+from manu.training.train_trial0474_wh import WhHead
 
 
 def natural_key(path: Path):
@@ -94,6 +96,42 @@ def load_model(weights: Path, device: torch.device, default_stride: int):
     return model, checkpoint.get("stride", default_stride), checkpoint.get("imgsz", 640)
 
 
+def load_wh_head(path: Path, model: YOLO26HeatmapDetector, device: torch.device):
+    checkpoint = torch.load(path, map_location="cpu")
+    state_dict = checkpoint.get("wh_head", checkpoint.get("state_dict", checkpoint))
+    wh_head = WhHead(model.head.feat_conv[0].conv.in_channels)
+    wh_head.load_state_dict(state_dict)
+    wh_head.to(device).eval()
+    print(f"[INFO] Loaded Wh head: {path}")
+    return wh_head
+
+
+def draw_wh_boxes(panel: np.ndarray, heatmap: torch.Tensor, offset: torch.Tensor, wh_map: torch.Tensor | None, threshold: float, stride: int, scale: float, pad_x: int, pad_y: int, top_k: int = 100):
+    if wh_map is None:
+        return
+    pooled = F.max_pool2d(heatmap, 3, 1, 1)
+    keep = (heatmap == pooled) & (heatmap >= threshold)
+    points = torch.nonzero(keep[0, 0], as_tuple=False)
+    if len(points) == 0:
+        return
+    scores = heatmap[0, 0, points[:, 0], points[:, 1]]
+    if len(scores) > top_k:
+        scores, selected = torch.topk(scores, top_k)
+        points = points[selected]
+    y, x = points[:, 0], points[:, 1]
+    centers_x = (x.float() + offset[0, 0, y, x]) * stride
+    centers_y = (y.float() + offset[0, 1, y, x]) * stride
+    widths = torch.exp(wh_map[0, 0, y, x]) / max(scale, 1e-9)
+    heights = torch.exp(wh_map[0, 1, y, x]) / max(scale, 1e-9)
+    native_x = (centers_x - pad_x) / max(scale, 1e-9)
+    native_y = (centers_y - pad_y) / max(scale, 1e-9)
+    for cx, cy, width, height, score in zip(native_x.cpu().numpy(), native_y.cpu().numpy(), widths.cpu().numpy(), heights.cpu().numpy(), scores.cpu().numpy()):
+        x1, y1 = round(cx - width / 2), round(cy - height / 2)
+        x2, y2 = round(cx + width / 2), round(cy + height / 2)
+        cv2.rectangle(panel, (x1, y1), (x2, y2), (0, 255, 0), 1)
+        cv2.putText(panel, f"{width:.0f}x{height:.0f} {score:.2f}", (x1, max(12, y1 - 2)), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 255, 0), 1, cv2.LINE_AA)
+
+
 def draw_panel(
     panel: np.ndarray,
     heatmap: np.ndarray,
@@ -150,6 +188,9 @@ def parse_args():
     parser.add_argument("--pattern", default="*.jpg", help="Feature filename glob, for example VIDEO00005_19700101_002959__frame_*.jpg")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--weights", default="runs/optuna_p0_nas/trial_0474/weights/best.pt")
+    parser.add_argument("--wh-weights", default="", help="Optional Wh checkpoint; omit to keep legacy heatmap-only mode")
+    parser.add_argument("--wh-threshold", type=float, default=0.22)
+    parser.add_argument("--wh-top-k", type=int, default=100)
     parser.add_argument("--imgsz", type=int, default=640)
     parser.add_argument("--stride", type=int, default=2)
     parser.add_argument("--region-threshold", type=float, default=0.06)
@@ -178,6 +219,7 @@ def main():
     height, width = first_feature.shape[:2]
     device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() and args.device != "cpu" else "cpu")
     model, stride, imgsz = load_model(resolve_checkpoint(args.weights), device, args.stride)
+    wh_head = load_wh_head(resolve_checkpoint(args.wh_weights), model, device) if args.wh_weights else None
     output_path = output_dir / "heatmap_regions_diagnostic.mp4"
     writer = cv2.VideoWriter(
         str(output_path), cv2.VideoWriter_fourcc(*"mp4v"), args.fps, (width * 3, height)
@@ -203,6 +245,7 @@ def main():
             tensor = torch.from_numpy(model_image).unsqueeze(0).to(device).float() / 255.0
             with torch.no_grad():
                 prediction = model(tensor)
+                wh_map = wh_head(model.extract_features(tensor)) if wh_head is not None else None
             heatmap = prediction["heatmap"][0, 0].detach().cpu().numpy()
             heatmap_full = cv2.resize(heatmap, (imgsz, imgsz), interpolation=cv2.INTER_LINEAR)
             new_width, new_height = round(width * scale), round(height * scale)
@@ -225,6 +268,10 @@ def main():
             main_panel = cv2.addWeighted(heat_color_abs, 0.70, original, 0.30, 0)
             draw_panel(region_panel, heatmap_full, args.region_threshold, args.min_area, (0, 255, 255), rows, index, "region")
             draw_panel(main_panel, heatmap_full, args.main_threshold, args.min_area, (0, 0, 255), rows, index, "absolute")
+            if wh_head is not None:
+                draw_wh_boxes(region_panel, prediction["heatmap"], prediction["offset"], wh_map, args.wh_threshold, stride, scale, pad_x, pad_y, args.wh_top_k)
+                draw_wh_boxes(main_panel, prediction["heatmap"], prediction["offset"], wh_map, args.wh_threshold, stride, scale, pad_x, pad_y, args.wh_top_k)
+                cv2.putText(region_panel, "GREEN: Wh estimated boxes", (8, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 255, 0), 1, cv2.LINE_AA)
             cv2.putText(main_panel, "ABSOLUTE [0,1]", (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
             cv2.putText(
                 heat_panel,
