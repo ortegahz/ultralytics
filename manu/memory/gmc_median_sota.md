@@ -27,8 +27,8 @@
 ## 二、官方镜像数据集 uav_gmc 与 uav_gmc_median
 
 为彻底消除任何坐标漂移误差，编写了高性能多进程离线数据集生成脚本：
-- **GMC 配准数据集**：`manu/build_yolo_gmc_dataset.py` $\to$ `/mnt/data/siping/datasets/manu/uav_gmc`；
-- **时域中值数据集**：`manu/build_full_median_dataset.py` $\to$ `/mnt/data/siping/datasets/manu/uav_gmc_median`；
+- **GMC 配准数据集**：`manu/data/build_yolo_gmc_dataset.py` $\to$ `/mnt/data/siping/datasets/manu/uav_gmc`；
+- **时域中值数据集**：`manu/data/build_full_median_dataset.py` $\to$ `/mnt/data/siping/datasets/manu/uav_gmc_median`；
 - **特征通道编排（永久锁定标准）**：
   $$\big[\; I_t,\;\; |I_t - \mathcal{W}(I_{t-2})|,\;\; (I_t - B_t)^+ \;\big]$$
 

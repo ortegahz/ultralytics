@@ -21,7 +21,7 @@
 
 ## 二、核心事实：目标时间能量完全相干（Oracle 上界，实测）
 
-**工具**：`manu/probe_oracle_tbd.py`（匹配滤波 Z + GT 轨迹 + 亚像素双线性采样 + 随机背景点做噪声参考）
+**工具**：`manu/diagnostics/probe_oracle_tbd.py`（匹配滤波 Z + GT 轨迹 + 亚像素双线性采样 + 随机背景点做噪声参考）
 
 序列：`wg2022_ir_020_split_03`
 
@@ -113,7 +113,7 @@
 ## 六、速度滤波组特征：HC1 零训练操作级 ROC 验证（2026-09-18）
 
 ### 1. 验证脚本与严格口径
-- 脚本：`manu/probe_speed_filter_bank.py`，`--mode roc`；本轮仅测试 `wg2022_ir_020_split_03`（HC1）。
+- 脚本：`manu/diagnostics/probe_speed_filter_bank.py`，`--mode roc`；本轮仅测试 `wg2022_ir_020_split_03`（HC1）。
 - 处理链：原始灰度 DoG+CFAR 响应 → 每个历史帧直接估计到当前帧的 GMC 仿射（不再逐帧矩阵连乘，避免漂移）→ 固定速度组累加 → `max_v A_v` 全图局部峰 → 8px GT 匹配。
 - 运行参数：速度 `v=0, 0.5, 1, 2, 3, 4 px/frame`、8 个方向、ROC 窗口 `W=1/3/5/9`、`frame_stride=2`、目标 FAR `0.045/frame`；745 个评测帧、245 个 GT 样本。
 - **重要口径**：这是无训练经典滤波器的候选检测 ROC，不是加入神经网络后的最终 Recall；`PD@FAR` 是该特征在操作级虚警约束下的可检测性上界参考。

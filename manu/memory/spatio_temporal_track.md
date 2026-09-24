@@ -1,7 +1,7 @@
 # 双向时空平滑、碎片缝合、高确信插补与刚性坏点剪枝跟踪系统 (Spatio-Temporal Tracking SOTA)
 
 > **定位与价值**：记录全项目绝对最高交付 SOTA（全盘 F1 = **0.9194**，Trial 0474 + 双向平滑 + 刚性坏点剪枝三合一）的算法设计、三阶段架构（Pass 1 在线关联 + Pass 2 双向平滑 + Pass 3 刚性坏点剪枝）、工作参数推荐与全景权威大盘。
-> **核心脚本**：`manu/cache_trial0474_inferences.py`, `manu/eval_bidirectional_track_fusion.py`, `manu/tune_trial0474_fusion.py` 与 `manu/tune_rigid_pruner.py`。
+> **核心脚本**：`manu/inference/cache_trial0474_inferences.py`, `manu/evaluation/eval_bidirectional_track_fusion.py`, `manu/postprocess/tune_trial0474_fusion.py` 与 `manu/postprocess/tune_rigid_pruner.py`。
 
 ---
 
@@ -97,12 +97,12 @@
    - 依据历史巡航速度判断悬停，豁免静态剪枝；对地表密集条带状视差白边实施空间密集度过滤，压制 `DJI_0051_2` 晃动假警。
 
 ### 2. 评测与扫表工具链
-- 缓存提取脚本：`manu/cache_ep_focal_inferences.py`
-- 通用评测核心：`manu/eval_universal_spatio_temporal_sota.py`
-- 通用网格寻优与 22 序列全量审计：`manu/tune_universal_spatio_temporal_sota.py`
+- 缓存提取脚本：`manu/inference/cache_ep_focal_inferences.py`
+- 通用评测核心：`manu/evaluation/eval_universal_spatio_temporal_sota.py`
+- 通用网格寻优与 22 序列全量审计：`manu/postprocess/tune_universal_spatio_temporal_sota.py`
 
 ### 3. 全盘坐标上升终局判决（2026-09-16）
-上述三大通用模块经 `manu/tune_phase_a_fusion.py` 在全盘 24 序列上逐级锁定最优后，**未产生可交付净增益**：
+上述三大通用模块经 `manu/postprocess/tune_phase_a_fusion.py` 在全盘 24 序列上逐级锁定最优后，**未产生可交付净增益**：
 
 | 配置 | F1 | Recall | Precision | TP | FP |
 | :--- | :--- | :--- | :--- | :--- | :--- |

@@ -90,7 +90,7 @@
 
 ## 五、多时相联合热图监督 MTH (时序辅助梯度冲击共享层)
 
-- **方案设计**：Head 扩展为 3 通道输出 `[H_t, H_{t-1}, H_{t+1}]`，由前后真实对齐坐标提供联合高斯监督（`manu/train_multi_timeframe_heatmap.py`）。
+- **方案设计**：Head 扩展为 3 通道输出 `[H_t, H_{t-1}, H_{t+1}]`，由前后真实对齐坐标提供联合高斯监督（`manu/training/train_multi_timeframe_heatmap.py`）。
 - **实测大盘现象**：
   - Epoch 1 最佳 F1 暴跌至 **0.7997**，Recall 仅 **72.04%（净丢失 3,531 个真实目标，虚警翻倍达到 2,045 个）**。
 - **物理成因定性**：
@@ -102,7 +102,7 @@
 
 ## 六、专用 IRSTD-UNet 主干从零训练 (小样本复杂地物假警失控)
 
-- **方案设计**：从零搭建密集浅层跳连、ACM 上下文调制与亚像素重建的专用红外弱小目标网络 `IRSTDNet`（`manu/train_irstd_unet.py`）。
+- **方案设计**：从零搭建密集浅层跳连、ACM 上下文调制与亚像素重建的专用红外弱小目标网络 `IRSTDNet`（`manu/training/train_irstd_unet.py`）。
 - **实测大盘现象**：
   - Epoch 1 虚警数达 **232,466 个**，Epoch 2 仍有 **148,037 个**，地表建筑和树林产生海量假警冲垮评测。
 - **物理成因定性**：
@@ -114,7 +114,7 @@
 
 ## 七、PixelShuffle 亚像素上采样解码 (未初始化卷积冲垮预训练先验)
 
-- **方案设计**：在 YOLO26HeatmapDetector 颈部将 Nearest 上采样替换为可学习 `PixelShuffleUpsample`，从 `Trial 22` 热启动微调（`manu/finetune_pixelshuffle.py`）。
+- **方案设计**：在 YOLO26HeatmapDetector 颈部将 Nearest 上采样替换为可学习 `PixelShuffleUpsample`，从 `Trial 22` 热启动微调（`manu/training/finetune_pixelshuffle.py`）。
 - **实测大盘现象**：
   - Epoch 1 最佳 F1 降至 **0.8583**（th=0.35, TP=20,420, FP=2,053）；
   - Epoch 2 最佳门限进一步被动右移到 **th=0.40**（F1=0.8658, TP 仍丢失 1,165 个，FP 仍高出 670 个）。
@@ -126,7 +126,7 @@
 
 ## 八、空时双残差 Dual-Domain Top-Hat 零训练探针 (直流能量基底坍塌)
 
-- **方案设计**：以 $5\times 5$ 形态学顶帽残差 $(I_t - \text{Open}(I_t))^+$ 替代 Channel 0 的原始灰度 $I_t$，构建 `uav_dual_residual` 数据集，使用 `Trial 22` 零训练直接推理（`manu/probe_spatial_tophat.py`）。
+- **方案设计**：以 $5\times 5$ 形态学顶帽残差 $(I_t - \text{Open}(I_t))^+$ 替代 Channel 0 的原始灰度 $I_t$，构建 `uav_dual_residual` 数据集，使用 `Trial 22` 零训练直接推理（`manu/diagnostics/probe_spatial_tophat.py`）。
 - **实测大盘现象**：
   - 最佳 F1 暴跌至 **0.5932**（最佳门限被动从 0.25 崩至 0.10）；
   - 全盘 Recall 从 86.12% 腰斩至 **49.15%（净丢失 9,283 个真实目标）**；四大难例在 0.25 下召回率接近 0%。
@@ -163,7 +163,7 @@
 ## 十、推理期 TTA 水平镜像热图域软平均增强 (门限平移假象与弱峰衰减)
 
 - **方案设计**：
-  在单帧绝对 SOTA 模型 `Trial 22` 上，输入原图与水平镜像图（H-Flip），经过网络后将预测概率热图逆翻转回原始坐标系，在 $320\times 320$ 概率热图空间做逐像素连续软平均（`mean`），再进行 3x3 MaxPool 提峰（`manu/eval_heatmap_tta.py`）。
+  在单帧绝对 SOTA 模型 `Trial 22` 上，输入原图与水平镜像图（H-Flip），经过网络后将预测概率热图逆翻转回原始坐标系，在 $320\times 320$ 概率热图空间做逐像素连续软平均（`mean`），再进行 3x3 MaxPool 提峰（`manu/evaluation/eval_heatmap_tta.py`）。
 - **实测大盘现象（统一 Tol <= 8.0px, GT = 25,111，全量 24 序列 31,613 帧）**：
   1. **同阈值（th=0.25）下性能反常衰退**：
      - 单视角基准：Recall 86.11%, TP = 21,622, FP = 1,012；
@@ -183,7 +183,7 @@
 ## 十一、全参数高斯松弛微调 Gaussian Relaxation (训练损失下降但真值单调丢失)
 
 - **方案设计**：
-  从单帧绝对 SOTA 模型 `Trial 22` 热启动，在 Focal Loss 中引入高斯邻域负样本软化松弛因子（`relaxation_tau=0.25`）与正样本增益（`pos_weight=1.2`），采用温和初始学习率 $5\times 10^{-5}$（Cosine 衰减至 $9\times 10^{-6}$），在 4 张 GPU 上全参数微调 5 个 Epoch（`manu/finetune_gaussian_relaxation.py`，`exp_relaxation_tau025`）。
+  从单帧绝对 SOTA 模型 `Trial 22` 热启动，在 Focal Loss 中引入高斯邻域负样本软化松弛因子（`relaxation_tau=0.25`）与正样本增益（`pos_weight=1.2`），采用温和初始学习率 $5\times 10^{-5}$（Cosine 衰减至 $9\times 10^{-6}$），在 4 张 GPU 上全参数微调 5 个 Epoch（`manu/training/finetune_gaussian_relaxation.py`，`exp_relaxation_tau025`）。
 - **实测大盘逐轮演进（统一 Distance <= 8.0px, 验证集 31,613 帧, GT = 25,111）**：
   - **初始基准（Trial 22）**：F1 = **0.9057** | Recall = **86.11%** | Prec = **95.51%** | TP = **21,622** | FP = **1,012** | th = 0.25
   - **Epoch 01**：Loss = 0.3377 | F1 = **0.8971** | Recall = 84.98% | Prec = 95.00% | TP = 21,340 | FP = 1,123 | th = 0.25（**首轮 TP 即净丢 282 个，FP 激增 111 个，F1 跌破 0.90**）
@@ -204,7 +204,7 @@
 ## 十二、Stride=2 单通道差分时序 Tubelet 注意力 (空间未对齐致时序增益归零)
 
 - **方案设计**：
-  为打破单帧检测极限并提升多帧抗暗化与闪烁能力，从原始视频抽取全量 Stride=2 采样训练集（123,806 帧，严格对齐 baseline 43,008 样本），提取预处理单通道 GMC 差分特征缓存（$1\times 320\times 320$ float16）。构建轻量级时序 Tubelet 侧支（`TemporalTubeletHighwayFromDiff`，约 6,674 参数）：以 $K=8$ 帧 Stride=2 连续差分为输入，沿时间轴做 1D 因果时间卷积与局部点积注意力，辅以空间门控 $M(x, y)$ 与零初始化恒等门控 $\alpha$（`effective_alpha = tanh(gate) * 0.05`），底模 `Trial 0474` 100% 物理绝对冻结，在 4-GPU 上以 `batch=64, lr0=0.0003` 进行 6 轮受控微调（`manu/train_temporal_tubelet_s2.py`，`exp_s2_fast_tubelet_6ep`）。
+  为打破单帧检测极限并提升多帧抗暗化与闪烁能力，从原始视频抽取全量 Stride=2 采样训练集（123,806 帧，严格对齐 baseline 43,008 样本），提取预处理单通道 GMC 差分特征缓存（$1\times 320\times 320$ float16）。构建轻量级时序 Tubelet 侧支（`TemporalTubeletHighwayFromDiff`，约 6,674 参数）：以 $K=8$ 帧 Stride=2 连续差分为输入，沿时间轴做 1D 因果时间卷积与局部点积注意力，辅以空间门控 $M(x, y)$ 与零初始化恒等门控 $\alpha$（`effective_alpha = tanh(gate) * 0.05`），底模 `Trial 0474` 100% 物理绝对冻结，在 4-GPU 上以 `batch=64, lr0=0.0003` 进行 6 轮受控微调（`manu/training/train_temporal_tubelet_s2.py`，`exp_s2_fast_tubelet_6ep`）。
 - **实测大盘逐轮演进（统一 Distance <= 8.0px, 验证集 31,613 帧, GT = 25,111）**：
   - **Ep 00 (Baseline Check, alpha=0.0)**：Loss=0.3844 | **F1: 0.8953** | Recall: 86.15% | Prec: 93.19% | **TP: 21,632 | FP: 1,580** | th=0.25 (基线完美复现)
   - **Ep 01**：Loss=0.3844 | alpha: -0.000307 | **F1: 0.8953** | Recall: 86.15% | Prec: 93.19% | **TP: 21,632 | FP: 1,580** | th=0.25 (零回归恒等保持)
@@ -231,7 +231,7 @@
 - **方案设计**：
   在单帧绝对 SOTA 模型 `Trial 0474` 提峰输出的离散点流候选池（`min_cand_score=0.03`）上，引入无人机飞行动力学约束（最大速度 $V_{\max}=16\sim 18\text{px}$、加速度位移惩罚与转角平滑度约束），进行双向 Viterbi 动态规划（DP-TBD）时空相干能量累加：
   $$S_t(p_t) = \text{score}(p_t) + \max_{p_{t-1}} \left[ S_{t-1}(p_{t-1}) - \lambda_{\text{dist}} \frac{\|p_t - p_{t-1}\|}{V_{\max}} - \lambda_{\text{turn}} (1 - \cos\theta) \right]$$
-  将双向路径共识能量通过非线性门控增益（$\Delta s = \tanh(\text{gain}) \times \text{scale}$）注入点流，并分别经过单组深度探针（`manu/eval_dptbd_track_fusion.py`）与 48 组网格自动寻优搜索（`manu/tune_dptbd_fusion.py`，覆盖 $V_{\max} \in [16, 20], \gamma \in [0.75, 0.82], \text{boost} \in [0.18, 0.32]$）。
+  将双向路径共识能量通过非线性门控增益（$\Delta s = \tanh(\text{gain}) \times \text{scale}$）注入点流，并分别经过单组深度探针（`manu/evaluation/eval_dptbd_track_fusion.py`）与 48 组网格自动寻优搜索（`manu/postprocess/tune_dptbd_fusion.py`，覆盖 $V_{\max} \in [16, 20], \gamma \in [0.75, 0.82], \text{boost} \in [0.18, 0.32]$）。
 - **实测大盘现象（统一 Distance <= 8.0px, 验证集 31,613 帧, GT = 25,111）**：
   1. **首轮基准探针（boost=0.28, base=0.22, grnd=0.35）**：
      - **召回端显著突破**：全盘 TP 从 22,616 暴增至 **22,886（净增加 +270 帧！）**，Recall 首次突破 91% 大关（**91.14%**）；
@@ -280,7 +280,7 @@
   1. **算子纯度 100% 硬件兼容**：彻底摒弃非标 `F.unfold`、`Col2Im` 和高维 `Permute`，全网只使用 `Conv2d`、`DepthwiseConv2d`、`BatchNorm2d`、`SiLU`、`Sigmoid`、`Add/Mul`；
   2. **多尺度局部感受野搜索空间**：包含并行近邻+宽域核（`dual_scale_3_5`）、紧凑近邻核（`single_scale_3`）、宽域机动核（`single_scale_5`）与膨胀跨步核（`dilated_3_d2`）；
   3. **门控动力学与正向硬约束**：探索标准双向有界门控（`tanh_bounded`）、强制正向软门控（`positive_softplus`，阻断逃避去噪）与 48 维逐通道自适应（`channel_adaptive`）；
-  4. **搜索规模与执行**：底模 `Trial 0474` 100% 绝对冻结，4-GPU 分布式 Subprocess 独立派发（`manu/optuna_temporal_nas.py`），覆盖 58+ 轮全自动架构超参搜索。
+  4. **搜索规模与执行**：底模 `Trial 0474` 100% 绝对冻结，4-GPU 分布式 Subprocess 独立派发（`manu/training/optuna_temporal_nas.py`），覆盖 58+ 轮全自动架构超参搜索。
 - **实测大盘现象（统一 Distance <= 8.0px, 验证集 31,613 帧, GT = 25,111）**：
   1. **手工单组实验（Ep 01~03 演进趋势）**：
      - **Ep 00 (基线完美复现)**：F1 = **0.9064** | TP = 21,643 | FP = 1,005 | $\alpha = 0.000000$；
@@ -311,7 +311,7 @@
   为攻坚红外弱小目标在焦平面因落在像素十字交叉缝隙（亚像素中心偏移）导致中心预测峰值被传统 Focal Loss 压死在 0.16~0.22 的痛点，提出**亚像素积分能量守恒 Focal Loss（`EnergyPreservingFocalLoss`）**：
   1. **局部能量曲面积分损失**：以 $3\times 3$ 滑窗计算预测与真值热图能量曲面总和：$E_{\text{pred}} = \sum_{3\times 3} \hat{y}$ 与 $E_{\text{gt}} = \sum_{3\times 3} y$，施加 Smooth-L1 守恒约束（`energy_weight=0.20`）；
   2. **亚像素局部峰值防撕裂**：正样本端引入 $3\times 3$ Max-Pool 局部极大值作为中心有效置信度，防止中心单点微偏产生破坏性负梯度；
-  3. **受控微调执行**：以当前单帧绝对 SOTA 权重 `Trial 0474` 为底模，Backbone、Neck 与 P0 侧支 100% 物理绝对冻结并置于 `eval()` 保护 BatchNorm；仅微调检测头（Heatmap Head，13.8 万参数），使用温和学习率 $lr_0=8\times 10^{-5}$，基于官方 DataLoader（43,008 Train / 31,613 Val 零漂移）微调 5 轮（`manu/train_energy_preserving_focal.py`）。
+  3. **受控微调执行**：以当前单帧绝对 SOTA 权重 `Trial 0474` 为底模，Backbone、Neck 与 P0 侧支 100% 物理绝对冻结并置于 `eval()` 保护 BatchNorm；仅微调检测头（Heatmap Head，13.8 万参数），使用温和学习率 $lr_0=8\times 10^{-5}$，基于官方 DataLoader（43,008 Train / 31,613 Val 零漂移）微调 5 轮（`manu/training/train_energy_preserving_focal.py`）。
 - **单帧逐轮实测演进大盘（统一 Distance <= 8.0px, 验证集 31,613 帧, GT = 25,111）**：
   | 轮次 | 最佳门限 | Recall (召回率) | Precision (精确率) | F1-Score | TP (命中真值) | FP (虚警误报) | 相对 Trial 0474 物理定性 |
   | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
@@ -323,7 +323,7 @@
   | Ep 04 | 0.22 | 86.18% | 95.16% | 0.9045 | 21,641 | 1,101 | 处于震荡平台 |
   | Ep 05 (终局) | 0.22 | 86.22% | 95.11% | 0.9045 | 21,651 | 1,113 | 完全收敛，TP 稳增 +8 |
 - **系统级 SOTA 后处理同源受控对账（统一 System SOTA 逻辑，单一变量替换底模缓存）**：
-  使用 `manu/cache_ep_focal_inferences.py` 提取 Ep 02 最佳召回权重（`best_recall.pt`）的轻量级缓存（4.34MB），在**完全相同 System SOTA 后处理逻辑与参数**（`dist=12.0, base=0.22, salv=0.06, gnd=0.35, infill=5, prune disp=2.0`）下全量扫表对比：
+  使用 `manu/inference/cache_ep_focal_inferences.py` 提取 Ep 02 最佳召回权重（`best_recall.pt`）的轻量级缓存（4.34MB），在**完全相同 System SOTA 后处理逻辑与参数**（`dist=12.0, base=0.22, salv=0.06, gnd=0.35, infill=5, prune disp=2.0`）下全量扫表对比：
   | 评测维度 | 原 SOTA（Trial 0474 底模） | 新微调模型（EP-Focal `best_recall.pt`） | 净变化 ($\Delta$) | 物理本质定性 |
   | :--- | :---: | :---: | :---: | :--- |
   | **未达标难例数** | **4 个** | **5 个** (增加 1 个) | **+1 序列失败** | `wg011_02` 跌出合格线 |
@@ -354,7 +354,7 @@
   1. **零额外存储与零漂移**：直接在官方 DataLoader 输出的 GPU 张量 `batch['img'][:, 0:1]`（原始红外灰度）上，利用 PyTorch 原生 `F.max_pool2d` 动态极速提取 $3\times 3$ 顶帽（捕获 1~2px 极限锐利点冲激）、$5\times 5$ 顶帽与 $15\times 15$ 空域局部对比度残差；
   2. **极轻量无损侧支**：在 $640\times 640$ 保持全分辨率提取，经深度可分离卷积（DWConv）与 MaxPool2d(2, 2) 下采样保留峰值，专训参数仅 22,337 个（~0.022M）；
   3. **绝对底模冻结与零初始化恒等门控**：底模 `Trial 0474` 100% 物理绝对冻结并锁定 `eval()` 保护 BatchNorm，标量门控 $\alpha$ 严格初始化为 0.0；
-  4. **执行配置**：在 4 张 GPU 上以 `batch=32 (effective=128), lr0=0.0003, epochs=6` 执行微调（`manu/train_morphological_highway.py`）。
+  4. **执行配置**：在 4 张 GPU 上以 `batch=32 (effective=128), lr0=0.0003, epochs=6` 执行微调（`manu/training/train_morphological_highway.py`）。
 - **实测大盘逐轮演进（统一 Distance <= 8.0px, 验证集 31,613 帧, GT = 25,111）**：
   - **Ep 00 (Baseline Check, alpha=0.0)**：Loss=0.3532 | **F1: 0.9064** @ th=0.25 | **Recall: 86.19% | Precision: 95.57% | TP: 21,643 | FP: 1,004**（100% 严格浮点级复现当前 SOTA 标称底线，零数据漂移验证成立！）
   - **Ep 01**：Loss=0.3532 | **alpha: -0.000128** | F1: 0.9064 | Rec: 86.19% | Prec: 95.57% | TP: 21,643 | FP: 1,004
@@ -426,7 +426,7 @@
 ## 二十、实验二十：匹配滤波独立检测器（无可用工作点，PD 与虚警无法同时满足）
 
 - **方案设计与动机**：
-  Oracle 证明目标时间可积后，最直接的免训练路线是"用经典匹配滤波做独立检测器"——目标 raw 比背景高 +9 灰度、背景 σ≈2，理论上匹配滤波是点目标的最优检验。脚本 `manu/probe_matched_filter.py`：DoG 带通（$R=G_{\sigma_c}*I - G_{\sigma_s}*I$）+ CFAR 归一化（$Z=(R-\mu_R)/\sigma_R$）+ 3×3 局部极大值提峰。
+  Oracle 证明目标时间可积后，最直接的免训练路线是"用经典匹配滤波做独立检测器"——目标 raw 比背景高 +9 灰度、背景 σ≈2，理论上匹配滤波是点目标的最优检验。脚本 `manu/diagnostics/probe_matched_filter.py`：DoG 带通（$R=G_{\sigma_c}*I - G_{\sigma_s}*I$）+ CFAR 归一化（$Z=(R-\mu_R)/\sigma_R$）+ 3×3 局部极大值提峰。
 - **实测大盘（`wg2022_ir_020_split_03`，配置 $\sigma_c=0.6,\sigma_s=2.0,\sigma_n=6.0$）**：
   | 阈值 k | PD | FP/frame |
   | :---: | :---: | :---: |
@@ -449,7 +449,7 @@
 ## 二十一、工程避坑二十一：阈值+串联式 TBD 的选择偏差（截断均值必然等于阈值，与目标同值）
 
 - **陷阱现象描述**：
-  在 `manu/probe_tbd_null_calibration.py` 中，先以 `Z ≥ kmin=3.0` 提取候选峰，再用速度门控 DP 串联成轨迹、累加分数。在 **GT=0 的纯背景序列 `wg2022_ir_020_split_05`** 上，长度 ≥5 的假轨迹竟有 **7945 条**，最长 **940 帧**，normalised score 中位 9.39、最大 **147.90**。
+  在 `manu/diagnostics/probe_tbd_null_calibration.py` 中，先以 `Z ≥ kmin=3.0` 提取候选峰，再用速度门控 DP 串联成轨迹、累加分数。在 **GT=0 的纯背景序列 `wg2022_ir_020_split_05`** 上，长度 ≥5 的假轨迹竟有 **7945 条**，最长 **940 帧**，normalised score 中位 9.39、最大 **147.90**。
 - **底层病因剖析（一句话：选择偏差）**：
   - 候选提取阶段要求 `Z ≥ 3.0`，于是**所有节点天然都 ≥3.0**；
   - 任何长度 L 的链，其 `score ≥ 3L`，因此 `norm_score = score/√L ≥ 3√L`；
@@ -458,7 +458,7 @@
 - **与历史的呼应**：
   记忆里的 DP-TBD（证伪档案十三）用的也是同一机制（`min_cand_score=0.03` 先切阈值再累加分数），**它翻车不是因为 TBD 不行，而是因为"阈值+串联"模式在目标单帧响应接近阈值时根本无法分离**。
 - **正确做法**：
-  **必须在未阈值化的原始响应场上积分**（噪声均值为 0，目标才凸显）。据此重写为 `manu/probe_tbd_random_trajectory.py`：随机采样平滑轨迹、直接对原始 Z 取均值，`null_mean ≈ −0.001`（自检通过，证明偏差消除）。
+  **必须在未阈值化的原始响应场上积分**（噪声均值为 0，目标才凸显）。据此重写为 `manu/diagnostics/probe_tbd_random_trajectory.py`：随机采样平滑轨迹、直接对原始 Z 取均值，`null_mean ≈ −0.001`（自检通过，证明偏差消除）。
 - **终极定论**：
   **任何"先阈值提取候选、再沿轨迹累加"的 TBD 实现都存在截断选择偏差，在目标单帧响应接近阈值时必然不可分；轨迹积分的输入必须是原始（未阈值化）响应场。**
 
@@ -487,7 +487,7 @@
 
 ## 二十三、速度滤波组 HC1 操作级 ROC：正向但非突破（2026-09-18）
 
-- **实验**：`manu/probe_speed_filter_bank.py --mode roc`，仅测试 `wg2022_ir_020_split_03`；直接 GMC、DoG+CFAR、固定速度组 `0/0.5/1/2/3/4 px/frame × 8方向`，全图 `max_v A_v` 局部峰，8px 匹配。
+- **实验**：`manu/diagnostics/probe_speed_filter_bank.py --mode roc`，仅测试 `wg2022_ir_020_split_03`；直接 GMC、DoG+CFAR、固定速度组 `0/0.5/1/2/3/4 px/frame × 8方向`，全图 `max_v A_v` 局部峰，8px 匹配。
 - **操作级结果**（`frame_stride=2`，745 帧/245 GT，FAR≈0.045/frame）：W=1 PD=0.8%，W=3=10.6%，W=5=19.2%，W=9=16.3%。W=5 相对 W=1 提升 24×，但相对当前系统 HC1 Recall=7.6% 仅约 2.5×。
 - **最终定性**：速度滤波组确实提供了 HC1 的正向时序 SNR/可检测性增益，但 W=9 回落，说明固定匀速直线假设仅在短窗有效；19.2% 是经典候选检测器在固定 FAR 下的参考上界，**不能当作训练后模型 Recall**，更不能外推到 50%。
 - **后续边界**：只允许一次 `frame_stride=1` 的 W=3/5 复核；若稳定，做最小 Twin A/B（原3通道 vs 原3通道+W=5速度特征）。禁止直接展开速度 NAS、弯曲轨迹 TBD 或多分支周末调度。
@@ -515,7 +515,7 @@
 
 ## 二十五、系统 SOTA OSD 视频复现与全盘指标对账（2026-09-18）
 
-- **视频脚本**：`manu/generate_sys_sota_osd.py`。它直接加载 `uav_median_trial0474_cache.pkl`，调用官方 `evaluate_sequence_bidirectional()`，生成 `Trial 0474 + 双向平滑 + 刚性坏点剪枝` 的逐帧 OSD，不再使用早期 `generate_sota_paper_video.py` 的在线 Kalman/CFAR 演示逻辑作为系统 SOTA 指标。
+- **视频脚本**：`manu/videos/generate_sys_sota_osd.py`。它直接加载 `uav_median_trial0474_cache.pkl`，调用官方 `evaluate_sequence_bidirectional()`，生成 `Trial 0474 + 双向平滑 + 刚性坏点剪枝` 的逐帧 OSD，不再使用早期 `generate_sota_paper_video.py` 的在线 Kalman/CFAR 演示逻辑作为系统 SOTA 指标。
 - **严格交付参数**：`th_base=0.22 / th_salvage=0.06 / th_ground=0.35 / min_hits_infill=5 / min_rigid_disp=2.0 / max_rigid_var=0.5 / dist_thresh=8.0 / match_mode=bbox`。
 - **全量 24 序列快速对账结果**：
   - `GT=25,111 / TP=22,654 / FP=1,434 / FN=2,457`；
@@ -528,7 +528,7 @@
 
 ## 二十六、单序列自适应超参寻优与全局统一门限物理撕裂（2026-09-18）
 
-- **实验脚本**：`manu/optimize_per_sequence_video.py`（纯内存网格搜索 `th_base` [0.12~0.28]、`th_salvage` [0.04~0.08]、`th_ground` [0.30~0.40]、`min_hits_infill` [3~6]、`min_rigid_disp` [1.5~2.5]）。
+- **实验脚本**：`manu/postprocess/optimize_per_sequence_video.py`（纯内存网格搜索 `th_base` [0.12~0.28]、`th_salvage` [0.04~0.08]、`th_ground` [0.30~0.40]、`min_hits_infill` [3~6]、`min_rigid_disp` [1.5~2.5]）。
 - **实测大盘总对比（全量 24 序列，总 GT = 25,111）**：
   - **全局统一 SOTA 基线**：`TP=22,654 / FP=1,434 / Recall=90.22% / Precision=94.05% / F1=92.0913%`；
   - **单序列专属最优 SOTA**：`TP=22,827 / FP=1,433 / Recall=90.90% / Precision=94.09% / F1=92.4713%`；
@@ -564,7 +564,7 @@
 ## 二十八、方法论与领域迁移实证二十八：全量 FPV 真实红外数据集 Zero-Shot 迁移评测（前端单帧泛化绝杀与后处理过拟合定性，2026-09-18）
 
 - **实验设计与动机**：
-  为验证算法在跨设备、跨拍摄机位（公司真实 FPV 视角）下的泛化能力，将 `fpv_data` 中的 67 个真实红外连续视频序列（共 61,999 帧）通过 `manu/build_fpv_ir_gmc_median.py`（相邻帧仿射级联加速）转换为标准的 3 通道 `[I_t, GMC_Diff, Median_Residual]` 输入，直接加载完全未在 FPV 上训练过的底模 `Trial 0474` 执行纯粹的 Zero-Shot 测试（`manu/eval_fpv_ir_zero_shot.py`）。
+  为验证算法在跨设备、跨拍摄机位（公司真实 FPV 视角）下的泛化能力，将 `fpv_data` 中的 67 个真实红外连续视频序列（共 61,999 帧）通过 `manu/data/build_fpv_ir_gmc_median.py`（相邻帧仿射级联加速）转换为标准的 3 通道 `[I_t, GMC_Diff, Median_Residual]` 输入，直接加载完全未在 FPV 上训练过的底模 `Trial 0474` 执行纯粹的 Zero-Shot 测试（`manu/evaluation/eval_fpv_ir_zero_shot.py`）。
 - **实测大盘总表（全量 67 序列，61,999 帧，总 GT = 60,620）**：
   | 评测模式 | Recall (召回率) | Precision (精确率) | F1-Score | TP 命中数 | FP 虚警数 | FAR (单帧虚警率) | 结论与技术定位 |
   | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
@@ -588,12 +588,12 @@
   用户原片目视复核（2026-09-17）发现当前输入第三通道 `(I_t − B_t)^+` **只取正部**，对**暗目标结构性致盲**（`I_t − B_t < 0` 时该通道恒为零）。据此提出对称化假设：补入暗残差通道 `(B_t − I_t)^+` 后，可解锁 `DJI_0051_2`（暗小目标 + 建筑复杂背景，前端死区 370 GT）与 `DJI_0175_2`（姿态翻滚瞬态暗化，117 GT）的候选死区。
 - **约束条件（用户显式要求）**：不重新训练、不改动 Trial 0474 权重，采用**专用零初始化辅助支路**挂载，严格遵循铁律六（底模物理冻结 + 零初始化门控）。
 
-- **数据准备方案（`manu/build_full_median_dataset.py` 扩展为 4 通道）**：
+- **数据准备方案（`manu/data/build_full_median_dataset.py` 扩展为 4 通道）**：
   1. **Channel 0-2 = 官方 `uav_gmc_median` JPG 的字节级解码像素**，按模型实际接收顺序 `[(I_t−B_t)^+, |I_t−W(I_{t-2})|, I_t]` 写入；**严禁从 raw 序列重新生成**（见下方工程避坑）；
   2. **Channel 3 = `(B_t − I_t)^+` 暗残差**，从 raw 序列以与亮通道完全相同的 GMC 对齐 + 21 帧滑窗中值管道计算（window=21, stride_step=2, downscale=2）；
   3. 输出 4 通道 PNG（无损），`data.yaml` 显式声明 `channels: 4`；raw 序列缺失时暗通道置零并计数告警，**不得破坏 1:1 镜像**。
 
-- **模型与支路设计（`manu/dark_residual_highway_module.py` + `manu/train_dark_residual_highway.py`）**：
+- **模型与支路设计（`manu/models/dark_residual_highway_module.py` + `manu/training/train_dark_residual_highway.py`）**：
   1. 底模 `YOLO26HeatmapDetector`（Trial 0474 架构，`standard_dw + pixel_unshuffle + diff_only depth=2`）**100% 物理冻结**且强制 `eval()`；
   2. 新增 `DarkResidualHighway`：`Conv(1→16) + DWConv + MaxPool2d(2) + proj(16→48) + 标量门控`，**末端投影层零初始化 + gate 初值 1.0**（规避“gate=0 且投影=0”导致支路永久死亡）；
   3. 融合系数 `tanh(gate) × 0.05`（有界），gate 独立学习率 `1e-5`，卷积支路 `3e-4`；

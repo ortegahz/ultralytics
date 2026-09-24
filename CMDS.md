@@ -352,4 +352,5 @@ python manu/render_yolo_labels_video.py \
   --scale 2 \
   --show-centers
 
-VIDEO00032_19700101_014453_diagnostic_demo_th0.22
+VIDEO00032_19700101_014453_diagnostic_demo_th0.22.mp4
+VIDEO00005_19700101_002959_diagnostic_demo_th0.22.mp4

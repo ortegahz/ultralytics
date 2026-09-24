@@ -74,7 +74,7 @@
 ## 四、YOLO26s P1 (Stride=2) 从零训练实测追加复盘 (Training From Scratch)
 
 ### 1. 实验设置与事故还原
-- **执行脚本**：`manu/train_yolo26s_p1.py`（4 卡并行，总 batch=64，训练 8 Epochs，Stride=2 P1 高分辨率热图）；
+- **执行脚本**：`manu/training/train_yolo26s_p1.py`（4 卡并行，总 batch=64，训练 8 Epochs，Stride=2 P1 高分辨率热图）；
 - **执行事实**：由于执行目录下缺失 `yolo26s.pt` 预训练权重，程序回退到**纯从零随机初始化（Training from scratch）**；
 - **总参数量**：7,135,875 参数（全部随机初始化，无任何自然图像特征提取先验）。
 
@@ -103,7 +103,7 @@
 ## 五、YOLO26s P1 基于 P2 底模热启动实测复盘 (`exp_yolo26s_p1_ab_init_8ep`)
 
 ### 1. 实验设置与继承机制
-- **执行脚本**：`manu/train_yolo26s_p1.py`（4 卡并行，单卡 batch=16，总 batch=64，训练 8 Epochs，学习率 `lr0=1e-4` Cosine Annealing，$\beta=2.40$）；
+- **执行脚本**：`manu/training/train_yolo26s_p1.py`（4 卡并行，单卡 batch=16，总 batch=64，训练 8 Epochs，学习率 `lr0=1e-4` Cosine Annealing，$\beta=2.40$）；
 - **初始化底模**：加载 A/B 对照测试中表现优异的 `runs/scale_ab_test/yolo26s_p2_5ep/weights/best_f1.pt`；
 - **继承比例**：Backbone 与 Neck 共 487/494 个张量（98.6%）直接匹配加载，仅全新 P1 融合层（`fuse_p1`，128+32 $\to$ 96 通道）与 Head 首层卷积输入自适应重新初始化；
 - **核心目的**：验证具备红外特征投影先验的 YOLO26s 在高分辨率 Stride=2 P1 分支下能否突破 0.9058 SOTA。

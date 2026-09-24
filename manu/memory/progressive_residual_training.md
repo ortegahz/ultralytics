@@ -96,7 +96,7 @@
 3. **架构配置**：`YOLO26HeatmapDetector(stride=2, scale='n')`，输出 320x320 热图；
 4. **超参搜索与训练**：
    - 损失函数：CenterNet Focal Loss（$\alpha=2.0, \beta=2.40$）；
-   - 执行脚本：`manu/optuna_median_distributed.py` $\to$ 产出单帧冠军权重 `runs/optuna_median_search/trial_0022/weights/best.pt`（F1=0.9057）。
+   - 执行脚本：`manu/training/optuna_median_distributed.py` $\to$ 产出单帧冠军权重 `runs/optuna_median_search/trial_0022/weights/best.pt`（F1=0.9057）。
 
 ### 阶段二：增量残差组件微调 (Stage 2: P0 Residual Highway Fine-Tuning)
 1. **加载底模**：加载阶段一生成的 `trial_0022/weights/best.pt`；
@@ -104,7 +104,7 @@
 3. **隔离参数**：100% 物理冻结阶段一所有层，仅开启侧支参数（1,793 参数）可导；
 4. **受控执行脚本**：
    ```bash
-   python manu/train_p0_residual_highway.py \
+   python manu/training/train_p0_residual_highway.py \
        --data /mnt/data/siping/datasets/manu/uav_gmc_median/data.yaml \
        --weights runs/optuna_median_search/trial_0022/weights/best.pt \
        --device 0,1,2,3 \
@@ -129,7 +129,7 @@
 
 ### 阶段三：双向时空平滑插补融合与系统级大盘裁决 (Stage 3: Bidirectional Kinematic Tracking)
 1. **生成精简离线缓存**：
-   运行 `manu/cache_p0_highway_inferences.py`（~20MB，float16）提取 `best_recall.pt` 全量稀疏点预测；
+   运行 `manu/inference/cache_p0_highway_inferences.py`（~20MB，float16）提取 `best_recall.pt` 全量稀疏点预测；
 2. **挂接双向时空平滑实测大盘（统一 Tol <= 8.0px, 验证集 31,613 帧, GT = 25,111）**：
    | 评测方案 / 模式 | 核心工作配置 | Recall (召回率) | Precision (精确率) | F1-Score | TP 命中数 | FP 虚警数 | FAR (单帧虚警率) | 客观技术定性与定位 |
    | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -209,8 +209,8 @@
    - 精确率硬惩罚：Precision < 94.5% 时线性扣罚 Fitness。
 
 ### 3. 执行脚本与监控
-- 调度主脚本：`manu/optuna_p0_nas_distributed.py`（4-GPU 独立进程派发，SQLite 数据库 `study.db` 实时持久化）
-- 周一提取脚本：`manu/report_p0_nas_status.py`（一键提取 Top-10 架构与最佳权重）
+- 调度主脚本：`manu/training/optuna_p0_nas_distributed.py`（4-GPU 独立进程派发，SQLite 数据库 `study.db` 实时持久化）
+- 周一提取脚本：`manu/reports/report_p0_nas_status.py`（一键提取 Top-10 架构与最佳权重）
 
 ### 4. 584+ 轮实测收敛大盘与新单帧绝对 SOTA 确立 (Trial 0474 Breakthrough)
 截至 584 轮实测，系统达到 0 崩溃无锁健康运行，并**全面收敛出了单帧维度的全新历史绝对巅峰模型**：

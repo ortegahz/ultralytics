@@ -7,7 +7,7 @@
 
 ## 一、Oracle 上界探针结论 (2026-09-16 首轮实测，严格距离口径)
 
-**探针脚本**：`manu/eval_oracle_upper_bound.py`（基于 Trial 0474 轻量缓存，零训练零推理，~5 秒完成）。
+**探针脚本**：`manu/evaluation/eval_oracle_upper_bound.py`（基于 Trial 0474 轻量缓存，零训练零推理，~5 秒完成）。
 
 **重要修正**：首轮运行时缓存未内嵌 `gt_bboxes`，`--match-mode bbox` 退化为纯距离口径。脚本已修复（自动从 `labels/val` 富化），bbox 口径数字待重跑后更新。
 
@@ -59,7 +59,7 @@
 ## 二、Phase-A 后处理攻坚系统（已实现，2026-09-16）
 
 ### 1. 四大模块设计（全部默认关闭，零漂移继承 legacy SOTA）
-在 `manu/eval_bidirectional_track_fusion.py`（SOTA 主评测脚本）内扩展：
+在 `manu/evaluation/eval_bidirectional_track_fusion.py`（SOTA 主评测脚本）内扩展：
 1. **航迹门控深潜打捞（P1）**：`th_deep_salvage`（0.035~0.05）+ `min_hits_deep_salvage`；仅存活 >= min_hits 的成熟航迹可在空域深潜区关联弱脉冲，严禁自发生成新航迹；深潜候选同样经过密集杂波簇过滤（cluster_radius=25/max_neighbors=2）；
 2. **弹性长缝合（P2）**：`stitch_long_gap`（8~16 帧）+ `stitch_max_vel_diff`（默认 4.0 px/f）；扩展间隙必须通过端点速度相干性检验（走停：两端均近零速；巡航：速度矢量一致），空间门外推距离 `max(25, 10×gap)`；
 3. **悬停动力学锁止（P3）**：
@@ -67,7 +67,7 @@
    - 尾部惯性 Coasting：`coast_max_frames`（10~20 帧）+ 阻尼外推（damping=0.85）；
    - **`hover_sky_only=1`（默认强制空域）**：地表静止航迹是坏点/杂波领域，严禁复活（实测关闭该门控 FP +582 → 开启 +445，仍需更紧参数）；
    - 合成点（内插/Coasting）带 6px 同帧去重，避免同一真值被重复计数（1 TP + 1 FP）；
-4. **尺度门控双专家（P4）**：`--bbox-cache` 挂载 YOLO26 Bbox 专家缓存（`manu/cache_yolo26_bbox_inferences.py` 生成，默认权重 `runs/optuna_uav_recall_sgpu/trial_0028/weights/best.pt`）；`min(w,h) >= size_gate`（默认 40px）且 conf 达标的框中心注入点流（与热图候选去重半径 20px），大机身建筑重叠目标（HC5-B）由 Bbox 范式原生捕获；
+4. **尺度门控双专家（P4）**：`--bbox-cache` 挂载 YOLO26 Bbox 专家缓存（`manu/inference/cache_yolo26_bbox_inferences.py` 生成，默认权重 `runs/optuna_uav_recall_sgpu/trial_0028/weights/best.pt`）；`min(w,h) >= size_gate`（默认 40px）且 conf 达标的框中心注入点流（与热图候选去重半径 20px），大机身建筑重叠目标（HC5-B）由 Bbox 范式原生捕获；
 5. **空域感知刚性剪枝**：`min_rigid_disp_sky` 允许天空区采用更宽松的坏点剪枝阈值（0=完全豁免），保护出生即悬停的真实目标。
 
 ### 2. 零漂移验证（铁律级）
@@ -84,12 +84,12 @@
 | 天空剪枝豁免 (=0) | +0 | +117 | -0.0022 | 完全豁免放进坏点，应取 0.5~1.0 |
 
 ### 4. 调参与执行工具链
-- **坐标上升调参器**：`manu/tune_phase_a_fusion.py`（Stage 0 legacy 基线 → Stage 1 深潜 → Stage 2 长缝合 → Stage 3 悬停 → Stage 4 天空剪枝 → Stage 5 双专家，逐级锁定最优，全程 ~3 分钟）；
-- **Bbox 专家缓存**：`manu/cache_yolo26_bbox_inferences.py`（官方 DataLoader 零漂移对齐，conf=0.01 深采，<10MB）；
-- **单次详评**：`manu/eval_bidirectional_track_fusion.py --th-deep ... --stitch-long-gap ... --hover-vel ... --coast-frames ... --bbox-cache ...`（Phase-A 开启时自动输出 legacy vs 增强双行对比）。
+- **坐标上升调参器**：`manu/postprocess/tune_phase_a_fusion.py`（Stage 0 legacy 基线 → Stage 1 深潜 → Stage 2 长缝合 → Stage 3 悬停 → Stage 4 天空剪枝 → Stage 5 双专家，逐级锁定最优，全程 ~3 分钟）；
+- **Bbox 专家缓存**：`manu/inference/cache_yolo26_bbox_inferences.py`（官方 DataLoader 零漂移对齐，conf=0.01 深采，<10MB）；
+- **单次详评**：`manu/evaluation/eval_bidirectional_track_fusion.py --th-deep ... --stitch-long-gap ... --hover-vel ... --coast-frames ... --bbox-cache ...`（Phase-A 开启时自动输出 legacy vs 增强双行对比）。
 
 ### 5. Phase-A 全盘坐标上升终局（2026-09-16）
-服务器执行：`manu/tune_phase_a_fusion.py --cache-file runs/gmc_eval/uav_median_trial0474_cache.pkl --bbox-cache runs/gmc_eval/uav_median_bbox_trial0028_cache.pkl`。
+服务器执行：`manu/postprocess/tune_phase_a_fusion.py --cache-file runs/gmc_eval/uav_median_trial0474_cache.pkl --bbox-cache runs/gmc_eval/uav_median_bbox_trial0028_cache.pkl`。
 
 本次调参输出的 Legacy 为 **Strict Distance** 口径（TP=22,616/FP=1,472/F1=0.9194），不是已交付的 In-BBox 口径 SOTA（TP=22,654/FP=1,434/F1=0.9209）。因此本次结果内部可以比较，但不得与 0.9209 直接混口径比较。
 
