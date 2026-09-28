@@ -281,11 +281,11 @@ python manu/audit_substandard_cases.py \
     --exclude-avian \
     --exclude-demo
 
-screen python -u manu/optuna_p0_nas_distributed.py \
+screen python -u manu/training/optuna_p0_nas_distributed.py \
     --data /mnt/data/siping/datasets/manu/uav_gmc_median/data.yaml \
     --weights runs/optuna_median_search/trial_0022/weights/best.pt \
     --gpus 0,1,2,3 \
-    --n-trials 4096 \
+    --n-trials 8192 \
     --epochs 3 \
     --batch 32 \
     --imgsz 640 \
@@ -293,19 +293,7 @@ screen python -u manu/optuna_p0_nas_distributed.py \
     --dist-thresh 8.0 \
     --study-name p0_nas_search_4096 \
     --output-root runs/optuna_p0_nas
-python manu/report_p0_nas_status.py
-
-screen python -u manu/optuna_velocity_highway_nas.py \
-  --output-root runs/optuna_velocity_highway_nas \
-  --data /mnt/data/siping/datasets/manu/uav_gmc_median/data.yaml \
-  --cache-root /mnt/data/siping/datasets/manu/uav_velocity_cache \
-  --weights runs/optuna_p0_nas/trial_0474/weights/best.pt \
-  --gpus 0,1,2,3 \
-  --trials 4096 \
-  --epochs 3 \
-  --batch 32 \
-  --workers 4
-tail -f runs/optuna_velocity_highway_nas/trial_0000/worker.log
+python manu/reports/report_p0_nas_status.py
 
 python manu/process_ir_video_sota.py \
   --input "/mnt/data/xxxu/龙泉山/ir/VIDEO00010_19700101_001550.h264" \
@@ -366,3 +354,15 @@ python manu/diagnostics/probe_heatmap_regions_video.py \
 
 VIDEO00032_19700101_014453_diagnostic_demo_th0.22.mp4
 VIDEO00005_19700101_002959_diagnostic_demo_th0.22.mp4
+
+python manu/diagnostics/probe_heatmap_regions_video.py \
+  --features-dir /mnt/data/siping/datasets/manu/longquanshan_ir_gmc_median/images/train \
+  --pattern 'VIDEO00032_19700101_014453__frame_*.jpg' \
+  --output-dir runs/heatmap_probe/VIDEO00032_19700101_014453_compare \
+  --weights runs/optuna_p0_nas/trial_0474/weights/best.pt \
+  --compare-downsample 160 \
+  --region-threshold 0.06 \
+  --main-threshold 0.22 \
+  --min-area 4 \
+  --device 1 \
+  --fps 25

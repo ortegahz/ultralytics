@@ -187,6 +187,11 @@ def parse_args():
     parser.add_argument("--features-dir", required=True, help="Directory containing saved three-channel feature JPGs")
     parser.add_argument("--pattern", default="*.jpg", help="Feature filename glob, for example VIDEO00005_19700101_002959__frame_*.jpg")
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument(
+        "--compare-features-dir",
+        default="",
+        help="Second saved feature directory for synchronized same-scale comparison",
+    )
     parser.add_argument("--weights", default="runs/optuna_p0_nas/trial_0474/weights/best.pt")
     parser.add_argument("--wh-weights", default="", help="Optional Wh checkpoint; omit to keep legacy heatmap-only mode")
     parser.add_argument("--wh-threshold", type=float, default=0.22)
@@ -196,8 +201,23 @@ def parse_args():
     parser.add_argument("--region-threshold", type=float, default=0.06)
     parser.add_argument("--main-threshold", type=float, default=0.22)
     parser.add_argument("--min-area", type=int, default=4)
-    parser.add_argument("--direct-downsample", type=int, default=0, choices=[0, 160, 320], help="Downsample the full 3-channel feature and channel-aware pad to imgsz")
+    parser.add_argument(
+        "--direct-downsample",
+        "--spatial-downsample",
+        dest="direct_downsample",
+        type=int,
+        default=0,
+        choices=[0, 160, 320],
+        help="Downsample the full 3-channel feature and channel-aware pad to imgsz",
+    )
     parser.add_argument("--max-frames", type=int, default=0)
+    parser.add_argument(
+        "--compare-downsample",
+        type=int,
+        default=0,
+        choices=[0, 160, 320],
+        help="Render synchronized 640-input and direct-downsample comparison; value is the second-row scale",
+    )
     parser.add_argument("--fps", type=float, default=25.0)
     parser.add_argument("--device", default="0")
     return parser.parse_args()
@@ -220,73 +240,104 @@ def main():
     device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() and args.device != "cpu" else "cpu")
     model, stride, imgsz = load_model(resolve_checkpoint(args.weights), device, args.stride)
     wh_head = load_wh_head(resolve_checkpoint(args.wh_weights), model, device) if args.wh_weights else None
-    output_path = output_dir / "heatmap_regions_diagnostic.mp4"
-    writer = cv2.VideoWriter(
-        str(output_path), cv2.VideoWriter_fourcc(*"mp4v"), args.fps, (width * 3, height)
-    )
-    csv_path = output_dir / "heatmap_regions.csv"
-    csv_fields = ["frame", "panel", "threshold", "x", "y", "width", "height", "area", "max", "sum", "mean", "cx", "cy"]
+    compare_dir = Path(args.compare_features_dir) if args.compare_features_dir else None
+    compare_paths = []
+    if compare_dir is not None:
+        compare_paths = sorted(compare_dir.glob(args.pattern), key=natural_key)
+        if len(compare_paths) != len(frame_paths):
+            raise ValueError(f"Comparison frame count mismatch: {features_dir}={len(frame_paths)} vs {compare_dir}={len(compare_paths)}")
+        if [path.name for path in frame_paths] != [path.name for path in compare_paths]:
+            raise ValueError("Comparison feature filenames are not frame-aligned")
+    compare = args.compare_downsample > 0 or compare_dir is not None
+    compare_title = "640 INPUT / ORIGINAL" if compare_dir is None else "640 INPUT / BLACK-HOT INVERT + RECOMPUTED GMC+MEDIAN"
+    output_name = "heatmap_regions_compare_640_vs_%d.mp4" % args.compare_downsample if args.compare_downsample > 0 else "heatmap_regions_compare_same_scale.mp4"
+    output_path = output_dir / (output_name if compare else "heatmap_regions_diagnostic.mp4")
+    canvas_width = width * 3
+    canvas_height = height * 2 if compare else height
+    writer = cv2.VideoWriter(str(output_path), cv2.VideoWriter_fourcc(*"mp4v"), args.fps, (canvas_width, canvas_height))
+    csv_path = output_dir / ("heatmap_regions_compare.csv" if compare else "heatmap_regions.csv")
+    csv_fields = ["frame", "mode", "panel", "threshold", "x", "y", "width", "height", "area", "max", "sum", "mean", "cx", "cy"]
     rows = []
     print(f"[INFO] Reading saved features directly: {features_dir}")
-    if args.direct_downsample:
+    if compare_dir is not None:
+        print(f"[INFO] Synchronized same-scale comparison: top={features_dir}, bottom={compare_dir}")
+    elif compare:
+        print(f"[INFO] Synchronized comparison: top=640 letterbox, bottom=direct-downsample {args.compare_downsample}")
+    elif args.direct_downsample:
         print(f"[INFO] Direct downsample enabled: {args.direct_downsample}px feature with channel-aware padding to {imgsz}px")
     else:
         print(f"[INFO] Direct downsample disabled; feature shape {width}x{height}x3; GMC and median recomputation disabled")
+
+    def render_variant(feature_bgr, mode, index, path, variant_rows):
+        if mode == "compare_features":
+            model_feature, scale, pad_x, pad_y = letterbox(feature_bgr, imgsz)
+        elif mode == "downsample":
+            model_feature, scale, pad_x, pad_y = downsample_pad(feature_bgr, args.compare_downsample, imgsz)
+        elif args.direct_downsample:
+            model_feature, scale, pad_x, pad_y = downsample_pad(feature_bgr, args.direct_downsample, imgsz)
+        else:
+            model_feature, scale, pad_x, pad_y = letterbox(feature_bgr, imgsz)
+        model_image = model_feature.transpose(2, 0, 1)[::-1].copy()
+        tensor = torch.from_numpy(model_image).unsqueeze(0).to(device).float() / 255.0
+        with torch.no_grad():
+            prediction = model(tensor)
+            wh_map = wh_head(model.extract_features(tensor)) if wh_head is not None else None
+        heatmap = prediction["heatmap"][0, 0].detach().cpu().numpy()
+        heatmap_full = cv2.resize(heatmap, (imgsz, imgsz), interpolation=cv2.INTER_LINEAR)
+        new_width, new_height = round(width * scale), round(height * scale)
+        heatmap_full = heatmap_full[pad_y : pad_y + new_height, pad_x : pad_x + new_width]
+        heatmap_full = cv2.resize(heatmap_full, (width, height), interpolation=cv2.INTER_LINEAR)
+        original = cv2.cvtColor(feature_bgr[:, :, 0], cv2.COLOR_GRAY2BGR)
+        heat_color_abs = cv2.applyColorMap(np.clip(heatmap_full * 255.0, 0, 255).astype(np.uint8), cv2.COLORMAP_JET)
+        h_min, h_max = float(heatmap_full.min()), float(heatmap_full.max())
+        heatmap_norm = (heatmap_full - h_min) / (h_max - h_min) if h_max - h_min > 1e-6 else np.zeros_like(heatmap_full)
+        heat_color_dyn = cv2.applyColorMap(np.clip(heatmap_norm * 255.0, 0, 255).astype(np.uint8), cv2.COLORMAP_JET)
+        region_panel = original.copy()
+        heat_panel = cv2.addWeighted(heat_color_dyn, 0.70, original, 0.30, 0)
+        main_panel = cv2.addWeighted(heat_color_abs, 0.70, original, 0.30, 0)
+        draw_panel(region_panel, heatmap_full, args.region_threshold, args.min_area, (0, 255, 255), variant_rows, index, "region")
+        draw_panel(main_panel, heatmap_full, args.main_threshold, args.min_area, (0, 0, 255), variant_rows, index, "absolute")
+        if wh_head is not None:
+            draw_wh_boxes(region_panel, prediction["heatmap"], prediction["offset"], wh_map, args.wh_threshold, stride, scale, pad_x, pad_y, args.wh_top_k)
+            draw_wh_boxes(main_panel, prediction["heatmap"], prediction["offset"], wh_map, args.wh_threshold, stride, scale, pad_x, pad_y, args.wh_top_k)
+        cv2.putText(main_panel, "ABSOLUTE [0,1]", (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
+        cv2.putText(heat_panel, f"DYN min={h_min:.4f} max={h_max:.4f} abs_sum={heatmap_full.sum():.1f}", (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (255, 255, 255), 1, cv2.LINE_AA)
+        canvas = np.hstack([region_panel, heat_panel, main_panel])
+        title = compare_title if mode == "compare_features" else ("640 INPUT / ORIGINAL" if mode == "640" else f"DIRECT {args.compare_downsample} INPUT / SCALE RECOVERY")
+        cv2.rectangle(canvas, (0, 0), (canvas.shape[1], 34), (18, 18, 18), -1)
+        cv2.putText(canvas, title, (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (0, 220, 255) if mode == "640" else (0, 255, 80), 2, cv2.LINE_AA)
+        cv2.putText(canvas, f"frame={index} {path.name}", (canvas.shape[1] - 430, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (255, 255, 255), 1, cv2.LINE_AA)
+        return canvas, h_max, float(heatmap_full.sum())
+
     try:
         for index, path in enumerate(frame_paths):
             feature_bgr = cv2.imread(str(path), cv2.IMREAD_COLOR)
             if feature_bgr is None or feature_bgr.shape[:2] != (height, width) or feature_bgr.shape[2] != 3:
                 raise RuntimeError(f"Invalid feature image: {path}")
-            if args.direct_downsample:
-                model_feature, scale, pad_x, pad_y = downsample_pad(feature_bgr, args.direct_downsample, imgsz)
+            if compare:
+                top, top_max, top_sum = render_variant(feature_bgr, "640", index, path, rows)
+                if compare_dir is not None:
+                    compare_feature = cv2.imread(str(compare_paths[index]), cv2.IMREAD_COLOR)
+                    if compare_feature is None or compare_feature.shape[:2] != (height, width):
+                        raise RuntimeError(f"Invalid comparison feature image: {compare_paths[index]}")
+                    bottom, bottom_max, bottom_sum = render_variant(compare_feature, "compare_features", index, compare_paths[index], rows)
+                    bottom_title = "BLACK-HOT: 255-I + RECOMPUTED GMC+MEDIAN"
+                    cv2.rectangle(bottom, (0, 0), (bottom.shape[1], 34), (18, 18, 18), -1)
+                    cv2.putText(bottom, bottom_title, (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (0, 255, 80), 2, cv2.LINE_AA)
+                else:
+                    bottom, bottom_max, bottom_sum = render_variant(feature_bgr, "downsample", index, path, rows)
+                canvas = np.vstack([top, bottom])
+                cv2.line(canvas, (0, height), (canvas.shape[1], height), (255, 255, 255), 3)
+                print(f"[INFO] {index + 1}/{len(frame_paths)} {path.name} top_max={top_max:.4f} bottom_max={bottom_max:.4f} top_sum={top_sum:.2f} bottom_sum={bottom_sum:.2f}") if index % 50 == 0 else None
             else:
-                model_feature, scale, pad_x, pad_y = letterbox(feature_bgr, imgsz)
-            model_image = model_feature.transpose(2, 0, 1)[::-1].copy()
-            tensor = torch.from_numpy(model_image).unsqueeze(0).to(device).float() / 255.0
-            with torch.no_grad():
-                prediction = model(tensor)
-                wh_map = wh_head(model.extract_features(tensor)) if wh_head is not None else None
-            heatmap = prediction["heatmap"][0, 0].detach().cpu().numpy()
-            heatmap_full = cv2.resize(heatmap, (imgsz, imgsz), interpolation=cv2.INTER_LINEAR)
-            new_width, new_height = round(width * scale), round(height * scale)
-            heatmap_full = heatmap_full[pad_y : pad_y + new_height, pad_x : pad_x + new_width]
-            heatmap_full = cv2.resize(heatmap_full, (width, height), interpolation=cv2.INTER_LINEAR)
-            original = cv2.cvtColor(feature_bgr[:, :, 0], cv2.COLOR_GRAY2BGR)
-            heat_color_abs = cv2.applyColorMap(
-                np.clip(heatmap_full * 255.0, 0, 255).astype(np.uint8), cv2.COLORMAP_JET
-            )
-            h_min, h_max = float(heatmap_full.min()), float(heatmap_full.max())
-            if h_max - h_min > 1e-6:
-                heatmap_norm = (heatmap_full - h_min) / (h_max - h_min)
-            else:
-                heatmap_norm = np.zeros_like(heatmap_full)
-            heat_color_dyn = cv2.applyColorMap(
-                np.clip(heatmap_norm * 255.0, 0, 255).astype(np.uint8), cv2.COLORMAP_JET
-            )
-            region_panel = original.copy()
-            heat_panel = cv2.addWeighted(heat_color_dyn, 0.70, original, 0.30, 0)
-            main_panel = cv2.addWeighted(heat_color_abs, 0.70, original, 0.30, 0)
-            draw_panel(region_panel, heatmap_full, args.region_threshold, args.min_area, (0, 255, 255), rows, index, "region")
-            draw_panel(main_panel, heatmap_full, args.main_threshold, args.min_area, (0, 0, 255), rows, index, "absolute")
-            if wh_head is not None:
-                draw_wh_boxes(region_panel, prediction["heatmap"], prediction["offset"], wh_map, args.wh_threshold, stride, scale, pad_x, pad_y, args.wh_top_k)
-                draw_wh_boxes(main_panel, prediction["heatmap"], prediction["offset"], wh_map, args.wh_threshold, stride, scale, pad_x, pad_y, args.wh_top_k)
-                cv2.putText(region_panel, "GREEN: Wh estimated boxes", (8, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 255, 0), 1, cv2.LINE_AA)
-            cv2.putText(main_panel, "ABSOLUTE [0,1]", (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
-            cv2.putText(
-                heat_panel,
-                f"DYN min={h_min:.4f} max={h_max:.4f} abs_sum={heatmap_full.sum():.1f}",
-                (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (255, 255, 255), 1, cv2.LINE_AA
-            )
-            canvas = np.hstack([region_panel, heat_panel, main_panel])
-            cv2.putText(canvas, f"frame={index} {path.name}", (8, height - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
+                canvas, heat_max, heat_sum = render_variant(feature_bgr, "downsample" if args.direct_downsample else "640", index, path, rows)
+                if index % 50 == 0:
+                    print(f"[INFO] {index + 1}/{len(frame_paths)} {path.name} heatmap_max={heat_max:.4f} heatmap_sum={heat_sum:.2f}")
             writer.write(canvas)
-            if index % 50 == 0:
-                print(f"[INFO] {index + 1}/{len(frame_paths)} {path.name} heatmap_max={heatmap_full.max():.4f} heatmap_sum={heatmap_full.sum():.2f}")
     finally:
         writer.release()
     with csv_path.open("w", newline="", encoding="utf-8") as file:
-        writer_csv = csv.DictWriter(file, fieldnames=csv_fields)
+        writer_csv = csv.DictWriter(file, fieldnames=csv_fields, extrasaction="ignore")
         writer_csv.writeheader()
         writer_csv.writerows(rows)
     print(f"[SUCCESS] Video: {output_path}")
