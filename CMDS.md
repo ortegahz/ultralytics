@@ -357,12 +357,14 @@ VIDEO00005_19700101_002959_diagnostic_demo_th0.22.mp4
 
 python manu/diagnostics/probe_heatmap_regions_video.py \
   --features-dir /mnt/data/siping/datasets/manu/longquanshan_ir_gmc_median/images/train \
-  --pattern 'VIDEO00032_19700101_014453__frame_*.jpg' \
-  --output-dir runs/heatmap_probe/VIDEO00032_19700101_014453_compare \
+  --pattern 'VIDEO00005_19700101_002959__frame_*.jpg' \
+  --output-dir runs/heatmap_probe/VIDEO00005_19700101_002959_fusion \
   --weights runs/optuna_p0_nas/trial_0474/weights/best.pt \
   --compare-downsample 160 \
+  --fusion-row \
+  --fusion-dilate 32 \
   --region-threshold 0.06 \
   --main-threshold 0.22 \
   --min-area 4 \
-  --device 1 \
+  --device 0 \
   --fps 25

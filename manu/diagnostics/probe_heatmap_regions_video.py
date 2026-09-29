@@ -215,9 +215,12 @@ def parse_args():
         "--compare-downsample",
         type=int,
         default=0,
-        choices=[0, 160, 320],
+        choices=[0, 80, 160, 320],
         help="Render synchronized 640-input and direct-downsample comparison; value is the second-row scale",
     )
+    parser.add_argument("--compare-downsample-extra", type=int, default=0, choices=[0, 80, 160, 320], help="Optional third input scale")
+    parser.add_argument("--fusion-row", action="store_true", help="Add a final row using max across all rendered scales")
+    parser.add_argument("--fusion-dilate", type=int, default=9, help="Odd dilation kernel for the fusion detection mask")
     parser.add_argument("--fps", type=float, default=25.0)
     parser.add_argument("--device", default="0")
     return parser.parse_args()
@@ -248,45 +251,72 @@ def main():
             raise ValueError(f"Comparison frame count mismatch: {features_dir}={len(frame_paths)} vs {compare_dir}={len(compare_paths)}")
         if [path.name for path in frame_paths] != [path.name for path in compare_paths]:
             raise ValueError("Comparison feature filenames are not frame-aligned")
-    compare = args.compare_downsample > 0 or compare_dir is not None
-    compare_title = "640 INPUT / ORIGINAL" if compare_dir is None else "640 INPUT / BLACK-HOT INVERT + RECOMPUTED GMC+MEDIAN"
-    output_name = "heatmap_regions_compare_640_vs_%d.mp4" % args.compare_downsample if args.compare_downsample > 0 else "heatmap_regions_compare_same_scale.mp4"
-    output_path = output_dir / (output_name if compare else "heatmap_regions_diagnostic.mp4")
+    downsample_scales = []
+    if compare_dir is None:
+        if args.compare_downsample > 0:
+            downsample_scales.append(args.compare_downsample)
+        if args.compare_downsample_extra > 0 and args.compare_downsample_extra not in downsample_scales:
+            downsample_scales.append(args.compare_downsample_extra)
+    compare = compare_dir is not None or len(downsample_scales) > 0
+    fusion = compare and args.fusion_row
+
+    row_specs = []
+    if compare_dir is not None:
+        row_specs.append(("640 INPUT / BLACK-HOT ORIGINAL", "primary", 0))
+        row_specs.append(("BLACK-HOT: 255-I + RECOMPUTED GMC+MEDIAN", "compare_features", 0))
+    elif compare:
+        row_specs.append(("640 INPUT / ORIGINAL", "primary", 0))
+        for scale_value in downsample_scales:
+            row_specs.append((f"DIRECT {scale_value} INPUT / SCALE RECOVERY", "primary", scale_value))
+    else:
+        single_scale = args.direct_downsample if args.direct_downsample else 0
+        row_specs.append((f"DIRECT {single_scale} INPUT" if single_scale else "640 INPUT / ORIGINAL", "primary", single_scale))
+
+    row_count = len(row_specs) + (1 if fusion else 0)
+    if compare_dir is not None:
+        output_name = "heatmap_regions_compare_same_scale.mp4"
+    elif compare:
+        output_name = "heatmap_regions_compare_640_vs_%s.mp4" % "_".join(str(scale) for scale in downsample_scales)
+    else:
+        output_name = "heatmap_regions_diagnostic.mp4"
+    output_path = output_dir / output_name
     canvas_width = width * 3
-    canvas_height = height * 2 if compare else height
+    canvas_height = height * row_count
     writer = cv2.VideoWriter(str(output_path), cv2.VideoWriter_fourcc(*"mp4v"), args.fps, (canvas_width, canvas_height))
     csv_path = output_dir / ("heatmap_regions_compare.csv" if compare else "heatmap_regions.csv")
     csv_fields = ["frame", "mode", "panel", "threshold", "x", "y", "width", "height", "area", "max", "sum", "mean", "cx", "cy"]
     rows = []
+    scale_tags = [str(spec[2]) if spec[2] else "640" for spec in row_specs]
     print(f"[INFO] Reading saved features directly: {features_dir}")
     if compare_dir is not None:
         print(f"[INFO] Synchronized same-scale comparison: top={features_dir}, bottom={compare_dir}")
     elif compare:
-        print(f"[INFO] Synchronized comparison: top=640 letterbox, bottom=direct-downsample {args.compare_downsample}")
+        print(f"[INFO] Multi-scale rows: 640 -> {' -> '.join(str(scale) for scale in downsample_scales)} | fusion={fusion}")
     elif args.direct_downsample:
         print(f"[INFO] Direct downsample enabled: {args.direct_downsample}px feature with channel-aware padding to {imgsz}px")
     else:
         print(f"[INFO] Direct downsample disabled; feature shape {width}x{height}x3; GMC and median recomputation disabled")
 
-    def render_variant(feature_bgr, mode, index, path, variant_rows):
-        if mode == "compare_features":
-            model_feature, scale, pad_x, pad_y = letterbox(feature_bgr, imgsz)
-        elif mode == "downsample":
-            model_feature, scale, pad_x, pad_y = downsample_pad(feature_bgr, args.compare_downsample, imgsz)
-        elif args.direct_downsample:
-            model_feature, scale, pad_x, pad_y = downsample_pad(feature_bgr, args.direct_downsample, imgsz)
+    def render_variant(feature_bgr, scale_value, index, path, variant_rows, title, title_color, forced_heatmap=None, fusion_panel=False):
+        if forced_heatmap is None:
+            if scale_value and scale_value > 0:
+                model_feature, scale, pad_x, pad_y = downsample_pad(feature_bgr, scale_value, imgsz)
+            else:
+                model_feature, scale, pad_x, pad_y = letterbox(feature_bgr, imgsz)
+            model_image = model_feature.transpose(2, 0, 1)[::-1].copy()
+            tensor = torch.from_numpy(model_image).unsqueeze(0).to(device).float() / 255.0
+            with torch.no_grad():
+                prediction = model(tensor)
+                wh_map = wh_head(model.extract_features(tensor)) if wh_head is not None else None
+            heatmap = prediction["heatmap"][0, 0].detach().cpu().numpy()
+            heatmap_full = cv2.resize(heatmap, (imgsz, imgsz), interpolation=cv2.INTER_LINEAR)
+            new_width, new_height = round(width * scale), round(height * scale)
+            heatmap_full = heatmap_full[pad_y : pad_y + new_height, pad_x : pad_x + new_width]
+            heatmap_full = cv2.resize(heatmap_full, (width, height), interpolation=cv2.INTER_LINEAR)
         else:
-            model_feature, scale, pad_x, pad_y = letterbox(feature_bgr, imgsz)
-        model_image = model_feature.transpose(2, 0, 1)[::-1].copy()
-        tensor = torch.from_numpy(model_image).unsqueeze(0).to(device).float() / 255.0
-        with torch.no_grad():
-            prediction = model(tensor)
-            wh_map = wh_head(model.extract_features(tensor)) if wh_head is not None else None
-        heatmap = prediction["heatmap"][0, 0].detach().cpu().numpy()
-        heatmap_full = cv2.resize(heatmap, (imgsz, imgsz), interpolation=cv2.INTER_LINEAR)
-        new_width, new_height = round(width * scale), round(height * scale)
-        heatmap_full = heatmap_full[pad_y : pad_y + new_height, pad_x : pad_x + new_width]
-        heatmap_full = cv2.resize(heatmap_full, (width, height), interpolation=cv2.INTER_LINEAR)
+            prediction = None
+            wh_map = None
+            heatmap_full = forced_heatmap.astype(np.float32, copy=True)
         original = cv2.cvtColor(feature_bgr[:, :, 0], cv2.COLOR_GRAY2BGR)
         heat_color_abs = cv2.applyColorMap(np.clip(heatmap_full * 255.0, 0, 255).astype(np.uint8), cv2.COLORMAP_JET)
         h_min, h_max = float(heatmap_full.min()), float(heatmap_full.max())
@@ -295,19 +325,34 @@ def main():
         region_panel = original.copy()
         heat_panel = cv2.addWeighted(heat_color_dyn, 0.70, original, 0.30, 0)
         main_panel = cv2.addWeighted(heat_color_abs, 0.70, original, 0.30, 0)
-        draw_panel(region_panel, heatmap_full, args.region_threshold, args.min_area, (0, 255, 255), variant_rows, index, "region")
-        draw_panel(main_panel, heatmap_full, args.main_threshold, args.min_area, (0, 0, 255), variant_rows, index, "absolute")
-        if wh_head is not None:
-            draw_wh_boxes(region_panel, prediction["heatmap"], prediction["offset"], wh_map, args.wh_threshold, stride, scale, pad_x, pad_y, args.wh_top_k)
-            draw_wh_boxes(main_panel, prediction["heatmap"], prediction["offset"], wh_map, args.wh_threshold, stride, scale, pad_x, pad_y, args.wh_top_k)
+        if fusion_panel:
+            mask = (heatmap_full >= args.main_threshold).astype(np.uint8)
+            if args.fusion_dilate > 1:
+                kernel_size = args.fusion_dilate if args.fusion_dilate % 2 else args.fusion_dilate + 1
+                mask = cv2.dilate(mask, np.ones((kernel_size, kernel_size), np.uint8), iterations=1)
+            count, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+            for label_id in range(1, count):
+                x, y, box_w, box_h, area = stats[label_id]
+                if area < args.min_area:
+                    continue
+                peak = float(heatmap_full[labels == label_id].max())
+                for panel in (region_panel, main_panel):
+                    cv2.rectangle(panel, (x, y), (x + box_w - 1, y + box_h - 1), (0, 255, 0), 2)
+                    cv2.putText(panel, f"FUSED A{area} M{peak:.2f}", (x, max(45, y - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 255, 0), 1, cv2.LINE_AA)
+        else:
+            draw_panel(region_panel, heatmap_full, args.region_threshold, args.min_area, (0, 255, 255), variant_rows, index, "region")
+            draw_panel(main_panel, heatmap_full, args.main_threshold, args.min_area, (0, 0, 255), variant_rows, index, "absolute")
+            if wh_head is not None and prediction is not None:
+                draw_wh_boxes(region_panel, prediction["heatmap"], prediction["offset"], wh_map, args.wh_threshold, stride, scale, pad_x, pad_y, args.wh_top_k)
+                draw_wh_boxes(main_panel, prediction["heatmap"], prediction["offset"], wh_map, args.wh_threshold, stride, scale, pad_x, pad_y, args.wh_top_k)
+        cv2.putText(region_panel, "FUSED REGIONS" if fusion_panel else "REGIONS >= %.2f" % args.region_threshold, (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 80) if fusion_panel else (0, 255, 255), 1, cv2.LINE_AA)
         cv2.putText(main_panel, "ABSOLUTE [0,1]", (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
         cv2.putText(heat_panel, f"DYN min={h_min:.4f} max={h_max:.4f} abs_sum={heatmap_full.sum():.1f}", (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (255, 255, 255), 1, cv2.LINE_AA)
         canvas = np.hstack([region_panel, heat_panel, main_panel])
-        title = compare_title if mode == "compare_features" else ("640 INPUT / ORIGINAL" if mode == "640" else f"DIRECT {args.compare_downsample} INPUT / SCALE RECOVERY")
         cv2.rectangle(canvas, (0, 0), (canvas.shape[1], 34), (18, 18, 18), -1)
-        cv2.putText(canvas, title, (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (0, 220, 255) if mode == "640" else (0, 255, 80), 2, cv2.LINE_AA)
+        cv2.putText(canvas, title, (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.60, title_color, 2, cv2.LINE_AA)
         cv2.putText(canvas, f"frame={index} {path.name}", (canvas.shape[1] - 430, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (255, 255, 255), 1, cv2.LINE_AA)
-        return canvas, h_max, float(heatmap_full.sum())
+        return canvas, h_max, float(heatmap_full.sum()), heatmap_full
 
     try:
         for index, path in enumerate(frame_paths):
@@ -315,22 +360,35 @@ def main():
             if feature_bgr is None or feature_bgr.shape[:2] != (height, width) or feature_bgr.shape[2] != 3:
                 raise RuntimeError(f"Invalid feature image: {path}")
             if compare:
-                top, top_max, top_sum = render_variant(feature_bgr, "640", index, path, rows)
-                if compare_dir is not None:
-                    compare_feature = cv2.imread(str(compare_paths[index]), cv2.IMREAD_COLOR)
-                    if compare_feature is None or compare_feature.shape[:2] != (height, width):
-                        raise RuntimeError(f"Invalid comparison feature image: {compare_paths[index]}")
-                    bottom, bottom_max, bottom_sum = render_variant(compare_feature, "compare_features", index, compare_paths[index], rows)
-                    bottom_title = "BLACK-HOT: 255-I + RECOMPUTED GMC+MEDIAN"
-                    cv2.rectangle(bottom, (0, 0), (bottom.shape[1], 34), (18, 18, 18), -1)
-                    cv2.putText(bottom, bottom_title, (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (0, 255, 80), 2, cv2.LINE_AA)
-                else:
-                    bottom, bottom_max, bottom_sum = render_variant(feature_bgr, "downsample", index, path, rows)
-                canvas = np.vstack([top, bottom])
-                cv2.line(canvas, (0, height), (canvas.shape[1], height), (255, 255, 255), 3)
-                print(f"[INFO] {index + 1}/{len(frame_paths)} {path.name} top_max={top_max:.4f} bottom_max={bottom_max:.4f} top_sum={top_sum:.2f} bottom_sum={bottom_sum:.2f}") if index % 50 == 0 else None
+                row_canvases = []
+                row_heatmaps = []
+                row_stats = []
+                for title, kind, scale_value in row_specs:
+                    if kind == "compare_features":
+                        row_feature = cv2.imread(str(compare_paths[index]), cv2.IMREAD_COLOR)
+                        if row_feature is None or row_feature.shape[:2] != (height, width):
+                            raise RuntimeError(f"Invalid comparison feature image: {compare_paths[index]}")
+                    else:
+                        row_feature = feature_bgr
+                    color = (0, 255, 80) if scale_value else (0, 220, 255)
+                    panel, heat_max, heat_sum, heatmap = render_variant(row_feature, scale_value, index, path, rows, title, color)
+                    row_canvases.append(panel)
+                    row_heatmaps.append(heatmap)
+                    row_stats.append((heat_max, heat_sum))
+                if fusion:
+                    fused_heatmap = np.maximum.reduce(row_heatmaps)
+                    fusion_title = "FUSION: MAX(%s) | DILATED COMPLEMENTARY DETECTIONS" % ", ".join(scale_tags)
+                    fusion_panel, fusion_max, fusion_sum, _ = render_variant(feature_bgr, 0, index, path, rows, fusion_title, (0, 255, 80), forced_heatmap=fused_heatmap, fusion_panel=True)
+                    row_canvases.append(fusion_panel)
+                    row_stats.append((fusion_max, fusion_sum))
+                canvas = np.vstack(row_canvases)
+                for row_index in range(1, len(row_canvases)):
+                    cv2.line(canvas, (0, height * row_index), (canvas.shape[1], height * row_index), (255, 255, 255), 3)
+                if index % 50 == 0:
+                    stats_text = " ".join(f"{tag}_max={stats[0]:.4f}" for tag, stats in zip(scale_tags, row_stats))
+                    print(f"[INFO] {index + 1}/{len(frame_paths)} {path.name} {stats_text}")
             else:
-                canvas, heat_max, heat_sum = render_variant(feature_bgr, "downsample" if args.direct_downsample else "640", index, path, rows)
+                canvas, heat_max, heat_sum, _ = render_variant(feature_bgr, args.direct_downsample if args.direct_downsample else 0, index, path, rows, row_specs[0][0], (0, 255, 80))
                 if index % 50 == 0:
                     print(f"[INFO] {index + 1}/{len(frame_paths)} {path.name} heatmap_max={heat_max:.4f} heatmap_sum={heat_sum:.2f}")
             writer.write(canvas)
