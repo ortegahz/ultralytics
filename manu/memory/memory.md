@@ -308,6 +308,16 @@
 
 ## 九、领域迁移阶段目标、FPV/龙泉山零样本与黑热模式 Handle（2026-09-23）
 
+> **无监督运动解耦试跑记录（2026-09-29）**：测试缓存成功构建（anti-uav 20,619、fpv_data 50,398、龙泉山 13,770 个候选窗口；实际写入 train=201、val=55）。单卡 Optuna Trial 能正常启动并完整跑通 20 Epoch，无崩溃、无 OOM。损失/先验调试史：原始显著图先均值过高、后全白塌陷（`max≈1.0, mean≈0.999`）→ bias=-5.0 版本全黑塌陷（max<0.001、mean≈0）→ 最终 `mean_target=0.05、barrier=2.0、bias=-2.8 + Top-K 峰值保持 + 梯度裁剪 1.0`，fitness 从 0.041 单调升至 0.063。**注意：fitness 是无监督物理先验分数，不是检测 Recall/F1，其量级需在正式搜索中观察分布后才能判读。**
+>
+> **正式搜索前待决**：stride=12 下龙泉山候选窗口仅 13,770，远低于 60% 配额（约 48,000），且三源合计约 84,787 窗口 < 目标 80,000。需决策：①减小 stride（如 4）放大龙泉山窗口数，或 ②接受约 4.5 万总量并按现有配额分配。下游评测（S_t 替换 Ch2 送 Trial 0474 测 Anti-UAV 回归）尚未建立。已将训练改为三阶段：Stage 1 仅训练 EgoMotionNet 光度重构；Stage 2 冻结 EgoMotionNet、训练 MotionSaliencyNet；Stage 3 以缩小学习率联合微调。Optuna 新增阶段比例与联合学习率缩放搜索参数。评估修正：少数 batch 的 -100 塌陷不再污染 Epoch fitness，改为统计有效 batch 均值，并以塌陷比例 >0.5 作为剪枝判据。
+>
+> **Anti-UAV 有监督验证链路（2026-09-29）**：原始 `/mnt/data/siping/datasets/manu/anti-uav/train` 只有连续无标签灰度序列；官方 GT 验证集位于 `uav_gmc_median/images/val` 与 `labels/val`。已新增 `make_anti_uav_cache.py`（训练缓存取原始灰度，验证缓存取官方 JPG 的 BGR 通道0作为 `I_t`，并保存 GT/native尺寸）、训练 checkpoint 保存和 `eval_saliency_val.py`（阈值扫描、Distance<=8px 检测指标、热图可视化）。
+>
+> **无监督运动解耦 Anti-UAV 首次定量结果（2026-09-29）**：使用 Anti-UAV 原始 train 连续五帧窗口训练，三阶段训练（Stage 1 EgoMotionNet、Stage 2 冻结相机分支训练 MotionSaliencyNet、Stage 3 低学习率联合微调），10 Epoch 单 Trial 无崩溃完成；最佳无监督 fitness=`0.063099`。官方 val 流式评估覆盖 `27,877` 个有效五帧窗口，阈值扫描最佳点 `th=0.08`：`TP=10 / FP=211,384 / FN=21,858`，`Recall=0.0457%`、`Precision=0.00473%`、`F1=0.0000857`。结论：当前方案**未学到可用的无人机显著性**，fitness 与目标检测性能不一致；主要表现为背景/配准残差伪峰，不能进入正式 Optuna 搜索。
+>
+> 工程判定：训练、checkpoint、流式 val 评估和可视化链路已验证可运行；评估脚本此前因全量缓存显存/内存占用被系统 `Killed`，已改为流式累计并只保留少量可视化。当前结果更支持“无监督残差分解不可辨识/目标归因不足”而非单纯代码故障，但仍应抽查可视化确认通道与坐标没有系统性错误。后续若继续，必须引入 GT 仅用于验证或弱监督约束、显式前景/背景对比，或改用冻结 Trial 0474 候选池做受控 A/B；禁止以该 fitness 继续大规模挂机。
+
 ### 1. 当前阶段目标重新定性
 - Anti-UAV 4th 算法设计阶段已经结束；当前进入**特定业务吊舱红外域的领域迁移阶段**。
 - 核心目标不是证明 Trial 0474 对所有陌生场景的通用泛化，而是证明：在当前新业务域上，通过受控微调或等价的域适配预处理，可以达到预先约定的工程 Recall/FAR/Precision 指标，并且原 Anti-UAV 4th val 能力不退化。
