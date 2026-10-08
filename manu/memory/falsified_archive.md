@@ -36,6 +36,8 @@
 29. [实验二十九：冻结 Trial 0474 的暗残差侧支（双极性 signed residual）短训负向证伪（训练友好不泛化，2026-09-21）](#二十九实验二十九冻结-trial-0474-的暗残差侧支双极性-signed-residual短训负向证伪训练友好不泛化2026-09-21)
 30. [实验三十：No-GMC 消融全链（2026-10-08）——四个使结论失效的静默 Bug（标签漏 split 致 GT=0 / 计时只拟合 1 次按 22 次计费 / 全局 MAE 累加器量纲不匹配 / OpenCV 混合 dtype）+ 8 帧抽样把 GMC 贡献低估 40~70 倍的方法论校正 + 「掉分集中、GMC 空转序列上删除 GMC 净收益」正向定论](#三十no-gmc-消融全链2026-10-08四个使结论失效的-bug--一次把-gmc-贡献低估-4070-倍的抽样错误)
 31. [实验三十一：Tree 锚点级联 GMC 落地（2026-10-08）—— 三个被自验证脚本抓出的实现 Bug（pstep 单帧步致链条错位 / 左乘因子顺序置换 / Ch1 误用 lag 4）+「代数等价 ≠ 估计误差」方法论边界 + native 一次冗余拟合 + 脚本被同步传播删除](#三十一tree-锚点级联-gmc-落地2026-10-08三个实现-bug--一条方法论边界)
+32. [实验三十二：流式特征引擎落地（2026-10-08）—— 环形缓冲移位语义与 lag 索引不匹配导致「取一半 lag」+ `(H,W)/(W,H)` 混用三次复发（含一次假 PASS）+ 抽峰深度归因被实测证伪](#三十二流式特征引擎落地四个静默-bug--一次被证伪的归因2026-10-08)
+33. [口径漂移三十三：推理 cache 把坐标存成 float16 导致 3 TP / 3 FP 偏差（含两次错误归因：抽峰深度、letterbox 随 batch 变化）+ 权威产出脚本更正](#三十三口径漂移根因推理-cache-把坐标存成-float162026-10-08已修复复现)
 
 ---
 
@@ -808,3 +810,110 @@ native 每帧拟合 **22** 次，而 lag=2 被算了两遍 —— `H2 = compute_
 - **规则（流程级）**：双向同步目录下，**只在一侧存在的文件会被对端当成删除传播**。
   同步前必须先双向 `diff -rq` 体检；发现「只在本地/只在服务器」的新增文件时，
   **必须先合并再同步**，不得直接覆盖。
+
+## 三十二、流式特征引擎落地：四个静默 bug + 一次被证伪的归因（2026-10-08）
+
+> 本条是**成功方案**的落地记录，不是证伪。正向定论见 `memory/gmc_net_pending.md` 第十节；
+> 通用纪律见 `memory/rules.md` 第四节。
+
+### 32.1 定论（正向）
+
+`manu/pipeline/streaming_feature_pipeline.py` 纯因果 FIFO 引擎（43 连续帧环、锚点 {2,12,22,32,42}、
+深度 4）与离线 tree 臂**逐字节等同**：G0/G1/G2 三闸门 `max|d|` 全为 0，
+两种分辨率（640×512 / 512×512）各 200 帧验证通过。
+
+### 32.2 静默 bug 一：环形缓冲移位语义与 lag 索引不匹配（本轮最严重）
+
+`push()` 用 `buf = [new] + buf[:-1]` 每帧移一格，移位后 `buf[j] = f_{t-j}` 是 **1 帧 lag** 语义；
+读取却用 `buf[lag // stride_step]`，是 **stride 帧 lag** 语义。
+后果：**全部历史帧被取到一半的 lag**（lag 2 → `f_{t-1}`，lag 42 → `f_{t-21}`），
+`pstep(j)` 也随之错为拟合相隔 1 帧的两个矩阵。
+
+- **症状极具欺骗性**：`Ch0=0`、冷启动区 `Ch2=0`，只有 `Ch1` 与越过冷启动后的 `Ch2` 出错；
+  `[MATS]` 显示锚点 lag2 差 **198.9**、派生 lag 4/6/8/10 全部继承 ~199.3。
+- **定位手段**：把管线逐 lag 的变换矩阵快照出来两两比对（`pipe.last_mats` + 探针），
+  一次跑就指出「差异在锚点拟合的输入，不在合成」。**没有这个探针只能靠读代码猜。**
+- **规则**：环形缓冲一律按**绝对帧号 mod depth** 索引，**禁止移位 + 按 lag 取槽**。
+
+### 32.3 静默 bug 二~四：`(H, W)` / `(W, H)` 混用（同一根因三次复发）
+
+1. 构造参数按 `(w, h)` 存取、内部比较按 `(H, W)` → 首帧即抛 shape 异常；
+2. 形状守卫写成 `(s.shape[2], s.shape[1], 3)` → **恒真**，全部帧走 `continue`，
+   **一帧未比却输出 `max|d|=0` 的假 PASS**；
+3. G0 守卫同样写反 → 基准闸门也会假通过。
+
+- **规则**：统一 numpy 原生 `(H, W)`；转换必须显式且伴随打印；
+  **闸门必须打印实际比较样本数，为 0 时显示 `SKIP` 而非 `PASS`** —— 假 PASS 比 FAIL 危险得多。
+
+### 32.4 被证伪的归因：抽峰深度导致 3 TP 偏差
+
+曾把「native 臂比冻结标称少 3 TP / 多 3 FP」归因于
+`cache_trial0474_inferences.py` 默认 `conf_thresh 0.02 / top_k 100`
+与权威 `train_p0_residual_highway.py` 的 `0.08 / 80` 不同，
+经 `extract_peaks` 的顺序差异（空间序 vs `torch.topk` 分数降序）
+影响 `evaluate_point_detections` 中 `np.argsort(dists)` 的并列打破。
+
+**实测两个数据集在两种抽峰下 TP/FP 完全相同，假设作废。**
+已逐项排除：抽峰参数、checkpoint 身份（`best.pt` 与 `results.csv` 同刻写入且 gate 吻合）、
+`model.eval()`/`no_grad`、GT 坐标缩放、`stride`、DataLoader 构建。
+剩余未查清项：val 模式 letterbox 画布是否随 batch 组成变化。
+
+- **规则（方法论，权重很高）**：**任何「差 N 个样本」的现象，先测敏感性再归因** ——
+  换一个同样合理的参数看差异是否变化；**禁止先写一个听起来合理的机制解释再去找证据**。
+  本次若不测，就会把一个错误的因果写进 memory 并误导后续所有实验。
+
+## 三十三、口径漂移根因：推理 cache 把坐标存成 float16（2026-10-08，已修复复现）
+
+> **不是模型问题，是缓存精度问题。** 曾使本 harness 稳定少 3 TP / 多 3 FP（F1 −0.00016），
+> 且在排查过程中先后被错误归因为「抽峰深度差异」「letterbox 画布随 batch 变化」。
+
+### 33.1 根因
+
+`manu/inference/cache_trial0474_inferences.py` 写盘时：
+
+```python
+pts_fp16 = peaks_list[b]["points"].astype(np.float16)   # 预测坐标
+gt_fp16  = gt_pts.astype(np.float16)                    # GT 中心同样被量化
+```
+
+预测点与 GT 中心均位于 **640×640 letterbox 空间**。float16 的最小间隔随量级增长：
+
+| 值 | 16 | 64 | 256 | 320 | 512 | 640 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| float16 ULP | 0.0156 | 0.0625 | **0.25** | **0.25** | **0.5** | **0.5** |
+
+**每轴最多 0.25~0.5 px 量化误差**，而匹配容差是 8 px。权威评测路径
+（`optuna_p0_nas_distributed.py`）全程 float32，因此这是**纯粹由缓存引入**的偏差。
+「TP −3 / FP +3」正是「原本匹配上的那个预测因坐标偏移变成 FP」的形态。
+
+### 33.2 修复与验证
+
+- `pred_points / gt_pts / gt_bboxes` 改存 **float32**；`pred_scores` 保留 float16；
+- 写盘后打印实际 dtype，防止再次静默改回；
+- 体积 5.1 → 5.5 MB，铁律二 100 MB 预算内**毫无压力**；
+- 验证：权威抽峰 `0.08/80` + 权威阈值表 → **`[SELF-CHECK] PASS`，
+  TP 21,643 (+0) / FP 1,004 (+0) / GT 25,111 (+0)**，F1 0.9063607。
+
+### 33.3 排查过程中的两次错误归因（方法论教训）
+
+1. **「抽峰深度差异」**：`extract_peaks` 在未触发 `top_k` 时返回空间顺序、触发时返回分数降序，
+   而 `evaluate_point_detections` 的 `np.argsort(dists)` 贪心匹配对并列敏感 —— 机制上讲得通，
+   但**实测 native 与 tree 两臂在 `0.02/100` 与 `0.08/80` 下 TP/FP 完全相同**，假设作废。
+2. **「val 模式 letterbox 画布随 batch 组成变化」**：`train_p0_residual_highway.py` 用
+   `total_batch = args.batch × GPU 数`，而 `optuna_p0_nas_distributed.py` 直接用 `args.batch` —— 
+   后者才是权威脚本，**该差异不存在**。
+
+- **规则（已写入 `rules.md` 第四节）**：
+  **任何「差 N 个样本」的现象，先按固定次序排查再归因** ——
+  缓存精度/dtype → 贪心匹配的敏感性（须实测）→ checkpoint 身份 → `eval()`/`no_grad` →
+  坐标缩放往返 → `stride`/DataLoader → 权威脚本到底是哪一个。
+  **禁止先写一个听起来合理的机制解释再去找证据。**
+
+### 33.4 附带更正：权威产出脚本
+
+trial_0474 由 **`manu/training/optuna_p0_nas_distributed.py`** 产出，
+不是 `train_p0_residual_highway.py`：后者 `use_p0_highway=True` **不传 kwargs**，
+建出的是 P0 默认架构（`downsample_mode='maxpool'`、`gate_mid_channels=8`），
+与 trial_0474 的 `pixel_unshuffle` / `16` **不是同一个模型**。
+memory 原记的单帧复现脚本 `manu/evaluation/val_heatmap_resolution.py` 亦不成立
+（未开 `use_p0_highway`，而该参数默认 `False`，无法严格加载含 `p0_highway.*` 的 checkpoint）。

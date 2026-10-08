@@ -193,17 +193,20 @@ def main():
                 gt_pts = np.array(gt_pts, dtype=np.float32) if len(gt_pts) > 0 else np.zeros((0, 2), dtype=np.float32)
                 gt_bboxes = np.array(gt_bboxes, dtype=np.float32) if len(gt_bboxes) > 0 else np.zeros((0, 4), dtype=np.float32)
 
-                pts_fp16 = peaks_list[b]["points"].astype(np.float16)
-                scs_fp16 = peaks_list[b]["scores"].astype(np.float16)
-                gt_fp16 = gt_pts.astype(np.float16)
-                gt_bbox_fp16 = gt_bboxes.astype(np.float16)
-
+                # float32 is mandatory. Coordinates live in the 640x640 letterbox space, where
+                # float16 has a 0.5 spacing across [512, 1024) and 0.25 across [256, 512), i.e. up
+                # to 0.25-0.5 px of quantisation error per axis. At an 8 px match tolerance that is
+                # enough to flip borderline frames: measured against the authoritative float32
+                # evaluator it cost 3 TP and added 3 FP, which is exactly the -0.00016 F1 gap that
+                # previously could not be attributed. Scores may stay float16 safely, but keeping
+                # one dtype removes the temptation to reintroduce the bug. The cache only doubles
+                # (5.1 -> ~10 MB), far inside the 100 MB budget.
                 records.append({
                     "im_name": im_name,
-                    "gt_pts": gt_fp16,
-                    "gt_bboxes": gt_bbox_fp16,
-                    "pred_points": pts_fp16,
-                    "pred_scores": scs_fp16,
+                    "gt_pts": gt_pts.astype(np.float32),
+                    "gt_bboxes": gt_bboxes.astype(np.float32),
+                    "pred_points": peaks_list[b]["points"].astype(np.float32),
+                    "pred_scores": peaks_list[b]["scores"].astype(np.float16),
                 })
 
     elapsed = time.time() - t0
@@ -214,6 +217,8 @@ def main():
     with open(output_path, "wb") as f:
         pickle.dump(records, f, protocol=pickle.HIGHEST_PROTOCOL)
 
+    print(f"[INFO] Record dtypes: pred_points/gt_pts/gt_bboxes = float32 "
+          f"(mandatory for 8 px matching), pred_scores = float16")
     file_size_mb = output_path.stat().st_size / (1024 * 1024)
     print(colorstr("bold", colorstr("green", f"[SUCCESS] Inference cache saved ({file_size_mb:.1f} MB) -> {output_path.resolve()}\n")))
 
