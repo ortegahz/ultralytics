@@ -13,6 +13,8 @@ THE ONLY DIFFERENCE vs the frozen official dataset `uav_gmc_median`
 (built by `manu/data/build_sample_median_dataset.py`):
     native : Ch1 = |I_t - W(I_{t-2})|          Ch2 = (I_t - median{W(I_{t-2k})})^+   (22 GMC fits/frame)
     no-GMC : Ch1 = |I_t - I_{t-2}|             Ch2 = (I_t - median{I_{t-2k}})^+      (0 GMC fits/frame)
+    tree   : Ch1 = |I_t - W(I_{t-2})|          Ch2 = (I_t - median{W(I_{t-2k})})^+
+             with W direct on the anchor grid only and chained for the rest (--mode tree)
 
 Everything else is byte-identical code, not a re-implementation:
     filename manifest, frame-index resolution, sequence start clamping, history lags
@@ -31,12 +33,35 @@ Interpretation caveat, stated up front:
     was trained on GMC-free features. A large drop is the expected outcome; the number is still
     the correct thing to report to decide whether GMC must be replaced or merely accelerated.
 
+Modes
+    --mode nogmc (default) : W(.) = IDENTITY, 0 GMC fits/frame.
+    --mode tree            : bounded-depth anchored tree. Direct fits only on the anchor grid
+                            {stride_step, +anchor_step, ...} U {max_lag}; every other lag is
+                            R_L = p_{ci-L} . p_{ci-L+2} . ... . p_{ci-a-2} . R_a, where a is the
+                            largest anchor <= L, so the composition depth is exactly
+                            (L - a) / stride_step <= anchor_step/stride_step - 1.
+                            With the frozen lags 2..42, anchor_step=10 gives 5 direct fits and
+                            max depth 4 (76% fewer direct fits). The bounded tree was verified to be
+                            BIT-IDENTICAL to the full-length chain on synthetic transforms
+                            (max|diff| = 0.0), so the topology itself adds no error.
+
+                            What this does NOT prove: that five long-baseline direct fits plus reused
+                            short-baseline steps estimate the same transforms as 21 independent
+                            long-baseline fits. That residual estimation bias can only be settled by
+                            the end-to-end F1 delta, never by the algebra.
+
 Usage (server):
     python manu/data/build_nogmc_median_dataset.py \
         --labels-src /mnt/data/siping/datasets/manu/uav_gmc_median \
         --raw-root   /mnt/data/siping/datasets/manu/anti-uav \
         --output     /mnt/data/siping/datasets/manu/uav_gmc_median_nogmc \
         --split val --window 21 --stride-step 2 --workers 24
+
+    python manu/data/build_nogmc_median_dataset.py --mode tree --anchor-step 10 \
+        --labels-src /mnt/data/siping/datasets/manu/uav_gmc_median \
+        --raw-root   /mnt/data/siping/datasets/manu/anti-uav \
+        --output     /mnt/data/siping/datasets/manu/uav_gmc_median_tree \
+        --split val --window 21 --stride-step 2 --downscale 2 --workers 24
 """
 
 from __future__ import annotations
@@ -60,14 +85,54 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from manu.data.build_sample_median_dataset import (  # noqa: E402
     IMAGE_SUFFIXES,
+    FastGMCEstimator,
     find_sequence_folder,
     natural_key,
     parse_seq_and_frame,
 )
 
+IDENTITY = np.eye(2, 3, dtype=np.float32)
+
+
+def _to33(m: np.ndarray) -> np.ndarray:
+    h = np.eye(3, dtype=np.float64)
+    h[:2, :] = m
+    return h
+
+
+def _compose(new: np.ndarray, acc: np.ndarray) -> np.ndarray:
+    """Compose two 2x3 transforms, `new` applied after `acc`, in homogeneous form."""
+    h = _to33(new) @ _to33(acc)
+    n = h[2, 2]
+    if not np.isfinite(n) or abs(n) < 1e-12:
+        return IDENTITY.copy()
+    h = h / n
+    if not np.isfinite(h).all():
+        return IDENTITY.copy()
+    return h[:2, :].astype(np.float32)
+
+
+def anchor_grid(stride_step: int, anchor_step: int, max_lag: int) -> list[int]:
+    """Even lags carrying a direct GMC fit; every other lag is reached by bounded composition."""
+    if anchor_step % stride_step:
+        raise ValueError(f"anchor_step={anchor_step} must be a multiple of stride_step={stride_step} "
+                         f"so the chain recursion lands exactly on the anchors")
+    lags = sorted(set(range(stride_step, max_lag + 1, anchor_step)) | {max_lag})
+    return [lag for lag in lags if lag % stride_step == 0]
+
+
+def anchors_pretty(stride_step: int, anchor_step: int, max_lag: int) -> str:
+    return "{" + ",".join(str(x) for x in anchor_grid(stride_step, anchor_step, max_lag)) + "}"
+
 
 def parse_args():
-    p = argparse.ArgumentParser(description="No-GMC temporal median residual dataset builder")
+    p = argparse.ArgumentParser(description="GMC-variant temporal median residual dataset builder")
+    p.add_argument("--mode", type=str, default="nogmc", choices=["nogmc", "tree"],
+                   help="nogmc: W(.) = IDENTITY, 0 fits/frame. tree: direct fits on a bounded anchor "
+                        "grid, every other lag reached by chained composition")
+    p.add_argument("--anchor-step", type=int, default=10,
+                   help="tree only: lag spacing between direct fits. 10 -> 5 anchors {2,12,22,32,42} "
+                        "for lags 2..42, max composition depth 4")
     p.add_argument("--labels-src", type=str, default="/mnt/data/siping/datasets/manu/uav_gmc_median",
                    help="Frozen dataset root used ONLY as filename manifest + hardlinked labels")
     p.add_argument("--raw-root", type=str, default="/mnt/data/siping/datasets/manu/anti-uav",
@@ -78,6 +143,7 @@ def parse_args():
                    help="Comma-separated subset; empty = all sequences in the manifest")
     p.add_argument("--window", type=int, default=21, help="Median window size (frozen = 21)")
     p.add_argument("--stride-step", type=int, default=2, help="Lag stride (frozen = 2 -> lags 2..42)")
+    p.add_argument("--downscale", type=int, default=2, help="tree only: GMC estimation downscale (frozen = 2)")
     p.add_argument("--workers", type=int, default=24)
     p.add_argument("--chunk-size", type=int, default=200,
                    help="Frames per work unit; smaller = smoother progress bar and better load balance")
@@ -95,6 +161,9 @@ def process_sequence_chunk(
     window: int,
     stride_step: int,
     dry_run: int,
+    mode: str = "nogmc",
+    anchor_step: int = 10,
+    downscale: int = 2,
 ) -> dict:
     cv2.setNumThreads(1)
     raw_root = Path(raw_root_str)
@@ -117,9 +186,15 @@ def process_sequence_chunk(
         idx_map[int(m.group(1)) if m else list_i] = list_i
 
     n_frames = len(frames)
+    max_lag = window * stride_step
+    anchors = anchor_grid(stride_step, anchor_step, max_lag) if mode == "tree" else []
+    est = FastGMCEstimator(downscale=downscale) if mode == "tree" else None
     frame_cache: dict[int, np.ndarray] = {}
+    step_cache: dict[int, np.ndarray] = {}
     ok_cnt = fail_cnt = 0
-    t_read = t_hist = t_write = 0.0
+    anchor_fits = step_fits = compose_ops = 0
+    max_depth_seen = 0
+    t_read = t_hist = t_write = t_gmc = 0.0
     t0 = time.time()
 
     def read(i: int) -> np.ndarray | None:
@@ -129,6 +204,62 @@ def process_sequence_chunk(
             v = cv2.imread(str(frames[i]), cv2.IMREAD_GRAYSCALE)
             frame_cache[i] = v
         return v
+
+    def fit_matrix(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+        m = est.compute_affine(a, b)
+        if m is None or not np.isfinite(m).all():
+            return IDENTITY.copy()
+        return m.astype(np.float32)
+
+    def fit(prev: np.ndarray | None, curr: np.ndarray | None) -> np.ndarray:
+        nonlocal anchor_fits
+        anchor_fits += 1
+        if prev is None or curr is None:
+            return IDENTITY.copy()
+        return fit_matrix(prev, curr)
+
+    def pstep(i: int) -> np.ndarray:
+        """H_{i -> i+stride_step}, fitted at most once per chunk. The stride MUST match the lag grid,
+        otherwise composing it onto a longer-lag matrix leaves a gap of stride_step-1 frames."""
+        nonlocal step_fits
+        m = step_cache.get(i)
+        if m is None:
+            step_fits += 1
+            a, b = read(i), read(i + stride_step)
+            m = IDENTITY.copy() if a is None or b is None else fit_matrix(a, b)
+            step_cache[i] = m
+        return m
+
+    def tree_transforms(ci: int, curr: np.ndarray) -> dict[int, np.ndarray]:
+        """Direct fit on the anchor grid; every other lag reached from the nearest anchor BELOW it by
+        at most anchor_step/stride_step - 1 compositions. Deliberately NOT the full-length chain,
+        which accumulates one composition per frame and defeats the whole point of the tree."""
+        nonlocal compose_ops, max_depth_seen
+        out: dict[int, np.ndarray] = {}
+        for lag in anchors:
+            out[lag] = fit(read(ci - lag), curr)
+        for lag in range(stride_step, max_lag + 1, stride_step):
+            if lag in out:
+                continue
+            below = [a for a in anchors if a <= lag]
+            if not below:
+                continue
+            a = below[-1]
+            acc = out[a]
+            for j in range(ci - a - stride_step, ci - lag - 1, -stride_step):
+                acc = _compose(pstep(j), acc)
+                compose_ops += 1
+            out[lag] = acc
+        depth = {a: 0 for a in anchors}
+        for lag in sorted(out):
+            if lag in depth:
+                continue
+            a = max((x for x in anchors if x <= lag), default=None)
+            if a is not None:
+                depth[lag] = (lag - a) // stride_step
+        if depth:
+            max_depth_seen = max(max_depth_seen, max(depth.values()))
+        return out
 
     sorted_names = sorted(img_names, key=natural_key)
     if dry_run > 0:
@@ -146,13 +277,25 @@ def process_sequence_chunk(
         t_read += time.perf_counter() - mark
 
         mark = time.perf_counter()
-        diff2 = cv2.absdiff(im_curr, im_prev2)
+        if mode == "tree":
+            mats = tree_transforms(ci, im_curr)
+            diff2 = cv2.absdiff(im_curr, est.warp(im_prev2, mats[stride_step]))
+            history = []
+            for lag in range(stride_step, max_lag + 1, stride_step):
+                im_h = read(ci - lag)
+                m = mats.get(lag)
+                if im_h is not None and m is not None:
+                    history.append(est.warp(im_h, m))
+        else:
+            diff2 = cv2.absdiff(im_curr, im_prev2)
+            history = []
+            for lag in range(stride_step, max_lag + 1, stride_step):
+                im_h = read(ci - lag)
+                if im_h is not None:
+                    history.append(im_h)
+        t_gmc += time.perf_counter() - mark
 
-        history = []
-        for step in range(1, window + 1):
-            im_h = read(ci - step * stride_step)
-            if im_h is not None:
-                history.append(im_h)
+        mark = time.perf_counter()
         if len(history) >= 5:
             stack = np.stack(history, axis=0)
             median_bg = np.median(stack, axis=0).astype(np.float32)
@@ -189,9 +332,14 @@ def process_sequence_chunk(
         "fail": fail_cnt,
         "status": "ok",
         "seconds": round(elapsed, 2),
-        "gmc_calls": 0,
+        "gmc_calls": anchor_fits + step_fits,
+        "anchor_fits_per_frame": round(anchor_fits / n, 2),
+        "step_fits_per_frame": round(step_fits / n, 2),
+        "compose_per_frame": round(compose_ops / n, 2),
+        "max_chain_depth": max_depth_seen,
         "ms_per_frame": round(1000.0 * elapsed / n, 2),
         "ms_read": round(1000.0 * t_read / n, 2),
+        "ms_gmc": round(1000.0 * t_gmc / n, 2),
         "ms_median": round(1000.0 * t_hist / n, 2),
         "ms_write": round(1000.0 * t_write / n, 2),
     }
@@ -251,11 +399,13 @@ def main():
     per_file_kb = (ref_bytes / ref_n / 1024.0) if ref_n else 0.0
     est_gib = per_file_kb * total / (1024.0 * 1024.0)
     print("=" * 100)
-    print("   NO-GMC TEMPORAL MEDIAN DATASET BUILDER  (embedded-port ablation)")
+    print(f"   GMC-VARIANT DATASET BUILDER  |  mode={args.mode}  (embedded-port ablation)")
     print(f"   Frozen manifest/labels : {labels_src}  ({len(ref_images)} files)")
     print(f"   Raw sequences          : {raw_root}")
     print(f"   Output                 : {out_dir}")
-    print(f"   Window={args.window} stride_step={args.stride_step} | W(.) = IDENTITY, 0 GMC fits/frame")
+    print(f"   Window={args.window} stride_step={args.stride_step} lags 2..{args.window * args.stride_step}"
+          + (f" | anchor lags {anchors_pretty(args.stride_step, args.anchor_step, args.window * args.stride_step)}"
+             f" downscale={args.downscale}" if args.mode == "tree" else " | W(.) = IDENTITY, 0 GMC fits/frame"))
     print(f"   Sequences selected     : {len(seq_groups)} ({total} images)")
     print(f"   Workers={args.workers} chunk_size={args.chunk_size}")
     print(f"   DISK ESTIMATE          : ~{est_gib:.2f} GiB "
@@ -279,7 +429,8 @@ def main():
         futs = {}
         for seq, names in chunks:
             fut = ex.submit(process_sequence_chunk, seq, names, str(src_lbl_dir), str(raw_root),
-                            str(out_img_dir), str(out_lbl_dir), args.window, args.stride_step, 0)
+                            str(out_img_dir), str(out_lbl_dir), args.window, args.stride_step, 0,
+                            args.mode, args.anchor_step, args.downscale)
             futs[fut] = (len(names), seq)
         bar = tqdm(total=unit_total, desc="build", unit="frm", ncols=96,
                    bar_format="{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} frm "
@@ -298,45 +449,71 @@ def main():
     agg: dict[str, dict] = {}
     for r in results:
         a = agg.setdefault(r["seq"], {"ok": 0, "fail": 0, "seconds": 0.0, "read": 0.0,
-                                      "median": 0.0, "write": 0.0})
+                                      "gmc": 0.0, "median": 0.0, "write": 0.0,
+                                      "anchor": 0.0, "step": 0.0, "compose": 0.0, "depth": 0})
         n = max(1, r["ok"])
         a["ok"] += r["ok"]
         a["fail"] += r["fail"]
         a["seconds"] += r.get("seconds", 0.0)
         a["read"] += r.get("ms_read", 0.0) * n
+        a["gmc"] += r.get("ms_gmc", 0.0) * n
         a["median"] += r.get("ms_median", 0.0) * n
         a["write"] += r.get("ms_write", 0.0) * n
+        a["anchor"] += r.get("anchor_fits_per_frame", 0.0) * n
+        a["step"] += r.get("step_fits_per_frame", 0.0) * n
+        a["compose"] += r.get("compose_per_frame", 0.0) * n
+        a["depth"] = max(a["depth"], r.get("max_chain_depth", 0))
     for a in agg.values():
         n = max(1, a["ok"])
         a["ms_per_frame"] = 1000.0 * a["seconds"] / n
-        for k in ("read", "median", "write"):
+        for k in ("read", "gmc", "median", "write", "anchor", "step", "compose"):
             a[k] /= n
     seq_rows = []
     for seq in sorted(agg):
         a = agg[seq]
         seq_rows.append({"seq": seq, "ok": a["ok"], "fail": a["fail"], "seconds": round(a["seconds"], 2),
                          "ms_per_frame": round(a["ms_per_frame"], 2), "ms_read": round(a["read"], 2),
-                         "ms_median": round(a["median"], 2), "ms_write": round(a["write"], 2)})
+                         "ms_gmc": round(a["gmc"], 2), "ms_median": round(a["median"], 2),
+                         "ms_write": round(a["write"], 2),
+                         "anchor_fits_per_frame": round(a["anchor"], 2),
+                         "step_fits_per_frame": round(a["step"], 2),
+                         "compose_per_frame": round(a["compose"], 2),
+                         "max_chain_depth": a["depth"]})
 
     print("\n[PER-SEQUENCE]")
-    print(f"{'sequence':<32}{'frames':>7}{'sec':>8}{'ms/frm':>8}{'read':>8}{'median':>8}{'write':>8}")
+    print(f"{'sequence':<32}{'frames':>7}{'ms/frm':>8}{'read':>7}{'gmc':>8}{'median':>8}{'write':>7}"
+          f"{'anch/f':>8}{'step/f':>8}{'comp/f':>8}{'depth':>6}")
     for r in seq_rows:
-        print(f"{r['seq']:<32}{r['ok']:>7}{r['seconds']:>8.1f}{r['ms_per_frame']:>8.2f}"
-              f"{r['ms_read']:>8.2f}{r['ms_median']:>8.2f}{r['ms_write']:>8.2f}")
+        print(f"{r['seq']:<32}{r['ok']:>7}{r['ms_per_frame']:>8.2f}{r['ms_read']:>7.2f}"
+              f"{r['ms_gmc']:>8.2f}{r['ms_median']:>8.2f}{r['ms_write']:>7.2f}"
+              f"{r['anchor_fits_per_frame']:>8.2f}{r['step_fits_per_frame']:>8.2f}"
+              f"{r['compose_per_frame']:>8.2f}{r['max_chain_depth']:>6}")
 
     elapsed = time.time() - t0
     ms = 1000.0 * elapsed / max(1, ok)
+    wt_anchor = sum(r["anchor_fits_per_frame"] * r["ok"] for r in seq_rows) / max(1, ok)
+    wt_step = sum(r["step_fits_per_frame"] * r["ok"] for r in seq_rows) / max(1, ok)
+    wt_comp = sum(r["compose_per_frame"] * r["ok"] for r in seq_rows) / max(1, ok)
     print(f"\n[DONE] {ok} frames written, {fail} failed, {elapsed:.1f}s wall "
           f"({ok / max(elapsed, 1e-6):.1f} imgs/s, {ms:.2f} ms/frame with {args.workers} workers)")
     print(f"[MANIFEST] expected {total} images, wrote {ok}"
           f"{'  <== MISMATCH' if args.dry_run == 0 and ok != total else ''}")
-    print(f"[COST] read {sum(r['ms_read'] * r['ok'] for r in seq_rows) / max(1, ok):.2f} ms/frame | "
-          f"median {sum(r['ms_median'] * r['ok'] for r in seq_rows) / max(1, ok):.2f} ms/frame | "
-          f"write {sum(r['ms_write'] * r['ok'] for r in seq_rows) / max(1, ok):.2f} ms/frame")
+    print(f"[COST] read {sum(r['ms_read'] * r['ok'] for r in seq_rows) / max(1, ok):.2f} | "
+          f"gmc+warp {sum(r['ms_gmc'] * r['ok'] for r in seq_rows) / max(1, ok):.2f} | "
+          f"median {sum(r['ms_median'] * r['ok'] for r in seq_rows) / max(1, ok):.2f} | "
+          f"write {sum(r['ms_write'] * r['ok'] for r in seq_rows) / max(1, ok):.2f}  ms/frame")
+    print(f"[FITS] anchor {wt_anchor:.2f} + single-step {wt_step:.2f} = {wt_anchor + wt_step:.2f} fits/frame"
+          f"  (frozen native = 22.00)  |  compositions {wt_comp:.2f}/frame"
+          f"  |  max chain depth {max(r['max_chain_depth'] for r in seq_rows)}")
+    if args.mode == "tree":
+        print(f"[TREE] anchor lags = {anchors_pretty(args.stride_step, args.anchor_step, args.window * args.stride_step)}"
+              f"  (anchor_step={args.anchor_step}, stride_step={args.stride_step})")
 
     (out_dir / "data.yaml").write_text(
-        f"""# UAV No-GMC Temporal Median Residual Dataset [I_t, |I_t - I_{{t-2}}|, (I_t - B_t)^+]
-# W(.) = IDENTITY (0 GMC fits/frame). Window / lags / encoding identical to frozen uav_gmc_median.
+        f"""# UAV GMC-Variant Temporal Median Residual Dataset [I_t, |I_t - W(I_t-2)|, (I_t - B_t)^+]
+# mode={args.mode}: nogmc = W(.) IDENTITY (0 GMC fits/frame); tree = direct fits on the bounded anchor grid
+#   {anchors_pretty(args.stride_step, args.anchor_step, args.window * args.stride_step) if args.mode == 'tree' else 'n/a'}
+# Window / lags / encoding identical to frozen uav_gmc_median.
 # Channel order on disk matches the model input contract, because official
 # Format._format_img only performs the BGR->RGB flip when channels == 3.
 path: {out_dir.resolve()}
@@ -348,7 +525,12 @@ names:
 """, encoding="utf-8")
     print(f"[SUCCESS] Dataset configuration created: {(out_dir / 'data.yaml').resolve()}")
     print("\n[STATS_JSON]")
-    print(json.dumps({"window": args.window, "stride_step": args.stride_step, "gmc_calls": 0,
+    print(json.dumps({"mode": args.mode, "window": args.window, "stride_step": args.stride_step,
+                      "anchor_step": args.anchor_step,
+                      "anchor_lags": anchors_pretty(args.stride_step, args.anchor_step, args.window * args.stride_step),
+                      "gmc_calls_per_frame": round(wt_anchor + wt_step, 3),
+                      "compose_per_frame": round(wt_comp, 3),
+                      "max_chain_depth": max(r["max_chain_depth"] for r in seq_rows),
                       "frames": ok, "wall_seconds": round(elapsed, 1),
                       "ms_per_frame": round(ms, 2),
                       "per_sequence": seq_rows}, ensure_ascii=False))
