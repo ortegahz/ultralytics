@@ -82,6 +82,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--matrix-probe-frames", type=int, default=64,
                    help="Frames for which the per-lag transform matrices are diffed")
     p.add_argument("--pkl", type=str, default="runs/gmc_eval/streaming_verify.pkl")
+    p.add_argument("--mode", type=str, default="verify", choices=["verify", "bench"],
+                   help="verify = reconcile against the frozen feature set; "
+                        "bench = ABAB-interleaved latency comparison of several anchor_step settings")
+    p.add_argument("--anchor-steps", type=str, default="2,10",
+                   help="bench only: comma-separated anchor_step settings to compare")
+    p.add_argument("--warmup", type=int, default=42, help="bench only: frames excluded from the stats")
     p.add_argument("--dump-intermediate", action="store_true", help="Also write per-frame .npy intermediates")
     p.add_argument("--dump-dir", type=str, default="")
     args = p.parse_args()
@@ -152,8 +158,89 @@ def frozen_lookup(frozen_dir: Path, sequence: str) -> dict[int, Path]:
     return mapping
 
 
+
+# --------------------------------------------------------------------------------------
+# Stage: bench — ABAB-interleaved latency comparison
+# --------------------------------------------------------------------------------------
+
+def run_bench(args) -> int:
+    """Compare anchor_step settings inside ONE process, interleaved per frame.
+
+    Interleaving matters: the whole point is that the previously recorded numbers came from two
+    different tools measured at different times and disagree by 5x on the per-fit cost. Running
+    both settings alternately on the same frames, in the same process, under the same thread
+    pinning, removes machine-load drift and tool differences from the comparison.
+    """
+    cv2.setNumThreads(1)
+    steps = [int(x) for x in args.anchor_steps.split(",") if x.strip()]
+    if len(steps) < 2:
+        print("[BENCH] need at least two anchor_step settings separated by commas")
+        return 2
+    source = SequenceFrameSource(args.raw_root, args.sequence, limit=args.frames)
+    raw_frames = list(source)
+    warm = max(0, min(args.warmup, len(raw_frames) - 1))
+
+    print("=" * 100)
+    print("   STREAMING PIPELINE BENCHMARK  (ABAB interleaved, single process)")
+    print(f"   sequence : {args.sequence}   frames: {len(raw_frames)}   warmup excluded: {warm}")
+    print(f"   shape    : (H,W)={raw_frames[0].shape}   cv2 threads: {cv2.getNumThreads()}")
+    print(f"   anchor_steps: {steps}   window={args.window} stride_step={args.stride_step} "
+          f"downscale={args.downscale}")
+    print("=" * 100, flush=True)
+
+    pipes = {s: OnlineFeaturePipeline(window=args.window, stride_step=args.stride_step,
+                                     anchor_step=s, downscale=args.downscale,
+                                     expected_shape=raw_frames[0].shape) for s in steps}
+    per_frame: dict[int, list[float]] = {s: [] for s in steps}
+
+    for i, frame in enumerate(raw_frames):
+        order = steps if i % 2 == 0 else steps[::-1]
+        for s in order:
+            t0 = time.perf_counter()
+            pipes[s].push(frame)
+            dt = (time.perf_counter() - t0) * 1000.0
+            if i >= warm:
+                per_frame[s].append(dt)
+
+    print(f"\n{'setting':<14}{'fits/frm':>10}{'warps/frm':>11}{'total mean':>12}{'P50':>10}"
+          f"{'P90':>10}{'P99':>10}{'fit/call us':>14}{'warp/call ms':>15}{'median ms':>11}")
+    print("-" * 117)
+    rows = {}
+    for s in steps:
+        st = pipes[s].stats()
+        arr = np.asarray(per_frame[s], dtype=np.float64)
+        rows[s] = (st, arr)
+        print(f"anchor_step={s:<3}{st['fits'] / max(1, st['pushes']):>10.2f}"
+              f"{st['warps'] / max(1, st['pushes']):>11.1f}"
+              f"{arr.mean():>12.2f}{np.percentile(arr, 50):>10.2f}"
+              f"{np.percentile(arr, 90):>10.2f}{np.percentile(arr, 99):>10.2f}"
+              f"{st['fit_us_per_call']:>14.1f}{st['warp_ms_per_call']:>15.3f}{st['median_ms']:>11.2f}")
+
+    print("\n[STAGE BREAKDOWN] ms/frame (sums to total)")
+    print(f"{'setting':<14}{'fit':>10}{'warp':>10}{'median':>10}{'sum':>10}{'total':>10}{'unaccounted':>14}")
+    print("-" * 78)
+    for s in steps:
+        st, arr = rows[s]
+        parts = st["fit_ms"] + st["warp_ms"] + st["median_ms"]
+        print(f"anchor_step={s:<3}{st['fit_ms']:>10.2f}{st['warp_ms']:>10.2f}{st['median_ms']:>10.2f}"
+              f"{parts:>10.2f}{arr.mean():>10.2f}{arr.mean() - parts:>14.2f}")
+
+    lo, hi = min(steps), max(steps)
+    a_lo, a_hi = rows[lo][1].mean(), rows[hi][1].mean()
+    print(f"\n[DELTA] anchor_step {lo} -> {hi}: {a_lo:.2f} -> {a_hi:.2f} ms/frame "
+          f"({a_lo / max(a_hi, 1e-9):.2f}x faster, saving {a_lo - a_hi:.2f} ms)")
+    print("[CROSS-CHECK] compare fit/call above against `ab_test_chained_gmc.py --stage timing`,")
+    print("            which measured 1.80 ms/call for 22 fits (39.66 ms total).")
+    print("            Agreement => the two tools measure the same thing and the earlier 280/154 ms")
+    print("            streaming numbers were load artefacts. Disagreement => the streaming path has")
+    print("            a real cost the offline builder avoids.")
+    return 0
+
+
 def main() -> int:
     args = parse_args()
+    if args.mode == "bench":
+        return run_bench(args)
     cv2.setNumThreads(1)
     print(f"[THREADS] cv2.setNumThreads(1) pinned; opencv reports "
           f"{cv2.getNumThreads()} thread(s). Bit-reproducibility requires this.")

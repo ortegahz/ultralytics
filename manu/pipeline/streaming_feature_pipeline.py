@@ -70,6 +70,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import sys
+import time
 from typing import Iterator, Protocol
 
 import cv2
@@ -193,10 +194,12 @@ class OnlineFeaturePipeline:
         self.ring_depth = self.max_lag + 1
         self._ring: list[np.ndarray | None] = [None] * self.ring_depth
         self._steps: dict[int, np.ndarray] = {}
+        self._mark = 0.0
         self._first: np.ndarray | None = None
         self._shape = expected_shape
         self._t = -1
         self.last_mats: dict[int, np.ndarray] | None = None
+        self.reset_stats()
         self.dump_intermediate = dump_intermediate
         self.dump_dir = Path(dump_dir) if dump_dir else None
         if self.dump_intermediate and self.dump_dir is None:
@@ -204,6 +207,32 @@ class OnlineFeaturePipeline:
         if self.dump_intermediate:
             self.dump_dir.mkdir(parents=True, exist_ok=True)
             self._dump_meta()
+
+    # ------------------------------------------------------------------ instrumentation
+    def reset_stats(self) -> None:
+        """Zero the per-stage timers. Cheap enough to leave on permanently: a perf_counter call
+        is ~50 ns against a ~150 ms push, i.e. <0.001% overhead."""
+        self.t_fit = 0.0
+        self.t_warp = 0.0
+        self.t_median = 0.0
+        self.t_total = 0.0
+        self.n_push = 0
+        self.n_fit = 0
+        self.n_warp = 0
+
+    def stats(self) -> dict[str, float]:
+        n = max(1, self.n_push)
+        return {
+            "pushes": self.n_push,
+            "fits": self.n_fit,
+            "warps": self.n_warp,
+            "fit_ms": 1e3 * self.t_fit / n,
+            "warp_ms": 1e3 * self.t_warp / n,
+            "median_ms": 1e3 * self.t_median / n,
+            "total_ms": 1e3 * self.t_total / n,
+            "fit_us_per_call": 1e6 * self.t_fit / max(1, self.n_fit),
+            "warp_ms_per_call": 1e3 * self.t_warp / max(1, self.n_warp),
+        }
 
     # ------------------------------------------------------------------ state introspection
     def state_bytes(self) -> int:
@@ -249,11 +278,14 @@ class OnlineFeaturePipeline:
         """Stride-step transform ``H_{abs_index -> abs_index + stride_step}``, cached by absolute index."""
         m = self._steps.get(abs_index)
         if m is None:
+            mark = time.perf_counter()
             m = fit_similarity(
                 self.estimator,
                 self._frame_at_lag(self._t - abs_index),
                 self._frame_at_lag(self._t - abs_index - self.stride_step),
             )
+            self.t_fit += time.perf_counter() - mark
+            self.n_fit += 1
             self._steps[abs_index] = m
         return m
 
@@ -261,7 +293,10 @@ class OnlineFeaturePipeline:
     def _transforms(self, curr: np.ndarray) -> dict[int, np.ndarray]:
         mats: dict[int, np.ndarray] = {}
         for lag in self.anchors:
+            mark = time.perf_counter()
             mats[lag] = fit_similarity(self.estimator, self._frame_at_lag(lag), curr)
+            self.t_fit += time.perf_counter() - mark
+            self.n_fit += 1
         for lag in self.lags:
             if lag in self._anchor_set:
                 continue
@@ -281,13 +316,25 @@ class OnlineFeaturePipeline:
         self._t += 1
         self._ring[self._t % self.ring_depth] = curr
 
+        # t_total spans the algorithm only (transforms + warps + median); frame bookkeeping above is
+        # microseconds and is deliberately excluded so the stages sum to the total.
+        self._mark = time.perf_counter()
         mats = self._transforms(curr)
         self.last_mats = mats
+
+        mark = time.perf_counter()
         ch1 = cv2.absdiff(curr, self.estimator.warp(self._frame_at_lag(self.stride_step), mats[self.stride_step]))
         history = [self.estimator.warp(self._frame_at_lag(lag), mats[lag]) for lag in self.lags]
+        self.t_warp += time.perf_counter() - mark
+        self.n_warp += len(self.lags) + 1
+
+        mark = time.perf_counter()
         median_bg = np.median(np.stack(history, axis=0), axis=0).astype(np.float32)
         ch2 = np.clip(curr.astype(np.float32) - median_bg, 0, 255).astype(np.uint8)
         out = np.stack([curr, ch1, ch2], axis=0)
+        self.t_median += time.perf_counter() - mark
+        self.n_push += 1
+        self.t_total += time.perf_counter() - self._mark
 
         for j in [j for j in self._steps if j < self._t - self.max_lag]:
             self._steps.pop(j, None)
