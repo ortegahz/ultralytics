@@ -1,6 +1,6 @@
 # 红外弱小无人机检测器算法攻坚主索引 (Core Memory & Navigation)
 
-> **版本时间**：2026-09-18  
+> **版本时间**：2026-10-09  
 > **定位与职责**：新 Session 启动必读核心。掌握项目演进全局脉络、当前最高 SOTA 基线、全景评测大盘，并提供按需深入各专题模块的精确导航指引。
 
 ---
@@ -293,13 +293,49 @@
 - `manu/data/preannotate_all_sequences.py`：全量批处理 worker，按块处理并保留时序上下文；
 - `manu/data/preannotate_parallel.py`：按序列跨 GPU 调度、日志、状态面板和 manifest 聚合。
 
+### 4b. Final_Labels 人工终审标注集实测（2026-10-09）
+交付标注已升级为 `龙泉山/label/Final_Labels`，**取代** `pre_label/part1 + part2` 试标注。实测事实：
+- **扁平目录，无 part1/part2**：单层存放 `{sequence}__{index:06d}.txt`，共 **165,223 个**标签 + 一个 `classes.txt`（内容仅 `airplane`，即单类 class 0）；
+- **24 个序列**，索引 `0..N-1` 连续无缺口，与 `frames_ir_jpg/<seq>/frame_%06d.jpg` 一一对应（`extract_video_frames.py:69` 的命名约定），故标签索引可直接寻址帧，**无需猜文件名**；
+- **非空标签 132,570 个（80.2%）**，YOLO 格式 `class cx cy w h`，归一化到原生 640×512；全库 class id 均为 0；
+- ⚠️ **数据缺陷：132,592 行 vs 132,570 非空文件 ⇒ 22 个标签文件含完全重复的行**（class/cx/cy/w/h 逐字段相同），例：`VIDEO00002_19700101_001415__009082.txt`。同时**全库没有任何一帧存在两个不同目标**（`distinct_multi = 0`）。任何按行数统计目标数的脚本**必须先去重**，否则虚高；`render_gt_osd_video.py` 已内置去重并在摘要打印 `duplicate_rows_dropped`；
+- **已新建 GT OSD 复核脚本 `manu/videos/render_gt_osd_video.py`**：直接读扁平 `Final_Labels` + `frames_ir_jpg`，按 `--seq` 渲染「全帧 OSD + 局部放大双联」视频；`--list` 可列出全部 24 序列及其标签/非空/首末索引；支持 `--start/--end/--skip-empty/--scale/--inset/--crop-size`；
+- **纪律**：标签与帧数量不一致时脚本只 `[WARN]`，但**选中范围内**只要有标签找不到帧就立即 `RuntimeError` 并报出缺失数量与首末索引——因为「静默少渲几帧却打印 SUCCESS」比崩溃更危险（`rules.md` 第三节第 1 条）。
+
+### 5b. 伪标签全量生成已完成 + 与 Final_Labels 实测对账（2026-10-09 核查，取代 5b 之前「未完成」的说法）
+- **脚本**：`manu/data/preannotate_parallel.py`（跨 GPU 调度器，argparse 描述即 "Parallel pseudo-label generation across sequences"，状态面板标题 `Pseudo-labels: {frames_root.name}`）；逐序列 worker 为 `manu/data/preannotate_all_sequences.py`，HM+YOLO26 BBox 融合核心在 `manu/data/preannotate_hm_bbox.py`。
+- **已完成**：manifest.json 实测 `sequence_count=24`、**`failed=[]`**、`global_counts = {c0=93,184, c1=118,168, c2=0}`（c2 为 0 因未开 `--include-bbox-only`），合计 **211,352 个伪标签框 / 165,223 帧**（均 1.28 框/帧），非空标签 135,470 帧。
+- **产物位置**：`/mnt/data/siping/datasets/manu/龙泉山/preannot_v1/`（**已解压，目录仍在**）＋ 同级 `preannot_v1.zip`（15.5 GB）；另有 `longquanshan_ir_gmc_median/images/train` 165,223 张三通道特征 JPG，即 `probe_heatmap_regions_video.py` 多尺度脚本的输入。
+- ⚠️ **命名契约巧合且关键**：伪标签文件名与 `Final_Labels` **完全同构**（均为 `{seq}__{index:06d}.txt`，坐标同为原生 640×512 归一化）⇒ 两者可**逐帧直接对账**，无需任何索引映射。这是评估伪标签质量的现成通道。
+- **实测对账（每序列随机 800 帧、中心距 ≤ 8.0px）**：
+  | 序列 | Recall | Precision | F1 | TP 中 c0/c1 构成 |
+  | :--- | ---: | ---: | ---: | :--- |
+  | `VIDEO00007_19700101_000818` | 99.74% | 83.66% | 91.00% | 373 / 11 |
+  | `VIDEO00032_19700101_014453`（黑热） | 89.97% | 84.95% | 87.39% | 309 / 41 |
+  | `VIDEO00005_19700101_002959`（近距大目标） | 73.31% | 49.18% | 58.87% | 520 / 21 |
+- **两条可执行结论**：① **c1 `uav_hm_coarse` 几乎全是虚警来源**——三条序列的 TP 中 c1 仅占 21/541、41/350、11/384，而 c0 `uav_bbox` 承担 96%~97%，若继续用伪标签训练应**大幅调高 `--hm-conf` 或直接丢弃 c1**；② 伪标签质量**随场景剧烈分化**，`VIDEO00005`（近距大目标失配序列）Precision 仅 49%，若把伪标签当训练集会引入大量假目标，**该序列必须走留出/人工复核，不得进训练**。
+- ⚠️ 上述为**抽样**结果（每序列 800 帧、seed=0），**不是全量指标**，不得当作最终验收数字引用。
+- ⚠️ **标注覆盖度异常**：`VIDEO00007_000818`（8263/8263）、`VIDEO00009_003002`（665/665）、`VIDEO00028_19700101_013631`（7534/7534）、`VIDEO00034_19700101_015052`（1239/1239）四条序列**逐帧 100% 有标注**。若目标并非全程在画面内，这是「整段刷标」的产物，会同时抬高 Recall 分母、污染任何按帧统计的指标，**使用前需人工抽查确认**。
+- 停止残留任务命令：`pkill -TERM -f 'preannotate_parallel.py'; pkill -TERM -f 'preannotate_all_sequences.py'`；等待后仍残留再使用对应 `pkill -9`，最后用 `nvidia-smi`确认显存释放。
+
+### 5c. 多尺度 Trial 0474 热图 + pkl cache（2026-10-09 `manu/data/multiscale_heatmap_cache.py`）
+- **模型只有一个：冻结的 Trial 0474 热图检测器**，多个尺度各跑一次同一模型。**不引入 YOLO26 BBox**——最初误以为"伪标签 = HM+BBox 融合"，被用户纠正；YOLO26 伪标签分支（`preannotate_hm_bbox.py`）是另一条已存在的路线，本脚本与之无关。
+- **融合口径完全对齐 `probe_heatmap_regions_video.py --fusion-row`**：每个尺度的热图先按各自的 letterbox/downsample 逆映射回**原生 640×512 网格**，然后 `np.maximum.reduce` 逐像素取最大 → 按 `main_threshold` 二值化 → 膨胀 `fusion_dilate`（默认 9，奇数自动 +1）→ 8 连通域 → `area >= min_area`（默认 4）。**逐尺度行不膨胀**，按 `region_threshold`（默认 0.06）直接连通域。
+- 每个检出记录 `(cx, cy, w, h, area, peak, sum)`：坐标为连通域**质心**与外接框，`score = 连通域内热图峰值`，另存热图积分 `sum`（供 memory §十一.2 的 `sum>=15` 能量兜底规则直接使用）。排序按 **sum 降序**（与视频脚本 `entries.sort(key=-sum)` 一致，**不是**按峰值）。
+- **Cache 格式**（CSR 布局，避免 165k 帧的 pickle 膨胀）：`frame_index` int32(N,) / `offset` int64(N+1,) / `points` **float32**(M,2) / `sizes` float32(M,2) / `scores` float16(M,) / `sums` float32(M,) / `area` int32(M,) / `tag` uint8(M,)。`tag` = 尺度下标表示逐尺度行，**255 = 融合行**。配 `iter_frames(cache)`。**坐标必须 float32**（第四节第 6 条）。
+- **两种输入源**（互斥必选）：`--frames-root`（原始灰度帧现场算 GMC+21 帧中值，与 preannot_v1 特征同源）/ `--features-root`（读已生成特征 JPG，快得多）。后者实测覆盖 `longquanshan_ir_gmc_median` 的**扁平**目录。
+- **通道序与 Padding 契约**（沿用并已实测）：落盘序 `[I_t, diff, median]`，**每个尺度**都 `[..., ::-1]` 转成模型序 `[median, diff, I_t]`；`cv2.copyMakeBorder(value=114)` 只填第 0 通道，故原生尺度是 I_t 填 114、median/diff 填 0，与下采样尺度（I_t 填自身均值、median/diff 填 0）一致。
+- **实测尺度量化误差**（热图往返，标记点回位偏差）：原生 0.0 px、160 尺度 1.0 px、**80 尺度 4.5 px**。80 尺度下 1 个输入像素 = 8 原生像素，位置量化固有如此，**仍小于项目统一的 8.0 px 匹配容差**，但引用该尺度的坐标时须知其精度上限。
+- **并行**：脚本不含调度器，`--shard i/n` 对排序序列取模切分；每序列独立写 `{seq}.pkl` + `summaries/{seq}.json`，无共享 manifest ⇒ 多进程无写竞争。
+- ⚠️ `pathlib.glob` 前导 `_` 陷阱：`glob("__frame_*.jpg")` 在特征扁平目录上返回 **0**，必须写 `"*__frame_*.jpg"`。已用两种真实布局交叉验证：24 序列 / 165,223 帧一一对应且逐帧索引对齐。
+
 ### 5. 预标注并行运行的工程结论
 - 初次使用 `workers-per-gpu=8` 时，24 个序列几乎同时启动，导致每卡多个模型进程争抢显存；日志确诊 `CUDA out of memory`，并伴随 `Unable to find a valid cuDNN algorithm`。这不是算法失败。
 - 后续将并行度降为每卡 1 个 worker；另一次全量失败的根因是旧 PyTorch 不支持 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`，该配置已移除。
 - 后续 worker 已加入：HM/BBox CUDA OOM 自动减半 batch、`torch.cuda.empty_cache()`、`--batch-size/--yolo-batch-size`、每卡 OpenCV线程限制；推荐每卡 1 个 worker、batch 2 起步，确认稳定后再增加。
 - 之后再次运行时，所有 worker 又因代码重构漏导入 `FastGMCEstimator` 而在启动阶段 `NameError` 退出；该工程错误已修复并同步，未产生任何有效预标注指标。
-- 截至本记录时，全量预标注仍**未完成**；上述失败均为并发显存、旧 allocator 配置或 worker 导入错误，不能写成模型指标结论。
-- 停止残留任务命令：`pkill -TERM -f 'preannotate_parallel.py'; pkill -TERM -f 'preannotate_all_sequences.py'`；等待后仍残留再使用对应 `pkill -9`，最后用 `nvidia-smi`确认显存释放。
+- ~~截至本记录时，全量预标注仍**未完成**~~ ⇒ **该记录已被推翻，见 5b 节（2026-10-09 核查：已全量跑完，`failed=[]`）**。上述失败均为并发显存、旧 allocator 配置或 worker 导入错误，不能写成模型指标结论。
+
 
 ### 6. 交付训练与验证决策
 - 交付前先完成：全量新视频人工复核后的标准 YOLO bbox + 场景/难例信息（可作为 sidecar，不必成为训练类别）。

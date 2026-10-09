@@ -1,7 +1,7 @@
 # 红外弱小无人机检测项目精简背景
 
 > 用途：向外部高性能模型提供项目上下文。详细实验证据以 `manu/memory/memory.md` 及 `manu/memory/` 专题文档为准。
-> 更新时间：2026-10-08
+> 更新时间：2026-10-09
 
 ## 1. 项目目标
 
@@ -85,6 +85,24 @@ Trial 0474 + 双向时空平滑 + 碎片缝合 + 高确信插补 + 刚性坏点�
 - `VIDEO00005_19700101_002959` 视频中近距离无人机出现明显、稳定的定性检出，支持“尺度/感受野失配”假设；目前没有 GT 定量指标，暂不能宣称 Recall/F1 提升。
 - 当前定位：近距离大目标 P1 候选旁路，需与原始分支做人工 GT A/B，统计检出率、连续漏检长度、FAR、中心偏差和峰值响应。
 
+### Final_Labels 人工终审标注集（2026-10-09）
+
+- 交付标注已升级为 `龙泉山/label/Final_Labels`，**取代** `pre_label/part1 + part2` 试标注。
+- **扁平目录，无 part1/part2**：单层 `{sequence}__{index:06d}.txt`，共 **165,223 个**标签 + `classes.txt`（仅 `airplane`，单类 class 0），**24 个序列**，索引 `0..N-1` 连续，与 `frames_ir_jpg/<seq>/frame_%06d.jpg` 一一对应。
+- 非空标签 **132,570（80.2%）**，格式 `class cx cy w h`，归一化到原生 640×512，class id 全为 0。
+- ⚠️ **数据缺陷：132,592 行 vs 132,570 非空文件 ⇒ 22 个文件含完全重复行**（例 `VIDEO00002_19700101_001415__009082.txt`）；且**全库无任何一帧存在两个不同目标**。按行数统计目标数前必须去重，否则虚高。
+- 新增 `manu/videos/render_gt_osd_video.py`：读扁平 Final_Labels + frames_ir_jpg，按 `--seq` 渲染「全帧 OSD + 局部放大」双联 GT 复核视频；`--list` 列出全部 24 序列；内置去重并打印 `duplicate_rows_dropped`；选中范围内标签找不到帧即 `RuntimeError`，不做静默兜底。
+
+### 多尺度 Trial 0474 热图 + pkl cache（2026-10-09 `manu/data/multiscale_heatmap_cache.py`）
+
+- **模型只有一个：冻结 Trial 0474**，各尺度跑同一模型；**不含 YOLO26 BBox**（YOLO 伪标签分支是 `preannotate_hm_bbox.py` 那条独立路线）。
+- **融合口径对齐 `probe_heatmap_regions_video.py --fusion-row`**：各尺度热图先逆映射回**原生 640×512 网格** → `np.maximum.reduce` → 按 `main_threshold`(0.22) 二值化 → 膨胀 `fusion_dilate`(9) → 8 连通域 → `area >= min_area`(4)。逐尺度行**不膨胀**，用 `region_threshold`(0.06)。
+- 每个检出 `(cx, cy, w, h, area, peak, sum)`，score = 连通域热图峰值，**按 sum 降序**（与视频脚本一致，非按峰值）。
+- **Cache CSR 布局**：`frame_index`/`offset`/`points`(**float32**)/`sizes`/`scores`(f16)/`sums`/`area`(i32)/`tag`(尺度下标，**255=融合行**)，配 `iter_frames(cache)`。
+- **多卡靠 `--shard i/n`**；每序列独立写 `{seq}.pkl`，无共享 manifest。
+- ⚠️ 落盘序 `[I_t, diff, median]` 必须**每尺度** `[..., ::-1]` 转成模型序 `[median, diff, I_t]`；`copyMakeBorder(value=114)` 只填第 0 通道；`glob("__frame_*.jpg")` 返回 0，须写 `"*__frame_*.jpg"`。
+- **尺度量化误差**（热图往返）：原生 0.0px、160 尺度 1.0px、**80 尺度 4.5px**（1 输入像素 = 8 原生像素，固有），仍 < 8px 匹配容差。
+
 ## 7. 领域迁移阶段收口边界
 
 - Trial 0474 单帧 F1=0.9064；Trial 0474 加双向平滑、插补和刚性剪枝的系统 In-BBox F1=0.9209，不能混写为底模指标。
@@ -125,6 +143,7 @@ Trial 0474 + 双向时空平滑 + 碎片缝合 + 高确信插补 + 刚性坏点�
 - **C++ 移植 L2 端到端位精确已通过（2026-10-08）**：`manu/pipeline/cpp/gmc_stream.cpp` + 验证器 `manu/pipeline/verify_cpp_port.py`（详见 `manu/memory/cpp_port_rk3588.md`）。**`--anchor-step 2` 臂在双分辨率 2 序列各 200 帧上：G1 400/400 与 Python 引擎逐位一致、G2 396/396 与冻结 `uav_gmc_median` 逐字节相同、`[MATS] max|diff|=0`（各 21 lag）、二进制自报 `fits/frm=21.00 compose/frm=0.00`（结构上印证零连乘）。即 C++ 输出 == Trial 0474 取得 F1 0.906361 所用的特征集，按构造继承 SOTA 单帧精度。** 口径：覆盖 **2/24 序列、400/31,613 帧（1.27%）**，报告自带 `[SCOPE] LOCAL check`，**是局部证据不是全量铁证**，L3 未做。**step 10 臂 G1 亦 400/400 逐位一致，但 step 10 ≠ SOTA 特征**（逐帧 400 帧中 354 帧不同，两序列均自第 23 帧起分歧，第 0~22 帧为冷启动钳制区全同），与 tree F1 0.906050 / ΔF1 −0.000311 一致；「非逐字节相同」须区分「复现 step10 精确」与「step10 等于 SOTA」两件事。
 - **第四套时延数据（2026-10-08，仍不可进预算）**：C++ `--timing` 在 **Debug `-O0`** 下 median 占 **58~64%**（`DJI_0051_2` 512×512：fit 101.0 / warp 22.0 / median 216.3 / total 339.6 ms；`wg2022_ir_052_split_08` 640×512：137.9 / 40.3 / 251.0 / 429.5 ms）。瓶颈是 `gmc_stream.cpp:530-534` 逐像素 `std::nth_element` 标量循环，**加速优先级 median ≫ warp > fit**（warp 超线性 1.83x）。`fit` 折算 4.8~6.6 ms/次，落在反解 9.06 与实测 1.80 之间，**但 -O0 与优化构建不可比，无法裁决 13.4 的 5 倍分歧，该项仍是本线唯一阻塞项**。
 - **两个工程教训**：①`CMakeLists.txt` 曾写 `${CMAKE_CXX_FLAGS_<CONFIG>}`（`<` 是非法变量名字符）⇒ CMake 语法错误、CLion 完全配不出来，而**逐配置槽位恰是唯一能抓到发行版往 `CMAKE_CXX_FLAGS_DEBUG` 注入 `-ffast-math` 的入口**，即浮点守卫从未生效；已修为 `string(TOUPPER ...)`，并用**反向注入测试**（注入 `-ffast-math` 必须 FATAL_ERROR）证明守卫会失败。②编译产物只在**本地** checkout（`manu/pipeline/cpp/cmake-build-debug/`），服务器挂载上**没有** `gmc_stream`，故 `--cpp-bin` 必须给绝对路径；数据集在 `/home/manu/mnt/data/...` 且序列位于 `anti-uav/train/<seq>/`。
+- **OpenCL 融合内核已端到端接入流水线（2026-10-09，详见 `manu/memory/opencl_fused_rk3588.md`）**：`manu/pipeline/cpp/gmc_stream_ocl.cpp` 是 `gmc_stream.cpp` 的超集，CPU 保留 Shi-Tomasi/LK/RANSAC/锚点网格/连乘，**只有 warp + 21 帧中值 + 三通道组装这一段移到 GPU**。**fork 保真已被证明**：`--fused cpu` 的 MD5 与 `gmc_stream` 完全一致（`5e0d336b971948f631640dc983acfc23`），在此之前所有 GPU 数字都不可采信。`--fused both` 两臂消费同一批拟合（每 push 只算一次），排除「两边输入不同」的假通过。**端到端 A/B（`--anchor-step 2`，`--limit 120`）：Ch0 三序列均 100.0000% 逐位精确；Ch1 Max|Diff|=7~8 / MAE 0.0003~0.0010；Ch2 Max|Diff|=6~8 / MAE 0.0001~0.0003。** `--mode nogmc`（W=IDENTITY）下**三通道全帧 100% 逐位相同**——身份变换是最强的全链路正确性证明（padding/ring 索引/通道序/平面排布/坐标约定）。**排序网络 109 次比较，全枚举 2^21 = 2,097,152 个 0/1 输入完备验证通过**（Knuth 0/1 原理，非抽样）⇒ **验收标准写的「91 次比较」复现不出来**，根因是公开的 Batcher 奇偶归并伪码只在 n 为 2 的幂时成立。> **PoCL 上 GPU 臂比 CPU 臂慢 1.3~2.9 倍，这是预期结果不是缺陷**（PoCL 是 CPU 模拟，与 CPU 臂抢同 12 核；且手动 2×2 每采样 4 次 NEAREST 读 vs 真 GPU 1 次滤波读）。**能迁移到 RK3588 的只有传输列**：upload 0.024~0.036 ms、readback 0.325~0.347 ms 是总线流量为真实数字；kernel 112~118 ms 是 CPU 模拟属性，**不得进入嵌入式预算**。> **埋点抓到的两个测量缺陷**：①`clEnqueueNDRangeKernel` 在入队即返回，围它计时得 0.04 ms 而阻塞回读报 116 ms——计算藏在同步里，第一版「回读主导」结论完全错误，须 enqueue 后立刻 `clFinish`；②设备槽位按 `索引 % N` 键入时，冷启动被钳帧与当前帧可同余→跳过上传→**Ch0 31% 像素错、偏 80 灰阶、预热后消失**，现按内容身份分配槽位。
 
 ## 8. 下一步研发方向
 
