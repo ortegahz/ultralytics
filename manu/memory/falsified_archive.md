@@ -917,3 +917,144 @@ trial_0474 由 **`manu/training/optuna_p0_nas_distributed.py`** 产出，
 与 trial_0474 的 `pixel_unshuffle` / `16` **不是同一个模型**。
 memory 原记的单帧复现脚本 `manu/evaluation/val_heatmap_resolution.py` 亦不成立
 （未开 `use_p0_highway`，而该参数默认 `False`，无法严格加载含 `p0_highway.*` 的 checkpoint）。
+
+---
+
+## 三十四、板卡 OpenCL 环境探针：三个「编译期查不出」的坑（2026-10-09）
+
+交付 `manu/pipeline/opencl/board/`（`board_cl_probe.cpp` + `build_board_probe.sh`）时，
+同一份源码先在 host 原生编译跑通、再交叉编译。**三个缺陷全部无法被编译器发现**，
+其中两个还给出了**指向错误方向的错误码**。
+
+### 34.1 `CL_SUCCESS == 0` 使真值判断把成功读成失败
+
+```cpp
+if (!clGetPlatformInfo(p, q, 0, nullptr, &n) || n == 0) return "<n/a>";   // 错
+```
+
+`CL_SUCCESS` 是 `0`，`!0` 为真 ⇒ **成功路径直接返回 `<n/a>`**。
+致命之处在于同一文件里的 `cl_ulong` 取值用了 `!= CL_SUCCESS` 而幸免，
+于是「字符串全是 `<n/a>`、数值全部正常」这种**分裂现象**能骗过代码评审。
+⇒ **凡判 OpenCL 返回码，一律显式 `!= CL_SUCCESS`，禁止 `!rc` / `rc == CL_SUCCESS` 的简写。**
+
+### 34.2 `clEnqueueNDRangeKernel` 的真实 ABI 顺序是 `(offset, size, local)`
+
+```c
+clEnqueueNDRangeKernel(queue, kernel, work_dim,
+                       global_work_offset,   // 第 4 个
+                       global_work_size,     // 第 5 个
+                       local_work_size,      // 第 6 个
+                       num_events, wait_list, event);
+```
+
+三个参数**类型完全相同**（`const size_t*`），任何错位都编译通过。
+把 `size` 写成第 4 位会得到 `CL_INVALID_GLOBAL_WORK_SIZE (-52)`，
+错误信息明晃晃指向「启动尺寸」，而真实原因是「偏移量填错了」。
+⇒ 自定义 `dlopen` 函数指针 typedef 时，三个同型参数的位置**没有任何类型护栏**，
+只能靠对照头文件逐个核对；本项目 `ocl_host.h` 的既有 typedef 也应按此复查。
+
+### 34.3 未检查的 `clSetKernelArg` 返回值，被 PoCL 用错误码掩盖
+
+kernel 形参声明为 `const int n`，却用 `sizeof(size_t)`（8 字节）传入 ⇒
+`clSetKernelArg` 返回 `CL_INVALID_ARG_SIZE`，**参数实际没设上**，
+随后启动失败，而 **PoCL 报的是 `-52 CL_INVALID_GLOBAL_WORK_SIZE` 而非准确的 `-51 CL_INVALID_KERNEL_ARGS`**。
+⇒ 定位手段：用最小原生程序逐个隔离（补上 `clSetKernelArg` 后 `-52` 立刻变 `0`）。
+   排查时若错误码与现象不符，**先怀疑错误码本身**，并把每个设置类调用的返回值都检查。
+
+### 34.4 ICD 布局：ARM 是目录，Khronos 是单文件 —— 混淆会伪报「为空」
+
+首版探针用 `fopen("/etc/OpenCL/vendors","rb")` 读取 ICD 配置。**在 RK3588 和 host 上都误报了
+`[FAIL] /etc/OpenCL/vendors is empty`**，而实际上两者都工作正常：
+
+* **Khronos 标准布局**：`/etc/OpenCL/vendors` 是**单个文件**，内容是 vendor 库名。
+* **ARM/Mali 布局**：`/etc/OpenCL/vendors` 是**目录**，内含多个 `*.icd` 文件。
+
+机制：**glibc 下对目录 `fopen("rb")` 会成功**，随后首次读才以 `EISDIR` 失败 ⇒
+`while(fgets(...))` 立刻退出、计数为 0，于是打印「为空」。
+**危险之处不在报错本身，而在于它制造了一个与真实故障无法区分的假信号** ——
+真出现「loader 在、驱动没注册」时输出完全一样，会把排查引向错误方向。
+⇒ 必须先用 `stat()` 判 `S_ISDIR()` 再决定按文件还是按目录解析。
+修复后板卡输出 `[ OK ] icd entry: mali.icd = libMaliOpenCL.so.1`。
+
+### 34.5 附带教训
+
+- **不要相信 `.icd` 里写的库名**：板卡 `mali.icd` 指向 `libMaliOpenCL.so.1`，**该文件根本不存在**；
+  真正生效的是 `libmali.so.1.9.0`（Debian 包 `libmali-valhall-g610-g13p0-x11-gbm`）。
+  ⇒ 定位驱动一律 `find / -name 'libmali*'`，不要顺着 `.icd` 猜。
+- **交叉编译严禁 `-I/usr/include`**：会把 x86 glibc 头拖进交叉编译。架构无关的 Khronos CL 头
+  须暂存到独立目录再 `-I`（见 `build_board_probe.sh` 的 `[stage]` 步骤）。
+- **host 原生自测对「环境探针」类程序价值极高**：同一份可移植源码在 host 跑通，
+  是板卡实跑前唯一能拿到的执行证据。⚠️ 但 **PoCL 是 CPU 模拟，其时延一律不得进入嵌入式预算**。
+- 🔴 **真机实测推翻了三条原计划**（详见 `opencl_fused_rk3588.md` 第 8.1 节）：
+  ①Mali-G610 **无 `cl_khr_fp64`** ⇒ double-float 回退方案作废；
+  ②**事件级 profiling 不可用** ⇒ 板卡取不到 device-side kernel 时间，只能给墙钟上界；
+  ③Mali **首次启动某 kernel 会现场编译**，单次时延数字必须区分首次与稳态。
+- ⚠️ **OpenCL 走 GPU，与 RKNN NPU 无关**：探针 PASS **不代表 NPU 可用**。板卡 `/dev/rknpu` 不存在、
+  `/proc/devices` 无 rknpu 条目，`librknnrt.so` 虽已安装但无设备节点 ⇒ **NPU 路线当前走不通**。
+
+---
+
+## 三十五、板卡精度验证落地：六个坑，其中三个会静默出错（2026-10-09）
+
+把融合 kernel 真正搬上 RK3588 并对账 OpenCV 基准时暴露的。**前三个都是静默失败**，
+在 x86/PoCL 上完全看不出来，直到上真机才暴露。
+
+### 35.1 `/*__SORTNET__*/` 不拼接 ⇒ Ch2 静默错误，而 Ch0/Ch1 完美
+
+排序网络是**构建期占位符**，由 `kernels/sortnet_generated.inc` 拼进 `warp_median_fused.cl`。
+直接喂原始 `.cl` 时该标记只是一条注释，**kernel 照常编译、照常运行、照常出结果**，
+但 `v10` 不再是中位数，Ch2 全错。
+之所以判为「静默」而非「崩溃」：同一次运行里 **Ch0 是 100.00% 精确、Ch1 与已记录基线完全吻合**，
+这种「大部分通道完美」极易把 Ch2 的巨大误差误判成 GPU 硬件问题。
+**拼接后 Ch2 的 MAE 从 1.43 降到 0.00023**，四舍五入还原。
+⇒ 工具已加 **FATAL 闸门**：kernel 仍含 `/*__SORTNET__*/` 而未提供 `--sortnet` 时**拒绝运行**。
+
+### 35.2 🔴 `ocl_host.h` 的 `CL_R8` 与 `CL_IMAGE_OBJECT_2D` 是规格错误，且被 x86 完全掩盖
+
+| 常量 | 项目写的 | 实际是什么 | 正确值 |
+| :--- | :--- | :--- | :--- |
+| `CL_R8` | `0x10D0` | **`CL_SNORM_INT8`**（channel_type）；合法 channel_order 只有 `0x10B0`~`0x10C3` | `{CL_R, CL_UNORM_INT8}` |
+| `CL_IMAGE_OBJECT_2D` | `0x10F0` | **`CL_MEM_OBJECT_BUFFER`** | `CL_MEM_OBJECT_IMAGE2D = 0x10F1` |
+
+`CL_R8` 在整个 OpenCL 头文件集里**根本不存在**（`opencl-c-headers 3.0~2025.07.22` 只有 `CL_R`=0x10B0）。
+
+**为什么在 x86 从未暴露**，两个掩盖各自独立：
+1. PoCL 拒绝非法 channel order `0x10D0` ⇒ `pick_gray_format` 静默退到合法的 `CL_RGBA`；
+2. 该 ICD 上 `clCreateImage` 对**所有**格式都返回 `CL_INVALID_IMAGE_DESCRIPTOR` ⇒ 代码退回
+   `clCreateImage2D`，而后者**根本不读 `image_desc`** ⇒ 错的 `image_type` 永远用不上。
+
+**在 Mali 上两条同时失效**：`clCreateImage` 被证实正常工作，错误常量会直接生效。
+⇒ 本项目所有 OpenCL 常量必须逐个对照规格核，**「x86 能跑」不能证明常量正确**。
+`board_fused_accuracy.cpp` 使用规格正确值，实测 Mali 接受 `{CL_R, CL_UNORM_INT8}`。
+
+### 35.3 上传未按实际通道数扩展 ⇒ 越界 memcpy
+
+bundle 恒为 **1 字节/像素**，但设备可能只接受多通道格式。`clEnqueueWriteImage` 在
+`row_pitch == 0` 时按 `region[0] * element_size` 解释，即 `pw * nch` 字节一行；
+喂 1B/px 的数据 ⇒ 每行都越界 ⇒ **段错误落在驱动的 memcpy 里**，看不出是自己的问题。
+用 22 张图的最小复现验证过驱动本身无辜 ⇒ **凡按设备格式上传，必须按 `nch` 扩展行距**。
+
+### 35.4 `clCreateSampler` 是 5 参数，漏一个即段错误
+
+真实签名 `(cl_context, cl_bool normalized_coords, cl_addressing_mode, cl_filter_mode, cl_int*)`。
+自写函数指针 typedef 漏掉中间那个 `cl_bool`，使后续实参**整体左移一格**（地址模式落进
+`normalized_coords`、滤波模式落进 `addressing_mode`），驱动解引用垃圾枚举直接崩。
+自定义 typedef 时**编译器没有任何护栏**，只能逐个对照头文件。
+（另注：host 侧必须用 `CL_*` 而非 `CLK_*`——后者是 kernel 语言编码。）
+
+### 35.5 `clSetKernelArgSampler` 在部分 ICD 上不存在
+
+1.2 的废弃 API，`ocl-icd 2.3.4` 根本不导出。**现代路线是 `clSetKernelArg(kern, i, sizeof(cl_sampler), &samp)`**。
+⇒ 必需符号表里不能把它算进「缺失即退出」，应降级为可选回退。
+
+### 35.6 NFS `/mnt/manu` 上执行文件报 ETXTBSY
+
+板卡把 `/mnt/manu` 导出给 x86，x86 往里写文件后立即在板卡上执行 ⇒ `Text file busy`，
+**换新文件名也无效**（不是 inode 问题，是 NFS 服务端写入未完成）。
+⇒ **可执行文件一律走 SSH 传输，只有数据文件走 NFS。** 本轮据此把二进制放
+`/mnt/manu/fused_exec/`（SSH 写入，MD5 校验一致），用例包 34 MiB 仍走 NFS（`/mnt/manu/fused/`）。
+
+### 35.7 附带：同一进程跑多个 variant 必须复位 bundle 游标
+
+共享游标 `o` 跨 variant 不复位 ⇒ 第二个 variant 直接越界读，段错误落在自己的 `memcpy` 里。
+**两次「段错误在驱动/自己代码里」都不是 GPU 的问题**，都是指针/游标算错。

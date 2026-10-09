@@ -103,13 +103,44 @@ Trial 0474 + 双向时空平滑 + 碎片缝合 + 高确信插补 + 刚性坏点�
 - ⚠️ 落盘序 `[I_t, diff, median]` 必须**每尺度** `[..., ::-1]` 转成模型序 `[median, diff, I_t]`；`copyMakeBorder(value=114)` 只填第 0 通道；`glob("__frame_*.jpg")` 返回 0，须写 `"*__frame_*.jpg"`。
 - **尺度量化误差**（热图往返）：原生 0.0px、160 尺度 1.0px、**80 尺度 4.5px**（1 输入像素 = 8 原生像素，固有），仍 < 8px 匹配容差。
 
-### RK3588 板卡到手（2026-10-09）
+### RK3588 板卡到手 + NFS 打通（2026-10-09）
 
 - 登录：**`ssh -p 22 root@192.168.0.64`，密码 `ematech`**（明文 root 口令，禁止写入汇报材料/代码仓库；完整规范见 `rules.md` 第二节 1b）。
+- **板卡 NFS 已实测在线**（本机侧挂载）：`sudo mount -t nfs 192.168.0.64:/mnt/manu /home/manu/mnt/nfs -o nolock` ⇒ 生效为 `nfs4 vers=4.2 hard proto=tcp`；SSH 横幅 `OpenSSH_8.2p1 Ubuntu-4ubuntu0.12` ⇒ 板卡是 **Ubuntu base 的 arm64 Linux**。x86 ↔ 板卡从此有直接传产物的通道。
 - RK3588 从「纯 x86 侧 C++ 移植 + Golden Reference」推进到「有真机可验」；`cpp_port_rk3588.md` 的两项未决（**L3 全量位精确**、**真实板卡时延**）有了执行载体。
-- ⚠️ **板卡 ≠ x86 服务器**：代码需显式 scp/rsync；**铁律三的自动同步只覆盖 x86 挂载，不覆盖板卡**。
+- ⚠️ **板卡磁盘仅剩 1.7G 可用（16G 总量 / 14G 已用 / 89%）** —— 转 rknn、装 runtime、拷模型前必须先 `df -h /` 并给 GiB 估算（同铁律二的缓存体积红线）。
+- ⚠️ **NFS 不能替代代码同步**：只暴露板卡 `/mnt/manu`，代码仓库不在其内；铁律三的自动同步仍只覆盖 x86 挂载。
 - ⚠️ **板卡上没有任何 `runs/` 权重**（`runs/` 从未纳入同步链路），板卡推理必须把权重与数据双端就位列为前置检查。
-- ⚠️ 首次接触先实测记录 SoC/NPU 型号、内核与 Linux、RAM、RKNN-Toolkit2/rknpu 驱动、OpenCV。**PoCL/CPU 模拟时延严禁当作板卡性能**。
+- ⚠️ **PoCL/CPU 模拟时延严禁当作板卡性能**。
+
+### 板卡 OpenCL 环境探针（2026-10-09，详见 `opencl_fused_rk3588.md` 第八节）
+
+- **交付**：`manu/pipeline/opencl/board/`（`board_cl_probe.cpp` + `build_board_probe.sh` + `deploy_and_run.py` + README）。枚举平台/设备、解析 ICD、跑平凡 kernel 并逐元素校验。**已在板卡实跑 `PROBE RESULT: PASS` / exit 0**，传输前后 MD5 一致（`ec641df354e998b21e51a22ee016159f`）。
+- **设计要点**：用 **dlopen** 而非 `-lOpenCL`——工具链 sysroot 无任何 OpenCL、SDK 只有 buildroot 配方，链接期依赖无法满足；改为运行期决定后，「无 OpenCL」变成干净报告而非链接错误，并能报出是 ICD loader 还是直连 Mali。
+- ✅ **板卡 `evm3588` 实测**：Ubuntu 20.04.6 LTS，内核 `5.10.160`；8 核 = 4×A76 + 4×A55；**RAM 7.7 GiB**（⚠️ memory 里「16G/14G/1.7G」是**磁盘**，且 `/mnt/manu` 与 `/` 同一文件系统）；GPU 已就绪（`/dev/mali0`，内核内建驱动，`lsmod` 查不到属正常）；**Python cv2 4.12.0 可用但无 OpenCV C++ 开发头**。
+- ✅ **Mali OpenCL 实测可用**：`Mali-G610 r0p0`，OpenCL 3.0 `v1.g13p0-01eac0`，FULL_PROFILE，**4 CU**、max WG 1024、global 7902.1 MiB、local 32 KiB。**ICD 是目录式**（ARM 布局，`mali.icd`），且 **`.icd` 指向的 `libMaliOpenCL.so.1` 根本不存在**，真正驱动是 `libmali.so.1.9.0`（包 `libmali-valhall-g610-g13p0-x11-gbm`）——排查时直接 `find`，别信 `.icd`。
+- 🔴 **真机推翻三条原计划**：①**无 `cl_khr_fp64`** ⇒ double-float 回退作废（有 `cl_khr_fp16`）；②**事件级 profiling 不可用** ⇒ 板卡取不到 device-side 时间，只能给 `clEnqueue+clFinish` 墙钟**上界**；③Mali **首次启动某 kernel 会现场编译**（探针 0.475 ms → 二次 0.344 ms），单次数字必须区分首次/稳态。可用扩展：`cl_khr_image2d_from_buffer`、`cl_khr_egl_image`、`cl_khr_suggested_local_work_size`、完整 subgroup 系列。
+- 🔴 **NPU 当前不可用**：`/dev/rknpu` 不存在、`/proc/devices` 无 rknpu 条目、`dmesg` 无 rknpu 行；`/usr/lib/librknnrt.so`（7.26 MB）**已装但无设备节点** ⇒ 当前内核未使能 rknpu 驱动，**RKNN 路线走不通**。⚠️ **OpenCL 走 GPU 与 NPU 无关，探针 PASS 不代表 NPU 可用。**
+- ✅ **板卡命令现可由 Agent 自动执行**：本机虽无 `sshpass`，但 **`pexpect` 可用**，已封装 `deploy_and_run.py`（base64 单会话传输 + 部署 + 摸底 + 运行，`--exec` 任意查询）；密码不入文件，由 `RK3588_PASSWORD` 环境变量提供。**取代**「无法非交互登录板卡」的限制。
+- **四个编译期查不出的坑**（已入 `falsified_archive.md` 第三十四节）：① `CL_SUCCESS==0` 使 `!rc` 把成功读成失败；② `clEnqueueNDRangeKernel` 真实 ABI 顺序是 `(offset, size, local)`，三参数同型无从校验；③ 未检查的 `clSetKernelArg` 返回值被 **PoCL 误报为 `-52 CL_INVALID_GLOBAL_WORK_SIZE`** 而非 `-51`；④ **ICD 目录/文件布局混淆**——`fopen` 目录会成功而首读 EISDIR ⇒ 伪报「ICD 为空」，与真实故障无法区分。
+
+### 🔴 真机精度验证定论（2026-10-09，Mali-G610，详见 `opencl_fused_rk3588.md` 8.2）
+
+交付 `manu/pipeline/opencl/board/{gen_fused_case.cpp, board_fused_accuracy.cpp, fused_case_format.h}`：
+x86 用**真实 OpenCV** 算 CPU 基准（**因全链路无任何 arm64 OpenCV**，在板卡重实现 OpenCV 等于自证），
+板卡无 OpenCV、只 dlopen OpenCL，跑**两个采样臂**。
+
+- **判决一：`FUSED_USE_HW_LINEAR` 必须为 0（manual 双线性）。** 数据：Anti-UAV `01_4485_1167-2666` 640×512、**真实 GMC**、3 case、pad=67。
+  - `hw-linear`：**FAIL**（Ch0 Max|Diff|=**130**、MAE 0.285、精确率仅 88.5%；Ch1/Ch2 MAE 0.31~0.42）
+  - `manual`：**PASS**（**Ch0 Max|Diff|=0、100.00% 精确**；Ch1 Max|Diff|=5~6、MAE 0.0011；Ch2 Max|Diff|=1~4、MAE 0.00075）
+  - **决定性证据是 Ch0**：整数坐标直读本应逐位还原却错 130 ⇒ **Mali 的 `CLK_FILTER_LINEAR` 连整数坐标都不还原原值**。
+  - manual 臂 Ch1/Ch2 与已记录的 x86 基线一致 ⇒ 工具正确，差异来自硬件。
+- **判决二：Mali 支持 1 字节/像素**，`{CL_R, CL_UNORM_INT8}` 可用 ⇒ 22 张 padded 图 **10.5 MiB**（CL_RGBA 为 42 MiB）；`clCreateImage`(2.0) 在 Mali 正常工作。**「CL_R8 vs CL_RGBA 带宽」项结案。**
+- **判决三：真机时延 3.7~4.8 ms/帧**（hw-linear 4.2~4.6）。⚠️ 三重限定不可省略：enqueue+clFinish 墙钟**上界**、含 22 张图 upload+readback 全程、首次含 JIT。同批 PoCL 为 100~850 ms ⇒ 真机约 **25~30×**。
+- 🔴 **顺带证伪 `ocl_host.h` 两个规格常量**：`CL_R8=0x10D0` 实为 `CL_SNORM_INT8`（非法 channel_order，正确是 `{CL_R,CL_UNORM_INT8}`）；`CL_IMAGE_OBJECT_2D=0x10F0` 实为 `CL_MEM_OBJECT_BUFFER`（应为 `0x10F1`）。**在 x86 被双重掩盖**（PoCL 拒绝→退 CL_RGBA；`clCreateImage` 失败→走不读 `image_desc` 的 `clCreateImage2D`），**上 Mali 两条同时生效**。
+- **可执行文件禁止经 NFS 投递**：x86 写入后在板卡执行报 `Text file busy`，换新名也无效 ⇒ **二进制走 SSH、数据走 NFS**。
+- 另有四个坑已入 `falsified_archive.md` 第三十五节：`/*__SORTNET__*/` 未拼接导致 **Ch2 静默错误而 Ch0/Ch1 完美**（已加 FATAL 闸门）、上传未按 `nch` 扩展行距致越界、`clCreateSampler` 是 **5 参数**（漏 `normalized_coords` 即参数左移崩溃）、`clSetKernelArgSampler` 在 ocl-icd 上不存在（改用 `clSetKernelArg` 传 `cl_sampler`）。
+- **本地交叉编译器**：`/media/manu/1TB-Volume/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu`；**SDK 资料**：`/media/manu/1TB-Volume/rk3588/rk3588_sdk`。二者只放 x86 本地，严禁拷到板卡（磁盘仅剩 1.7G）；换工具链**不得绕过** `-ffp-contract=off` / 拒绝 fast-math 的浮点契约。
 
 ## 7. 领域迁移阶段收口边界
 

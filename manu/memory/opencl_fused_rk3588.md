@@ -149,7 +149,66 @@ channel |      0 |     1 |    2 |   3 | 4-6 | >=7
 ---
 
 ## 8. 下一步（未做）
-2. **RK3588 上实测重测 `--hw-linear`**：PoCL 的线性过滤不可用不代表 Mali 的不可用（规格要求 `CLK_FILTER_LINEAR`，但必须实测决定）。
-3. **分段计时**：PoCL 是 CPU 模拟，时延对嵌入式预算无参考价值。必须以 RK3588 为准，沿用 C++ 基线的 fit / warp+median / total 分段。
-4. **CL_R8 vs CL_RGBA 的带宽实测**：22 层 × pad 57 的显存占用在 RK3588 上是否可接受。
-5. 若最终仍要求严格 Max|Diff| ≤ 1，需上 double-float 坐标运算，并重新评估 ALU 代价。
+
+0. **【2026-10-09 已交付，待板卡实跑】环境探针 `manu/pipeline/opencl/board/`**：在移植任何融合内核之前，先确认板卡上究竟有没有可用的 OpenCL 栈。`board_cl_probe.cpp` 通过 **dlopen** 依次尝试 `libOpenCL.so.1` / `libOpenCL.so` / `libmali-vendor.so[.1]` / `libpocl.so.2`，打印 ICD 配置、平台、设备（含 extensions）、跑一个平凡 kernel 并逐元素校验，输出 `PROBE RESULT: PASS/FAIL`。已用 buildroot 工具链交叉编译出 **28KB aarch64 ELF**（仅依赖 `libdl/libstdc++/libm/libgcc_s/libc`），host 原生自测 **PASS / exit 0**。
+   - **为什么用 dlopen 而非 `-lOpenCL`**：交叉工具链 sysroot 里**没有任何 OpenCL**，SDK 也只有 buildroot 配方没有预编译库，链接期依赖根本无法满足；改成运行期决定后，「没有 OpenCL」变成一条干净的报告而不是链接错误，还能顺带报出究竟是 ICD loader 还是直连 Mali 驱动。
+   - **未完成**：投递到 NFS 需用户执行一次 `sudo`（`/mnt/manu` 为 `root:root 0755`，本机 `manu` 无写权限，见 `rules.md` 1b）；板卡登录本机无 `sshpass`，运行命令须用户手工执行。**板卡上的真实 OpenCL 栈尚属未知**，下面第 2~4 项都以此为前置。
+1. ~~在 x86 上验证 Mali 特性~~ —— 不可行，Mali 行为必须以真机为准（见第 2 条）。
+2. ~~**RK3588 上实测重测 `--hw-linear`**~~ ✅ **已实测，答案是否定的**（见 8.2）。
+3. **分段计时**：⚠️ 板卡约束（实测）：`clGetEventProfilingInfo` **返回失败**，事件级 profiling 不可用 ⇒ 只能给 `clEnqueue + clFinish` 墙钟**上界**。且 Mali **首次启动某 kernel 会现场编译**，单次数字必须区分首次与稳态（探针实测 0.475 ms → 0.344 ms）。
+4. ~~**CL_R8 vs CL_RGBA 的带宽实测**~~ ✅ **已实测**：Mali 接受 `{CL_R, CL_UNORM_INT8}`，22 张 padded 图仅 **10.5 MiB**（CL_RGBA 为 42 MiB，4 倍）；`clCreateImage`(OpenCL 2.0) 在 Mali 上正常工作（见 8.2）。
+5. ~~若最终仍要求严格 Max|Diff| ≤ 1，需上 double-float 坐标运算~~ 🔴 **该方案在真机上不成立**：Mali-G610 的 extensions 实测**不含 `cl_khr_fp64`**（有 `cl_khr_fp16`）。真要更高精度只能走 `cl_khr_fp16` 混合精度或整数定点，**不可假定 double 可用**。
+
+### 8.1 真机 OpenCL 栈实测结论（2026-10-09）
+
+探针在板卡上 **`PROBE RESULT: PASS` / exit 0**，4096 元素逐个校验全对。
+
+- **ICD 是目录式**：`/etc/OpenCL/vendors/` 是**目录**（ARM 参考实现），内含 `mali.icd`（19 B，内容 `libMaliOpenCL.so.1`），**不是** Khronos 的单文件布局。⚠️ `fopen()` 对目录会成功而首次读失败（EISDIR），naive 实现会误报成「ICD 为空」——本项目首版探针正踩此坑，已修（见 `falsified_archive.md` 第三十四节）。
+- ⚠️ **`mali.icd` 指向的 `libMaliOpenCL.so.1` 实际并不存在**；真正生效的驱动库是 `/usr/lib/aarch64-linux-gnu/libmali.so.1.9.0`，来自 Debian 包 `libmali-valhall-g610-g13p0-x11-gbm`。`mali.icd` 是 2020-07-29 的遗留文件。⇒ **排查 OpenCL 问题时不要相信 `.icd` 指向的文件名，直接 `find / -name 'libmali*'`**。
+- **加载路径**：`libOpenCL.so.1`（ARM 自己的 ICD loader，`/usr/lib/aarch64-linux-gnu/libOpenCL.so.1.0.0`，34,808 B，2017-04-05）→ 加载 `libmali.so.1`。**Khronos 的 `ocl-icd` 并未安装**。
+- **设备**：ARM Platform / **Mali-G610 r0p0**，`OpenCL 3.0 v1.g13p0-01eac0.68603db295fbf2c59ac6b927fdfb1c32`，**FULL_PROFILE**，`OpenCL C 3.0` 同版本；**4 compute units**、max work group **1024**、global mem **7902.1 MiB**、local mem **32 KiB**。内核侧 DDK 为 `g18p0-01eac0`（userspace `g13p0-01eac0`，同为 `01eac0` 构建）。
+- **与本项目相关的扩展**：`cl_khr_fp16` ✅、`cl_khr_image2d_from_buffer` ✅、`cl_khr_egl_image` ✅、`cl_khr_suggested_local_work_size` ✅、`cl_khr_command_buffer` ✅、完整 `cl_khr_subgroup*` 系列 ✅；**`cl_khr_fp64` ❌ 缺失**。
+- 🔴 **事件级 profiling 不可用**（见第 3 条）。
+- ⚠️ **NPU 与 GPU 是两回事**：板上 `/dev/rknpu` **不存在**，`librknnrt.so` 虽已安装但无设备节点 ⇒ **RKNN/NPU 路线在当前内核下走不通**，详见 `rules.md` 1b。**OpenCL 走 GPU，与 rknpu 无关，探针 PASS 不代表 NPU 可用。**
+### 8.2 🔴 真机精度验证定论（2026-10-09，Mali-G610 r0p0 / OpenCL 3.0 v1.g13p0-01eac0）
+
+交付 `manu/pipeline/opencl/board/`：`gen_fused_case.cpp`（x86 + 真实 OpenCV 生成用例）与
+`board_fused_accuracy.cpp`（板卡，无 OpenCV，dlopen）。在真机跑通 **两个采样臂**，判决如下。
+
+**数据**：Anti-UAV `01_4485_1167-2666`，640×512，**真实 GMC**（Shi-Tomasi 600/0.01/4/bs3 →
+LK → `estimateAffinePartial2D(RANSAC, 3.0)`，与 `gmc_stream.cpp` 同原语），3 个 case（t=43/44/45），
+每 lag 位移 0.95~1.17 px，**pad=67**（真实运动所需，远超 x86 合成用例），padded 774×646。
+
+**CPU 基准**：在 x86 用真实 `cv::warpAffine(..., INTER_LINEAR, BORDER_REFLECT)` 算好后随包发到板卡。
+**理由：无任何 arm64 OpenCV**（工具链 sysroot、厂商 SDK、板卡本身都没有），在板卡重实现 OpenCV
+插值等于验证「我自己的重实现」而非 kernel，构成循环论证。
+
+**判决一：`FUSED_USE_HW_LINEAR` 必须为 0（manual 双线性）。**
+
+| 臂 | Ch0 | Ch1 | Ch2 | 判决 |
+| :--- | :--- | :--- | :--- | :--- |
+| hw-linear (`=1`) | Max\|Diff\|=**130** MAE=0.285~0.288，精确率仅 88.5% | Max\|Diff\|=98~129 MAE=0.307~0.421 | Max\|Diff\|=128~133 MAE=0.315~0.330 | **FAIL** |
+| manual (`=0`) | Max\|Diff\|=**0** MAE=0 **100.00% 精确** | Max\|Diff\|=5~6 MAE=0.0011~0.0012 | Max\|Diff\|=1~4 MAE=0.00074~0.00078 | **PASS** |
+
+**决定性证据是 Ch0**：它是对当前帧的**整数坐标直读**，任何正确的插值实现都必须逐位还原，
+却错了 130 ⇒ **Mali 的 `CLK_FILTER_LINEAR` 连整数坐标都不还原原值**（采样器按 texel 中心做
+2×2 混合，与 kernel 假设的「整数坐标即精确命中」不符）。manual 臂走 `CLK_FILTER_NEAREST` +
+手写 2×2，绕开该行为，Ch0 立刻 100% 精确。
+> x86 侧 `manual` 臂的 Ch1/Ch2（Max 5~6 / MAE 0.0005）与本项目记录的 x86 基线（Max 6~8 /
+> MAE 0.0003~0.0010）一致，说明 harness 本身正确，真机差异来自硬件而非工具。
+
+**判决二：Mali 支持 1 字节/像素格式，CL_R8 vs CL_RGBA 项结案。**
+`{CL_R, CL_UNORM_INT8}` 被接受 ⇒ 22 张 padded 图 **10.5 MiB**；若用 CL_RGBA 则 **42 MiB**（4 倍）。
+`clCreateImage`（OpenCL 2.0）在 Mali 上**正常工作**，无需退回 `clCreateImage2D`。
+
+**判决三：真机时延（首个可信的板卡数字）**
+
+| 臂 | ms/帧 |
+| :--- | :--- |
+| hw-linear | 4.17 / 4.38 / 4.17 |
+| manual | 4.81 / 3.86 / 3.71 |
+
+⚠️ 三重限定，引用时必须一并给出：**① `clEnqueue + clFinish` 墙钟上界**（事件级 profiling 在
+本驱动上不可用，取不到 device-side 时间）；**② 含 22 张图的 upload + readback 全程**，不是纯 kernel；
+**③ 首次启动某 kernel 含 JIT 现场编译**，须区分首次与稳态。
+同批数据在 PoCL 上是 100~850 ms ⇒ 真机 GPU 相对 CPU 模拟约 **25~30×**。

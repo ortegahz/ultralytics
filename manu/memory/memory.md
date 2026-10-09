@@ -25,6 +25,7 @@
 | **[`memory/cpp_port_rk3588.md`](cpp_port_rk3588.md)** | **C++ 移植 / RK3588 Golden Reference（L2 端到端位精确已通过，L3 全量未做）**：`gmc_stream.cpp` 与 Python `OnlineFeaturePipeline` 逐位一致的 C++ 实现。**step 2 臂 G1 400/400、G2 396/396 与冻结 SOTA 特征逐字节相同、`[MATS] max\|diff\|=0`（双分辨率 2/24 序列，覆盖 1.27% 帧）；step 10 臂 G1 亦 400/400 但 ≠ SOTA 特征（400 帧中 354 帧不同，自第 23 帧起分歧）**。含位精确性对优化等级不敏感（-O0/-O3 均通过）、第 12 个缺陷（`CMAKE_CXX_FLAGS_<CONFIG>` 语法错误使浮点守卫从未生效）、反向注入测试纪律、G0 空对照与 G1/G2 验收判据 | 涉及 RK3588 NPU 移植、跨语言等位精确、OpenCV 移植踩坑时**必读** |
 | **[`memory/temporal_integration_tbd.md`](temporal_integration_tbd.md)** | **时域积分与 TBD 专题**：Oracle 亚像素积分证明**目标时间能量完全相干**（15 帧→15.4σ，增益严格 √N）；匹配滤波独立检测器/阈值串联 TBD/检测器级融合**全部证伪**；"悬停目标与静态坏点同构"关键认知；速度滤波组已完成 HC1 操作级 ROC（W=5、FAR≈0.045/frame 时 PD=19.2%，模型注入仍待 Twin A/B） | 涉及多帧输入设计、单帧极限突破、领导追问"人眼为何能看见"时必读 |
 | **[`memory/spire_antiuav_debug.md`](spire_antiuav_debug.md)** | **第三方 SPIRE-IRSTD 在 Anti-UAV 掉分排查（2026-09-30）**：**根因 = 损失函数**。repo 的 `KpLoss` 是全图等权 MSE，每 1 个正样本像素对应 **25,525** 个背景像素，背景梯度总量是目标的 **719 倍**；用户自有网络用 CenterNet focal（`/num_pos` 归一化 + `p^alpha`），简单负样本梯度随 p→0 衰减 **4×10⁵ 倍**，把梯度预算朝目标搬 **24.8 倍**。另发现**评测协议缺陷**：`--val_limit` 是前缀切片，而 `img_idx` 按视频序列排序，`test[:8000]` 只覆盖 8/11 段且 **<7px 微小目标占比 0.000**（真实 0.171），**虚高 F1 0.175**；修正后 SPIRE 诚实基线 **F1 0.5775**（用户 Trial 0474 0.9064，差距 0.33 而非 0.15）。repo 自带 `FocalMSELoss` 方向是反的（峰值/背景权重 0.124） | 涉及 SPIRE 第三方模型、损失函数设计、val 子集抽样偏差、"为什么我的网络能到 90+"时必读 |
+| **[`pipeline/opencl/board/`](../pipeline/opencl/board/)**（代码，非 memory） | **板卡 OpenCL 实机工具链（2026-10-09 新增）**：`board_cl_probe` 环境探针；`gen_fused_case`（x86+OpenCV 生成含 CPU 基准的用例包）+ `board_fused_accuracy`（板卡无 OpenCV，跑真 kernel 对账）；`build_*.sh` 交叉编译；`deploy_and_run.py` pexpect 自动部署 | **板卡上首次验证 OpenCL / 融合内核精度、或新增任何 RK3588 板端程序时先读**。判决与坑见 `opencl_fused_rk3588.md` 8.1/8.2 与 `falsified_archive.md` 第三十四/三十五节 |
 
 ---
 
@@ -234,14 +235,58 @@
 
 ---
 
-## 六之二、RK3588 板卡（2026-10-09 实物到手）
+## 六之二、RK3588 板卡（2026-10-09 实物到手 + NFS 打通）
 
 用户提供了实物板卡登录信息：**`ssh -p 22 root@192.168.0.64`，密码 `ematech`**（明文 root 口令，**禁止写入任何对外汇报材料或代码仓库**；完整规范见 `rules.md` 第二节 1b）。
 
-- **意义**：RK3588 从「纯 x86 侧 C++ 移植 + Golden Reference」推进到「有真机可验」。`memory/cpp_port_rk3588.md` 记录的两项未决——**L3 全量位精确**与**真实板卡时延**——现在有了执行载体。
-- ⚠️ **板卡 ≠ x86 服务器**：代码需显式 `scp`/`rsync` 过去；**铁律三的自动同步只覆盖 x86 挂载 `/home/manu/mnt/pycharm_project_10ae9e2e/`，不覆盖板卡**。
-- ⚠️ **板卡上没有任何 `runs/` 权重**（权重只在 x86 的 `runs/optuna_p0_nas/trial_0474/weights/best.pt`，`runs/` 从未纳入同步链路）。板卡推理交付必须把**权重与数据双端就位**列为前置检查项。
-- ⚠️ 首次接触板卡应先实测并记录：SoC/NPU 型号、`uname -a`、板载 Linux 版本、可用 RAM、RKNN-Toolkit2 与 rknpu 驱动是否就位、OpenCV 可用性。**PoCL/CPU 模拟时延严禁当作板卡性能**（`memory_compact.md` 已记录 PoCL 跑出的 kernel 112~118 ms 是 CPU 模拟属性，不得进嵌入式预算）。
+**板卡 NFS 已打通并实测在线**（本机侧挂载）：
+```bash
+mkdir -p /home/manu/mnt/nfs
+sudo mount -t nfs 192.168.0.64:/mnt/manu /home/manu/mnt/nfs -o nolock
+```
+- 生效参数：`nfs4 vers=4.2`、`hard`、`proto=tcp`、`timeo=600 retrans=2`、`local_lock=none`，客户端 `192.168.0.115`；SSH 横幅 `OpenSSH_8.2p1 Ubuntu-4ubuntu0.12` ⇒ 板卡是 **Ubuntu base 的 arm64 Linux**。
+- **意义**：RK3588 从「纯 x86 侧 C++ 移植 + Golden Reference」推进到「有真机可验」，且 x86 ↔ 板卡有了**直接传产物的通道**。`memory/cpp_port_rk3588.md` 记录的两项未决——**L3 全量位精确**与**真实板卡时延**——现在有了执行载体。
+
+⚠️ **三条必须记住的约束**：
+1. **板卡磁盘余量极紧**：实测 `16G 总量 / 14G 已用 / 1.7G 可用（89%）`。转 rknn、装 runtime、拷模型前**必须先 `df -h /` 并给 GiB 估算**（同铁律二的缓存体积红线）。
+2. **NFS 不能替代代码同步**：NFS 只暴露板卡的 `/mnt/manu`，**代码仓库不在其内**。铁律三的自动同步仍只覆盖 x86 挂载 `/home/manu/mnt/pycharm_project_10ae9e2e/`，代码改动仍须显式 scp/rsync。
+3. **板卡上没有任何 `runs/` 权重**（`runs/` 从未纳入同步链路，权重只在 x86）。板卡推理交付必须把**权重与数据双端就位**列为前置检查项。
+
+✅ **首次接触摸底已完成（2026-10-09 实测）**，完整结果见 `rules.md` 第一节 1b：主机名 `evm3588`，Ubuntu 20.04.6 LTS，内核 `5.10.160`，8 核 = 4×A76 + 4×A55，**RAM 7.7 GiB**（注意本节「16G/14G/1.7G」是**磁盘**，且 `/mnt/manu` 与 `/` 同一文件系统），GPU `/dev/mali0` 就绪且驱动内核内建，Python `cv2 4.12.0` 可用但**无 OpenCV C++ 头**。
+🔴 **NPU 当前不可用**：`/dev/rknpu` 不存在、`/proc/devices` 无 rknpu 条目，`/usr/lib/librknnrt.so` 虽已安装但**无设备节点** ⇒ 当前内核未使能 rknpu 驱动，**RKNN 路线走不通**。⚠️ **OpenCL 走 GPU 与 NPU 无关，GPU 侧全部结论不代表 NPU 可用。** **PoCL/CPU 模拟时延严禁当作板卡性能。**
+
+✅ **板卡命令现已可由 Agent 自动执行（2026-10-09 变更）**：本机虽无 `sshpass`，但 **`pexpect` 可用**，已封装 `manu/pipeline/opencl/board/deploy_and_run.py`（base64 单会话传输 + 部署 + 摸底 + 运行，`--exec` 可跑任意查询）。密码**不写入任何文件**，由 `RK3588_PASSWORD` 环境变量或交互输入提供。**本条取代此前「无法非交互登录板卡、必须用户手工执行」的限制。**
+🔴 **可执行文件禁止经 NFS 投递**：x86 写入 `/mnt/manu` 后在板卡执行一律 `Text file busy`，换新文件名也无效 ⇒ **二进制走 SSH，数据走 NFS**。
+
+**本地交叉编译与 SDK 路径（2026-10-09 用户提供）**：
+- **交叉编译器**：`/media/manu/1TB-Volume/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu`（GCC 9.3.0，buildroot）
+- **SDK 资料**：`/media/manu/1TB-Volume/rk3588/rk3588_sdk`
+- ⚠️ 编译器与 SDK **只放 x86 本地**，严禁拷到板卡（板卡磁盘仅剩 1.7G）。编译选项契约（`-ffp-contract=off`、拒绝 fast-math）见 `cpp_port_rk3588.md` 第三节，**换工具链不得绕过**。
+- 🔴 **sysroot 内既无 OpenCV 也无 OpenCL**，厂商 SDK 只有 buildroot 配方无预编译库 ⇒ 依赖 OpenCV 的翻译单元**在当前工具链下无法链接**。sysroot 实际在 `<TC>/aarch64-rockchip-linux-gnu/sysroot`（顶层没有），glibc 2.29。**交叉编译严禁 `-I/usr/include`**（会把 x86 glibc 头拖进来）。详见 `rules.md` 第二节 2b。
+
+### 六之二之二、板卡 OpenCL 实机落地：探针 + 融合内核精度验证（2026-10-09）
+
+交付目录 `manu/pipeline/opencl/board/`（已同步 x86 挂载同路径）：
+
+| 文件 | 运行位置 | 职责 |
+| :--- | :--- | :--- |
+| `board_cl_probe.cpp` | 板卡 | 环境探针：ICD / 平台 / 设备 / extensions + 平凡 kernel 校验 |
+| `gen_fused_case.cpp` | **x86 + OpenCV** | 真实 Anti-UAV 帧 + 真实 GMC → 用例包（padded 帧 + mats + **CPU 基准**） |
+| `board_fused_accuracy.cpp` | 板卡（**无 OpenCV**） | 跑真 kernel，与随包下发的基准对账 |
+| `fused_case_format.h` | 两侧 | 二进制用例包契约 |
+| `build_board_probe.sh` / `build_fused_accuracy.sh` | x86 | 交叉编译（均 **dlopen OpenCL，零链接期 OpenCL 依赖**） |
+| `deploy_and_run.py` | x86 | pexpect 单会话部署/摸底/运行，`--exec` 任意板端查询 |
+
+**为什么 CPU 基准必须在 x86 算**：全链路**无任何 arm64 OpenCV**（工具链 sysroot、SDK、板卡都没有），在板卡重实现 OpenCV 的 1/32 插值量化与 BORDER_REFLECT 等于**验证「我自己对 OpenCV 的重实现」而非 kernel**，构成循环论证。
+
+**真机环境**：Mali-G610 r0p0（4 CU），OpenCL 3.0 `v1.g13p0-01eac0`，FULL_PROFILE；max WG 1024、local mem 32 KiB；ICD 为**目录式**（ARM 布局，`mali.icd`）；**无 `cl_khr_fp64`**（有 `cl_khr_fp16`）；**事件级 profiling 不可用**。
+
+**三条判决（详见 `opencl_fused_rk3588.md` 8.2，已复验可复现）**：
+1. 🔴 **`FUSED_USE_HW_LINEAR` 必须为 0**。`hw-linear` **FAIL**：Ch0（整数坐标直读，本应逐位还原）**Max|Diff|=130**、MAE 0.285、精确率仅 88.5%；`manual` **PASS**：**Ch0 Max|Diff|=0 / 100.00% 精确**，Ch1 MAE 0.0011、Ch2 MAE 0.00075。⇒ **Mali 的 `CLK_FILTER_LINEAR` 连整数坐标都不还原原值**。
+2. ✅ **Mali 支持 1 字节/像素**：`{CL_R, CL_UNORM_INT8}` 可用 ⇒ 22 张 padded 图 **10.5 MiB**（CL_RGBA 为 42 MiB）；`clCreateImage`(2.0) 在 Mali 正常工作。**「CL_R8 vs CL_RGBA 带宽」项结案。**
+3. ✅ **首个可信板卡时延 3.7~4.8 ms/帧**（22 张图 upload+kernel+readback 全程）。⚠️ 三重限定不可省略：enqueue+clFinish 墙钟**上界**、含传输、首次含 JIT。
+
+**精度损失的量级差**：从 CPU 模拟换到真硬件，MAE 只涨 **2~3 倍**（仍在 1e-3 量级，距 0.05 门限两个数量级余量）；而**选错采样路径的代价是 300~400 倍**。硬件本身不是风险点，路径选择才是。
 
 
 ## 七、后续算法演进与突破铁律指南

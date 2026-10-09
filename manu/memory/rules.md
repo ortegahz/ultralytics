@@ -54,12 +54,34 @@
 - **远端项目代码目录**：`/tmp/pycharm_project_10ae9e2e`
 - **远端数据集根目录**：`/mnt/data/siping/datasets`（包含 `anti-uav`, `manu/uav_gmc_median` 等版本数据集）
 
-### 1b. RK3588 板卡连接信息（2026-10-09 用户提供，实物到手）
+### 1b. RK3588 板卡连接与 NFS 挂载（2026-10-09 用户提供，实物到手）
 - **SSH 登录**：`ssh -p 22 root@192.168.0.64`，**密码 `ematech`**（root 账号、明文口令，不得写入任何对外汇报材料或代码仓库）
-- **意义**：本项目**首个真实 NPU 硬件载体**。此前 RK3588 全部工作止于 x86 侧 C++ 移植与 Golden Reference（`memory/cpp_port_rk3588.md`），**板卡到手后「能否真跑」这一阻塞项解除**。
-- ⚠️ **铁律三同步义务仍然只覆盖 x86 服务器**（`/home/manu/mnt/pycharm_project_10ae9e2e/`）。**板卡与 x86 是两台独立机器**，代码必须**显式 scp/rsync** 过去，不得假设共享文件系统，也不得凭 memory 里的路径直接下发命令。
-- ⚠️ 板卡上**任何 `runs/` 权重都不存在**（权重只在 x86 的 `runs/optuna_p0_nas/trial_0474/weights/best.pt`）。涉及板卡推理的交付，必须把**权重与数据双端就位**列为前置检查项（`runs/` 从未纳入同步链路，见本文件第三节第 9 条）。
-- ⚠️ 首次接触板卡时，先实测并记录：SoC/NPU 型号、`uname -a`、板载 Linux 版本、可用 RAM、是否装 RKNN-Toolkit2 / rknpu 驱动、`opencv` 是否可用。**PoCL 等 CPU 模拟结果严禁当作板卡性能**（`memory_compact.md` 已记录 PoCL 跑出的 kernel 112~118 ms 是模拟属性，不得进嵌入式预算）。
+- **板卡 → 本地 NFS（已实测挂载成功）**：
+  ```bash
+  mkdir -p /home/manu/mnt/nfs
+  sudo mount -t nfs 192.168.0.64:/mnt/manu /home/manu/mnt/nfs -o nolock
+  ```
+  实测生效参数：`nfs4 vers=4.2, rsize/wsize=1048576, hard, proto=tcp, timeo=600, retrans=2, local_lock=none`，客户端地址 `192.168.0.115`。**端口 22 与 NFS 均可达**，SSH 横幅 `OpenSSH_8.2p1 Ubuntu-4ubuntu0.12` ⇒ 板卡为 **Ubuntu base 的 arm64 Linux**。
+- ⚠️ **NFS 导出是 root 属主，本机 `manu` 无写权限（2026-10-09 实测）**：`/mnt/manu` 为 `root:root 0755`，`find -writable` 在整棵树上返回空，`touch` 直接 `Permission denied`。**投递产物必须由用户执行一次 `sudo mkdir/cp`**（Agent 无法完成，见铁律一）。截至该日板上 `/mnt/manu` 仅有一个 0 字节的 `1.txt`，实质为空。
+- 🔴 **可执行文件禁止经 NFS 投递（2026-10-09 实测踩坑）**：x86 往 `/mnt/manu` 写入文件后立即在板卡上执行，一律 `Text file busy`，**换新文件名也无效**（不是 inode 问题，是 NFS 服务端写入尚未完成）。
+  ⇒ **分工：可执行文件走 SSH 传输，只有数据文件走 NFS。** 本轮据此把交叉编译产物放 `/mnt/manu/fused_exec/`（SSH 写入 + MD5 校验），34 MiB 用例包仍走 NFS（`/mnt/manu/fused/`）。
+- **意义**：本项目**首个真实 NPU 硬件载体**。此前 RK3588 全部工作止于 x86 侧 C++ 移植与 Golden Reference（`memory/cpp_port_rk3588.md`），**板卡到手后「能否真跑」这一阻塞项解除**；NFS 打通后 x86 ↔ 板卡可直接传产物，不必每次 scp。
+- ⚠️ **板卡磁盘余量极紧**：实测 `16G 总量 / 14G 已用 / 1.7G 可用（89%）`。**任何转 rknn、装 runtime、拷模型的板卡操作前必须先看 `df -h /`**；模型与数据集放 `/mnt/manu`（即本地 `/home/manu/mnt/nfs`）前先估算 GiB，参照铁律二的缓存体积红线。
+- ⚠️ **铁律三同步义务仍只覆盖 x86 服务器**（`/home/manu/mnt/pycharm_project_10ae9e2e/`）。NFS 只暴露板卡的 `/mnt/manu`，**代码仓库不在其内**；代码改动仍须显式 scp/rsync，NFS 不能替代代码同步。
+- ⚠️ 板卡上**任何 `runs/` 权重都不存在**（权重只在 x86 的 `runs/optuna_p0_nas/trial_0474/weights/best.pt`，`runs/` 从未纳入同步链路）。涉及板卡推理的交付，必须把**权重与数据双端就位**列为前置检查项。
+- ✅ **首次接触摸底已完成（2026-10-09 实测，非推测）**，主机名 **`evm3588`**：
+  - **SoC/CPU**：8 核 = 4× Cortex-A76（CPU part `0xd05`）+ 4× Cortex-A55（`0xd0b`），implementer `0x41`；A76 max 2352 MHz / min 408 MHz。
+  - **系统**：Ubuntu **20.04.6 LTS**，内核 `Linux evm3588 5.10.160 #1 SMP Tue May 20 10:26:13 CST 2025 aarch64`。
+  - **RAM**：**7.7 GiB total / 7.3 GiB available**。⚠️ 本节「16G 总量 / 14G 已用 / 1.7G 可用」是**磁盘不是内存**，勿混。
+  - **磁盘**：`/dev/root 16G / 14G used / 1.7G avail (89%)`，且 **`/mnt/manu` 与 `/` 是同一文件系统** ⇒ 往 NFS 写东西直接吃那 1.7G。
+  - **GPU 已就绪**：`/dev/mali0` 存在；`/dev/dri/{card0,card1,renderD128,renderD129}` 存在；`dmesg` 有 `mali fb000000.gpu: Kernel DDK version g18p0-01eac0`。**Mali 驱动是内核内建的**（`lsmod` 查不到 mali 模块属正常，不是缺陷）。
+  - **OpenCL 可用且实测通过**（详见 `opencl_fused_rk3588.md`）。
+  - **OpenCV**：Python `cv2` **4.12.0 可用**；但 `/usr/include/opencv4` 与 `/usr/local/include/opencv4` **都不存在** ⇒ **板卡也没有 OpenCV C++ 开发头**。与 2b 的工具链 sysroot 缺口叠加 ⇒ `gmc_stream.cpp` 交叉编译必须另找 arm64 OpenCV SDK。
+  - **EGL**：`libEGL.so.1.1.0` 与 `libEGL_mesa.so.0` 并存。
+  - 🔴 **NPU 当前不可用（关键阻塞）**：`/dev/rknpu` **不存在**，`/proc/devices` 中**无 rknpu 条目**，`dmesg` 无任何 rknpu 行。`/usr/lib/librknnrt.so`（7.26 MB，2026-02-05，另有 `librknnrt.so_bak`）**已安装但设备节点缺失** ⇒ **当前内核配置未使能 rknpu 驱动**，RKNN 推理在现状下跑不起来。须先解决驱动/设备节点。
+  - `python3 -c "import rknn"` → `ModuleNotFoundError`。这是**正常**的：RKNN-Toolkit2 是 x86 侧把模型转 `.rknn` 的 Python 包，板卡只需 `librknnrt.so` 运行时。
+- ⚠️ **PoCL 等 CPU 模拟结果严禁当作板卡性能**（`memory_compact.md` 已记录 PoCL 跑出的 kernel 112~118 ms 是模拟属性，不得进嵌入式预算）。
+- ✅ **板卡命令现已可由 Agent 自动执行（2026-10-09 变更，取代上一条「无法非交互登录」）**：本机虽无 `sshpass`，但 **`pexpect` 可用**，已封装 `manu/pipeline/opencl/board/deploy_and_run.py`（base64 单会话传输 + 部署 + 摸底 + 运行，`--exec` 可执行任意查询）。密码**不写入任何文件**，由 `RK3588_PASSWORD` 环境变量或交互输入提供。
 
 ### 2. 本地 SSHFS 挂载映射配置
 - **远端代码映射**：
@@ -72,6 +94,17 @@
   mkdir -p /home/manu/mnt/datasets
   sshfs -p 32222 huangzhe@192.168.99.40:/mnt/data/siping/datasets /home/manu/mnt/datasets
   ```
+
+### 2b. RK3588 交叉编译器与 SDK 本地路径（2026-10-09 用户提供）
+- **交叉编译器**：`/media/manu/1TB-Volume/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu`
+- **SDK 资料**：`/media/manu/1TB-Volume/rk3588/rk3588_sdk`（解包后 `EVM3588-A_20250815/{01硬件资料, 02Linux软件资料, 03工具}`，03 工具为烧录/串口/制卡/test 程序）
+- ⚠️ 编译器本体与 SDK **只放 x86 本地**，严禁拷到板卡（板卡磁盘仅剩 1.7G，见 1b）。
+- **实测补充（2026-10-09 交叉编译板卡 OpenCL 探针时核实）**：
+  - GCC **9.3.0**（Buildroot 2018.02-rc3-g548dfbfc13-dirty）。**同时并存三套前缀**：`aarch64-linux-`、`aarch64-rockchip-linux-gnu-`、`aarch64-rockchip930-linux-gnu-`，板卡对应后者。
+  - **sysroot 不在工具链顶层**，真实路径是 `<TC>/aarch64-rockchip-linux-gnu/sysroot`（buildroot 布局）。其中 glibc 为 **2.29**（板卡是更新的 Ubuntu ⇒ 二进制向前兼容，安全）。
+  - 🔴 **硬缺口：sysroot 内没有任何 OpenCV，也没有任何 OpenCL**（`find` 无 `opencv2/`、无 `libopencv_core*`、无 `libOpenCL*`）。SDK 侧同样只有 buildroot 配方 `buildroot/package/opengl/libopencl/libopencl.mk`，**没有预编译库**。⇒ **`gmc_stream.cpp` 这类 `find_package(OpenCV REQUIRED)` 的翻译单元在当前工具链下无法完成链接**；位精确性赖以成立的「同一批 OpenCV C++ 原语」前提，交叉编译路径上目前不具备。
+  - **交叉编译头文件纪律**：⚠️ **严禁 `-I/usr/include`**——会把 x86 glibc 头拖进交叉编译并以一堆莫名的错误爆出来。架构无关的头（如 Khronos CL）必须**暂存到独立目录**再用 `-I` 指向，见 `manu/pipeline/opencl/board/build_board_probe.sh` 的 `[stage]` 步骤。
+  - 浮点契约不因换工具链而豁免：`-ffp-contract=off` 与拒绝 fast-math 依旧必须保留。
 
 ### 3. 数据集坐标对齐与 DataLoader 零漂移铁律 (Zero Coordinate Drift & Pipeline Alignment)
 - 官方数据集（如 `/mnt/data/siping/datasets/manu/uav` 及镜像集 `uav_gmc_median`）是经过严格规范预裁切与坐标归一化的，`labels/val/*.txt` 与图像呈现绝对严格对齐；
