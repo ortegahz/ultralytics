@@ -19,6 +19,10 @@ Each sequence writes one ``<sequence>.pkl`` of CSR-style arrays, so a 165k-frame
     cache["area"]         int32   (M,)    component pixel count, the dilation/energy gate input
     cache["tag"]          uint8   (M,)    index into cache["meta"]["scales"], or 255 for the fused row
 
+Per-scale rows are kept undilated on purpose: a downstream threshold or merge-radius search can rebuild any
+cross-scale combination from them without re-running inference. ``tag == fused_tag`` is the single fused row
+already dilated by ``meta["fusion_dilate"]``, kept only as a baked reference point.
+
 ``cache["meta"]["source"]`` records whether frames came from raw grayscale ("raw_frames", files named
 ``frame_%06d.jpg``) or prebuilt features ("features", files named ``<sequence>__frame_%06d.jpg``); rebuild the
 file name from ``frame_index`` with the matching pattern. Use ``iter_frames`` to walk a cache row by row.

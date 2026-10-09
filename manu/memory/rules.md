@@ -54,6 +54,13 @@
 - **远端项目代码目录**：`/tmp/pycharm_project_10ae9e2e`
 - **远端数据集根目录**：`/mnt/data/siping/datasets`（包含 `anti-uav`, `manu/uav_gmc_median` 等版本数据集）
 
+### 1b. RK3588 板卡连接信息（2026-10-09 用户提供，实物到手）
+- **SSH 登录**：`ssh -p 22 root@192.168.0.64`，**密码 `ematech`**（root 账号、明文口令，不得写入任何对外汇报材料或代码仓库）
+- **意义**：本项目**首个真实 NPU 硬件载体**。此前 RK3588 全部工作止于 x86 侧 C++ 移植与 Golden Reference（`memory/cpp_port_rk3588.md`），**板卡到手后「能否真跑」这一阻塞项解除**。
+- ⚠️ **铁律三同步义务仍然只覆盖 x86 服务器**（`/home/manu/mnt/pycharm_project_10ae9e2e/`）。**板卡与 x86 是两台独立机器**，代码必须**显式 scp/rsync** 过去，不得假设共享文件系统，也不得凭 memory 里的路径直接下发命令。
+- ⚠️ 板卡上**任何 `runs/` 权重都不存在**（权重只在 x86 的 `runs/optuna_p0_nas/trial_0474/weights/best.pt`）。涉及板卡推理的交付，必须把**权重与数据双端就位**列为前置检查项（`runs/` 从未纳入同步链路，见本文件第三节第 9 条）。
+- ⚠️ 首次接触板卡时，先实测并记录：SoC/NPU 型号、`uname -a`、板载 Linux 版本、可用 RAM、是否装 RKNN-Toolkit2 / rknpu 驱动、`opencv` 是否可用。**PoCL 等 CPU 模拟结果严禁当作板卡性能**（`memory_compact.md` 已记录 PoCL 跑出的 kernel 112~118 ms 是模拟属性，不得进嵌入式预算）。
+
 ### 2. 本地 SSHFS 挂载映射配置
 - **远端代码映射**：
   ```bash
