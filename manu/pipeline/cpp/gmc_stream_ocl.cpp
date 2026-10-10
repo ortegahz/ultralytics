@@ -112,6 +112,8 @@
 #include <vector>
 
 #include <dirent.h>
+#include <sched.h>
+#include <unistd.h>
 #include <sys/stat.h>
 
 #include <opencv2/calib3d.hpp>
@@ -235,30 +237,123 @@ bool find_sequence_folder(const std::string& raw_root, const std::string& seq, s
 
 // -----------------------------------------------------------------------------
 // FastGMCEstimator -- identical parameters, identical call order.
+//
+// FIT PARAMS (the shipped defaults reproduce the frozen configuration exactly;
+// every one of them is a runtime option so the accuracy/perf curve can be
+// walked without recompiling):
+//   downscale   2     half-res already: 640x512 -> 320x256 before any fitting
+//   max_corners 600   Shi-Tomasi cap
+//   win         15    LK window
+//   max_level   2     LK pyramid depth
+//   iters       20    LK max iterations (epsilon 0.03, unchanged)
+//
+// PER-FRAME CACHE (--pyr-cache)
+// Three intermediates are pure functions of ONE input image: the half-res
+// resize, the Shi-Tomasi corners, and the optical-flow pyramid. Each frame is
+// the "prev" side of ~3.25 fits per push (5 anchor lags 2/12/22/32/42 plus the
+// cached one-step fits), so all three were recomputed from identical bytes on
+// every fit. Measured on the 60-frame x86 sequence: Shi-Tomasi is ~66% of fit,
+// the pyramid build ~3%, LK ~27%. So the cache is worth much more than the
+// pyramid it is named after.
+//
+// Why the cached LK is bit-identical, not approximately so:
+//   * the resize and the corner detector are pure functions of the same bytes;
+//   * calcOpticalFlowPyrLK accepts an already-built pyramid whenever the
+//     InputArray kind is STD_VECTOR_MAT (lkpyramid.cpp:1302/1330), and detects
+//     precomputed gradients via the odd level count + channel/depth test
+//     (lkpyramid.cpp:1309), switching to lvlStep=2 and reusing the derivative
+//     planes instead of recomputing Scharr every call (lkpyramid.cpp:1392).
+//     buildOpticalFlowPyramid's defaults -- withDerivatives=true,
+//     pyrBorder=BORDER_REFLECT_101, derivBorder=BORDER_CONSTANT -- are exactly
+//     the arguments calc() passes internally, so the planes are the same bytes;
+//   * points stay in UNPADDED image coordinates: pyramid level 0 is an ROI view
+//     into the padded buffer and LKTrackerInvoker indexes relative to that view
+//     (lkpyramid.cpp:204-220), so no coordinate shift is applied.
+//
+// The cache is keyed by ABSOLUTE frame index. A plain "slot is filled" boolean
+// is wrong and fails silently: slot(43) aliases slot(0), the flag left by frame
+// 0 is still set, and frame 43 gets served frame 0's pixels -- no crash, no
+// assert, just stale data. Hence the tag arrays, which are also what makes the
+// ring correct when it wraps.
 // -----------------------------------------------------------------------------
 class FastGMCEstimator {
 public:
-    explicit FastGMCEstimator(int downscale) : downscale_(downscale) {}
+    // Which per-frame intermediates the cache owns. Split out so a single part
+    // can be ablated: a bit-exactness claim has to survive turning each piece
+    // on by itself, not just all three together.
+    enum : int { kCacheResize = 1, kCacheCorners = 2, kCachePyr = 4,
+                 kCacheAll = 1 | 2 | 4 };
 
-    Matx23f compute_affine(const Mat& prev_gray, const Mat& curr_gray) const {
+    FastGMCEstimator(int downscale, bool cache, int ring_depth, int max_corners, int win,
+                     int max_level, int iters, int parts)
+        : downscale_(downscale),
+          cache_(cache),
+          parts_(parts),
+          max_corners_(max_corners),
+          win_(win),
+          max_level_(max_level),
+          iters_(iters),
+          ring_(static_cast<size_t>(std::max(ring_depth, 1))) {
+        if (cache_) {
+            small_.resize(ring_);
+            corners_.resize(ring_);
+            pyr_.resize(ring_);
+            tag_small_.assign(ring_, -1);
+            src_small_.assign(ring_, nullptr);
+            tag_corners_.assign(ring_, -1);
+            tag_pyr_.assign(ring_, -1);
+        }
+    }
+
+    // Honest memory accounting: with maxLevel=2 the cached pyramid carries three
+    // image planes plus three derivative planes, so this is not a small buffer.
+    size_t cache_bytes() const {
+        if (!cache_) return 0;
+        size_t n = 0;
+        for (size_t i = 0; i < ring_; ++i) {
+            n += static_cast<size_t>(small_[i].total() * small_[i].elemSize());
+            for (const Mat& m : pyr_[i])
+                if (!m.empty()) n += static_cast<size_t>(m.total() * m.elemSize());
+            n += corners_[i].capacity() * sizeof(cv::Point2f);
+        }
+        return n;
+    }
+    long resize_builds() const { return n_resize_builds_; }
+    long corner_builds() const { return n_corner_builds_; }
+    long pyr_builds() const { return n_pyr_builds_; }
+    long cache_hits() const { return n_hits_; }
+    long cache_lookups() const { return n_lookups_; }
+
+    Matx23f compute_affine(long prev_abs, long curr_abs, const Mat& prev_gray,
+                           const Mat& curr_gray) const {
         const int h = curr_gray.rows;
         const int w = curr_gray.cols;
         const int ds = downscale_;
         Matx23f H = kIdentity;
 
         Mat prev_small, curr_small;
-        if (ds > 1) {
-            const cv::Size small(w / ds, h / ds);
-            cv::resize(prev_gray, prev_small, small, 0, 0, cv::INTER_LINEAR);
-            cv::resize(curr_gray, curr_small, small, 0, 0, cv::INTER_LINEAR);
+        if (!cache_) {
+            if (ds > 1) {
+                const cv::Size small(w / ds, h / ds);
+                cv::resize(prev_gray, prev_small, small, 0, 0, cv::INTER_LINEAR);
+                cv::resize(curr_gray, curr_small, small, 0, 0, cv::INTER_LINEAR);
+            } else {
+                prev_small = prev_gray;
+                curr_small = curr_gray;
+            }
         } else {
-            prev_small = prev_gray;
-            curr_small = curr_gray;
+            small_of(prev_abs, prev_gray, prev_small);
+            small_of(curr_abs, curr_gray, curr_small);
         }
 
         // goodFeaturesToTrack: maxCorners=600, qualityLevel=0.01, minDistance=4, blockSize=3
         std::vector<cv::Point2f> pts_prev;
-        cv::goodFeaturesToTrack(prev_small, pts_prev, 600, 0.01, 4, cv::noArray(), 3);
+        if (!cache_) {
+            cv::goodFeaturesToTrack(prev_small, pts_prev, max_corners_, 0.01, 4, cv::noArray(), 3);
+            ++n_corner_builds_;
+        } else {
+            corners_of(prev_abs, prev_small, pts_prev);
+        }
         if (pts_prev.size() < 6) return H;
 
         // Wrap as (N,1) CV_32FC2 -- the same layout cv2 hands over from the Python side.
@@ -268,8 +363,28 @@ public:
         std::vector<unsigned char> status;
         std::vector<float> err;
         // winSize=(15,15), maxLevel=2; flags/criteria/minEigThreshold left at their defaults
-        cv::calcOpticalFlowPyrLK(prev_small, curr_small, pts_prev_mat, pts_curr, status, err,
-                                  cv::Size(15, 15), 2);
+        if (iters_ != 20) {
+            // Only pay for a non-default criterion when it was actually asked for;
+            // the default path below keeps the exact shipped call signature.
+            cv::TermCriteria crit(cv::TermCriteria::COUNT + cv::TermCriteria::EPS, iters_, 0.03);
+            if (!cache_) {
+                cv::calcOpticalFlowPyrLK(prev_small, curr_small, pts_prev_mat, pts_curr, status,
+                                          err, cv::Size(win_, win_), max_level_, crit);
+            } else {
+                pyr_of(prev_abs, prev_small, pyr_prev_);
+                pyr_of(curr_abs, curr_small, pyr_curr_);
+                cv::calcOpticalFlowPyrLK(pyr_prev_, pyr_curr_, pts_prev_mat, pts_curr, status,
+                                          err, cv::Size(win_, win_), max_level_, crit);
+            }
+        } else if (!cache_) {
+            cv::calcOpticalFlowPyrLK(prev_small, curr_small, pts_prev_mat, pts_curr, status, err,
+                                      cv::Size(win_, win_), max_level_);
+        } else {
+            pyr_of(prev_abs, prev_small, pyr_prev_);
+            pyr_of(curr_abs, curr_small, pyr_curr_);
+            cv::calcOpticalFlowPyrLK(pyr_prev_, pyr_curr_, pts_prev_mat, pts_curr, status, err,
+                                      cv::Size(win_, win_), max_level_);
+        }
 
         std::vector<cv::Point2f> p0, p1;
         p0.reserve(pts_prev.size());
@@ -310,7 +425,119 @@ public:
     }
 
 private:
+    // Slot index for an ABSOLUTE frame number. The ring is max_lag+1 deep, which
+    // is exactly the set of frames a single push can reference, so two live
+    // frames can never alias onto one entry.
+    size_t slot_of(long abs) const {
+        const long m = static_cast<long>(ring_);
+        return static_cast<size_t>(((abs % m) + m) % m);
+    }
+
+    static bool g_verify_cache() {
+        static const bool v = std::getenv("GMC_VERIFY_CACHE") != nullptr;
+        return v;
+    }
+
+    void small_of(long abs, const Mat& gray, Mat& out) const {
+        if (!(parts_ & kCacheResize)) { plain_small(gray, out); return; }
+        ++n_lookups_;
+        const size_t s = slot_of(abs);
+        if (tag_small_[s] == abs) {
+            // GMC_VERIFY_CACHE=1 re-derives every hit and compares. A cache that
+            // silently serves the wrong frame produces plausible output and a
+            // different MD5, which is very hard to localise by reasoning; this
+            // makes it fail loudly instead. Off by default (it costs a resize
+            // and a comparison per hit).
+            if (g_verify_cache()) {
+                Mat fresh;
+                plain_small(gray, fresh);
+                Mat d = fresh != small_[s];
+                const int total = cv::countNonZero(d);
+                if (total != 0) {
+                    int fx = -1, fy = -1;
+                    for (int y = 0; y < d.rows && fx < 0; ++y)
+                        for (int x = 0; x < d.cols; ++x)
+                            if (d.at<uchar>(y, x)) { fx = x; fy = y; break; }
+                    std::fprintf(stderr,
+                                 "[CACHE-BUG] small abs=%ld slot=%zu gray=%p(%dx%d) "
+                                 "filled_from=%p diffpx=%d first@(%d,%d)\n",
+                                 abs, s, (const void*)gray.data, gray.cols, gray.rows,
+                                 src_small_[s], total, fx, fy);
+                    std::exit(3);
+                }
+            }
+            ++n_hits_;
+            out = small_[s];
+            return;
+        }
+        {
+            const cv::Size small(gray.cols / downscale_, gray.rows / downscale_);
+            if (downscale_ > 1) cv::resize(gray, small_[s], small, 0, 0, cv::INTER_LINEAR);
+            else small_[s] = gray;
+        }
+        tag_small_[s] = abs;
+        src_small_[s] = gray.data;
+        tag_corners_[s] = -1;  // the resize changed, so the corners are stale
+        tag_pyr_[s] = -1;
+        ++n_resize_builds_;
+        out = small_[s];
+    }
+
+    void plain_small(const Mat& gray, Mat& out) const {
+        if (downscale_ > 1) {
+            const cv::Size small(gray.cols / downscale_, gray.rows / downscale_);
+            cv::resize(gray, out, small, 0, 0, cv::INTER_LINEAR);
+        } else {
+            out = gray;
+        }
+    }
+
+    void corners_of(long abs, const Mat& small, std::vector<cv::Point2f>& out) const {
+        if (!(parts_ & kCacheCorners)) {
+            cv::goodFeaturesToTrack(small, out, max_corners_, 0.01, 4, cv::noArray(), 3);
+            ++n_corner_builds_;
+            return;
+        }
+        ++n_lookups_;
+        const size_t s = slot_of(abs);
+        if (tag_corners_[s] == abs) { ++n_hits_; out = corners_[s]; return; }
+        cv::goodFeaturesToTrack(small, corners_[s], max_corners_, 0.01, 4, cv::noArray(), 3);
+        tag_corners_[s] = abs;
+        ++n_corner_builds_;
+        out = corners_[s];
+    }
+
+    void pyr_of(long abs, const Mat& small, std::vector<Mat>& out) const {
+        if (!(parts_ & kCachePyr)) {
+            cv::buildOpticalFlowPyramid(small, out, cv::Size(win_, win_), max_level_, true);
+            ++n_pyr_builds_;
+            return;
+        }
+        ++n_lookups_;
+        const size_t s = slot_of(abs);
+        if (tag_pyr_[s] == abs) { ++n_hits_; out = pyr_[s]; return; }
+        // Defaults are withDerivatives=true, pyrBorder=BORDER_REFLECT_101,
+        // derivBorder=BORDER_CONSTANT -- identical to what calcOpticalFlowPyrLK
+        // passes internally, so the planes are the same bytes.
+        cv::buildOpticalFlowPyramid(small, pyr_[s], cv::Size(win_, win_), max_level_, true);
+        tag_pyr_[s] = abs;
+        ++n_pyr_builds_;
+        out = pyr_[s];
+    }
+
     int downscale_;
+    bool cache_;
+    int parts_;
+    int max_corners_, win_, max_level_, iters_;
+    size_t ring_;
+    mutable std::vector<Mat> small_;
+    mutable std::vector<std::vector<cv::Point2f>> corners_;
+    mutable std::vector<std::vector<Mat>> pyr_;
+    mutable std::vector<long> tag_small_, tag_corners_, tag_pyr_;
+    mutable std::vector<const void*> src_small_;
+    mutable std::vector<Mat> pyr_prev_, pyr_curr_;  // scratch aliases for the LK call
+    mutable long n_resize_builds_ = 0, n_corner_builds_ = 0, n_pyr_builds_ = 0;
+    mutable long n_hits_ = 0, n_lookups_ = 0;
 };
 
 Matx33d to33(const Matx23f& m) {
@@ -604,6 +831,47 @@ int required_pad(const std::vector<cv::Mat>& inv, int W, int H) {
 }
 
 // -----------------------------------------------------------------------------
+// Pin the calling thread to a cpu set. On RK3588 the four big cores are 4-7
+// (Cortex-A76) and the little ones 0-3 (Cortex-A55, ~1.8 GHz vs ~2.4 GHz), and
+// the default Linux scheduler is free to place OpenCV's worker threads on
+// whichever it likes -- which makes run-to-run numbers drift. Pinning removes
+// that as a variable instead of hoping the scheduler cooperates.
+// Returns a short description for the run log, or an error string on failure.
+std::string bind_cpus(const std::vector<int>& cpus) {
+    if (cpus.empty()) return "none";
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    for (int c : cpus) CPU_SET(c, &set);
+    const int rc = pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
+    if (rc != 0) return "FAILED(" + std::to_string(rc) + ")";
+    std::string s;
+    for (int c : cpus) {
+        if (!s.empty()) s += ",";
+        s += std::to_string(c);
+    }
+    return s;
+}
+
+std::vector<int> parse_cpu_list(const std::string& spec) {
+    std::vector<int> out;
+    if (spec == "none") return out;
+    if (spec == "a76") return {4, 5, 6, 7};
+    if (spec == "a55") return {0, 1, 2, 3};
+    if (spec == "all") {
+        const long n = sysconf(_SC_NPROCESSORS_ONLN);
+        for (long i = 0; i < n; ++i) out.push_back(static_cast<int>(i));
+        return out;
+    }
+    size_t i = 0;
+    while (i <= spec.size()) {
+        size_t j = spec.find(',', i);
+        if (j == std::string::npos) j = spec.size();
+        if (j > i) out.push_back(std::atoi(spec.substr(i, j - i).c_str()));
+        i = j + 1;
+    }
+    return out;
+}
+
 class OnlineFeaturePipeline {
 public:
     struct Stats {
@@ -620,7 +888,9 @@ public:
     enum Backend { kCpu, kGpu, kBoth };
 
     OnlineFeaturePipeline(int window, int stride_step, int anchor_step, int downscale,
-                          bool rng_seed_per_fit, bool nogmc, FusedGpu* gpu, Backend backend)
+                          bool rng_seed_per_fit, bool nogmc, FusedGpu* gpu, Backend backend,
+                          bool pyr_cache, int max_corners, int fit_win, int fit_level,
+                          int fit_iters, int cache_parts, int threads)
         : gpu_(gpu),
           backend_(backend),
           window_(window),
@@ -628,7 +898,12 @@ public:
           max_lag_(window * stride_step),
           rng_seed_per_fit_(rng_seed_per_fit),
           nogmc_(nogmc) {
-        cv::setNumThreads(1);  // mandatory for bit-reproducibility
+        // 1 thread is the bit-exactness contract; >1 trades reproducibility for
+        // throughput. RANSAC and the LK inner loop are not bit-reproducible
+        // under a thread pool (see the floating-point contract in the header),
+        // so any value above 1 MUST be reported alongside a transform deviation,
+        // never as a bare speed number.
+        cv::setNumThreads(threads > 0 ? threads : 1);
         anchors_ = anchor_grid(stride_step_, anchor_step, max_lag_);
         for (int a : anchors_) anchor_set_.insert(a);
         for (int lag = stride_step_; lag <= max_lag_; lag += stride_step_) {
@@ -639,7 +914,10 @@ public:
                 if (a <= lag) below = a;
             anchor_below_[lag] = below;
         }
-        est_.reset(new FastGMCEstimator(downscale));
+        // The cache ring must hold every frame one push can reference: the
+        // deepest anchor lag, and the same for the one-step fits.
+        est_.reset(new FastGMCEstimator(downscale, pyr_cache, max_lag_ + 1, max_corners,
+                                        fit_win, fit_level, fit_iters, cache_parts));
         ring_.assign(static_cast<size_t>(max_lag_ + 1), Mat());
         // max_lag + 1 keys can be live at once, plus the clamped first-frame key.
         gpu_slots_ = max_lag_ + 3;
@@ -648,6 +926,14 @@ public:
     const std::vector<int>& anchors() const { return anchors_; }
     const std::vector<int>& lags() const { return lags_; }
     long ring_depth() const { return max_lag_ + 1; }
+    // Cache telemetry, so a timing claim can be checked against how much work
+    // was actually avoided rather than assumed.
+    long est_resize_builds() const { return est_->resize_builds(); }
+    long est_corner_builds() const { return est_->corner_builds(); }
+    long est_pyr_builds() const { return est_->pyr_builds(); }
+    long est_cache_hits() const { return est_->cache_hits(); }
+    long est_cache_lookups() const { return est_->cache_lookups(); }
+    size_t est_cache_bytes() const { return est_->cache_bytes(); }
     Stats& stats() { return stats_; }
     const std::array<long, 3>& diff_max() const { return dmax_; }
     double diff_mae(int c) const { return dn_[c] ? dsum_[c] / (double)dn_[c] : 0.0; }
@@ -697,7 +983,7 @@ public:
         // ---- anchors: direct fit on the anchor grid ----
         const auto mark_anchor = std::chrono::steady_clock::now();
         for (int lag : anchors_) {
-            mats[lag] = fit_similarity(frame_at_lag(lag), frame);
+            mats[lag] = fit_similarity(abs_at_lag(lag), t_, frame_at_lag(lag), frame);
             stats_.n_fit += 1;
         }
         const auto after_anchor = std::chrono::steady_clock::now();
@@ -896,7 +1182,15 @@ private:
         auto it = steps_.find(abs_index);
         if (it != steps_.end()) return it->second;
         const auto mark = std::chrono::steady_clock::now();
-        const Matx23f m = fit_similarity(frame_at_lag(t_ - abs_index),
+        // frame_at_lag(lag) yields absolute index max(1, t_ - lag). Here the lags
+        // are (t_ - abs_index) and (t_ - abs_index - stride_step_), so prev is
+        // absolute index abs_index and curr is abs_index + stride_step -- in that
+        // order. Swapping the two tags silently feeds the cache the wrong frame
+        // (the anchors stay correct, only the composed lags move), so the order
+        // here is load-bearing, not cosmetic.
+        const Matx23f m = fit_similarity(clamp_abs(abs_index),
+                                         clamp_abs(abs_index + stride_step_),
+                                         frame_at_lag(t_ - abs_index),
                                          frame_at_lag(t_ - abs_index - stride_step_));
         stats_.t_fit += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
                                                                   mark)
@@ -906,12 +1200,21 @@ private:
         return m;
     }
 
-    Matx23f fit_similarity(const Mat& prev, const Mat& curr) {
+    Matx23f fit_similarity(long prev_abs, long curr_abs, const Mat& prev, const Mat& curr) {
         if (rng_seed_per_fit_) cv::theRNG().state = 0xFFFFFFFFu;
-        const Matx23f m = est_->compute_affine(prev, curr);
+        const Matx23f m = est_->compute_affine(prev_abs, curr_abs, prev, curr);
         if (!all_finite(m)) return kIdentity;
         return m;
     }
+
+    // Absolute index of the frame frame_at_lag(lag) returns. t_ is 0-based (the
+    // first pushed frame is absolute index 0, and first_ IS that frame), and
+    // frame_at_lag clamps anything deeper onto it, so the cache tag must be
+    // clamped to 0 as well. Clamping to 1 instead silently labels the clamped
+    // frame with the NEXT frame's index; the very next push then hits that
+    // mislabelled slot and is served the wrong pixels.
+    long abs_at_lag(int lag) const { return clamp_abs(t_ - lag); }
+    static long clamp_abs(long abs) { return abs > 0 ? abs : 0; }
 
     // np.median(stack(history), axis=0).astype(float32) -> clip(curr - bg, 0, 255).astype(uint8)
     void median_residual(const Mat& curr, const std::vector<Mat>& history, Mat& out) const {
@@ -921,19 +1224,56 @@ private:
             curr.copyTo(out);
             return;
         }
-        std::vector<uint8_t> col(static_cast<size_t>(n));
-        for (int x = 0; x < curr.cols; ++x) {
-            for (int y = 0; y < curr.rows; ++y) {
-                for (int i = 0; i < n; ++i) col[i] = history[i].at<uint8_t>(y, x);
-                // n is odd (21) so the median is a selection, not an average: exact anywhere.
-                std::nth_element(col.begin(), col.begin() + n / 2, col.end());
-                const float bg = static_cast<float>(col[n / 2]);
-                float v = static_cast<float>(curr.at<uint8_t>(y, x)) - bg;
-                if (v < 0.0f) v = 0.0f;
-                if (v > 255.0f) v = 255.0f;
-                out.at<uint8_t>(y, x) = static_cast<uint8_t>(v);
+        // The original loop is kept for the single-threaded case and is NOT just
+        // an optimisation fallback: routing it through parallel_for_ measured
+        // 90.8 ms/frame against 66.4 ms serial on the board, because the body
+        // then runs through an indirect call and `history[i].at()` stops hoisting
+        // its data pointer. Since threads=1 is the default, taking that hit would
+        // have made the default path slower than before this change.
+        if (cv::getNumThreads() <= 1) {
+            std::vector<uint8_t> col(static_cast<size_t>(n));
+            for (int x = 0; x < curr.cols; ++x) {
+                for (int y = 0; y < curr.rows; ++y) {
+                    for (int i = 0; i < n; ++i) col[i] = history[i].at<uint8_t>(y, x);
+                    std::nth_element(col.begin(), col.begin() + n / 2, col.end());
+                    const float bg = static_cast<float>(col[n / 2]);
+                    float v = static_cast<float>(curr.at<uint8_t>(y, x)) - bg;
+                    if (v < 0.0f) v = 0.0f;
+                    if (v > 255.0f) v = 255.0f;
+                    out.at<uint8_t>(y, x) = static_cast<uint8_t>(v);
+                }
             }
+            return;
         }
+
+        // Parallelised over columns, keeping the original x-outer/y-inner order so
+        // the traversal is unchanged.
+        //
+        // Why this loop needed doing by hand: it is our own scalar code, so
+        // cv::setNumThreads cannot reach it. It was measured at 64 ms/frame --
+        // 67% of the whole CPU arm -- while cv::warpAffine next to it went
+        // 69 -> 28 ms purely from threading. That asymmetry was the tell.
+        //
+        // Bit-exactness is preserved because every output pixel is an
+        // independent selection over its own 21 values: partitioning the columns
+        // cannot change any pixel's result, and n is odd so the median is a
+        // selection rather than an average (no summation order to perturb).
+        // `col` lives inside the lambda so each worker owns its scratch.
+        cv::parallel_for_(cv::Range(0, curr.cols), [&](const cv::Range& xs) {
+            std::vector<uint8_t> col(static_cast<size_t>(n));
+            for (int x = xs.start; x < xs.end; ++x) {
+                for (int y = 0; y < curr.rows; ++y) {
+                    for (int i = 0; i < n; ++i) col[i] = history[i].at<uint8_t>(y, x);
+                    // n is odd (21) so the median is a selection, not an average: exact anywhere.
+                    std::nth_element(col.begin(), col.begin() + n / 2, col.end());
+                    const float bg = static_cast<float>(col[n / 2]);
+                    float v = static_cast<float>(curr.at<uint8_t>(y, x)) - bg;
+                    if (v < 0.0f) v = 0.0f;
+                    if (v > 255.0f) v = 255.0f;
+                    out.at<uint8_t>(y, x) = static_cast<uint8_t>(v);
+                }
+            }
+        });
     }
 
     FusedGpu* gpu_ = nullptr;
@@ -1040,8 +1380,27 @@ void usage() {
         "  --window N             median window (frozen = 21)\n"
         "  --stride-step N        lag stride (frozen = 2)\n"
         "  --downscale N          GMC estimation downscale (frozen = 2)\n"
+        "  --threads N            OpenCV worker threads (default 1). N>1 is NOT\n"
+        "                         bit-reproducible: always quote a transform deviation\n"
+        "                         alongside any speed claim made with it.\n"
+        "  --affinity LIST        pin this thread: 'a76' (=4-7, big), 'a55' (=0-3, little),\n"
+        "                         'all', 'none', or an explicit list like '4,5,6,7'.\n"
+        "                         RK3588: CPU0-3 = Cortex-A55 ~1.8GHz, CPU4-7 = A76 ~2.4GHz\n"
+        "  --pyr-cache            reuse the per-frame half-res image, Shi-Tomasi corners and\n"
+        "                         optical-flow pyramid across fits. Keyed by ABSOLUTE frame index.\n"
+        "                         Bit-exact vs the uncached path (same MD5) -- see the header.\n"
+        "  --cache-parts N        ablation mask for --pyr-cache: 1=resize 2=corners 4=pyramid\n"
+        "                         (default 7 = all three)\n"
+        "  --fit-corners N        Shi-Tomasi maxCorners (frozen = 600). Lower = less work,\n"
+        "                         fewer tracked points.\n"
+        "  --fit-win N            LK window size (frozen = 15)\n"
+        "  --fit-level N          LK pyramid depth (frozen = 2). Lower = cheaper, less\n"
+        "                         capture range for fast motion.\n"
+        "  --fit-iters N          LK max iterations (frozen = 20, epsilon 0.03)\n"
         "  --out-dir PATH         write [Ch0,Ch1,Ch2] stacked HxWx3 JPGs (builder layout)\n"
         "  --dump-dir PATH        write per-frame .npy (3,H,W); --mats-frame also gets _mats.npy\n"
+        "  --mats-all PATH        log every frame's 21x6 transform chain as raw float32\n"
+        "                         (~30 KB / 60 frames, vs ~59 MB for --dump-dir)\n"
         "  --mats-frame N         which push writes _mats.npy (default 0; pick a warm frame to\n"
         "                         inspect the transform chain away from the cold-start plateau)\n"
         "  --md5-out PATH         append per-frame md5 lines (seq, index, hash)\n"
@@ -1075,7 +1434,15 @@ int main(int argc, char** argv) {
     std::vector<std::string> sequences;
     int limit = 0, anchor_step = 10, window = 21, stride_step = 2, downscale = 2;
     long mats_frame = 0;
+    std::string mats_all_path;
     bool rng_seed_per_fit = false, want_timing = false;
+    bool pyr_cache = false;
+    int threads = 1;
+    std::string affinity = "none";
+    int cache_parts = 7;  // resize | corners | pyramid
+    // Fit knobs. Defaults are the frozen values, so omitting every flag
+    // reproduces the shipped baseline exactly (same MD5).
+    int fit_corners = 600, fit_win = 15, fit_level = 2, fit_iters = 20;
     std::string fused = "both", kernel_dir = "../opencl/kernels";
     int hw_linear = 0, fp64_coord = 0;
 
@@ -1093,10 +1460,19 @@ int main(int argc, char** argv) {
         else if (a == "--mode") mode = next("--mode");
         else if (a == "--limit") limit = std::atoi(next("--limit").c_str());
         else if (a == "--mats-frame") mats_frame = std::atol(next("--mats-frame").c_str());
+        else if (a == "--mats-all") mats_all_path = next("--mats-all");
         else if (a == "--anchor-step") anchor_step = std::atoi(next("--anchor-step").c_str());
         else if (a == "--window") window = std::atoi(next("--window").c_str());
         else if (a == "--stride-step") stride_step = std::atoi(next("--stride-step").c_str());
         else if (a == "--downscale") downscale = std::atoi(next("--downscale").c_str());
+        else if (a == "--pyr-cache") pyr_cache = true;
+        else if (a == "--threads") threads = std::atoi(next("--threads").c_str());
+        else if (a == "--affinity") affinity = next("--affinity");
+        else if (a == "--cache-parts") cache_parts = std::atoi(next("--cache-parts").c_str());
+        else if (a == "--fit-corners") fit_corners = std::atoi(next("--fit-corners").c_str());
+        else if (a == "--fit-win") fit_win = std::atoi(next("--fit-win").c_str());
+        else if (a == "--fit-level") fit_level = std::atoi(next("--fit-level").c_str());
+        else if (a == "--fit-iters") fit_iters = std::atoi(next("--fit-iters").c_str());
         else if (a == "--out-dir") out_dir = next("--out-dir");
         else if (a == "--dump-dir") dump_dir = next("--dump-dir");
         else if (a == "--md5-out") md5_out = next("--md5-out");
@@ -1170,8 +1546,12 @@ int main(int argc, char** argv) {
             return 2;
         }
 
+        const std::string aff = bind_cpus(parse_cpu_list(affinity));
+        std::fprintf(stderr, "[THREADS]   requested=%d affinity=%s (effective opencv threads=%d)\n",
+                     threads, aff.c_str(), cv::getNumThreads());
         OnlineFeaturePipeline pipe(window, stride_step, anchor_step, downscale, rng_seed_per_fit,
-                                    mode == "nogmc", gpu.get(), backend);
+                                    mode == "nogmc", gpu.get(), backend, pyr_cache, fit_corners,
+                                    fit_win, fit_level, fit_iters, cache_parts, threads);
         if (sequences.size() == 1) {
             std::printf("ring_depth=%ld lags=%d..%d anchors=", pipe.ring_depth(),
                         pipe.lags().front(), pipe.lags().back());
@@ -1195,6 +1575,15 @@ int main(int argc, char** argv) {
         gmcpp::MD5 seq_md5;
         char line[128];
         FILE* fmo = nullptr;
+        FILE* fmo_all = nullptr;
+        long n_mats_logged = 0;
+        if (!mats_all_path.empty()) {
+            fmo_all = std::fopen(mats_all_path.c_str(), "wb");
+            if (!fmo_all) {
+                std::fprintf(stderr, "[FATAL] cannot write %s\n", mats_all_path.c_str());
+                std::exit(2);
+            }
+        }
         if (!md5_out.empty()) fmo = std::fopen(md5_out.c_str(), "ab");
 
         for (size_t fi = 0; fi < names.size(); ++fi) {
@@ -1203,10 +1592,18 @@ int main(int argc, char** argv) {
             if (frame.empty()) {
                 std::fprintf(stderr, "[FATAL] failed to read %s\n", path.c_str());
                 if (fmo) std::fclose(fmo);
+        if (fmo_all) {
+            std::fclose(fmo_all);
+            std::printf("[MATS-ALL]  %s frames=%ld floats=%ld\n", mats_all_path.c_str(),
+                        n_mats_logged, n_mats_logged * pipe.lags().size() * 6);
+        }
                 return 2;
             }
             std::vector<Matx23f> mats;
-            const Mat out = pipe.push(frame, dump_dir.empty() ? nullptr : &mats);
+            // `mats` is only populated when push() is handed somewhere to put it, so the
+            // --mats-all log needs it too -- otherwise it silently writes an empty file.
+            const bool want_mats = !dump_dir.empty() || fmo_all != nullptr;
+            const Mat out = pipe.push(frame, want_mats ? &mats : nullptr);
 
             // The comparison channel is the PRE-ENCODE array. Comparing decoded JPGs would
             // only measure JPEG quantisation, a storage artefact, not feature drift.
@@ -1264,6 +1661,18 @@ int main(int argc, char** argv) {
                     write_npy_f32(dump_dir + nm + "_mats.npy", flat.data(), flat.size(),
                                   {mats.size(), 6});
                 }
+                // Whole-run transform log: 21 lags x 6 floats per frame is ~30 KB
+                // for 60 frames, versus ~59 MB for the feature planes. When the
+                // question is "how far did the fit move", the transform chain is
+                // the thing that moved, and it is orders of magnitude cheaper to
+                // ship than the channels it produces.
+            }
+            if (fmo_all && !mats.empty()) {
+                for (const Matx23f& m : mats)
+                    for (int i = 0; i < 2; ++i)
+                        for (int j = 0; j < 3; ++j)
+                            std::fwrite(&m(i, j), sizeof(float), 1, fmo_all);
+                ++n_mats_logged;
             }
         }
         if (fmo) std::fclose(fmo);
@@ -1298,6 +1707,13 @@ int main(int argc, char** argv) {
                             s.t_gpu / n, s.t_gpu_upload / n, s.t_gpu_kernel / n,
                             s.t_gpu_kernprof / n, s.t_gpu_read / n);
             std::printf("\n");
+            if (pyr_cache) {
+                std::printf("[CACHE]     %-32s builds: resize=%ld corner=%ld pyr=%ld | "
+                            "hits=%ld | %.1f MiB resident\n",
+                            seq.c_str(), pipe.est_resize_builds(), pipe.est_corner_builds(),
+                            pipe.est_pyr_builds(), pipe.est_cache_hits(),
+                            pipe.est_cache_bytes() / 1048576.0);
+            }
             if (backend == OnlineFeaturePipeline::kBoth) {
                 const double cpu_tail = (s.t_warp + s.t_median) / n;
                 const double gpu_tail = s.t_gpu / n;

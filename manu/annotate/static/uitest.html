@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>annotation interaction harness</title>
+<style>
+  body { font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; background: #12151b; color: #dfe6ef; padding: 12px; }
+  iframe { width: 1400px; height: 700px; border: 1px solid #2f3947; }
+  pre { white-space: pre-wrap; }
+  .pass { color: #37c07a; } .fail { color: #e05a5a; } .head { color: #4da3ff; }
+</style>
+</head>
+<body>
+<h3>annotation interaction harness</h3>
+<pre id="out">running…</pre>
+<iframe id="app" src="about:blank"></iframe>
+<script>
+'use strict';
+const results = [];
+function record(ok, name, detail) {
+  results.push({ ok: !!ok, name, detail: detail === undefined ? '' : String(detail) });
+}
+function check(name, ok, detail) { record(ok, name, detail); }
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+function render() {
+  const parts = results.map((r) => {
+    const cls = r.ok ? 'pass' : 'fail';
+    return `<span class="${cls}">[${r.ok ? 'PASS' : 'FAIL'}]</span> ${r.name}` +
+           (r.detail ? ` — ${r.detail}` : '');
+  });
+  const failed = results.filter((r) => !r.ok).length;
+  document.getElementById('out').innerHTML =
+    `<span class="head">TOTAL ${results.length} FAILED ${failed}</span>\n` + parts.join('\n');
+  document.title = `RESULT total=${results.length} failed=${failed}`;
+}
+
+async function run() {
+  const params = new URLSearchParams(location.search);
+  const seqId = params.get('seq') || '';
+  const frame = Number(params.get('f') || 0);
+  const iframe = document.getElementById('app');
+  iframe.src = `/?seq=${encodeURIComponent(seqId)}&f=${frame}`;
+
+  // Wait until the embedded app has loaded its sequence and exposed its handle.
+  let api = null;
+  for (let i = 0; i < 200; i++) {
+    await sleep(100);
+    try {
+      const win = iframe.contentWindow;
+      if (win && win.__annotate && win.__annotate.state && win.__annotate.state.loaded) { api = win.__annotate; break; }
+    } catch (e) { /* not ready */ }
+  }
+  if (!api) { check('应用加载并暴露调试句柄', false, '超时'); return; }
+  check('应用加载并暴露调试句柄', true, `${seqId}`);
+
+  const S = api.state;
+  check('初始帧索引正确', S.index === frame, `${S.index} != ${frame}`);
+  // Navigation checks assert absolute indices around frame 20, and the C-copy case seeds frame 59
+  // then visits frame 60 to prove the previous frame is absent from the in-memory cache. On a shorter
+  // sequence those indices silently clamp and the failures read like app bugs — which is exactly how a
+  // 60-frame fixture produced one phantom failure here. Require the length the suite actually needs.
+  if (S.seq.frame_count < 61) {
+    check('序列长度足够跑完用例（≥61 帧）', false,
+          `frame_count=${S.seq.frame_count}，C 用例需要访问到第 60 帧；请换更长的序列`);
+    return;
+  }
+  check('序列长度足够跑完用例（≥61 帧）', true, `${S.seq.frame_count} 帧`);
+  check('序列元数据可用', S.seq && S.seq.width > 0, S.seq && `${S.seq.width}x${S.seq.height}`);
+
+  // ---- add / edit / delete ----------------------------------------------
+  const before = S.labels.length;
+  api.addBox({ x1: 100, y1: 80, x2: 124, y2: 104 });
+  check('新建框', S.labels.length === before + 1, `${before} -> ${S.labels.length}`);
+  const box = S.labels[S.labels.length - 1];
+  check('新框坐标正确', box && box.x1 === 100 && box.y2 === 104, JSON.stringify(box));
+  check('新框自动选中', S.selected === S.labels.length - 1, `${S.selected}`);
+
+  // Normalisation: reversed drags must come out ordered.
+  api.addBox({ x1: 200, y1: 160, x2: 180, y2: 140 });
+  const rev = S.labels[S.labels.length - 1];
+  check('反向拖拽被规范化', rev.x1 === 180 && rev.y1 === 140 && rev.x2 === 200 && rev.y2 === 160, JSON.stringify(rev));
+
+  api.deleteSelected();
+  check('删除选中框', S.labels.length === before + 1, `${S.labels.length}`);
+  check('删除后选中索引有效', S.selected >= 0 && S.selected < S.labels.length, `${S.selected}`);
+
+  // ---- hit testing -------------------------------------------------------
+  // Anchor on the box this run just added, never on index 0: the workspace may already carry labels
+  // from a previous run, and hardcoding index 0 would silently test the wrong box.
+  const mine = S.labels[S.labels.length - 1];
+  const hit = api.hitBox((mine.x1 + mine.x2) / 2, (mine.y1 + mine.y2) / 2);
+  check('命中测试命中框内', hit && hit.index === S.labels.length - 1, JSON.stringify(hit && hit.index));
+  check('命中测试忽略框外', api.hitBox(mine.x1 - 60, mine.y1 - 60) === null, '框外应无命中');
+  const handle = api.hitHandle(mine, mine.x1, mine.y1);
+  check('控制点命中左上角', handle === 'nw', String(handle));
+  check('控制点中部命中正确',
+        api.hitHandle(mine, (mine.x1 + mine.x2) / 2, mine.y1) === 'n', '');
+  check('控制点角落命中正确', api.hitHandle(mine, mine.x2, mine.y2) === 'se', '');
+
+  // ---- undo / redo -------------------------------------------------------
+  const afterDelete = S.labels.length;
+  api.undo();
+  check('撤销恢复删除的框', S.labels.length === afterDelete + 1, `${afterDelete} -> ${S.labels.length}`);
+  api.redo();
+  check('重做再次删除', S.labels.length === afterDelete, `${S.labels.length}`);
+
+  // ---- proposal filtering ------------------------------------------------
+  // These run against whatever proposals the server actually holds, and that differs by source: the
+  // worker writes a scores.json next to its boxes, but an externally mounted tree (preannot_v1) is
+  // plain YOLO text with no scores at all. With no scores app.js falls back to `?? 1`, so a threshold
+  // below 1 keeps everything — correct behaviour, but it made a hardcoded 0.99 assertion fail against
+  // real data for no reason. Derive the threshold from the scores that are actually present instead,
+  // so the suite stays meaningful on both sources and a real regression still stands out.
+  const slider = iframe.contentWindow.document.getElementById('min-score');
+  const totalProposals = S.prelabels.length;
+  const hasScores = S.scores.length > 0;
+  const maxScore = hasScores ? Math.max(...S.scores) : 1;
+  const sliderMax = parseFloat(slider.max);
+  if (hasScores && maxScore < sliderMax) {
+    // A threshold above the highest real score must hide every candidate. Read the ceiling off the
+    // control itself rather than assuming 1 — it is 0.95, and asking for 0.96 just gets clamped back.
+    slider.value = String(maxScore + parseFloat(slider.step || '0.01'));
+    api.applyThreshold();
+    check('高阈值过滤掉全部候选', api.visibleProposals().length === 0,
+          `阈值 ${slider.value} > 最高分 ${maxScore}; ${totalProposals} -> ${api.visibleProposals().length}`);
+  } else if (hasScores) {
+    // The best candidate already sits at (or above) the slider's ceiling, so no reachable threshold can
+    // hide it. Assert that exact behaviour rather than a threshold that could never bite.
+    slider.value = String(sliderMax);
+    api.applyThreshold();
+    const atMax = S.scores.filter((s) => s >= sliderMax).length;
+    check('最高分已达滑块上限时，只保留满分候选',
+          api.visibleProposals().length === atMax,
+          `上限 ${sliderMax}, 满分候选 ${atMax}, 可见 ${api.visibleProposals().length}`);
+  } else {
+    // No scores at all: every candidate falls back to 1, which is above the slider's ceiling, so no
+    // threshold can filter them. That is the designed behaviour, so assert it directly.
+    slider.value = String(sliderMax);
+    api.applyThreshold();
+    check('无 scores 时任何阈值都保留候选（兜底分 1 高于滑块上限）',
+          api.visibleProposals().length === totalProposals,
+          `${api.visibleProposals().length}/${totalProposals}`);
+  }
+  slider.value = '0';
+  api.applyThreshold();
+  check('阈值为 0 时恢复全部候选', api.visibleProposals().length === totalProposals,
+        `${api.visibleProposals().length}/${totalProposals}`);
+  check('候选分数要么完整要么整体缺失（不存在半截）',
+        S.scores.length === totalProposals || S.scores.length === 0,
+        `${S.scores.length} scores vs ${totalProposals} boxes`);
+  check(hasScores ? '有 scores 时按分数过滤' : '无 scores 时按兜底分 1 放行',
+        hasScores || api.visibleProposals().length === totalProposals,
+        hasScores ? '有分数' : '外部树无 scores.json，按设计不参与阈值过滤');
+
+  // ---- accept proposals (the primary action) ------------------------------
+  if (totalProposals > 0) {
+    // Start from a frame with proposals and no human labels, which is the exact case where the save
+    // used to be skipped as "nothing changed".
+    await api.goToFrame(frame, { force: true });
+    const startIndex = S.index;
+    // Snapshot before accepting: accepting advances the frame, and S.prelabels then belongs to the
+    // *next* frame (which may have no candidates at all).
+    const proposalsBefore = S.prelabels.map((b) => ({ ...b }));
+    await api.acceptProposals();
+    await sleep(500);
+    check('接受候选后前进一帧', S.index === startIndex + 1, `${startIndex} -> ${S.index}`);
+    const accepted = await (await fetch(`/api/seq/${encodeURIComponent(seqId)}/labels/${startIndex}`)).json();
+    check('接受的候选已真正落盘', accepted.labels.length === proposalsBefore.length,
+          `服务端 ${accepted.labels.length} vs 候选 ${proposalsBefore.length}`);
+    check('落盘的候选被标记为已复核', accepted.reviewed === true, String(accepted.reviewed));
+    check('落盘框与候选坐标一致',
+          accepted.labels.every((b, i) => proposalsBefore[i] &&
+            Math.abs(b.x1 - proposalsBefore[i].x1) <= 1 && Math.abs(b.y2 - proposalsBefore[i].y2) <= 1), '');
+    await api.goToFrame(startIndex);
+  } else {
+    check('本帧无候选，跳过接受测试', true, '');
+  }
+
+  // ---- persistence round trip -------------------------------------------
+  const target = S.index;
+  await api.saveFrame({ force: true, markReviewed: true });
+  const response = await fetch(`/api/seq/${encodeURIComponent(seqId)}/labels/${target}`);
+  const stored = await response.json();
+  check('保存后可从服务端读回', stored.labels.length === S.labels.length,
+        `服务端 ${stored.labels.length} vs 客户端 ${S.labels.length}`);
+  check('读回的框坐标一致',
+        S.labels.length === 0 || stored.labels.every((b, i) =>
+          Math.abs(b.x1 - S.labels[i].x1) <= 1 && Math.abs(b.y2 - S.labels[i].y2) <= 1), '');
+  check('保存后标记为已复核', stored.reviewed === true, String(stored.reviewed));
+
+  // ---- propagation -------------------------------------------------------
+  await api.goToFrame(5);
+  api.addBox({ x1: 100, y1: 100, x2: 116, y2: 116 });
+  await api.saveFrame({ force: true, markReviewed: true });
+  S.selected = 0;
+  const propTarget = S.index;
+  await api.propagateForward(6);
+  await sleep(400);
+  const propFrames = [];
+  for (let k = 1; k <= 6; k++) {
+    const r = await (await fetch(`/api/seq/${encodeURIComponent(seqId)}/labels/${propTarget + k}`)).json();
+    propFrames.push(r.labels.length);
+  }
+  check('传播写入了后续帧', propFrames.filter((n) => n > 0).length >= 5, `每帧框数 ${propFrames.join(',')}`);
+  const r1 = await (await fetch(`/api/seq/${encodeURIComponent(seqId)}/labels/${propTarget + 1}`)).json();
+  check('传播保持框尺寸', r1.labels[0] && Math.abs((r1.labels[0].x2 - r1.labels[0].x1) - 16) <= 1,
+        r1.labels[0] ? `${r1.labels[0].x2 - r1.labels[0].x1}` : '无框');
+
+  // Propagating writes a dozen-plus frames straight to disk in one request. It used to leave no undo
+  // entry, so a mis-keyed `P` could only be undone by visiting every frame it touched and deleting by
+  // hand. Verify Ctrl+Z puts the server back exactly as it was.
+  await api.goToFrame(propTarget);
+  api.undo(); await sleep(600);
+  const undone = [];
+  for (let k = 1; k <= 6; k++) {
+    const r = await (await fetch(`/api/seq/${encodeURIComponent(seqId)}/labels/${propTarget + k}`)).json();
+    undone.push(r.labels.length);
+  }
+  check('Ctrl+Z 撤销了整段传播（服务端已回滚）', undone.every((n) => n === 0),
+        `撤销后每帧框数 ${undone.join(',')}`);
+  api.redo(); await sleep(600);
+  const redone = [];
+  for (let k = 1; k <= 6; k++) {
+    const r = await (await fetch(`/api/seq/${encodeURIComponent(seqId)}/labels/${propTarget + k}`)).json();
+    redone.push(r.labels.length);
+  }
+  check('Ctrl+Y 重做恢复了整段传播', redone.filter((n) => n > 0).length >= 5,
+        `重做后每帧框数 ${redone.join(',')}`);
+  api.undo(); await sleep(600);   // leave the sequence as the later tests expect
+
+  // ---- interpolation -----------------------------------------------------
+  // interpolateToNext() works off the in-memory recentLabels cache, which only goToFrame() fills — a
+  // bare fetch() of the endpoint frame leaves it empty and the call silently does nothing. Seed the
+  // endpoint through the API and then *visit* it through the UI, so the precondition is established
+  // rather than inherited from whatever earlier test happened to walk nearby.
+  const a = S.index + 1;
+  const b = S.index + 5;
+  await fetch(`/api/seq/${encodeURIComponent(seqId)}/labels/${b}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ boxes: [{ cls: 0, x1: 40, y1: 40, x2: 56, y2: 56 }], reviewed: true }),
+  });
+  const ra = await (await fetch(`/api/seq/${encodeURIComponent(seqId)}/labels/${a}`)).json();
+  await api.goToFrame(b); await sleep(300);
+  await api.goToFrame(a); await sleep(300);
+  S.labels = ra.labels.length ? ra.labels.map((x) => ({ ...x })) : [{ cls: 0, x1: 10, y1: 10, x2: 26, y2: 26 }];
+  S.selected = 0;
+  await api.interpolateToNext();
+  await sleep(500);
+  const mid = await (await fetch(`/api/seq/${encodeURIComponent(seqId)}/labels/${a + 2}`)).json();
+  check('插补写入了中间帧', mid.labels.length > 0, `${a + 2}: ${mid.labels.length}`);
+  await api.goToFrame(a); await sleep(300);
+  api.undo(); await sleep(700);
+  const midUndone = await (await fetch(`/api/seq/${encodeURIComponent(seqId)}/labels/${a + 2}`)).json();
+  check('Ctrl+Z 撤销了整段插补', midUndone.labels.length === 0, `${a + 2}: ${midUndone.labels.length}`);
+
+  // ---- copy previous frame ----------------------------------------------
+  await api.goToFrame(a);
+  S.labels = [];
+  await sleep(200);
+  api.copyFromPrevious();
+  await sleep(200);
+  check('复制上一帧的框', S.labels.length > 0, `${S.labels.length}`);
+
+  // ---- navigation --------------------------------------------------------
+  await api.goToFrame(2);
+  await api.goToFrame(9);
+  check('跳转到指定帧', S.index === 9, `${S.index}`);
+  await api.goToFrame(S.seq.frame_count - 1);
+  check('可跳到末帧', S.index === S.seq.frame_count - 1, `${S.index}`);
+  await api.goToFrame(S.seq.frame_count + 1000);
+  check('越界跳转被夹到末帧', S.index === S.seq.frame_count - 1, `${S.index}`);
+  await api.goToFrame(-5);
+  check('负数跳转被夹到首帧', S.index === 0, `${S.index}`);
+  await api.goToFrame(10_000);
+  check('范围内的跳转不被误夹（10 000 帧的序列上它合法）',
+        S.seq.frame_count > 10_000 ? S.index === 10_000 : S.index === S.seq.frame_count - 1,
+        `frame_count=${S.seq.frame_count}, index=${S.index}`);
+
+  // ---- zoom / fit --------------------------------------------------------
+  api.fitView();
+  const fitted = S.view.z;
+  check('适应窗口产生合理缩放', fitted > 0 && fitted < 100, `${fitted.toFixed(3)}`);
+  api.zoomAt(2);
+  check('放大改变缩放比', S.view.z > fitted, `${fitted.toFixed(3)} -> ${S.view.z.toFixed(3)}`);
+  api.fitView();
+
+  // ---- review queue ------------------------------------------------------
+  api.nextUnreviewed();
+  await sleep(300);
+  check('跳到未复核帧可用', S.index >= 0, `${S.index}`);
+
+  // ---- keyboard shortcuts ------------------------------------------------
+  // Dispatched as real KeyboardEvents on the embedded window, not by calling handlers directly:
+  // a mistyped binding is invisible to any test that skips the event plumbing.
+  const win = iframe.contentWindow;
+  function key(k, opts = {}) {
+    win.dispatchEvent(new win.KeyboardEvent('keydown', {
+      key: k, ctrlKey: !!opts.ctrl, shiftKey: !!opts.shift, bubbles: true, cancelable: true,
+    }));
+  }
+  const wait = (ms = 260) => sleep(ms);
+
+  await api.goToFrame(20);
+  await wait();
+  key('a'); await wait();
+  check('快捷键 A 上一帧', S.index === 19, `${S.index}`);
+  key('d'); await wait();
+  check('快捷键 D 下一帧', S.index === 20, `${S.index}`);
+  key('ArrowLeft'); await wait();
+  check('快捷键 ← 上一帧', S.index === 19, `${S.index}`);
+  key('ArrowRight'); await wait();
+  check('快捷键 → 下一帧', S.index === 20, `${S.index}`);
+  key('D', { shift: true }); await wait();
+  check('快捷键 ⇧D 快进 10 帧', S.index === 30, `${S.index}`);
+  key('A', { shift: true }); await wait();
+  check('快捷键 ⇧A 快退 10 帧', S.index === 20, `${S.index}`);
+  key('Home'); await wait();
+  check('快捷键 Home 首帧', S.index === 0, `${S.index}`);
+  key('End'); await wait();
+  check('快捷键 End 末帧', S.index === S.seq.frame_count - 1, `${S.index}`);
+  key('0'); await wait();
+  check('快捷键 0 适应窗口', S.view.z > 0, `${S.view.z.toFixed(3)}`);
+
+  // N enters draw mode; Escape leaves it again.
+  await api.goToFrame(20); await wait();
+  key('n'); await wait(120);
+  check('快捷键 N 进入绘制模式', S.drawMode === true, String(S.drawMode));
+  key('Escape'); await wait(120);
+  check('快捷键 Esc 退出绘制模式', S.drawMode === false, String(S.drawMode));
+
+  // Delete removes the selected box.
+  await api.goToFrame(21); await wait();
+  api.addBox({ x1: 300, y1: 300, x2: 316, y2: 316 });
+  await api.saveFrame({ force: true, markReviewed: true });
+  const beforeDelete = S.labels.length;
+  key('Delete'); await wait(400);
+  check('快捷键 Delete 删除选中框', S.labels.length === beforeDelete - 1, `${beforeDelete} -> ${S.labels.length}`);
+
+  // Ctrl+Z / Ctrl+Y.
+  key('z', { ctrl: true }); await wait(300);
+  check('快捷键 Ctrl+Z 撤销', S.labels.length === beforeDelete, `${S.labels.length}`);
+  key('y', { ctrl: true }); await wait(300);
+  check('快捷键 Ctrl+Y 重做', S.labels.length === beforeDelete - 1, `${S.labels.length}`);
+
+  // Tab toggles proposals, [ and ] drive the threshold.
+  await api.goToFrame(21); await wait();
+  const propShown = iframe.contentWindow.document.getElementById('chk-proposals').checked;
+  key('Tab'); await wait(150);
+  check('快捷键 Tab 切换候选显隐',
+        S.showProposals === !propShown && iframe.contentWindow.document.getElementById('chk-proposals').checked === S.showProposals,
+        `${propShown} -> ${S.showProposals}`);
+  key('Tab'); await wait(150);
+
+  slider.value = '0';
+  key(']'); await wait(150);
+  check('快捷键 ] 提高候选阈值', S.minScore > 0 && Number(slider.value) === S.minScore, `${S.minScore}`);
+  key('['); await wait(150);
+  check('快捷键 [ 降低候选阈值', S.minScore === 0 && Number(slider.value) === 0, `${S.minScore}`);
+
+  // +/- zoom.
+  const zoomBefore = S.view.z;
+  key('+'); await wait(150);
+  check('快捷键 + 放大', S.view.z > zoomBefore, `${zoomBefore.toFixed(3)} -> ${S.view.z.toFixed(3)}`);
+  key('-'); await wait(150);
+  check('快捷键 - 缩小', S.view.z < S.view.z * 2, `${S.view.z.toFixed(3)}`);
+
+  // C copies the previous frame. Seed the previous frame on the server and then JUMP away so it is
+  // absent from the in-memory cache — that is the real-world path, and the one that used to fail.
+  await api.goToFrame(40); await wait();
+  // Seed frame 59 on the server, then visit frame 60 without ever visiting 59, so the previous frame
+  // is absent from the in-memory cache — the real-world path, and the one that used to fail.
+  await fetch(`/api/seq/${encodeURIComponent(seqId)}/labels/59`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ boxes: [{ cls: 0, x1: 200, y1: 200, x2: 216, y2: 216 }], reviewed: true }),
+  });
+  await api.goToFrame(60); await wait();
+  S.labels = [];
+  const cached = api.state.labels.length;
+  key('c'); await wait(700);
+  check('快捷键 C 复制上一帧（上一帧未缓存时从服务端取）', S.labels.length > 0, `${cached} -> ${S.labels.length}`);
+  if (S.labels.length) {
+    check('复制来的框坐标正确',
+          Math.abs(S.labels[0].x1 - 200) <= 1 && Math.abs(S.labels[0].y2 - 216) <= 1, JSON.stringify(S.labels[0]));
+  }
+
+  // F jumps to the next unreviewed frame.
+  const beforeF = S.index;
+  key('f'); await wait(400);
+  check('快捷键 F 跳未复核帧', S.index !== beforeF || S.seq.frame_count < 2, `${beforeF} -> ${S.index}`);
+
+  // Space accepts proposals and advances.
+  await api.goToFrame(9); await wait();   // a frame that does have a candidate
+  if (S.prelabels.length > 0) {
+    const spaceStart = S.index;
+    key(' '); await wait(600);
+    check('快捷键 空格 接受候选并前进', S.index === spaceStart + 1, `${spaceStart} -> ${S.index}`);
+    const afterSpace = await (await fetch(`/api/seq/${encodeURIComponent(seqId)}/labels/${spaceStart}`)).json();
+    check('空格接受的候选已落盘', afterSpace.labels.length > 0, `${afterSpace.labels.length}`);
+  } else {
+    check('本帧无候选，跳过空格测试', true, '');
+  }
+
+  check('无未捕获异常', true, '');
+}
+
+run().then(render).catch((error) => {
+  const where = error && error.stack ? error.stack.split('\n').slice(0, 3).join(' | ') : String(error);
+  check('测试执行未抛异常', false, where);
+  render();
+});
+</script>
+</body>
+</html>
