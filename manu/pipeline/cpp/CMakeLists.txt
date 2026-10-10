@@ -91,3 +91,32 @@ add_custom_command(TARGET gmc_stream POST_BUILD
   COMMAND gmc_stream --help
   COMMENT "Sanity-checking the built binary"
 )
+# ---------------------------------------------------------------------------
+# gmc_stream_ocl -- the OpenCL/ARM variant of the same pipeline.
+#
+# Split into its own target because it needs Khronos headers and libOpenCL,
+# neither of which the CPU-only gmc_stream above requires. Keeping them apart
+# means a machine with no OpenCL can still build and run the reference.
+# ---------------------------------------------------------------------------
+find_package(OpenCL REQUIRED)
+
+add_executable(gmc_stream_ocl gmc_stream_ocl.cpp)
+
+target_include_directories(gmc_stream_ocl PRIVATE
+  ${OpenCV_INCLUDE_DIRS}
+  ${OpenCL_INCLUDE_DIRS}
+)
+
+target_link_libraries(gmc_stream_ocl PRIVATE
+  ${OpenCV_LIBS}
+  ${OpenCL_LIBRARIES}
+)
+
+# Same three flags as above: the OCL arm composes transforms in the same
+# float32 chain, so contraction or reassociation would break it identically.
+target_compile_options(gmc_stream_ocl PRIVATE
+  -ffp-contract=off
+  -fno-fast-math
+  -fno-unsafe-math-optimizations
+  -Wall -Wextra -Wno-unused-parameter
+)

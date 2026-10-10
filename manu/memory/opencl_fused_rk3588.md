@@ -153,6 +153,8 @@ channel |      0 |     1 |    2 |   3 | 4-6 | >=7
 0. **【2026-10-09 已交付，待板卡实跑】环境探针 `manu/pipeline/opencl/board/`**：在移植任何融合内核之前，先确认板卡上究竟有没有可用的 OpenCL 栈。`board_cl_probe.cpp` 通过 **dlopen** 依次尝试 `libOpenCL.so.1` / `libOpenCL.so` / `libmali-vendor.so[.1]` / `libpocl.so.2`，打印 ICD 配置、平台、设备（含 extensions）、跑一个平凡 kernel 并逐元素校验，输出 `PROBE RESULT: PASS/FAIL`。已用 buildroot 工具链交叉编译出 **28KB aarch64 ELF**（仅依赖 `libdl/libstdc++/libm/libgcc_s/libc`），host 原生自测 **PASS / exit 0**。
    - **为什么用 dlopen 而非 `-lOpenCL`**：交叉工具链 sysroot 里**没有任何 OpenCL**，SDK 也只有 buildroot 配方没有预编译库，链接期依赖根本无法满足；改成运行期决定后，「没有 OpenCL」变成一条干净的报告而不是链接错误，还能顺带报出究竟是 ICD loader 还是直连 Mali 驱动。
    - **未完成**：投递到 NFS 需用户执行一次 `sudo`（`/mnt/manu` 为 `root:root 0755`，本机 `manu` 无写权限，见 `rules.md` 1b）；板卡登录本机无 `sshpass`，运行命令须用户手工执行。**板卡上的真实 OpenCL 栈尚属未知**，下面第 2~4 项都以此为前置。
+
+> ⚠️ **以上为 2026-10-09 摸底时的状态，已全部解决**：板卡 OpenCL 栈已探明（Mali-G610 r0p0，见第 2 节）、NFS 已通、pexpect 已封装可自动登录（见 `rules.md` 1b 末条）。
 1. ~~在 x86 上验证 Mali 特性~~ —— 不可行，Mali 行为必须以真机为准（见第 2 条）。
 2. ~~**RK3588 上实测重测 `--hw-linear`**~~ ✅ **已实测，答案是否定的**（见 8.2）。
 3. **分段计时**：⚠️ 板卡约束（实测）：`clGetEventProfilingInfo` **返回失败**，事件级 profiling 不可用 ⇒ 只能给 `clEnqueue + clFinish` 墙钟**上界**。且 Mali **首次启动某 kernel 会现场编译**，单次数字必须区分首次与稳态（探针实测 0.475 ms → 0.344 ms）。
@@ -180,7 +182,7 @@ LK → `estimateAffinePartial2D(RANSAC, 3.0)`，与 `gmc_stream.cpp` 同原语�
 每 lag 位移 0.95~1.17 px，**pad=67**（真实运动所需，远超 x86 合成用例），padded 774×646。
 
 **CPU 基准**：在 x86 用真实 `cv::warpAffine(..., INTER_LINEAR, BORDER_REFLECT)` 算好后随包发到板卡。
-**理由：无任何 arm64 OpenCV**（工具链 sysroot、厂商 SDK、板卡本身都没有），在板卡重实现 OpenCV
+**理由：当时无任何 arm64 OpenCV**（工具链 sysroot、厂商 SDK、板卡本身都没有；⚠️**该前提 2026-10-10 已被打破**，见第 9 节），在板卡重实现 OpenCV
 插值等于验证「我自己的重实现」而非 kernel，构成循环论证。
 
 **判决一：`FUSED_USE_HW_LINEAR` 必须为 0（manual 双线性）。**
@@ -201,14 +203,74 @@ LK → `estimateAffinePartial2D(RANSAC, 3.0)`，与 `gmc_stream.cpp` 同原语�
 `{CL_R, CL_UNORM_INT8}` 被接受 ⇒ 22 张 padded 图 **10.5 MiB**；若用 CL_RGBA 则 **42 MiB**（4 倍）。
 `clCreateImage`（OpenCL 2.0）在 Mali 上**正常工作**，无需退回 `clCreateImage2D`。
 
-**判决三：真机时延（首个可信的板卡数字）**
+**判决三：真机时延（首个可信的板卡数字）——⚠️ 分三段实测，勿再当「全程 4 ms」引用**
 
-| 臂 | ms/帧 |
+2026-10-09 首轮只把 `clEnqueueNDRangeKernel + clFinish` 圈进计时窗口，
+**22 张图的上传在 `t0` 之前、回读在 `t1` 之后，两者当时并未计入**，
+因此「3.7~4.8 ms」**只是 kernel 执行时间，不是尾段总成本**。工具已改为三段分开计时并求和：
+
+| 阶段 | ms/帧（manual 臂，3 个 case） |
 | :--- | :--- |
-| hw-linear | 4.17 / 4.38 / 4.17 |
-| manual | 4.81 / 3.86 / 3.71 |
+| upload（22 张 padded 图） | 3.326 / 2.870 / 2.719 |
+| kernel（enqueue + finish） | 5.706 / 4.054 / 3.867 |
+| readback | 0.122 / 0.110 / 0.111 |
+| **合计（尾段真实成本）** | **9.154 / 7.035 / 6.697** |
 
-⚠️ 三重限定，引用时必须一并给出：**① `clEnqueue + clFinish` 墙钟上界**（事件级 profiling 在
-本驱动上不可用，取不到 device-side 时间）；**② 含 22 张图的 upload + readback 全程**，不是纯 kernel；
-**③ 首次启动某 kernel 含 JIT 现场编译**，须区分首次与稳态。
-同批数据在 PoCL 上是 100~850 ms ⇒ 真机 GPU 相对 CPU 模拟约 **25~30×**。
+⇒ **upload 约占 40%**，与 kernel 同量级。引用尾段成本请用**合计 6.7~9.2 ms**，不要用 kernel 单项。
+
+⚠️ 即便如此，**本节合计仍不含 GMC fit**——`board_fused_accuracy` 不重算 fit，mats 由 x86 算好后随包下发。
+
+> 🔴 **2026-10-10 更新：本节上述两个前提均已被推翻，勿再引用。**
+>
+> **（1）「无任何 arm64 OpenCV」已不成立。** 已交叉编译出 arm64 OpenCV 4.10.0 并在板卡跑通完整链路，
+> `gmc_stream_ocl.cpp` **原样**编译即可在板卡执行 Shi-Tomasi / LK / RANSAC。详见 `opencv_arm64_parity.md`
+> 与 `gmc_ocl_board_run.md`。
+>
+> **（2）「fit 从未在板卡测过」已解决**，且**第五节的「5 倍分歧」得到裁决——板卡实测 fit 只有 17.3 ms/帧，
+> 不是 x86 折算的 30~41 ms。** x86 纯 CPU 实测 fit 为 10.15 ms/帧，板卡 17.34 ms（慢 1.71×）。
+> 旧折算 4.8~6.6 ms/次 × 6.19 次/帧 之所以偏高，是因为它按单次 fit 计，而实测口径不同。
+>
+> **（3）更重要的是：fit 根本不是瓶颈。** 板卡完整流水线 156.5 ms/帧的构成是
+> **warp 67.4 + median 67.2 = 86.1%**，fit 仅 17.3 ms（11.1%），GPU 尾段仅 5.4 ms（3.4%）。
+> **真正该优化的是 CPU 的 warp 与 median，不是 fit，也不是 GPU。**
+
+三重限定仍成立：① 墙钟**上界**（本驱动事件级 profiling 不可用，取不到 device-side 时间）；
+② 首次启动某 kernel 含 JIT 现场编译；③ 分辨率为 640×512、pad=67、padded 774×646。
+同批数据在 PoCL 上合计为 131~135 ms ⇒ 真机 GPU 相对 CPU 模拟约 **15~20×**。
+
+
+
+---
+
+## 9. 完整流水线在板卡跑通（2026-10-10，取代前文所有局部结论）
+
+前面各节都是**局部**测量：`board_cl_probe` 测环境，`board_fused_accuracy` 用 x86 下发的 mats 测 kernel。
+本节是**第一次在板卡上跑完整条特征通道**，且用的是 x86 的权威 CPU 实现做基线。
+
+**运行**：`gmc_stream_ocl.cpp`（**未改一行源码**）交叉编译为 arm64，读 BMP 序列 → GMC fit（CPU）
+→ fused OpenCL kernel（Mali-G610）→ Ch0/Ch1/Ch2。
+
+**精度**（板卡 vs x86 `gmc_stream.cpp` 纯 CPU 权威基线，60 帧同一份 BMP、同参数）：
+
+| 通道 | Max\|Diff\| | MAE | 位精确 |
+| :--- | :--- | :--- | :--- |
+| Ch0 | **0** | 0.000000 | 100.0000% |
+| Ch1 | **0** | 0.000000 | 100.0000% |
+| Ch2 | 1 | 0.000000 | 100.0000% |
+
+**59/60 帧三通道完全位精确**；唯一差异是第 41 帧 Ch2 的单个像素，且前后帧完全一致 ⇒ 舍入抖动，非系统性漂移。
+transform 矩阵 126/126 全等。
+
+**性能**（四配置，各重复 3 次取中位数，ms/帧）：
+
+| 配置 | fit | warp | median | GPU 尾段 | total | fps |
+| :--- | --- | --- | --- | --- | --- | --- |
+| **板卡 GPU 臂** | 17.34 | 67.37 | 67.23 | **5.38** | **156.50** | **6.39** |
+| 板卡 CPU 臂 | 21.51 | 67.69 | 64.73 | — | 150.36 | 6.65 |
+| x86 OCL（PoCL） | 7.49 | 27.04 | 36.34 | 106.63 | 176.52 | 5.67 |
+| x86 `gmc_stream.cpp` 纯 CPU | 10.15 | 27.20 | 33.03 | — | 68.69 | 14.56 |
+
+⇒ GPU 融合尾段加速 **24.6×**；**只用 GPU 尾段可达 44 fps**（fit 17.3 + gpu 5.4）；
+板卡 CPU 比 x86 CPU 慢 **2.19×**；x86 上 GPU 反而比 CPU 慢 0.59×（PoCL 模拟，两硬件差 19.8 倍）。
+
+完整细节见 `gmc_ocl_board_run.md`。

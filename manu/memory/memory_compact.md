@@ -117,7 +117,32 @@ Trial 0474 + 双向时空平滑 + 碎片缝合 + 高确信插补 + 刚性坏点�
 
 - **交付**：`manu/pipeline/opencl/board/`（`board_cl_probe.cpp` + `build_board_probe.sh` + `deploy_and_run.py` + README）。枚举平台/设备、解析 ICD、跑平凡 kernel 并逐元素校验。**已在板卡实跑 `PROBE RESULT: PASS` / exit 0**，传输前后 MD5 一致（`ec641df354e998b21e51a22ee016159f`）。
 - **设计要点**：用 **dlopen** 而非 `-lOpenCL`——工具链 sysroot 无任何 OpenCL、SDK 只有 buildroot 配方，链接期依赖无法满足；改为运行期决定后，「无 OpenCL」变成干净报告而非链接错误，并能报出是 ICD loader 还是直连 Mali。
-- ✅ **板卡 `evm3588` 实测**：Ubuntu 20.04.6 LTS，内核 `5.10.160`；8 核 = 4×A76 + 4×A55；**RAM 7.7 GiB**（⚠️ memory 里「16G/14G/1.7G」是**磁盘**，且 `/mnt/manu` 与 `/` 同一文件系统）；GPU 已就绪（`/dev/mali0`，内核内建驱动，`lsmod` 查不到属正常）；**Python cv2 4.12.0 可用但无 OpenCV C++ 开发头**。
+- ✅ **板卡 `evm3588` 实测**：Ubuntu 20.04.6 LTS，内核 `5.10.160`；8 核 = 4×A76 + 4×A55；**RAM 7.7 GiB**（⚠️ memory 里「16G/14G/1.7G」是**磁盘**，且 `/mnt/manu` 与 `/` 同一文件系统）；GPU 已就绪（`/dev/mali0`，内核内建驱动，`lsmod` 查不到属正常）。
+- 🔴 **板卡 OpenCV C++ SDK 专项探测（`board_opencv_probe`，双证据一致 = 无）**：**板卡有完整编译器**（`gcc/g++ 9.4.0`、`make`、`/usr/local/bin/cmake`、`pkg-config`，**可原生编译**）；但 OpenCV C++ SDK **不存在**——`dpkg` opencv 包 0 个、`pkg-config opencv4/opencv` not found、全盘扫**头文件 0 / `libopencv*.so` 0**、`dlopen libopencv_core.so` 失败，**且实际 `g++ -lopencv_core` 两次均报 `fatal error: opencv2/core.hpp: No such file or directory`**。
+  ⚠️ **`import cv2` 成功 ≠ 装了 OpenCV**：4.12.0 是 pip wheel 的 `cv2.abi3.so` 自包含模块，不带头文件/可链接库/`.pc`。
+  ✅ **但 apt 有候选 `libopencv-dev 4.2.0+dfsg-5`** ——⚠️ **远低于 x86 侧 4.10.0**，直接装会破坏「调用同一批 OpenCV C++ 原语」的位精确前提，装前须做等价性验证。
+  - ✅ **已解决：自行交叉编译 arm64 OpenCV 4.10.0，板卡实跑通过（2026-10-09）**，不再依赖 apt 的 4.2.0。
+    - **产物**：`/media/manu/1TB-Volume/workspace/opencv-4.10.0-arm64-install`（静态库，模块 `core imgproc features2d video calib3d flann`，全关 IPP/OCL/FFMPEG/图像编解码/LAPACK/TBB），**约 4 分钟**编译完成；源码 worktree `/media/manu/1TB-Volume/workspace/opencv-4.10.0-arm64`（用户原有 5.x 树未动）。
+    - **跨架构一致性实测（59 帧 × 19,333,120 元素，逐算子 dump 对比）**：`resize` / `goodFeaturesToTrack` / LK status / LK 输入点 / **RANSAC 内点掩码** = **全部位精确**；LK 亚像素位置 max **1.06e-4 像素**、RANSAC 矩阵 max **1.64e-5**；`warpAffine` **56/59 帧位精确**，19.3M 像素中**仅 11 个不同（0.000057%）**、最大 2/255；21 元素 median **38/39 帧位精确**，12.8M 中**仅 1 个不同**。
+      ⇒ **判决：arm64 OpenCV 可用于特征通道**；RANSAC 判定在两架构完全一致，差异停在 float32 末位。
+    - 🔴 **FMA 归因假设被实测证伪**：同架构 x86 上 `OPENCV_CPU_DISABLE=AVX2,AVX512_SKX,FP16,SSE4_1,SSE4_2` 关掉带 FMA3 的 dispatch 后，**13 个 stage 全部 59/59 位精确** ⇒ LK 差异与 FMA 无关，真实来源是**架构特定 SIMD 实现（x86 SSE/AVX vs aarch64 NEON/carotene）+ 编译器版本差 6 年（gcc 15.2.0 vs gcc 9.3.0）**，不可消除。
+      ⚠️ 顺带更正我自己的错误推理：x86 参考版 `Baseline: SSE SSE2` 无 FMA，**但有 runtime dispatch 实际走带 FMA3 的 AVX2/AVX512 路径**，基线无 FMA ≠ 执行路径无 FMA。`OPENCV_CPU_DISABLE=FMA3` 无效（FMA3 不是独立 dispatch 名）。
+    - 🔴 **样本量教训**：首轮只跑 23 帧，`warp_dst`/`median_out` 恰好全一致，我据此判「差异未传播」；**扩到 59 帧后被推翻**（warp 有 3 帧、median 有 1 帧存在差异）。稀疏差异必须用**跨全部元素的绝对计数**报告，**「零观测」≠「不存在」**。
+    - **三个静默构建坑**：① 系统 CMake 4.2.3 会**硬拒** OpenCV 4.10 的 `cmake_minimum_required(3.1)`，须用 3.31.6（不改源码以保持与 tag 逐字节一致）；② 链接报 `carotene_o4t::split*` 未定义，实际库名是 **`tegra_hal`**，装在 `lib/opencv4/3rdparty/`（**不在 `lib/`**）；③ 即使 `WITH_JPEG=OFF`，`persistence.cpp` 仍引用 zlib，须加 **`-lzlib`**（文件名 `libzlib.a`）。
+    - ⚠️ **交叉前缀更正**：板卡 glibc **2.31**，sysroot **2.29**；`aarch64-rockchip930-linux-gnu-` **无 sysroot 目录**，早期「板卡对应 rockchip930-」的推断是**错的**，应用 `aarch64-rockchip-linux-gnu-`。
+    - 详见 `memory/opencv_arm64_parity.md`；工具在 `pipeline/opencl/board/`（`build_opencv_arm64.sh`、`rk3588-aarch64-toolchain.cmake`、`opencv_parity.cpp`、`gen_opencv_parity_case.cpp`、`compare_opencv_parity.py`、`push_and_run.py`）。
+    - ⚠️ 跑对比脚本要用 **`/home/manu/anaconda3/bin/python`**（系统 `python3` 无 numpy）。
+    - ✅ **2026-10-10：`gmc_stream_ocl.cpp` 原样交叉编译后在板卡跑通完整链路**（读 BMP → GMC fit → fused kernel → Ch0/Ch1/Ch2，**未改任何源码**）。
+      **跨架构精度 PASS**：板卡 vs **x86 `gmc_stream.cpp` 纯 CPU 权威基线**同参数同输入，**Ch0/Ch1 Max|Diff|=0 全位精确**，Ch2 仅第 41 帧 1 个像素差 1 级（前后帧完全一致 ⇒ 舍入抖动非系统性漂移）；transform 矩阵 126/126 全等。**三条链路闭合**：`板卡 GPU` ≈ `x86 gmc_stream.cpp` ≈ `x86 gmc_stream_ocl`；x86 上两实现 MD5 相同互为印证。
+      **性能**（重复 3 次中位数，四配置）：板卡 GPU 臂 total **156.50 ms（6.39 fps）**；板卡 CPU 臂 150.36；x86 OCL(PoCL) 176.52；**x86 `gmc_stream.cpp` 纯 CPU 68.69（14.56 fps）**。GPU 加速 **24.6×**（132.4→5.38，kernel 3.84）；只用 GPU 尾段可达 **44 fps**。
+      🔴 **板卡 CPU 比 x86 CPU 慢 2.19×**（同源码/同输入/单线程）⇒ CPU 路径在板卡不划算，这是选 GPU 融合的现实依据。
+      🔴 **x86 上 GPU 比 CPU 慢 0.59×**（PoCL 模拟），同二进制两硬件差 **19.8 倍** —— 再次证实 PoCL 结果不可当板卡性能。
+      🔴 **当前瓶颈是 CPU 不是 GPU**：CPU 占 97%、GPU 仅 3.4%。
+    - 🔴 **三条推翻旧认知的事实**：① **x86 参考实际链接系统 libjpeg-turbo 2.1.5**（非内建 3.1.2），源码树 3.0.3、板卡 1.5.2/2.0.3 —— **四者无一匹配** ⇒ 改走 **BMP**（OpenCV 内置、零外部依赖、无压缩无解码分歧，实测往返无损）；② **板卡链接期 OpenCL 可用**（`libOpenCL.so.1` 34 KB 在 ldconfig 里，探针 `context=OK`），旧记录「无 loader」不准确，`ocl_host.h` 无需改 dlopen；③ **`imgcodecs` 进 BUILD_LIST 必须加 `-DWITH_OPENJPEG=OFF`**，否则链接期报 `opj_*` undefined。
+    - ⚠️ **逐算子比端到端更严格**：`opencv_parity` 里 `warp_dst` 差 11/19.3M 像素，端到端跑完只剩 **1 个**像素浮出。
+    - 🔴 **本轮推翻了 `opencl_fused_rk3588.md` 的两条旧结论**：① 「无任何 arm64 OpenCV」已不成立；② 「fit 从未在板卡测过」已解决，且旧的「5 倍分歧」获裁决——**板卡实测 fit 仅 17.3 ms/帧，不是折算的 30~41 ms**；③ **真正瓶颈是 CPU 的 warp+median（86.1%），不是 fit（11.1%）也不是 GPU（3.4%）**。
+    - ⚠️ **四个可复用的坑**（详见 `falsified_archive.md` 第三十七节）：**build info ≠ 运行时链接的库**（x86 实际是 turbo 2.1.5，非配置串里的 3.1.2）；**依赖版本对不上时换格式而非硬凑版本**（改 BMP）；**新增模块后必须有真调 API 的链接测试**（`imgcodecs` 的 OpenJPEG 只在链接时炸）；**`.icd` 坏 ≠ ICD 机制不可用**（loader 一直在，只是它指向的库不在）。
+    - 详见 `memory/gmc_ocl_board_run.md`。
 - ✅ **Mali OpenCL 实测可用**：`Mali-G610 r0p0`，OpenCL 3.0 `v1.g13p0-01eac0`，FULL_PROFILE，**4 CU**、max WG 1024、global 7902.1 MiB、local 32 KiB。**ICD 是目录式**（ARM 布局，`mali.icd`），且 **`.icd` 指向的 `libMaliOpenCL.so.1` 根本不存在**，真正驱动是 `libmali.so.1.9.0`（包 `libmali-valhall-g610-g13p0-x11-gbm`）——排查时直接 `find`，别信 `.icd`。
 - 🔴 **真机推翻三条原计划**：①**无 `cl_khr_fp64`** ⇒ double-float 回退作废（有 `cl_khr_fp16`）；②**事件级 profiling 不可用** ⇒ 板卡取不到 device-side 时间，只能给 `clEnqueue+clFinish` 墙钟**上界**；③Mali **首次启动某 kernel 会现场编译**（探针 0.475 ms → 二次 0.344 ms），单次数字必须区分首次/稳态。可用扩展：`cl_khr_image2d_from_buffer`、`cl_khr_egl_image`、`cl_khr_suggested_local_work_size`、完整 subgroup 系列。
 - 🔴 **NPU 当前不可用**：`/dev/rknpu` 不存在、`/proc/devices` 无 rknpu 条目、`dmesg` 无 rknpu 行；`/usr/lib/librknnrt.so`（7.26 MB）**已装但无设备节点** ⇒ 当前内核未使能 rknpu 驱动，**RKNN 路线走不通**。⚠️ **OpenCL 走 GPU 与 NPU 无关，探针 PASS 不代表 NPU 可用。**
@@ -127,7 +152,7 @@ Trial 0474 + 双向时空平滑 + 碎片缝合 + 高确信插补 + 刚性坏点�
 ### 🔴 真机精度验证定论（2026-10-09，Mali-G610，详见 `opencl_fused_rk3588.md` 8.2）
 
 交付 `manu/pipeline/opencl/board/{gen_fused_case.cpp, board_fused_accuracy.cpp, fused_case_format.h}`：
-x86 用**真实 OpenCV** 算 CPU 基准（**因全链路无任何 arm64 OpenCV**，在板卡重实现 OpenCV 等于自证），
+x86 用**真实 OpenCV** 算 CPU 基准（**当时**全链路无任何 arm64 OpenCV ⚠️**该前提 2026-10-10 已不成立**，见本节后续条目），在板卡重实现 OpenCV 等于自证），
 板卡无 OpenCV、只 dlopen OpenCL，跑**两个采样臂**。
 
 - **判决一：`FUSED_USE_HW_LINEAR` 必须为 0（manual 双线性）。** 数据：Anti-UAV `01_4485_1167-2666` 640×512、**真实 GMC**、3 case、pad=67。
@@ -136,7 +161,8 @@ x86 用**真实 OpenCV** 算 CPU 基准（**因全链路无任何 arm64 OpenCV**
   - **决定性证据是 Ch0**：整数坐标直读本应逐位还原却错 130 ⇒ **Mali 的 `CLK_FILTER_LINEAR` 连整数坐标都不还原原值**。
   - manual 臂 Ch1/Ch2 与已记录的 x86 基线一致 ⇒ 工具正确，差异来自硬件。
 - **判决二：Mali 支持 1 字节/像素**，`{CL_R, CL_UNORM_INT8}` 可用 ⇒ 22 张 padded 图 **10.5 MiB**（CL_RGBA 为 42 MiB）；`clCreateImage`(2.0) 在 Mali 正常工作。**「CL_R8 vs CL_RGBA 带宽」项结案。**
-- **判决三：真机时延 3.7~4.8 ms/帧**（hw-linear 4.2~4.6）。⚠️ 三重限定不可省略：enqueue+clFinish 墙钟**上界**、含 22 张图 upload+readback 全程、首次含 JIT。同批 PoCL 为 100~850 ms ⇒ 真机约 **25~30×**。
+- ⚠️ **判决三（2026-10-09 已更正）**：首轮「3.7~4.8 ms」**只圈了 kernel**（upload 在计时窗口之前、readback 在之后），**不是尾段总成本**。三段实测（manual 臂）：**upload 2.72~3.33 + kernel 3.87~5.71 + readback 0.11~0.12 = 合计 6.70~9.15 ms/帧**，upload 约占 40%。同批 PoCL 合计 131~135 ms ⇒ 真机约 **15~20×**。
+   🔴 **本节合计仍不含 GMC fit**（mats 由 x86 下发）。⚠️ **此处对 fit 的判断已被 2026-10-10 实测推翻**（当时无 arm64 OpenCV；fit 实测仅 **17.34 ms/帧**，非折算的 30~41 ms）。真实瓶颈是 **CPU 的 warp+median（86.1%）**，非 fit 非 GPU。墙钟均为**上界**（事件级 profiling 不可用），首次含 JIT。
 - 🔴 **顺带证伪 `ocl_host.h` 两个规格常量**：`CL_R8=0x10D0` 实为 `CL_SNORM_INT8`（非法 channel_order，正确是 `{CL_R,CL_UNORM_INT8}`）；`CL_IMAGE_OBJECT_2D=0x10F0` 实为 `CL_MEM_OBJECT_BUFFER`（应为 `0x10F1`）。**在 x86 被双重掩盖**（PoCL 拒绝→退 CL_RGBA；`clCreateImage` 失败→走不读 `image_desc` 的 `clCreateImage2D`），**上 Mali 两条同时生效**。
 - **可执行文件禁止经 NFS 投递**：x86 写入后在板卡执行报 `Text file busy`，换新名也无效 ⇒ **二进制走 SSH、数据走 NFS**。
 - 另有四个坑已入 `falsified_archive.md` 第三十五节：`/*__SORTNET__*/` 未拼接导致 **Ch2 静默错误而 Ch0/Ch1 完美**（已加 FATAL 闸门）、上传未按 `nch` 扩展行距致越界、`clCreateSampler` 是 **5 参数**（漏 `normalized_coords` 即参数左移崩溃）、`clSetKernelArgSampler` 在 ocl-icd 上不存在（改用 `clSetKernelArg` 传 `cl_sampler`）。

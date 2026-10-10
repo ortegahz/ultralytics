@@ -63,11 +63,24 @@
   ```
   实测生效参数：`nfs4 vers=4.2, rsize/wsize=1048576, hard, proto=tcp, timeo=600, retrans=2, local_lock=none`，客户端地址 `192.168.0.115`。**端口 22 与 NFS 均可达**，SSH 横幅 `OpenSSH_8.2p1 Ubuntu-4ubuntu0.12` ⇒ 板卡为 **Ubuntu base 的 arm64 Linux**。
 - ⚠️ **NFS 导出是 root 属主，本机 `manu` 无写权限（2026-10-09 实测）**：`/mnt/manu` 为 `root:root 0755`，`find -writable` 在整棵树上返回空，`touch` 直接 `Permission denied`。**投递产物必须由用户执行一次 `sudo mkdir/cp`**（Agent 无法完成，见铁律一）。截至该日板上 `/mnt/manu` 仅有一个 0 字节的 `1.txt`，实质为空。
+  - ✅ **实测补充（2026-10-09 OpenCV 交叉编译轮）**：本机在 `/home/manu/mnt/nfs/` 下 `touch` 仍 `Permission denied`；但**已存在的 `/mnt/manu/fused/` 是 `drwxrwxrwx`，可写**。其余（`cl_probe/`、`fused_exec/`、`_abiprobe/`）均为 `drwxr-xr-x`，本机不可写。
+    ⇒ **推论：新目录不能靠本机 `mkdir` 造出来，必须先 SSH 上去 `chmod 777` 该目录**（板卡上是 root，可免 sudo）。这是「权限」问题而非「挂载」问题，别误判为 NFS 不可用。
 - 🔴 **可执行文件禁止经 NFS 投递（2026-10-09 实测踩坑）**：x86 往 `/mnt/manu` 写入文件后立即在板卡上执行，一律 `Text file busy`，**换新文件名也无效**（不是 inode 问题，是 NFS 服务端写入尚未完成）。
   ⇒ **分工：可执行文件走 SSH 传输，只有数据文件走 NFS。** 本轮据此把交叉编译产物放 `/mnt/manu/fused_exec/`（SSH 写入 + MD5 校验），34 MiB 用例包仍走 NFS（`/mnt/manu/fused/`）。
 - **意义**：本项目**首个真实 NPU 硬件载体**。此前 RK3588 全部工作止于 x86 侧 C++ 移植与 Golden Reference（`memory/cpp_port_rk3588.md`），**板卡到手后「能否真跑」这一阻塞项解除**；NFS 打通后 x86 ↔ 板卡可直接传产物，不必每次 scp。
-- ⚠️ **板卡磁盘余量极紧**：实测 `16G 总量 / 14G 已用 / 1.7G 可用（89%）`。**任何转 rknn、装 runtime、拷模型的板卡操作前必须先看 `df -h /`**；模型与数据集放 `/mnt/manu`（即本地 `/home/manu/mnt/nfs`）前先估算 GiB，参照铁律二的缓存体积红线。
-- ⚠️ **铁律三同步义务仍只覆盖 x86 服务器**（`/home/manu/mnt/pycharm_project_10ae9e2e/`）。NFS 只暴露板卡的 `/mnt/manu`，**代码仓库不在其内**；代码改动仍须显式 scp/rsync，NFS 不能替代代码同步。
+- 🔴 **板卡存储空间有限：需要什么就 copy 到 NFS，不要堆板卡本地磁盘（2026-10-09 用户明确指示）**
+  - **板卡磁盘余量极紧**：实测 `16G 总量 / 14G 已用 / 1.7G 可用（89%）`。**任何转 rknn、装 runtime、拷模型的板卡操作前必须先看 `df -h /`**；模型与数据集放 `/mnt/manu`（即本地 `/home/manu/mnt/nfs`）前先估算 GiB，参照铁律二的缓存体积红线。
+  - ⇒ **规则：除「必须可执行」外，板卡需要的一切都放 NFS。** 具体分工：
+    | 内容 | 通道 | 原因 |
+    | :--- | :--- | :--- |
+    | 可执行文件（`.bin`/ELF） | **SSH** | 经 NFS 执行必报 `Text file busy`（见上一条实测） |
+    | 输入数据（图像、原始帧、用例包） | **NFS** | 占板卡本地磁盘，且 x86 侧可直接原地读 |
+    | 输出产物（dump、日志、报告） | **NFS** | 同上；**x86 侧直接读来做对比，不必再传回 x86** |
+    | 交叉工具链 / SDK / OpenCV 源码与静态库 | **x86 本地，严禁上板** | 见 2b |
+  - **为什么输出也走 NFS（关键收益）**：跨架构对比的产物动辄几十 MB。若板卡写本地再 scp 回 x86，就是「占板卡磁盘 + 双份传输」；写 NFS 后 x86 侧在 `/home/manu/mnt/nfs/<dir>/` 直接比对，**板卡不必为了把结果送回去而再存一份**。
+    🔴 **但 NFS 不等于不占磁盘**（2026-10-09 实测更正过一次自我错误）：`/mnt/manu` 与 `/` 是**同一文件系统**，NFS 目录物理上就在板卡上。本轮 202 MB dump 使板卡可用空间从 **1.7G → 1.5G**。**收益是省传输与省重复副本，不是省存储**——dump 体积仍须估算。
+  - ⚠️ **新目录先 SSH chmod**：见上一条实测——本机无权在 `/mnt/manu` 下 `mkdir`，须 `ssh root@… 'mkdir -p <dir> && chmod 777 <dir>'`。
+  - ⚠️ **铁律三同步义务仍只覆盖 x86 服务器**（`/home/manu/mnt/pycharm_project_10ae9e2e/`）。NFS 只暴露板卡的 `/mnt/manu`，**代码仓库不在其内**；代码改动仍须显式 scp/rsync，NFS 不能替代代码同步。
 - ⚠️ 板卡上**任何 `runs/` 权重都不存在**（权重只在 x86 的 `runs/optuna_p0_nas/trial_0474/weights/best.pt`，`runs/` 从未纳入同步链路）。涉及板卡推理的交付，必须把**权重与数据双端就位**列为前置检查项。
 - ✅ **首次接触摸底已完成（2026-10-09 实测，非推测）**，主机名 **`evm3588`**：
   - **SoC/CPU**：8 核 = 4× Cortex-A76（CPU part `0xd05`）+ 4× Cortex-A55（`0xd0b`），implementer `0x41`；A76 max 2352 MHz / min 408 MHz。
@@ -76,7 +89,13 @@
   - **磁盘**：`/dev/root 16G / 14G used / 1.7G avail (89%)`，且 **`/mnt/manu` 与 `/` 是同一文件系统** ⇒ 往 NFS 写东西直接吃那 1.7G。
   - **GPU 已就绪**：`/dev/mali0` 存在；`/dev/dri/{card0,card1,renderD128,renderD129}` 存在；`dmesg` 有 `mali fb000000.gpu: Kernel DDK version g18p0-01eac0`。**Mali 驱动是内核内建的**（`lsmod` 查不到 mali 模块属正常，不是缺陷）。
   - **OpenCL 可用且实测通过**（详见 `opencl_fused_rk3588.md`）。
-  - **OpenCV**：Python `cv2` **4.12.0 可用**；但 `/usr/include/opencv4` 与 `/usr/local/include/opencv4` **都不存在** ⇒ **板卡也没有 OpenCV C++ 开发头**。与 2b 的工具链 sysroot 缺口叠加 ⇒ `gmc_stream.cpp` 交叉编译必须另找 arm64 OpenCV SDK。
+  - ✅ **OpenCV C++ SDK 专项探测（2026-10-09 `board_opencv_probe` + 实际编译尝试，双证据一致）**：
+    - **板卡有完整编译器**：`gcc 9.4.0` / `g++ 9.4.0` / `make` / `/usr/local/bin/cmake` / `pkg-config`。**可在板卡上原生编译**，不必一律交叉编译。
+    - 🔴 **但没有 OpenCV C++ SDK**，四路证据一致：`dpkg` opencv 包 **0 个**；`pkg-config opencv4/opencv` **均 not found**；全盘扫（depth 6，跳过 proc/sys/dev/run/tmp/var/media/boot/mnt/home）**头文件 0 个、`libopencv*.so` 0 个**；`dlopen libopencv_core.so` **失败**。
+    - **决定性证据是实际编译**：`g++ -lopencv_core` 与 `g++ -I/usr/include/opencv4 -lopencv_core` **两次都报 `fatal error: opencv2/core.hpp: No such file or directory`**。
+    - ⚠️ **Python `cv2` 4.12.0 不等于装了 OpenCV**：它在 `/usr/local/lib/python3.8/dist-packages/cv2/cv2.abi3.so`，是 **pip wheel 的自包含扩展模块**，不提供头文件、可链接库、`.pc` 文件。以后不得据 `import cv2` 成功推断「板卡有 OpenCV」。
+    - ✅ **但 apt 源里有候选包**：`apt-cache policy libopencv-dev` ⇒ **Candidate 4.2.0+dfsg-5**。⚠️ **版本远低于 x86 侧的 4.10.0**，直接安装会破坏位精确性前提（见下），装前必须先做等价性验证。
+    - ⇒ 结论：`gmc_stream.cpp` 若要在板卡编译，**必须先提供 arm64 OpenCV**；本工具链 sysroot 没有，板卡也没有现成的。
   - **EGL**：`libEGL.so.1.1.0` 与 `libEGL_mesa.so.0` 并存。
   - 🔴 **NPU 当前不可用（关键阻塞）**：`/dev/rknpu` **不存在**，`/proc/devices` 中**无 rknpu 条目**，`dmesg` 无任何 rknpu 行。`/usr/lib/librknnrt.so`（7.26 MB，2026-02-05，另有 `librknnrt.so_bak`）**已安装但设备节点缺失** ⇒ **当前内核配置未使能 rknpu 驱动**，RKNN 推理在现状下跑不起来。须先解决驱动/设备节点。
   - `python3 -c "import rknn"` → `ModuleNotFoundError`。这是**正常**的：RKNN-Toolkit2 是 x86 侧把模型转 `.rknn` 的 Python 包，板卡只需 `librknnrt.so` 运行时。
@@ -100,7 +119,13 @@
 - **SDK 资料**：`/media/manu/1TB-Volume/rk3588/rk3588_sdk`（解包后 `EVM3588-A_20250815/{01硬件资料, 02Linux软件资料, 03工具}`，03 工具为烧录/串口/制卡/test 程序）
 - ⚠️ 编译器本体与 SDK **只放 x86 本地**，严禁拷到板卡（板卡磁盘仅剩 1.7G，见 1b）。
 - **实测补充（2026-10-09 交叉编译板卡 OpenCL 探针时核实）**：
-  - GCC **9.3.0**（Buildroot 2018.02-rc3-g548dfbfc13-dirty）。**同时并存三套前缀**：`aarch64-linux-`、`aarch64-rockchip-linux-gnu-`、`aarch64-rockchip930-linux-gnu-`，板卡对应后者。
+  - GCC **9.3.0**（Buildroot 2018.02-rc3-g548dfbfc13-dirty）。**同时并存多套前缀**（2026-10-09 逐一实测更正，取代早期「板卡对应 `rockchip930-`」的推断——**那条是错的**）：
+    | 前缀 | 有 sysroot？ | 实测结论 |
+    | :--- | :--- | :--- |
+    | `aarch64-linux-gcc` | ❌ 无 | 只有 `aarch64-linux-gcc`（无 `-gnu-`），无 sysroot |
+    | **`aarch64-rockchip-linux-gnu-`** | ✅ **glibc 2.29** | **采用这个**。唯一带 sysroot 者 |
+    | `aarch64-rockchip930-linux-gnu-` | ❌ **无 sysroot 目录** | 能编译能链接，但不提供 glibc；早期误以为它对应板卡 |
+    - 板卡实际 glibc 是 **2.31**（`ldd --version`），sysroot 是 **2.29**。**方向正确**：低版本 sysroot 编的二进制可在高版本运行时上跑（glibc 向后兼容）。实测 `ldd` 全部解析、无 `not found`。
   - **sysroot 不在工具链顶层**，真实路径是 `<TC>/aarch64-rockchip-linux-gnu/sysroot`（buildroot 布局）。其中 glibc 为 **2.29**（板卡是更新的 Ubuntu ⇒ 二进制向前兼容，安全）。
   - 🔴 **硬缺口：sysroot 内没有任何 OpenCV，也没有任何 OpenCL**（`find` 无 `opencv2/`、无 `libopencv_core*`、无 `libOpenCL*`）。SDK 侧同样只有 buildroot 配方 `buildroot/package/opengl/libopencl/libopencl.mk`，**没有预编译库**。⇒ **`gmc_stream.cpp` 这类 `find_package(OpenCV REQUIRED)` 的翻译单元在当前工具链下无法完成链接**；位精确性赖以成立的「同一批 OpenCV C++ 原语」前提，交叉编译路径上目前不具备。
   - **交叉编译头文件纪律**：⚠️ **严禁 `-I/usr/include`**——会把 x86 glibc 头拖进交叉编译并以一堆莫名的错误爆出来。架构无关的头（如 Khronos CL）必须**暂存到独立目录**再用 `-I` 指向，见 `manu/pipeline/opencl/board/build_board_probe.sh` 的 `[stage]` 步骤。

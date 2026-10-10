@@ -408,7 +408,7 @@ struct RunCtx {
 static bool run_case(RunCtx& rc, cl_kernel kern, cl_sampler samp,
                      const std::vector<uint8_t>& frames,
                      const std::vector<float>& mats, const std::vector<uint8_t>& ref,
-                     int W, int H, int pad, int edge, Diff out[3], double* ms) {
+                     int W, int H, int pad, int edge, Diff out[3], double ms[3]) {
   const size_t pw = (size_t)(W + 2 * pad), ph = (size_t)(H + 2 * pad);
   const size_t frame_bytes = pw * ph;
   const int WINDOW = FKC_WINDOW;
@@ -423,6 +423,13 @@ static bool run_case(RunCtx& rc, cl_kernel kern, cl_sampler samp,
   std::vector<uint8_t> staged;
   const size_t row_stride = pw * (size_t)nch;
   if (nch != 1) staged.resize(row_stride * ph);
+
+  // Upload is timed SEPARATELY from the kernel. Measuring the kernel alone and
+  // calling that "the cost of the fused tail" understates the real per-frame
+  // price, because 22 padded frames cross the bus every single step. Reporting
+  // one combined number would hide which half dominates; reporting only the
+  // kernel would hide the transfer entirely. Both are printed, plus the sum.
+  const auto t_up0 = std::chrono::steady_clock::now();
 
   // 22 images: 21 lagged history + the current frame.
   std::vector<cl_mem> imgs((size_t)WINDOW + 1, nullptr);
@@ -456,6 +463,8 @@ static bool run_case(RunCtx& rc, cl_kernel kern, cl_sampler samp,
     CHK(g_fn.clEnqueueWriteImage(rc.q, imgs[(size_t)i], CL_TRUE, origin, region,
                                  0, 0, host, 0, nullptr, nullptr));
   }
+
+  const auto t_up1 = std::chrono::steady_clock::now();
 
   cl_int e = CL_SUCCESS;
   cl_mem mats_buf = g_fn.clCreateBuffer(rc.ctx, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
@@ -503,10 +512,14 @@ static bool run_case(RunCtx& rc, cl_kernel kern, cl_sampler samp,
   CHK(g_fn.clEnqueueNDRangeKernel(rc.q, kern, 2, nullptr, gws, nullptr, 0, nullptr, nullptr));
   CHK(g_fn.clFinish(rc.q));
   auto t1 = std::chrono::steady_clock::now();
-  *ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+  ms[1] = std::chrono::duration<double, std::milli>(t1 - t0).count();
+  const auto t_rd0 = std::chrono::steady_clock::now();
 
   CHK(g_fn.clEnqueueReadBuffer(rc.q, out_buf, CL_TRUE, 0, got.size(), got.data(), 0,
                                nullptr, nullptr));
+  const auto t_rd1 = std::chrono::steady_clock::now();
+  ms[2] = std::chrono::duration<double, std::milli>(t_rd1 - t_rd0).count();
+  ms[0] = std::chrono::duration<double, std::milli>(t_up1 - t_up0).count();
 
   for (int p = 0; p < 3; ++p)
     out[p] = compare_plane(got.data() + (size_t)p * W * H,
@@ -773,10 +786,10 @@ int main(int argc, char** argv) {
 
       std::printf("\n  case %d/%d  t=%u  motion=%.2f px\n", c + 1, n_cases, m.t, m.motion_px);
       Diff d[3];
-      double ms = 0;
+      double ms[3] = {0, 0, 0};
       // Edge band: compare |diff|>=2 against proximity to the border so a
       // border-model problem is distinguishable from a coordinate one.
-      if (!run_case(rc, kern, var.samp, frames, mats, ref, W, H, pad, 8, d, &ms)) {
+      if (!run_case(rc, kern, var.samp, frames, mats, ref, W, H, pad, 8, d, ms)) {
         // The whole case is already consumed from `o` above, so a break leaves
         // the stream consistent for no further case; there is nothing to skip.
         worst_fail = 1;
@@ -785,7 +798,9 @@ int main(int argc, char** argv) {
       print_diff("Ch0", d[0]);
       print_diff("Ch1", d[1]);
       print_diff("Ch2", d[2]);
-      std::printf("    kernel wall time (enqueue+finish, upper bound): %.3f ms\n", ms);
+      std::printf("    wall time: upload(22 img) %.3f ms | kernel(enqueue+finish) %.3f ms | "
+                  "readback %.3f ms | sum %.3f ms  [all upper bounds]\n",
+              ms[0], ms[1], ms[2], ms[0] + ms[1] + ms[2]);
       // Gate calibration, taken from what this project has actually been
       // treating as acceptable rather than invented here. The x86/PoCL baseline
       // recorded in manu/memory/opencl_fused_rk3588.md for this same kernel is

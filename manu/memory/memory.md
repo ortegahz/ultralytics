@@ -25,7 +25,9 @@
 | **[`memory/cpp_port_rk3588.md`](cpp_port_rk3588.md)** | **C++ 移植 / RK3588 Golden Reference（L2 端到端位精确已通过，L3 全量未做）**：`gmc_stream.cpp` 与 Python `OnlineFeaturePipeline` 逐位一致的 C++ 实现。**step 2 臂 G1 400/400、G2 396/396 与冻结 SOTA 特征逐字节相同、`[MATS] max\|diff\|=0`（双分辨率 2/24 序列，覆盖 1.27% 帧）；step 10 臂 G1 亦 400/400 但 ≠ SOTA 特征（400 帧中 354 帧不同，自第 23 帧起分歧）**。含位精确性对优化等级不敏感（-O0/-O3 均通过）、第 12 个缺陷（`CMAKE_CXX_FLAGS_<CONFIG>` 语法错误使浮点守卫从未生效）、反向注入测试纪律、G0 空对照与 G1/G2 验收判据 | 涉及 RK3588 NPU 移植、跨语言等位精确、OpenCV 移植踩坑时**必读** |
 | **[`memory/temporal_integration_tbd.md`](temporal_integration_tbd.md)** | **时域积分与 TBD 专题**：Oracle 亚像素积分证明**目标时间能量完全相干**（15 帧→15.4σ，增益严格 √N）；匹配滤波独立检测器/阈值串联 TBD/检测器级融合**全部证伪**；"悬停目标与静态坏点同构"关键认知；速度滤波组已完成 HC1 操作级 ROC（W=5、FAR≈0.045/frame 时 PD=19.2%，模型注入仍待 Twin A/B） | 涉及多帧输入设计、单帧极限突破、领导追问"人眼为何能看见"时必读 |
 | **[`memory/spire_antiuav_debug.md`](spire_antiuav_debug.md)** | **第三方 SPIRE-IRSTD 在 Anti-UAV 掉分排查（2026-09-30）**：**根因 = 损失函数**。repo 的 `KpLoss` 是全图等权 MSE，每 1 个正样本像素对应 **25,525** 个背景像素，背景梯度总量是目标的 **719 倍**；用户自有网络用 CenterNet focal（`/num_pos` 归一化 + `p^alpha`），简单负样本梯度随 p→0 衰减 **4×10⁵ 倍**，把梯度预算朝目标搬 **24.8 倍**。另发现**评测协议缺陷**：`--val_limit` 是前缀切片，而 `img_idx` 按视频序列排序，`test[:8000]` 只覆盖 8/11 段且 **<7px 微小目标占比 0.000**（真实 0.171），**虚高 F1 0.175**；修正后 SPIRE 诚实基线 **F1 0.5775**（用户 Trial 0474 0.9064，差距 0.33 而非 0.15）。repo 自带 `FocalMSELoss` 方向是反的（峰值/背景权重 0.124） | 涉及 SPIRE 第三方模型、损失函数设计、val 子集抽样偏差、"为什么我的网络能到 90+"时必读 |
-| **[`pipeline/opencl/board/`](../pipeline/opencl/board/)**（代码，非 memory） | **板卡 OpenCL 实机工具链（2026-10-09 新增）**：`board_cl_probe` 环境探针；`gen_fused_case`（x86+OpenCV 生成含 CPU 基准的用例包）+ `board_fused_accuracy`（板卡无 OpenCV，跑真 kernel 对账）；`build_*.sh` 交叉编译；`deploy_and_run.py` pexpect 自动部署 | **板卡上首次验证 OpenCL / 融合内核精度、或新增任何 RK3588 板端程序时先读**。判决与坑见 `opencl_fused_rk3588.md` 8.1/8.2 与 `falsified_archive.md` 第三十四/三十五节 |
+| **[`memory/gmc_ocl_board_run.md`](gmc_ocl_board_run.md)** | **2026-10-10：`gmc_stream_ocl.cpp` 原样交叉编译后在板卡跑通完整链路**（读 BMP → GMC fit → fused Mali kernel → Ch0/Ch1/Ch2，**未改一行源码**）。精度对齐 **x86 `gmc_stream.cpp` 纯 CPU 权威基线**：Ch0/Ch1 **Max\|Diff\|=0 全位精确**，Ch2 仅 1 帧 1 像素（59/60 帧位精确）；性能四配置对照，**瓶颈是 CPU 的 warp+median（86.1%）非 GPU（3.4%）** | **要在板卡上跑完整特征通道、或判断该不该继续优化 GPU 时必读**。含 BMP 方案理由、链接期 OpenCL 实测、与前文旧结论的更正 |
+| **[`memory/opencv_arm64_parity.md`](opencv_arm64_parity.md)** | **2026-10-09：arm64 OpenCV 4.10.0 交叉编译 + 逐算子跨架构一致性**。`resize`/`goodFeaturesToTrack`/LK status/RANSAC 内点掩码**全部位精确**；`warpAffine` 19.3M 像素中仅 11 个不同。🔴 记录了 **FMA 归因被证伪**与**23 帧样本不足导致错误结论**两个方法论教训 | **移植 OpenCV 到板卡、或评估跨架构数值可复现性时必读** |
+| **[`pipeline/opencl/board/`](../pipeline/opencl/board/)**（代码，非 memory） | **板卡 OpenCL / OpenCV 实机工具链（2026-10-09 新增）**：`board_cl_probe` 环境探针；`gen_fused_case`（x86+OpenCV 生成含 CPU 基准的用例包）+ `board_fused_accuracy`（板卡跑真 kernel 对账）；`build_opencv_arm64.sh` + `rk3588-aarch64-toolchain.cmake`（**交叉编译 arm64 OpenCV 4.10.0**）；`opencv_parity.cpp` + `gen_opencv_parity_case.cpp` + `compare_opencv_parity.py`（**逐算子跨架构一致性验证**）；`push_and_run.py` scp 部署；`board_opencv_probe` SDK 探测 | **板卡上验证 OpenCL / 融合内核精度、验证 OpenCV 跨架构一致性、或新增任何 RK3588 板端程序时先读**。判决与坑见 `opencl_fused_rk3588.md` 8.1/8.2、`opencv_arm64_parity.md`、`falsified_archive.md` 第三十四/三十五/三十六节 |
 
 ---
 
@@ -276,17 +278,100 @@ sudo mount -t nfs 192.168.0.64:/mnt/manu /home/manu/mnt/nfs -o nolock
 | `fused_case_format.h` | 两侧 | 二进制用例包契约 |
 | `build_board_probe.sh` / `build_fused_accuracy.sh` | x86 | 交叉编译（均 **dlopen OpenCL，零链接期 OpenCL 依赖**） |
 | `deploy_and_run.py` | x86 | pexpect 单会话部署/摸底/运行，`--exec` 任意板端查询 |
+| `board_opencv_probe.cpp` / `probe_opencv_on_board.sh` | 板卡 | OpenCV C++ SDK 存在性探测（结论：**无**） |
+| `build_opencv_arm64.sh` / `rk3588-aarch64-toolchain.cmake` | x86 | **交叉编译 arm64 OpenCV 4.10.0**（静态库，6 模块） |
+| `gen_opencv_parity_case.cpp` | **x86 + OpenCV** | 真实 Anti-UAV JPEG → raw 灰度帧（解码只做一次，两端读同一份字节） |
+| `opencv_parity.cpp` | **两端** | 复刻 `gmc_stream_ocl.cpp` 语义，**逐算子 dump**（无 imgcodecs） |
+| `compare_opencv_parity.py` | x86 | 逐算子对比 + ULP 假象标注（**需 `/home/manu/anaconda3/bin/python`**） |
+| `push_and_run.py` | x86 | scp 推送 + SSH 执行（**校验 scp 退出码**，会失败） |
 
-**为什么 CPU 基准必须在 x86 算**：全链路**无任何 arm64 OpenCV**（工具链 sysroot、SDK、板卡都没有），在板卡重实现 OpenCV 的 1/32 插值量化与 BORDER_REFLECT 等于**验证「我自己对 OpenCV 的重实现」而非 kernel**，构成循环论证。
+**为什么 CPU 基准必须在 x86 算**：融合内核那轮做的时候全链路**无任何 arm64 OpenCV**（工具链 sysroot、SDK、板卡都没有）。在板卡重实现 OpenCV 的 1/32 插值量化与 BORDER_REFLECT 等于**验证「我自己对 OpenCV 的重实现」而非 kernel**，构成循环论证。
+
+> ⚠️ **该前提已于 2026-10-09 改变**：arm64 OpenCV 4.10.0 已交叉编译并在板卡实跑通过（见下节与 `memory/opencv_arm64_parity.md`）。但「融合 kernel 的 CPU 基准仍应在 x86 算」这一**结论不变**——理由从「板卡没有 OpenCV」变成「kernel 与 CPU 两臂要同源同版对照，改基准来源会使 `FUSED_USE_HW_LINEAR` 判决失去可比性」。
 
 **真机环境**：Mali-G610 r0p0（4 CU），OpenCL 3.0 `v1.g13p0-01eac0`，FULL_PROFILE；max WG 1024、local mem 32 KiB；ICD 为**目录式**（ARM 布局，`mali.icd`）；**无 `cl_khr_fp64`**（有 `cl_khr_fp16`）；**事件级 profiling 不可用**。
 
 **三条判决（详见 `opencl_fused_rk3588.md` 8.2，已复验可复现）**：
 1. 🔴 **`FUSED_USE_HW_LINEAR` 必须为 0**。`hw-linear` **FAIL**：Ch0（整数坐标直读，本应逐位还原）**Max|Diff|=130**、MAE 0.285、精确率仅 88.5%；`manual` **PASS**：**Ch0 Max|Diff|=0 / 100.00% 精确**，Ch1 MAE 0.0011、Ch2 MAE 0.00075。⇒ **Mali 的 `CLK_FILTER_LINEAR` 连整数坐标都不还原原值**。
 2. ✅ **Mali 支持 1 字节/像素**：`{CL_R, CL_UNORM_INT8}` 可用 ⇒ 22 张 padded 图 **10.5 MiB**（CL_RGBA 为 42 MiB）；`clCreateImage`(2.0) 在 Mali 正常工作。**「CL_R8 vs CL_RGBA 带宽」项结案。**
-3. ✅ **首个可信板卡时延 3.7~4.8 ms/帧**（22 张图 upload+kernel+readback 全程）。⚠️ 三重限定不可省略：enqueue+clFinish 墙钟**上界**、含传输、首次含 JIT。
+3. ⚠️ **尾段时延须分三段引用（2026-10-09 更正）**：首轮只把 kernel 圈进计时窗口，**upload/readback 未计入**，「3.7~4.8 ms」**只是 kernel 执行时间**。三段实测：**upload 2.72~3.33 + kernel 3.87~5.71 + readback 0.11~0.12 = 合计 6.70~9.15 ms/帧**（upload 约占 40%）。
+   🔴 **本节合计仍不含 GMC fit**（mats 由 x86 下发）。⚠️ **但本节对 fit 的两个判断已于 2026-10-10 被实测推翻**：`board_fused_accuracy` 不算 fit 的原因是当时**没有 arm64 OpenCV**，现已不成立；「fit 约 30~41 ms/帧、且与 stage timing 有 5 倍分歧未裁决」亦已裁决——**板卡实测 fit 仅 17.34 ms/帧**。真实瓶颈是 **CPU 的 warp+median（86.1%）**。详见 6.6 节与 `gmc_ocl_board_run.md`。
 
 **精度损失的量级差**：从 CPU 模拟换到真硬件，MAE 只涨 **2~3 倍**（仍在 1e-3 量级，距 0.05 门限两个数量级余量）；而**选错采样路径的代价是 300~400 倍**。硬件本身不是风险点，路径选择才是。
+
+### 6.5 arm64 OpenCV 4.10.0：交叉编译成功 + 跨架构一致性实测（2026-10-09）
+
+> 完整细节见 **[`memory/opencv_arm64_parity.md`](opencv_arm64_parity.md)**。以下为要点。
+
+**背景**：板卡无 OpenCV（apt 候选 4.2.0，比 x86 的 4.10.0 低 8 个版本，装了会破坏位精确前提）。故从 `4.10.0` tag 建 git worktree 自行交叉编译。
+
+**构建**：`/media/manu/1TB-Volume/workspace/opencv-4.10.0-arm64-install`，静态库，模块 `core imgproc features2d video calib3d flann`，全关 IPP/OCL/FFMPEG/编解码/LAPACK/TBB，**约 4 分钟**。用户原有 5.x 源码树**未被动过**。
+
+**逐算子一致性判决（59 帧 × 19,333,120 元素）**：
+
+| 算子 | 判决 |
+| :--- | :--- |
+| `resize` / `goodFeaturesToTrack` / LK status / LK 输入点 / **RANSAC 内点掩码** | ✅ **全部位精确** |
+| LK 亚像素位置 | max **1.06e-4 像素**，mean 2.65e-7 |
+| RANSAC 矩阵 `affine_M` | max **1.64e-5** |
+| `warpAffine` | **56/59 帧位精确**；19.3M 像素中**仅 11 个不同（0.000057%）**，最大 2/255 |
+| 21 元素 median | **38/39 帧位精确**；12.8M 中**仅 1 个不同**，最大 1/255 |
+
+⇒ **arm64 OpenCV 4.10.0 可用于特征通道。** RANSAC 判定在两架构完全一致，差异停在 float32 末位。
+
+🔴 **FMA 归因假设被实测证伪**：同架构 x86 上 `OPENCV_CPU_DISABLE=AVX2,AVX512_SKX,FP16,SSE4_1,SSE4_2` 关掉带 FMA3 的 dispatch 后，**13 个 stage 全部 59/59 位精确** ⇒ LK 差异**与 FMA 无关**。真实来源是架构特定 SIMD 实现（x86 SSE/AVX vs aarch64 NEON/carotene）+ **编译器版本差 6 年**（gcc 15.2.0 vs 9.3.0），**不可消除**。
+⚠️ 顺带更正我自己的错误推理：x86 参考版 `Baseline: SSE SSE2` 虽无 FMA，**但 runtime dispatch 实际走带 FMA3 的 AVX2/AVX512 路径**——基线无 FMA ≠ 执行路径无 FMA。`OPENCV_CPU_DISABLE=FMA3` 无效（FMA3 不是独立 dispatch 名）。
+
+🔴 **样本量教训**：首轮只跑 23 帧，`warp_dst`/`median_out` 恰好全一致，我据此判「差异未传播」；**扩到 59 帧后被推翻**。⇒ **稀疏差异必须用跨全部元素的绝对计数报告，「零观测」≠「不存在」。**
+
+**三个静默构建坑**：① 系统 CMake **4.2.3** 会硬拒 OpenCV 4.10 的 `cmake_minimum_required(3.1)`，须用 3.31.6（**不改源码**，保持与 tag 逐字节一致）；② 链接报 `carotene_o4t::split*` 未定义，实际库名是 **`tegra_hal`**，装在 `lib/opencv4/3rdparty/` 而非 `lib/`；③ 即使 `WITH_JPEG=OFF`，`persistence.cpp` 仍引用 zlib，须加 **`-lzlib`**。
+
+⚠️ **交叉前缀更正**：板卡 glibc **2.31** vs sysroot **2.29**（方向正确）；`aarch64-rockchip930-linux-gnu-` **无 sysroot 目录**，早期「板卡对应 rockchip930-」的推断**是错的**，应使用 `aarch64-rockchip-linux-gnu-`。
+
+⚠️ 跑 `compare_opencv_parity.py` 要用 **`/home/manu/anaconda3/bin/python`**（系统 `python3` 无 numpy）。
+
+### 6.6 `gmc_stream_ocl` 在板卡完整跑通：BMP 方案 + 跨架构精度/性能（2026-10-10）
+
+> 完整细节见 **[`memory/gmc_ocl_board_run.md`](gmc_ocl_board_run.md)**。
+
+**✅ 已达成**：`gmc_stream_ocl.cpp` **原样**交叉编译后在板卡跑通完整链路——读 BMP 序列 → GMC fit（CPU）→ fused OpenCL kernel（Mali）→ Ch0/Ch1/Ch2。**未改任何一行源码**（`.bmp` 早已在其扩展名白名单内）。
+
+**跨架构精度（板卡 vs **x86 `gmc_stream.cpp` 纯 CPU 权威基线**，60 帧同一份 BMP，同参数）**：
+
+| 通道 | Max\|Diff\| | MAE | 位精确 |
+| :--- | :--- | :--- | :--- |
+| Ch0 | **0** | 0.000000 | 100.0000% |
+| Ch1 | **0** | 0.000000 | 100.0000% |
+| Ch2 | 1 | 0.000000 | 100.0000% |
+
+**59/60 帧三通道完全位精确**；唯一差异是第 41 帧 Ch2 的**单个像素**，且**前后帧完全一致** ⇒ 舍入边界抖动，非系统性漂移。transform 矩阵 `(21,6)` **126/126 全等**。**判决 PASS。**
+
+**性能（各重复 3 次取中位数）**：
+
+| 项 | 板卡 | x86(PoCL) |
+| :--- | :--- | :--- |
+| 配置 | fit | warp | median | GPU 尾段 | total | fps |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **板卡 GPU 臂** | 17.34 | 67.37 | 67.23 | **5.38** | **156.50** | **6.39** |
+| 板卡 CPU 臂 | 21.51 | 67.69 | 64.73 | — | 150.36 | 6.65 |
+| x86 OCL（PoCL） | 7.49 | 27.04 | 36.34 | 106.63 | 176.52 | 5.67 |
+| **x86 `gmc_stream.cpp` 纯 CPU 权威** | 10.15 | 27.20 | 33.03 | — | **68.69** | **14.56** |
+
+- **GPU 融合尾段加速 24.6×**（132.4 → 5.38 ms），kernel 本体 **3.84 ms/帧**。
+- 🔴 **板卡 CPU 比 x86 CPU 慢 2.19×**（同源码、同输入、单线程）⇒ CPU 路径在板卡上不划算，这是选择 GPU 融合的现实依据。
+- 🔴 **x86 上 GPU 比 CPU 慢（0.59×）**，因为那里是 PoCL CPU 模拟。同二进制两硬件差 **19.8 倍**，再次证实「PoCL 结果不可当板卡性能」。
+- 🔴 **瓶颈是 CPU 的 warp+median（86.1%）**，不是 GPU（3.4%）也不是 fit（11.1%）。**median（67 ms）是下一处该动的地方**；`setNumThreads(1)` 是位精确性硬要求，故 6.4 fps 是**正确性优先**数字而非性能上限（板卡 8 核可用）。
+
+**三条关键事实（都推翻了旧认知）**：
+
+1. 🔴 **x86 参考用的是系统 libjpeg-turbo 2.1.5，不是 OpenCV 内建的 3.1.2**（`ldd libopencv_imgcodecs.so.410` 实测；build info 里的 `ver 3.1.2-70` 是 Debian 打包残留配置串）。源码树自带 3.0.3、板卡 1.5.2/2.0.3 —— **四者无一匹配**。
+   ⇒ **改走 BMP**：OpenCV 的 BMP 编解码器由 `file(GLOB ...grfmt*.cpp)` **无条件编译**、零外部依赖、格式无压缩 ⇒ 两端读同一份字节，**彻底消除有损解码器分歧**。实测往返无损。
+2. 🔴 **板卡链接期 OpenCL 可用**，memory 旧记录「板卡无 OpenCL loader」不准确：实际有 `/usr/lib/aarch64-linux-gnu/libOpenCL.so.1`（34 KB，在 ldconfig 里），探针实跑 `context=OK`、`g13p0-01eac0`。⇒ `ocl_host.h` **无需改 dlopen**。
+3. ⚠️ **`imgcodecs` 进 BUILD_LIST 后必须加 `-DWITH_OPENJPEG=OFF`**：`grfmt_jpeg2000_openjpeg.cpp` 被无条件编译但 OpenJPEG 未链进静态库，链接期才报一堆 `opj_*` undefined。
+
+⚠️ **与 6.5 节的逐算子测试结论不同**：`opencv_parity` 里 `warp_dst` 有 11/19.3M 像素差 1~2 级，但端到端跑完只剩 **1 个**像素浮出。⇒ **逐算子是更严格的门，端到端通过 ≠ 每个算子位精确。**
+
+**遗留**：未跑多序列；单线程（位精确性硬要求，6.4 fps 是正确性优先数字）；`out-dir` 写 JPG 未验证（arm64 无 JPEG 编码器，精度对比走 `.npy` dump 不受影响）；第 41 帧那 1 像素的舍入根因未定位。
 
 
 ## 七、后续算法演进与突破铁律指南

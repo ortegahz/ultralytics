@@ -1058,3 +1058,133 @@ bundle 恒为 **1 字节/像素**，但设备可能只接受多通道格式。`c
 
 共享游标 `o` 跨 variant 不复位 ⇒ 第二个 variant 直接越界读，段错误落在自己的 `memcpy` 里。
 **两次「段错误在驱动/自己代码里」都不是 GPU 的问题**，都是指针/游标算错。
+
+---
+
+## 三十六、arm64 OpenCV 交叉编译：一个被证伪的归因 + 一次样本量翻车（2026-10-09）
+
+背景：板卡无 OpenCV，apt 只有 4.2.0（比 x86 的 4.10.0 低 8 版本），故从 `4.10.0` tag 建 worktree 自行交叉编译，然后逐算子对比 x86 与 arm64。
+完整数据见 `memory/opencv_arm64_parity.md`。
+
+### 36.1 🔴 证伪：「LK 的跨架构差异来自 FMA 融合」
+
+**我当时的推理**：x86 参考版 `Baseline: SSE SSE2`，`gcc -Q` 报 `-mfma [disabled]`，所以即便用 GCC 默认的 `-ffp-contract=fast`，x86 也**不可能**生成 FMA，行为等价于 `-ffp-contract=off`；而 aarch64 基线有 `fmadd`，同样的默认会融合。于是差异必然来自 arm64 侧多做了 FMA，只要施加 `-ffp-contract=off`（项目铁律）两边就语义对齐。
+
+**推理错在哪**：我只看了 `Baseline`，**漏了 runtime dispatch**。x86 包的 build info 明确写着
+`Dispatched code generation: SSE4_1 SSE4_2 FP16 AVX AVX2 AVX512_SKX`，且 `AVX2 (34 files): + ... FMA3 ...`。
+运行时 `getCPUFeaturesLine()` 实测 = `*SSE4.1 *SSE4.2 *FP16 *AVX *AVX2 *AVX512-SKX?` ⇒ **x86 参考版实际执行的就是带 FMA3 的路径**。
+**基线无 FMA ≠ 执行路径无 FMA。**
+
+**决定性消融实验**：在同一台 x86 上
+`OPENCV_CPU_DISABLE=AVX2,AVX512_SKX,FP16,SSE4_1,SSE4_2`（关掉全部带 FMA3 的 dispatch 层，只留 AVX），
+用**同样 59 帧**重跑 → **13 个 stage 全部 `IDENTICAL`，max|diff| = 0，59/59 帧位精确**。
+
+⇒ **LK 的跨架构差异与 FMA 无关。** 真实来源（未能定位到指令级，诚实记录）：**架构特定 SIMD 实现**（x86 SSE/AVX intrinsics vs aarch64 NEON/carotene intrinsics，迭代中求和顺序与中间量精度不同）＋**编译器版本差 6 年**（x86 gcc 15.2.0 vs arm64 gcc 9.3.0，auto-vectorizer 决策不同）。**两项都不可消除。**
+
+**附带踩坑**：`OPENCV_CPU_DISABLE=FMA3` **无效**——FMA3 不是独立 dispatch 名，只是 AVX2 的子特性，必须禁用 `AVX2` 本身。禁用后 `getCPUFeaturesLine` 显示 `*AVX2?`，`?` 后缀 = 已禁用。
+
+### 36.2 🔴 自我更正：23 帧样本让我给出了「warp 未被污染」的错误结论
+
+**首轮只跑 23 帧**（23 次 fit / 7.5M 像素），得到 `warp_dst 23/23 IDENTICAL`、`median_out 3/3 IDENTICAL`，
+我据此写下「LK 的差异没有传播到 warp 输出」。
+
+**扩到 60 帧（59 次 fit / 19.3M 像素）后被推翻**：
+
+| stage | 23 帧（错） | 59 帧（真） |
+| :--- | :--- | :--- |
+| `warp_dst` | 23/23 IDENTICAL | **56/59 IDENTICAL**，帧 26/51/56 共 11 像素有差异 |
+| `median_out` | 3/3 IDENTICAL | **38/39 IDENTICAL**，帧 33 有 1 像素差 1 级 |
+
+差异极稀疏（warp 11/19.3M = 0.000057%），23 帧**恰好没采样到**那 3 帧。
+
+⇒ **方法论：「零观测」≠「不存在」。** 稀疏事件的"全部一致"判决必须附带**样本量**，且必须用**跨全部元素的绝对计数**报告，不能只报"逐帧是否一致"——逐帧布尔会把 7.5M 元素里的 3 帧差异直接抹成 `IDENTICAL`。
+
+### 36.3 ULP 指标在近零处会把无害项显示成灾难
+
+`affine_M` 报 `max 72934002268285 ulp`，实际 `max|diff| = 1.64e-5`。
+ULP 是「相邻可表示数的间隔」，0 附近间隔极小，两个都接近 0 的数可以绝对差极小而 ULP 极大。
+（实现上还有个坑：用有符号 64 位做单调映射会在镜像 `INT64_MIN` 时溢出，**必须用无符号回绕**。）
+⇒ `compare_opencv_parity.py` 现会自动标注这类行，**判决以 `max|diff|` 为准**。
+
+### 36.4 三个静默构建坑
+
+1. **系统 CMake 4.2.3 硬拒 OpenCV 4.10**（`cmake_minimum_required(VERSION 3.1)`，CMake ≥4.0 对 <3.5 报错）。解法是另装 CMake 3.31.6，**不改 OpenCV 源码**——保持 worktree 与 tag 逐字节一致，改了会污染与 x86 参考的可比性。
+2. **链接报 `carotene_o4t::split*` 未定义**：看着像缺第三方依赖，实际 **OpenCV 把该目标库名定为 `tegra_hal`**（NVIDIA Tegra 时代遗留），符号却命名空间化成 `carotene_o4t`。且它装在 **`lib/opencv4/3rdparty/`** 而非 `lib/`（`ocv_install_target` 把第三方目标统一路由过去）。要加 `-L$INSTALL/lib/opencv4/3rdparty -ltegra_hal`。
+3. **即使 `WITH_JPEG=OFF`，`core/src/persistence.cpp` 仍无条件引用 zlib**（FileStorage 的 `.gz` XML）。库文件名是 `libzlib.a` ⇒ 加 **`-lzlib`**，不是 `-lz`。
+
+### 36.5 交叉前缀：早期「板卡对应 `aarch64-rockchip930-`」是错的
+
+逐一实测：`aarch64-linux-gcc`（**无 sysroot**）、`aarch64-rockchip-linux-gnu-`（✅ 唯一有 sysroot，glibc **2.29**）、`aarch64-rockchip930-linux-gnu-`（**无 sysroot 目录**，能链接但不提供 glibc）。
+板卡实测 glibc **2.31**。方向正确（低版本 sysroot 编的可在高版本运行时上跑），`ldd` 全部解析、无 `not found`。
+
+---
+
+## 三十七、板卡跑完整流水线：`gmc_stream_ocl.cpp` 的四个坑（2026-10-10）
+
+把 `gmc_stream_ocl.cpp` 原样交叉编译到 RK3588 并跑通「读图 → GMC fit → fused kernel → 三通道」，
+四个坑都会静默失败或给出错误结论。完整数据见 `gmc_ocl_board_run.md`。
+
+### 37.1 🔴 证伪：「x86 参考用 OpenCV 内建 libjpeg-turbo 3.1.2」
+
+**我最初的方案推理**是：x86 参考的 build info 写着 `build-libjpeg-turbo (ver 3.1.2-70)`，
+而 OpenCV 源码树自带同名 3rdparty ⇒ 交叉编译它就能「同源同版本」。
+
+**错在把 build info 当成了运行时事实。** 实测：
+```
+ldd /usr/lib/x86_64-linux-gnu/libopencv_imgcodecs.so.410 | grep jpeg
+  → libjpeg.so.8 => /usr/lib/x86_64-linux-gnu/libjpeg.so.8
+dpkg -s libjpeg-turbo8:amd64 → Version: 2.1.5-4ubuntu4
+```
+x86 包**实际链接的是系统 libjpeg-turbo 2.1.5**；`3.1.2-70` 是 Debian 打包时留下的配置串
+（`-70` 是 `JPEG_LIB_VERSION` 这个 API 兼容版本号，不是 turbo 上游版本）。
+而源码树自带 **3.0.3**，板卡是 **1.5.2(.so.62) / 2.0.3(.so.8)** —— **四者无一匹配**。
+
+⇒ **凡是「同源同版本」的论证，必须落到运行时链接的库上**，不能引用 build info 的配置串。
+
+### 37.2 答案：不修 JPEG，改用 BMP
+
+**BMP 是这个约束下的正解**，且不是将就：
+- OpenCV 的 BMP 编解码器（`grfmt_bmp.cpp`）由 `file(GLOB ... grfmt*.cpp)` **无条件编译**，
+  只 include 自己的两个头文件，**零外部依赖**；
+- BMP 无压缩，解码 = 一次 memcpy + 54 字节头，**不存在有损解码器的版本分歧空间**；
+- 实测 x86 往返无损，640×512 单帧 328,758 字节（裸数据 327,680）。
+- 且 `gmc_stream.cpp` / `gmc_stream_ocl.cpp` 的扩展名白名单**本来就含 `.bmp`**（`gmc_stream.cpp:156`），
+  所以**不需要改一行源码**。
+
+⇒ 通用教训：**当依赖无法对齐版本时，找一个消除了该依赖的格式，而不是继续对齐版本。**
+
+### 37.3 ⚠️ `imgcodecs` 进 BUILD_LIST 必须同时 `-DWITH_OPENJPEG=OFF`
+
+`imgcodecs` 一旦加入 `BUILD_LIST`，`grfmt_jpeg2000_openjpeg.cpp` 会被**无条件编译**，
+而 OpenCV 自带的 OpenJPEG **没有**链进静态库 ⇒ 链接期报几十个 `undefined reference to opj_*`。
+
+🔴 **这个坑只在调用 `imread` 的程序链接时暴露**，模块列表和构建日志里都看不出来；
+上一个只做算子对比、从不调 `imread` 的工具（`opencv_parity`）完全没碰到它。
+⇒ **新增模块后，必须有一个真的调用其 API 的链接测试**，否则「构建成功」不等于「可用」。
+
+### 37.4 🔴 更正：「板卡没有链接期 OpenCL loader」
+
+memory 旧记录说板卡 `/etc/OpenCL/vendors/mali.icd` 指向的 `libMaliOpenCL.so.1` 不存在，
+因此推断链接期 `-lOpenCL` 不可行、必须 dlopen。
+
+**实测反了**：板卡**有** ICD loader `/usr/lib/aarch64-linux-gnu/libOpenCL.so.1`
+（34,808 字节，2017 年），且**在 ldconfig 里**。`.icd` 指向的库虽不存在，但 loader 本身能找到真正的驱动。
+链接期探针实跑：
+```
+arm_release_ver: g13p0-01eac0, rk_so_ver: 6
+platform=ARM Platform context=OK
+```
+
+⇒ `ocl_host.h` **无需改 dlopen** 即可移植。
+⇒ 教训：`.icd` 文件内容损坏 ≠ ICD 机制不可用；**loader 与被指向的驱动是两回事**，要分别验证。
+（此前 `board_fused_accuracy` 用 dlopen 是因为它刻意「不假定任何东西」，并非因为 loader 缺失。）
+
+### 37.5 方法论：基线选错了，对比就是自证的
+
+首轮我拿「板卡 `gmc_stream_ocl`」对比「x86 `gmc_stream_ocl`」——**两端是同一族二进制**，
+跨的只是 OpenCL 后端与架构。而目标要求的是「与 `gmc_stream.cpp` 相同功能」，
+基线必须是那个**纯 CPU 权威实现**（已核实 `gmc_stream.cpp` 中 OpenCL 引用数为 0）。
+
+补跑真基线后结论**未变但含义变强**：`板卡 GPU` ≈ `x86 gmc_stream.cpp` ≈ `x86 gmc_stream_ocl`，
+三条链路闭合，且 x86 上两个实现的 MD5 完全相同，互为印证。
+⇒ **当目标是「与 X 相同功能」时，对比对象必须就是 X**，用 X 的同族变体替代会削弱结论。
