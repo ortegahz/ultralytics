@@ -4,6 +4,48 @@
 
 ---
 
+## 〇、【最高优先级铁律·零】本地优先！永远先改本地工程代码，再 cp 同步到服务器！**严禁直接修改服务器代码！**
+
+> 2026-10-10 用户以五个感叹号明确强调，**本条优先级高于本文档其余全部铁律**，违反即为严重操作事故。
+
+- **铁律正文**：任何代码、脚本、配置、文档（含 `manu/memory/` 内的全部 memory 文件）的修改，
+  **一律且只能先在本地工程 checkout 中完成**，然后再由 Agent 执行 `cp`/`rsync` 把产物同步到服务器 SSHFS 挂载目录。
+  **严禁把服务器挂载目录当作编辑目标直接改写。**
+
+- **本地 vs 服务器路径对照**（这是本铁律的操作地基）：
+
+  | 角色 | 路径 | 允许的操作 |
+  | :--- | :--- | :--- |
+  | **本地工程 checkout（唯一可写编辑区）** | `/media/manu/1TB-Volume/workspace/ultralytics/`（内含完整 `manu/`，含 `manu/memory/`） | ✅ **所有 Edit/Write 都发生在这里** |
+  | 服务器代码镜像（SSHFS） | `/home/manu/mnt/pycharm_project_10ae9e2e/` | ⛔ **只读 + 同步落地目标，禁止 Edit/Write** |
+  | 服务器数据集（SSHFS） | `/home/manu/mnt/data/` | ⛔ 只读 |
+  | RK3588 板卡产物（NFS） | `/home/manu/mnt/nfs/` | ⛔ 只读 + 投递落地（另见 1b 权限与投递通道规定） |
+
+- **标准工作流（强制三步，不可跳步）**：
+  1. **本地编辑**：在 `/media/manu/1TB-Volume/workspace/ultralytics/` 下用 Edit/Write 完成全部修改；
+  2. **本地校验**：在本地跑通 `grep`/`diff`/语法检查，确认改动确实落在这里；
+  3. **同步落地**：`cp -av <本地文件> /home/manu/mnt/pycharm_project_10ae9e2e/<同一相对路径>`，
+     同步后 `md5sum` 双侧比对确认一致，并向用户报告「已同步」。
+
+- **为什么这条必须排在铁律三（自动同步）之前**：铁律三要求「本地改完立即同步到服务器」，
+  本条则把**「本地」定义为唯一编辑区、「服务器」定义为同步落地区**。
+  🔴 **历史实测事故（2026-10-10，本项目真实发生）**：新增「挂载校验」铁律时，
+  Agent 把三处 memory 编辑（`rules.md` / `memory_compact.md` / `memory.md`）
+  **直接打在了 SSHFS 挂载盘上**，本地 checkout 三份文件**一行未变**。
+  ⇒ 后果：本地 git 工作区与服务器镜像**静默分叉**，本地看不到自己刚写的铁律，
+  任何人回到本地工程都会读到**过期版本**，且没有任何报错。
+  ⇒ **对照铁律三第 9 条「代码已同步 ≠ 权重已就位」：本条是它的镜像翻版——「已同步」也 ≠ 「本地已改」。**
+
+- **发现本地与服务器分叉时的修复流程**：**以本地为准重做，不要反向覆盖本地**。
+  先 `diff <本地> <服务器>` 逐处确认分叉范围，把改动在本地重做/补齐，
+  再由本地 `cp` 覆盖服务器，**严禁用 `cp <服务器> <本地>` 把服务器版本倒灌回本地**（会把本地未同步的改动全部丢掉）。
+
+- **与「免检本地环境」（铁律一）的关系**：铁律一是**禁止 Agent 跑重型训练/推理**，
+  本条是**禁止 Agent 越界写入服务器**。两者方向相反、互不豁免：
+  既不能因为"要同步"就去服务器上动手改，也不能因为"不许跑"就把文件留在本地不同步。
+
+---
+
 ## 一、四大核心铁律 (STRICT ENFORCEMENT)
 
 ### 1. 【核心铁律一】严禁 Agent 擅自启动任何训练、推理或重型探测脚本！免检本地环境！
@@ -25,8 +67,13 @@
   - 全量 31,613 帧的 `.pkl` 文件体积必须严格限制在 **15MB ~ 50MB（至多不超过 100MB）**，确保加载在 1 秒内完成、内存零压力。
 
 ### 3. 【核心铁律三】本地代码修改后必须自动无感同步至服务器映射目录！
+- **前置声明**：本条是第〇节（本地优先铁律）的执行细则。**「本地」= `/media/manu/1TB-Volume/workspace/ultralytics/`（唯一可写编辑区）；
+  「服务器映射目录」= `/home/manu/mnt/pycharm_project_10ae9e2e/`（只读 + 同步落地区）。
+  编辑动作一律发生在本地，本条只负责把本地成果送过去。**
 - **自动同步义务**：本地任何代码、脚本、配置或文档在完成修改/新建后，Assistant 必须**立即主动将其复制同步到服务器 SSHFS 挂载工作目录**（`/home/manu/mnt/pycharm_project_10ae9e2e/`）；
 - **杜绝用户二次操作**：用户无需手动复制或同步代码，保证服务器端环境永远处于最新的就绪状态。
+- **同步后必须校验**：用 `md5sum` 或 `diff` 确认本地与服务器两侧字节一致，并向用户明示「已同步」；
+  **禁止把「已同步」当作「本地已改」**——2026-10-10 实测事故正是跳过本地、直接改服务器造成的静默分叉。
 
 ### 4. 【核心铁律四】实验事实与阶段性结论必须自动实时更新到 memory 体系，严禁等待用户催促！
 - **主动建档义务**：任何代码级、模型级、输入级或后处理级的实验尝试（无论最终是指标突破还是遭遇衰退被证伪），只要产生了大盘实测数据或关键物理定性，Assistant **必须自动、主动将其作为独立记录沉淀归档到 `memory/` 相应模块与主索引 `memory/memory.md`**；
@@ -47,6 +94,40 @@
 - **双版本职责**：`manu/memory/memory.md` 与 `manu/memory/` 保存完整技术事实；`manu/memory/memory_compact.md` 保存用于外部模型咨询的精简背景。
 - **同步义务**：以后凡是新增、修正或废止主 memory 中的实验事实、指标、SOTA、工程铁律或阶段结论，必须在同一任务中同步更新 `manu/memory/memory_compact.md` 的对应内容；不得只更新其中一份。
 - **一致性要求**：精简版可以省略细节，但不得保留与主 memory 冲突的结论、指标或当前基线；更新时间必须同步刷新。
+
+### 8. 【核心铁律八】每次读取 memory 之前，必须先校验三条挂载链路，缺失即自动补挂！
+> 2026-10-10 用户明确要求。memory 体系全部存放于 SSHFS 挂载盘内，**挂载掉了就读不到 memory，
+> 等于失忆开工**；而 SSHFS/NFS 均可能在重启、断网、SSH 会话退出后静默掉线。
+
+- **强制前置检查**：每次响应「读 memory / 了解背景」类指令，**第一步必须执行挂载校验**，校验通过后才允许读取 memory 正文：
+  ```bash
+  for d in /home/manu/mnt/data /home/manu/mnt/pycharm_project_10ae9e2e /home/manu/mnt/nfs; do
+    mountpoint -q "$d" && echo "[OK] $d" || echo "[MISSING] $d"
+  done
+  ```
+- **三条挂载链路及其语义**（缺一不可，**不得只凭目录非空就判定已挂载**——掉线后残留目录看起来完全正常）：
+
+  | 挂载点 | 类型 | 源 | 承载内容 |
+  | :--- | :--- | :--- | :--- |
+  | `/home/manu/mnt/data` | SSHFS | `huangzhe@192.168.99.40:/mnt/data` | 远端数据集（Anti-UAV、龙泉山 `frames_ir_jpg` / `Final_Labels*`） |
+  | `/home/manu/mnt/pycharm_project_10ae9e2e` | SSHFS | `huangzhe@192.168.99.40:/tmp/pycharm_project_10ae9e2e` | 远端代码仓库，**`manu/memory/` 就在这里** |
+  | `/home/manu/mnt/nfs` | NFS4 | `192.168.0.64:/mnt/manu` | RK3588 板卡产物（dump / 用例 / 输出） |
+
+- **自动补挂义务**：发现缺失时 Agent **必须主动执行补挂**，不得把「路径读不到」直接抛回给用户。补挂命令（先 `mkdir -p` 再挂）：
+  ```bash
+  mkdir -p /home/manu/mnt/data /home/manu/mnt/pycharm_project_10ae9e2e /home/manu/mnt/nfs
+  sshfs -p 32222 huangzhe@192.168.99.40:/mnt/data /home/manu/mnt/data
+  sshfs -p 32222 huangzhe@192.168.99.40:/tmp/pycharm_project_10ae9e2e /home/manu/mnt/pycharm_project_10ae9e2e
+  sudo mount -t nfs 192.168.0.64:/mnt/manu /home/manu/mnt/nfs -o nolock
+  ```
+- **校验必须做可达性抽验，不能只看 `mountpoint`**：挂载后至少抽验一条真实路径（如
+  `ls /home/manu/mnt/pycharm_project_10ae9e2e/manu/memory/rules.md`、`ls /home/manu/mnt/nfs`），
+  确认能真正读到内容再宣告「已就位」。
+- **SSHFS 掉线的判定与清理**：若 `mountpoint` 报已挂载但读取超时/报 `Transport endpoint is not connected`，
+  说明是**僵尸挂载**，须先 `fusermount -u <挂载点>`（必要时 `fusermount -uz`）再重新挂载，
+  **严禁在僵尸挂载上反复重挂**。
+- ⚠️ **注意本条与铁律零的叠加**：服务器挂载路径只是**读取 memory 的入口**，是只读通道；
+  **memory 的任何写操作仍必须回本地 checkout 改、再 cp 同步**（见第〇节）。
 
 ---
 
