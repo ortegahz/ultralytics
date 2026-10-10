@@ -1,7 +1,60 @@
 # 红外弱小无人机检测器算法攻坚主索引 (Core Memory & Navigation)
 
-> **版本时间**：2026-10-09  
+> **版本时间**：2026-10-10  
 > **定位与职责**：新 Session 启动必读核心。掌握项目演进全局脉络、当前最高 SOTA 基线、全景评测大盘，并提供按需深入各专题模块的精确导航指引。
+> **先读本节「零之二」**：它是截至今日的全项目状态快照，含三条并行线各自的完成度与唯一阻塞项。
+
+---
+
+## 零之二、当前工作状态快照（截至 2026-10-10）
+
+> 本节是**会过期的状态位**，结论细节见对应章节；每次阶段性收口后更新此表，不要在别处另起状态记录。
+
+### A. 算法主线（Anti-UAV 官方域）—— 已收口，冻结
+
+- 冻结基线 **Trial 0474 单帧 F1=0.9064**（R 86.19% / P 95.57% / TP 21,643 / FP 1,004）与
+  **系统级 In-BBox F1=0.9209**（严格距离口径 0.9194），详见 §二。
+- 「改模型」路线已累计 8 负 0 胜，**单帧底模永久锁定**，后续突破只走系统级时空后处理与业务域工程化。
+- 阶段收口，无待办。
+
+### B. 业务域交付（龙泉山）—— 进行中，当前最大工程压力
+
+| 项目 | 状态 | 数值 / 结论 |
+| :--- | :--- | :--- |
+| GT 真值 | ✅ **已升级** | `Final_Labels_merged_20261010`（含标注公司回补），24 序列 / 165,223 标签，labels==frames 逐序列断言通过；位置台账见 §4c.0 |
+| 全量评测 | ✅ 已出 | F1 73.58% / R 69.06% / P 78.74% / FAR 0.1496（dist 8px，多尺度 r=64，th=0.30） |
+| 交付判据 | 🔴 **不达标** | 需 F1 ≥ 88.0% 且 R ≥ 85.0% 且虚警受控，三项全挂；判据来源 `audit_substandard_cases.py:78-81` |
+| Bad Case 台账 | ✅ 7 条已定位 | §5d；分野为「工作点/预处理问题」（`00012`、`00032`）与「能力缺口」（`00006`、`00036`） |
+| 标注回补 | ✅ 已合并已渲染 | `_000322` 补 541 帧、`_00036` 补 146 帧、`_000703` 仅调 2 帧框；5 个 GT OSD 复核视频已出（§4c） |
+| 🔴 **最大障碍** | 未解决 | **FAR 0.1496/帧 = 军工光电合格线 0.030 的 5 倍**；必须接双向平滑/插补/刚性剪枝 |
+| ⏳ **下一步（唯一）** | 未启动 | 评测链路切到 `Final_Labels_merged_20261010` 重跑全量，更新大盘与 7 条 Bad Case 表；注意 `_00036` 补标后 **F1 会先降后升**，属正常 |
+
+### C. 嵌入式移植（RK3588）—— 调研阶段，有唯一硬阻塞
+
+| 项目 | 状态 | 结论 |
+| :--- | :--- | :--- |
+| 板卡与通道 | ✅ 就绪 | `ssh -p 22 root@192.168.0.64`；NFS `192.168.0.64:/mnt/manu` → 本机 `/home/manu/mnt/nfs`；Agent 可经 `deploy_and_run.py` 自动执行 |
+| GPU (Mali-G610) | ✅ 可用 | OpenCL 3.0 实跑 PASS；`FUSED_USE_HW_LINEAR=0`（手动双线性）已定案；尾段 upload+kernel+readback = 6.70~9.15 ms/帧 |
+| arm64 OpenCV 4.10.0 | ✅ 自编译并验证 | 59 帧 × 1933 万元素逐算子比对：`resize`/GFT/LK/RANSAC 内点掩码位精确，`warpAffine` 仅 11 个像素差（0.000057%） |
+| C++ 移植 | 🟡 局部 | L2 端到端位精确通过，**但覆盖 2/24 序列、400/31,613 帧（1.27%）**，L3 全量未做 |
+| 🔴 **唯一阻塞项 1** | 未解决 | **NPU 驱动未使能**：`/dev/rknpu` 不存在、`/proc/devices` 无 rknpu，RKNN 路线当前走不通 |
+| 🔴 **唯一阻塞项 2** | 未解决 | **时延口径 5 倍分歧未裁决**：反解 9.06 ms/次拟合 vs `stage timing` 实测 1.80 ms/次；两套数字**均禁止**进嵌入式预算 |
+| ⏳ 耗时调研 | 方案已成型 | 分段口径统一（拟合/warp/中值/组装）、平台分层、瓶颈候选（拟合段锚点级联、warp 几何级联、中值段分块选择+GPU）、精度守门；**代码优化尚未启动** |
+
+### D. 本轮三条新增工作（2026-10-09 ~ 10-10）
+
+1. **标注自动化质检**：四条统计规则（覆盖率/连续空段/框尺寸跳变/重复行）筛出 8 条高风险序列，人工复核
+   确认 2 条漏标（`VIDEO00006` 末段大段、`VIDEO00036` 中段小段），已回补；产出 22 个含重复行的文件
+   清单。**遗留**：4 条逐帧 100% 有标注序列的「整段刷标」嫌疑待人工确认。
+2. **嵌入式耗时调研**：见上表 C。
+3. **业务域全量评测与 Bad Case 过滤**：见上表 B。
+
+### E. 跨线的通用纪律提醒（本周新增，均有实测教训支撑）
+
+- 「零观测」≠「不存在」：稀疏差异必须用**跨全部元素的绝对计数**报告（23 帧样本曾把 warp 判成位精确，扩到 59 帧被推翻）。
+- 「读代码确认」不算验证：本项目 7 个真实缺陷**全部由运行发现**。
+- 变异测试不可省：我第一次写合并脚本的闸门测试**写错了**（清空标签 ≠ 制造越界索引），闸门未触发差点放过缺陷。
+- 同一张表内数字互相矛盾时必须逐表核对：我曾把 `classes.txt` 误计为序列前缀，「25 个序列」实为 **24**。
 
 ---
 
@@ -443,6 +496,81 @@ sudo mount -t nfs 192.168.0.64:/mnt/manu /home/manu/mnt/nfs -o nolock
 - **已新建 GT OSD 复核脚本 `manu/videos/render_gt_osd_video.py`**：直接读扁平 `Final_Labels` + `frames_ir_jpg`，按 `--seq` 渲染「全帧 OSD + 局部放大双联」视频；`--list` 可列出全部 24 序列及其标签/非空/首末索引；支持 `--start/--end/--skip-empty/--scale/--inset/--crop-size`；
 - **纪律**：标签与帧数量不一致时脚本只 `[WARN]`，但**选中范围内**只要有标签找不到帧就立即 `RuntimeError` 并报出缺失数量与首末索引——因为「静默少渲几帧却打印 SUCCESS」比崩溃更危险（`rules.md` 第三节第 1 条）。
 
+### 4c. 标注公司 patch_label 回补 + 合并基线重建 + GT OSD 复核视频（2026-10-10 实测）
+
+#### 4c.0 数据与产物位置台账（服务器 `/mnt/data`，本机 SSHFS 挂载 `/home/manu/mnt/data`，同一份数据）
+
+| 内容 | 服务器绝对路径 | 本机（SSHFS）对应路径 |
+| :--- | :--- | :--- |
+| **标注公司回补 patch（只读输入）** | `/mnt/data/siping/datasets/manu/龙泉山/label/patch_label` | `/home/manu/mnt/data/siping/datasets/manu/龙泉山/label/patch_label` |
+| ↳ patch 子目录（**嵌套两层**） | `patch_label/VIDEO00006_19700101_000322_correct_labels/`（3,264 文件，跨 `_000322`+`_000703` 两段）<br>`patch_label/VIDEO00036_19700101_015740_correct_labels/`（996 文件） | 同左 |
+| ↳ patch 原始压缩包（未动） | `patch_label/*.zip`（各序列一个） | 同左 |
+| 人工终审标注（合并底板） | `/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels`（165,223 标签 + `classes.txt`） | 同左 |
+| **合并后完整扁平标签（当前评测真值基线）** | `/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010`（165,224 项 / 532 MB） | 同左 |
+| 原始灰度帧 | `/mnt/data/siping/datasets/manu/龙泉山/frames_ir_jpg`（24 序列，`<SEQ>/frame_%06d.jpg`） | 同左 |
+| GT OSD 复核视频 | `/mnt/data/siping/datasets/manu/龙泉山/gt_review_20261010`（5 个 mp4 / 1.3 GB） | 同左 |
+| 旧交付标注（已作废，保留仅供追溯） | `label/part1/`、`label/part2/`、`label/Final_Labels.zip` | 同左 |
+| 合并脚本 | `/tmp/pycharm_project_10ae9e2e/manu/data/merge_patch_labels.py` | `/home/manu/mnt/pycharm_project_10ae9e2e/manu/data/merge_patch_labels.py` |
+| GT OSD 渲染脚本 | `/tmp/pycharm_project_10ae9e2e/manu/videos/render_gt_osd_video.py` | `/home/manu/mnt/pycharm_project_10ae9e2e/manu/videos/render_gt_osd_video.py` |
+| 运行环境 | `ssh -p 32222 huangzhe@192.168.99.40`（密钥免密），`conda activate uav`（OpenCV 4.10.0 / numpy 1.26.4） | — |
+
+⚠️ **`patch_label` 是一份增量补丁，不是可独立使用的标注集**：只有被标注公司改动过的帧在里面。任何脚本
+都不得把它当 `--labels-root` 直接使用（见下）。
+
+#### 4c.1 patch 的真实结构（实测，三条与直觉相反）
+1. **嵌套两层**：`patch_label/<SEQ>_correct_labels/{SEQ}__{index:06d}.txt`，而 `render_gt_osd_video.py`
+   的 `index_labels()` 用 `labels_root.iterdir()` **非递归** ⇒ 直接把 `--labels-root` 指向 `patch_label`
+   会读到 **0 个标签**并以 `ValueError: No frames selected` 退出（好在是响亮失败，不是静默空视频）。
+2. **只含改动帧，不是全序列**：`_000322` 只有索引 15617~17016；`_000703` 只有 0~1863；`_00036` 是全量
+   996 帧。若只用 patch 作为标签根，`_000322` 前 15,617 帧标注会整段消失，而复核恰恰要看整条序列。
+3. ⇒ **必须先合并再渲染**：`Final_Labels` 打底 + patch 覆盖同名文件，得到完整扁平根
+   `Final_Labels_merged_20261010/`（165,223 标签 + `classes.txt`，硬链接落地仅占 532 MB）。
+
+**逐帧差异（脚本 diff，权威）**
+
+| 序列 | empty→filled | adjusted | empty→removed | new |
+|---|---:|---:|---:|---:|
+| `VIDEO00006_19700101_000322` | **541** | 1 (16668) | 0 | 0 |
+| `VIDEO00006_19700101_000703` | 0 | **2 (1739-1740)** | 0 | 0 |
+| `VIDEO00036_19700101_015740` | **146** | 104 | 0 | 0 |
+
+- `_000322` 补齐区间：`15617-15810, 15871-16159, 16369-16426`；`_00036` 补齐区间：
+  `161-169, 174-183, 185-193, 253-299, 309-314, 316, 672-700, 833-852, 864-878`。
+- ⚠️ **`_000703` 的 2 帧是「框调整」不是漏标**，与前两类的病因不同，复核时不要混为一谈。
+
+**🔴 交叉验证（两条独立路径互证，非同一份数据）**：合并脚本 diff 报 `_000322` 补 541、`_00036` 补 146；
+渲染脚本独立统计的 `labeled_frames` 为 `14,821` 与 `731`，减去本节此前记录的旧 GT `14,280` 与 `585`
+**恰好等于 541 与 146**。两侧口径不同的工具给出同一数字，标注回补量可信。
+
+**⚠️ 自我更正（2026-10-10）**：本节初稿写「25 个序列前缀」，**错**。那个 25 是 `sed` 统计时把
+`classes.txt` 也算成了前缀（它不匹配 `{seq}__{index}.txt` 模式因而原样保留）。服务器端 `--frames-root`
+断言打印的权威列表为 **24 个序列**，与 4b 节记录一致。**同一张表内数字互相矛盾时必须逐表核对**。
+
+**合并脚本的三道闸门（均已用变异测试验证会失败，非纸面守卫）**
+- `--out` 已存在且非空 ⇒ `RuntimeError`（刻意不做续跑兜底，避免复核到上一次的陈旧合并）；
+- `--frames-root` 下任一标签索引寻址不到帧 ⇒ `RuntimeError` 并报 `first/last`（实测报
+  `SEQ_A: 1/11 labels address no frame (first=99 last=99)`）；
+- patch 内无可用标签 ⇒ `RuntimeError`。
+⚠️ 第一次写变异测试时我把某帧标签清空而非制造越界索引，结果**闸门未触发**，是测试写错而非代码对；
+重做成「新增一个无对应帧的标签索引」后闸门正常报错。
+
+**GT OSD 复核视频（ffprobe 校验 nb_frames 与时长全部匹配）**
+
+| 文件 | 帧数 | 有标注帧 | 分辨率 |
+|---|---:|---:|---|
+| `VIDEO00006_000322_gt_full.mp4` | 17,017 | 14,821 | 1808x1060 |
+| `VIDEO00006_000322_gt_patched_15497-17016.mp4` | 1,520 | 842 | 1808x1060 |
+| `VIDEO00006_000703_gt_full.mp4` | 1,864 | 1,742 | 1808x1060 |
+| `VIDEO00006_000703_gt_patched_1700-1780.mp4` | 81 | 42 | 3088x2084（scale 4） |
+| `VIDEO00036_gt_full.mp4` | 996 | 731 | 1808x1060 |
+
+**复核后的指标预期（重要，先看再判）**：`_00036` 补标 146 帧后 **Recall 分母变大，F1 会先降后升**，
+属正常现象，**不得据此判算法退化**。
+
+**铁律一豁免先例（2026-10-10）**：用户就本次「合并 + GT OSD 渲染」明确授权 Agent 自行 SSH 到服务器
+（`huangzhe@192.168.99.40:32222`，密钥免密，`conda activate uav`，OpenCV 4.10.0 / numpy 1.26.4）执行，
+属铁律一的**单次显式豁免**，不构成后续训练/推理类重型脚本的默认授权。
+
 ### 5b. 伪标签全量生成已完成 + 与 Final_Labels 实测对账（2026-10-09 核查，取代 5b 之前「未完成」的说法）
 - **脚本**：`manu/data/preannotate_parallel.py`（跨 GPU 调度器，argparse 描述即 "Parallel pseudo-label generation across sequences"，状态面板标题 `Pseudo-labels: {frames_root.name}`）；逐序列 worker 为 `manu/data/preannotate_all_sequences.py`，HM+YOLO26 BBox 融合核心在 `manu/data/preannotate_hm_bbox.py`。
 - **已完成**：manifest.json 实测 `sequence_count=24`、**`failed=[]`**、`global_counts = {c0=93,184, c1=118,168, c2=0}`（c2 为 0 因未开 `--include-bbox-only`），合计 **211,352 个伪标签框 / 165,223 帧**（均 1.28 框/帧），非空标签 135,470 帧。
@@ -479,6 +607,11 @@ sudo mount -t nfs 192.168.0.64:/mnt/manu /home/manu/mnt/nfs -o nolock
 
 
 ### 5d. 龙泉山 Final_Labels 域全量评测结论：工程交付判据与 7 条 UN-PASS（2026-10-09）
+
+> 🔴 **本节全部指标基于「回补前」的 `Final_Labels`（GT = 132,570），已于 2026-10-10 被标注公司回补
+> 作废**。新真值 `Final_Labels_merged_20261010` 增加 687 个空标签→标注的转换（`_000322` +541、`_00036` +146）
+> 与 107 帧框调整，**GT 分母变大，指标必然变化**。本节结论在重跑前只能作为历史记录引用，
+> **不得作为当前业务域性能陈述**。重跑后请就地更新本节并把结论同步到「零之二」快照。
 
 **评测口径与工具**：`manu/evaluation/eval_multiscale_cache_th.py`（纯 CPU，直读 cache pkl）。关键设计：
 - **匹配双口径**：`--match-mode dist`（中心距 ≤ `--tol`，与 Anti-UAV 历史可比）/ `inbox`（预测中心落入 GT 框）。GT 存完整 `(cx,cy,w,h)` 原生像素。
