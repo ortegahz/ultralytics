@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -458,6 +459,39 @@ def test_external_prelabels(workspace: Path) -> None:
     check("缓存失效后仍能读到外部候选", len(store.read_prelabels("seqF", 0, WIDTH, HEIGHT)) == 1)
 
 
+def test_own_prelabels_ignore_class_filter(workspace: Path) -> None:
+    """``--prelabel-class`` must not hide the worker's own output.
+
+    This is the bug that made a real 1239-frame pre-annotation run invisible: the service was started
+    with ``--prelabel-class 1`` to pull the heatmap branch out of the project's mixed ``preannot_v1``
+    tree, and the filter was applied to the tool's own ``prelabels/`` too. The worker writes class 0, so
+    every proposal was dropped at read time — files on disk, ``summary`` still counting them, UI empty.
+    """
+    print("\n== 自有候选不受外部类别过滤影响 ==")
+    external = workspace / "mixed_tree"
+    (external / "seqG").mkdir(parents=True, exist_ok=True)
+    (external / "seqG" / "000000.txt").write_text("1 0.5 0.5 0.1 0.1\n0 0.2 0.2 0.05 0.05\n", encoding="utf-8")
+
+    store = LabelStore(workspace / "ws3", extra_prelabel_roots=[external])
+    # The worker writes class 0 into the workspace tree.
+    store.write_prelabels("seqG", 0, [{"cls": 0, "x1": 10, "y1": 10, "x2": 20, "y2": 20}], WIDTH, HEIGHT)
+
+    kept = store.read_prelabels("seqG", 0, WIDTH, HEIGHT, classes=[1])
+    check("自有候选不会被 --prelabel-class 过滤掉", len(kept) == 1, f"{len(kept)} 个框")
+    check("被保留的仍是 worker 写的那一个框", kept and abs(kept[0]["x1"] - 10) < 0.01, str(kept))
+
+    # Same frame, but read from the external tree instead — there the filter must still bite.
+    store2 = LabelStore(workspace / "ws4", extra_prelabel_roots=[external])
+    external_only = store2.read_prelabels("seqG", 0, WIDTH, HEIGHT, classes=[1])
+    check("外部树仍然按类别过滤（过滤没有被整体废掉）",
+          len(external_only) == 1 and external_only[0]["cls"] == 1, str(external_only))
+
+    store3 = LabelStore(workspace / "ws5", extra_prelabel_roots=[external])
+    store3.write_prelabels("seqG", 0, [{"cls": 0, "x1": 10, "y1": 10, "x2": 20, "y2": 20}], WIDTH, HEIGHT)
+    both = store3.read_prelabels("seqG", 0, WIDTH, HEIGHT, classes=[0, 1])
+    check("多类别过滤下自有候选同样可见", len(both) == 1, f"{len(both)}")
+
+
 def test_job_queue(workspace: Path) -> None:
     """Drive the real dispatch loop with a stubbed ssh, so queue bugs fail here instead of in the UI.
 
@@ -702,6 +736,16 @@ def test_server(root: Path, workspace: Path, port: int) -> None:
         with urllib.request.urlopen(f"{base}/", timeout=20) as response:
             check("首页可访问", response.status == 200 and b"viewport" in response.read())
 
+        # A reload must be able to pick up a new build. Cache-Control alone is not enough: a tab open
+        # across a deploy keeps the copy it loaded, which reads as "the fix shipped but nothing changed".
+        html = urllib.request.urlopen(base + "/", timeout=10).read().decode("utf-8")
+        asset_refs = re.findall(r'(?:src|href)="(/static/[^"?]+)(\?v=\d+)"', html)
+        check("首页资源带构建版本号（刷新必拿新版）", len(asset_refs) >= 2,
+              f"{len(asset_refs)} 个引用")
+        for url, _version in asset_refs:
+            check(f"带版本号的资源仍可访问 {url}",
+                  urllib.request.urlopen(base + url, timeout=10).status == 200)
+
         try:
             urllib.request.urlopen(f"{base}/api/seq/nope/labels/0", timeout=10)
             check("未知序列返回 404", False)
@@ -734,6 +778,7 @@ def main() -> None:
         test_worker_pipeline(workspace)
         test_export(workspace)
         test_external_prelabels(workspace)
+        test_own_prelabels_ignore_class_filter(workspace)
         test_job_queue(workspace)
         test_local_inference_mode(workspace)
         test_local_mode_visibility(root, workspace)

@@ -95,39 +95,11 @@
 - **同步义务**：以后凡是新增、修正或废止主 memory 中的实验事实、指标、SOTA、工程铁律或阶段结论，必须在同一任务中同步更新 `manu/memory/memory_compact.md` 的对应内容；不得只更新其中一份。
 - **一致性要求**：精简版可以省略细节，但不得保留与主 memory 冲突的结论、指标或当前基线；更新时间必须同步刷新。
 
-### 8. 【核心铁律八】每次读取 memory 之前，必须先校验三条挂载链路，缺失即自动补挂！
-> 2026-10-10 用户明确要求。memory 体系全部存放于 SSHFS 挂载盘内，**挂载掉了就读不到 memory，
-> 等于失忆开工**；而 SSHFS/NFS 均可能在重启、断网、SSH 会话退出后静默掉线。
-
-- **强制前置检查**：每次响应「读 memory / 了解背景」类指令，**第一步必须执行挂载校验**，校验通过后才允许读取 memory 正文：
-  ```bash
-  for d in /home/manu/mnt/data /home/manu/mnt/pycharm_project_10ae9e2e /home/manu/mnt/nfs; do
-    mountpoint -q "$d" && echo "[OK] $d" || echo "[MISSING] $d"
-  done
-  ```
-- **三条挂载链路及其语义**（缺一不可，**不得只凭目录非空就判定已挂载**——掉线后残留目录看起来完全正常）：
-
-  | 挂载点 | 类型 | 源 | 承载内容 |
-  | :--- | :--- | :--- | :--- |
-  | `/home/manu/mnt/data` | SSHFS | `huangzhe@192.168.99.40:/mnt/data` | 远端数据集（Anti-UAV、龙泉山 `frames_ir_jpg` / `Final_Labels*`） |
-  | `/home/manu/mnt/pycharm_project_10ae9e2e` | SSHFS | `huangzhe@192.168.99.40:/tmp/pycharm_project_10ae9e2e` | 远端代码仓库，**`manu/memory/` 就在这里** |
-  | `/home/manu/mnt/nfs` | NFS4 | `192.168.0.64:/mnt/manu` | RK3588 板卡产物（dump / 用例 / 输出） |
-
-- **自动补挂义务**：发现缺失时 Agent **必须主动执行补挂**，不得把「路径读不到」直接抛回给用户。补挂命令（先 `mkdir -p` 再挂）：
-  ```bash
-  mkdir -p /home/manu/mnt/data /home/manu/mnt/pycharm_project_10ae9e2e /home/manu/mnt/nfs
-  sshfs -p 32222 huangzhe@192.168.99.40:/mnt/data /home/manu/mnt/data
-  sshfs -p 32222 huangzhe@192.168.99.40:/tmp/pycharm_project_10ae9e2e /home/manu/mnt/pycharm_project_10ae9e2e
-  sudo mount -t nfs 192.168.0.64:/mnt/manu /home/manu/mnt/nfs -o nolock
-  ```
-- **校验必须做可达性抽验，不能只看 `mountpoint`**：挂载后至少抽验一条真实路径（如
-  `ls /home/manu/mnt/pycharm_project_10ae9e2e/manu/memory/rules.md`、`ls /home/manu/mnt/nfs`），
-  确认能真正读到内容再宣告「已就位」。
-- **SSHFS 掉线的判定与清理**：若 `mountpoint` 报已挂载但读取超时/报 `Transport endpoint is not connected`，
-  说明是**僵尸挂载**，须先 `fusermount -u <挂载点>`（必要时 `fusermount -uz`）再重新挂载，
-  **严禁在僵尸挂载上反复重挂**。
-- ⚠️ **注意本条与铁律零的叠加**：服务器挂载路径只是**读取 memory 的入口**，是只读通道；
-  **memory 的任何写操作仍必须回本地 checkout 改、再 cp 同步**（见第〇节）。
+> 🔴 **2026-10-12 用户要求删除原「铁律八：每次读 memory 前校验三条挂载链路，缺失即自动补挂」，该条已废止。**
+> 原因：memory 的**权威副本在本地 checkout**（`/media/manu/1TB-Volume/workspace/ultralytics/manu/memory/`），
+> 读 memory 不再依赖任何 SSHFS/NFS 挂载；自动补挂会因远端不可达而产生噪音，
+> 且与铁律零「本地是唯一编辑区」叠加后语义重复。
+> 保留的只有一条弱形式：**读取失败时先确认自己读的是本地副本，而不是去补挂**。
 
 ---
 

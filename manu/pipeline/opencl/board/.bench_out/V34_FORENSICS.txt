@@ -1,0 +1,41 @@
+arm GD: profile_D_VIDEO00034_19700101_015052.csv  rows=400  steady=300  warmup=100
+
+total_ms  p50=11.32 p95=12.79 p99=26.95 max=43.16   over 40 ms: 2/300
+
+stage            p50      p95      p99      max   share@max-frame
+--------------------------------------------------------------------------
+io_ms           0.39    0.40    0.41    0.42          0.9%
+prep_ms         0.00    0.00    0.00    0.00          0.0%
+fit_ms          5.11    6.53    6.77    7.11         15.4%
+img_up_ms       1.56    1.58   16.47   31.06         72.0%
+mats_up_ms      0.01    0.01    0.02    0.03          0.0%
+kernel_ms       4.21    4.49    4.85    7.99         11.3%
+readback_ms     0.13    0.13    0.14    0.17          0.3%
+resid_ms        0.03    0.04    0.04    0.04
+
+worst 12 frames (steady window):
+   frame    total     fit   img_up  kernel     io    dominant stage
+  ------------------------------------------------------------------
+     169    43.16    6.66    31.06    4.88   0.39            img_up
+     170    40.95    5.98    29.82    4.57   0.41            img_up
+     144    27.26    5.99    16.47    4.24   0.41            img_up
+     143    26.95    5.67    16.59    4.12   0.40            img_up
+     254    16.21    5.92     1.69    7.99   0.40            kernel
+     255    14.74    6.77     1.58    5.83   0.38               fit
+     275    13.42    7.11     1.57    4.19   0.38               fit
+     284    13.20    6.85     1.56    4.23   0.38               fit
+     285    13.10    6.73     1.57    4.24   0.38               fit
+     265    13.07    6.74     1.56    4.21   0.39               fit
+     280    12.98    6.67     1.57    4.19   0.38               fit
+     279    12.95    6.63     1.57    4.21   0.38               fit
+
+img_up_ms distribution -- is this bimodal (a few events) or a tail?
+  [   0,   2) ms :  296 frames  ( 98.7%)
+  [   2,   5) ms :    0 frames  (  0.0%)
+  [   5,  10) ms :    0 frames  (  0.0%)
+  [  10,  20) ms :    2 frames  (  0.7%)
+  [  20,1000) ms :    2 frames  (  0.7%)
+
+frames over 40 ms: 2
+  frame  169: total= 43.16  fit=  6.66  img_up= 31.06  kernel=  4.88  io= 0.39
+  frame  170: total= 40.95  fit=  5.98  img_up= 29.82  kernel=  4.57  io= 0.41

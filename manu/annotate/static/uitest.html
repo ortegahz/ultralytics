@@ -20,7 +20,12 @@ const results = [];
 function record(ok, name, detail) {
   results.push({ ok: !!ok, name, detail: detail === undefined ? '' : String(detail) });
 }
-function check(name, ok, detail) { record(ok, name, detail); }
+function check(name, ok, detail) {
+  record(ok, name, detail);
+  // Render as we go: if the run stalls on a slow link, the dumped DOM still shows how far it got
+  // instead of sitting on "running…".
+  render();
+}
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 function render() {
@@ -99,10 +104,12 @@ async function run() {
   check('控制点角落命中正确', api.hitHandle(mine, mine.x2, mine.y2) === 'se', '');
 
   // ---- undo / redo -------------------------------------------------------
+  // undo()/redo() now write the restored labels back to disk and re-read the frame, so they are
+  // genuinely asynchronous — checking immediately would race the reload.
   const afterDelete = S.labels.length;
-  api.undo();
+  await api.undo(); await sleep(300);
   check('撤销恢复删除的框', S.labels.length === afterDelete + 1, `${afterDelete} -> ${S.labels.length}`);
-  api.redo();
+  await api.redo(); await sleep(300);
   check('重做再次删除', S.labels.length === afterDelete, `${S.labels.length}`);
 
   // ---- proposal filtering ------------------------------------------------
@@ -153,34 +160,165 @@ async function run() {
         hasScores || api.visibleProposals().length === totalProposals,
         hasScores ? '有分数' : '外部树无 scores.json，按设计不参与阈值过滤');
 
+  // Candidates are drawn but deliberately NOT hit-testable — only labels are editable. So the way to
+  // take a subset of them is the list on the right: clicking a row promotes that single proposal to a
+  // label. This is a different path from Space (which accepts all), and it was untested.
+  if (totalProposals > 0) {
+    const beforePick = S.labels.length;
+    const row = iframe.contentWindow.document.querySelector('[data-proposal]');
+    check('候选列表渲染出了可点击的行', !!row, totalProposals + ' 个候选');
+    if (row) {
+      // Read the source proposal *before* the click: once accepted it is claimed and leaves the
+      // visible list, so looking it up afterwards reads the wrong box.
+      const src = api.visibleProposals()[Number(row.dataset.proposal)];
+      const beforeVisible = api.visibleProposals().length;
+      row.click(); await sleep(350);
+      check('点候选行可单独采纳该候选', S.labels.length === beforePick + 1,
+            `${beforePick} -> ${S.labels.length}`);
+      const picked = S.labels[S.labels.length - 1];
+      check('采纳的框坐标与候选一致',
+            picked && src && Math.abs(picked.x1 - src.x1) < 0.01 && Math.abs(picked.y2 - src.y2) < 0.01,
+            JSON.stringify(picked));
+      // And the promoted box must now be editable, which is the whole point of accepting it.
+      const cx = (picked.x1 + picked.x2) / 2, cy = (picked.y1 + picked.y2) / 2;
+      const hit = api.hitBox(cx, cy);
+      check('采纳后的框可被命中（可拖动/缩放）', !!hit, hit ? `index ${hit.index}` : '未命中');
+      // A label sitting exactly on a proposal *is* that proposal, so it must stop being offered —
+      // otherwise one target is drawn twice and it looks like the original stayed uneditable.
+      check('采纳后原候选不再重复显示', api.visibleProposals().length === beforeVisible - 1,
+            `${beforeVisible} -> ${api.visibleProposals().length}`);
+      const moved0 = S.labels.length - 1;
+      api.deleteSelected(); await sleep(300);
+      check('删除标注后候选重新出现', api.visibleProposals().length === beforeVisible,
+            `${api.visibleProposals().length} 个候选`);
+      api.undo(); await sleep(300);
+      check('撤销删除后标注回来了', S.labels.length === moved0 + 1, `${S.labels.length}`);
+    }
+  }
+
+  // ---- grabbing a proposal in place ---------------------------------------
+  // Dragging a candidate is how you actually correct a model box: the proposal is promoted and the
+  // same gesture moves it. Only the components were reachable from the debug handle before, so these
+  // dispatch real MouseEvents at the viewport to exercise the actual mousedown/move/up handlers.
+  const vdoc = iframe.contentWindow.document;
+  const clientOf = (ix, iy) => {
+    const r = vdoc.getElementById('viewport').getBoundingClientRect();
+    return { clientX: r.left + S.view.x + ix * S.view.z, clientY: r.top + S.view.y + iy * S.view.z };
+  };
+  const send = (type, ix, iy, node) => (node || vdoc.getElementById('viewport'))
+    .dispatchEvent(new iframe.contentWindow.MouseEvent(type, { button: 0, bubbles: true, ...clientOf(ix, iy) }));
+
+  // Find a frame that carries candidates *after* navigating — the mounted preannot_v1 tree is sparse
+  // enough that a fixed index can legitimately hold none, and reading visibleProposals() before the
+  // jump would test the wrong frame. The scan is bounded: each step is a real JPEG fetch, and an
+  // unbounded sweep stalls the whole run on a slow link.
+  let grabTarget = null, grabFrame = -1;
+  for (let k = 0; k < 5 && grabTarget === null; k++) {
+    const f = frame + k;
+    await api.goToFrame(f); await sleep(250);
+    if (api.visibleProposals().length) { grabFrame = f; grabTarget = api.visibleProposals()[0]; }
+  }
+  check('找到一帧带候选的帧用于拖拽测试', !!grabTarget,
+        grabFrame >= 0 ? `第 ${grabFrame} 帧` : `${frame}–${frame + 4} 帧都没有候选`);
+  if (grabTarget) {
+    S.labels = [];
+    const cx = (grabTarget.x1 + grabTarget.x2) / 2, cy = (grabTarget.y1 + grabTarget.y2) / 2;
+
+    // A bare click must not create anything: glancing at a proposal cannot litter the frame.
+    send('mousedown', cx, cy);
+    send('mouseup', cx, cy, iframe.contentWindow);
+    await sleep(250);
+    check('纯点击候选不会产生标注', S.labels.length === 0, `${S.labels.length} 个框`);
+
+    // A real drag promotes and moves it.
+    send('mousedown', cx, cy);
+    send('mousemove', cx + 8, cy + 8, iframe.contentWindow);
+    send('mouseup', cx + 8, cy + 8, iframe.contentWindow);
+    await sleep(400);
+    check('拖动候选框会把它变成标注', S.labels.length === 1, `${S.labels.length} 个框`);
+    const moved = S.labels[0];
+    check('拖动后位置确实改变了',
+          moved && Math.abs((moved.x1 + moved.x2) / 2 - (cx + 8)) < 2, JSON.stringify(moved));
+    check('拖动保持框尺寸',
+          moved && Math.abs((moved.x2 - moved.x1) - (grabTarget.x2 - grabTarget.x1)) < 1.5, JSON.stringify(moved));
+    const srv = await (await fetch(`/api/seq/${encodeURIComponent(seqId)}/labels/${grabFrame}`)).json();
+    check('拖动后的框已落盘', srv.labels.length === 1, `服务端 ${srv.labels.length}`);
+    // Dragged far off its proposal, the label no longer overlaps it — but the annotator has taken this
+    // target over, so the suggestion must NOT come back. Claiming by geometry alone left the original
+    // drawn next to the new box, which is the "a new box appeared, the original is still stuck" symptom.
+    check('框被拖离后该候选也不会再出现（已按来源认领）',
+          api.visibleProposals().length === totalProposals - 1,
+          `${totalProposals} -> ${api.visibleProposals().length}`);
+    api.undo(); await sleep(500);
+    check('撤销后回到无标注状态', S.labels.length === 0, `${S.labels.length} 个框`);
+    // Reload loses the session-only `from` tag, so claiming has to survive on geometry alone. Put a
+    // label strictly INSIDE a proposal — the case where dividing by the proposal's area scored it as
+    // unclaimed (0.4) and left the suggestion drawn next to the annotator's own box.
+    S.labels = [{ cls: 0, x1: grabTarget.x1 + 1, y1: grabTarget.y1 + 1,
+                  x2: grabTarget.x1 + 4, y2: grabTarget.y1 + 4 }];
+    check('小框完全落在候选内部时也应认领（刷新后仍不重复显示）',
+          api.visibleProposals().length === totalProposals - 1,
+          `${totalProposals} -> ${api.visibleProposals().length}`);
+
+    // Worst case for an overlap ratio: the label has been dragged off to one corner, so almost none of
+    // it overlaps even though it plainly refers to the same target. Centred-inside catches this.
+    S.labels = [{ cls: 0, x1: grabTarget.x1 - 2, y1: grabTarget.y1 - 2,
+                  x2: grabTarget.x1 + 2, y2: grabTarget.y1 + 2 }];
+    check('框被拖到候选一角、重叠极小也算认领',
+          api.visibleProposals().length === totalProposals - 1,
+          `${totalProposals} -> ${api.visibleProposals().length}`);
+
+    // …but an unrelated box elsewhere must NOT swallow a proposal.
+    S.labels = [{ cls: 0, x1: 2, y1: 2, x2: 8, y2: 8 }];
+    check('远处无关的框不会误认领候选',
+          api.visibleProposals().length === totalProposals,
+          `${totalProposals} -> ${api.visibleProposals().length}`);
+    S.labels = [];
+    // …and that has to be true on the *server*, not just on screen. Undo used to navigate with
+    // `fromHistory`, which skips the save, so the edited box stayed in the file and reappeared on the
+    // next load — the worst kind of undo, because it looks like it worked.
+    const undoneSrv = await (await fetch(`/api/seq/${encodeURIComponent(seqId)}/labels/${grabFrame}`)).json();
+    check('撤销确实写回了服务端（刷新后不会复活）', undoneSrv.labels.length === 0,
+          `服务端仍有 ${undoneSrv.labels.length}`);
+  }
+
   // ---- accept proposals (the primary action) ------------------------------
   if (totalProposals > 0) {
     // Start from a frame with proposals and no human labels, which is the exact case where the save
     // used to be skipped as "nothing changed".
     await api.goToFrame(frame, { force: true });
     const startIndex = S.index;
-    // Snapshot before accepting: accepting advances the frame, and S.prelabels then belongs to the
-    // *next* frame (which may have no candidates at all).
-    const proposalsBefore = S.prelabels.map((b) => ({ ...b }));
+    // Accepting ADDS the still-offered proposals to whatever is already on the frame — it must not
+    // discard boxes the annotator drew by hand. So the expectation is prior + pending, not pending.
+    const priorLabels = S.labels.map((b) => ({ ...b }));
+    // Only the *unclaimed* proposals are still on offer: anything already turned into a label must not
+    // be added a second time, or pressing Space twice duplicates every target.
+    const proposalsBefore = api.visibleProposals().map((b) => ({ ...b }));
     await api.acceptProposals();
     await sleep(500);
     check('接受候选后前进一帧', S.index === startIndex + 1, `${startIndex} -> ${S.index}`);
     const accepted = await (await fetch(`/api/seq/${encodeURIComponent(seqId)}/labels/${startIndex}`)).json();
-    check('接受的候选已真正落盘', accepted.labels.length === proposalsBefore.length,
-          `服务端 ${accepted.labels.length} vs 候选 ${proposalsBefore.length}`);
+    check('接受候选保留原有标注并追加候选',
+          accepted.labels.length === priorLabels.length + proposalsBefore.length,
+          `服务端 ${accepted.labels.length} = 原有 ${priorLabels.length} + 候选 ${proposalsBefore.length}`);
     check('落盘的候选被标记为已复核', accepted.reviewed === true, String(accepted.reviewed));
-    check('落盘框与候选坐标一致',
-          accepted.labels.every((b, i) => proposalsBefore[i] &&
-            Math.abs(b.x1 - proposalsBefore[i].x1) <= 1 && Math.abs(b.y2 - proposalsBefore[i].y2) <= 1), '');
+    check('落盘前缀就是原有标注',
+          priorLabels.every((b, i) => accepted.labels[i] &&
+            Math.abs(accepted.labels[i].x1 - b.x1) <= 1 && Math.abs(accepted.labels[i].y2 - b.y2) <= 1), '');
+    check('追加的候选坐标一致',
+          proposalsBefore.every((b, i) => {
+            const got = accepted.labels[priorLabels.length + i];
+            return got && Math.abs(got.x1 - b.x1) <= 1 && Math.abs(got.y2 - b.y2) <= 1;
+          }), '');
     await api.goToFrame(startIndex);
   } else {
     check('本帧无候选，跳过接受测试', true, '');
   }
 
   // ---- persistence round trip -------------------------------------------
-  const target = S.index;
+  const savedFrame = S.index;
   await api.saveFrame({ force: true, markReviewed: true });
-  const response = await fetch(`/api/seq/${encodeURIComponent(seqId)}/labels/${target}`);
+  const response = await fetch(`/api/seq/${encodeURIComponent(seqId)}/labels/${savedFrame}`);
   const stored = await response.json();
   check('保存后可从服务端读回', stored.labels.length === S.labels.length,
         `服务端 ${stored.labels.length} vs 客户端 ${S.labels.length}`);
@@ -331,16 +469,22 @@ async function run() {
 
   // Delete removes the selected box.
   await api.goToFrame(21); await wait();
-  api.addBox({ x1: 300, y1: 300, x2: 316, y2: 316 });
+  api.addBox({ x1: 280, y1: 200, x2: 296, y2: 216 });  // must stay inside 320x256
   await api.saveFrame({ force: true, markReviewed: true });
   const beforeDelete = S.labels.length;
   key('Delete'); await wait(400);
   check('快捷键 Delete 删除选中框', S.labels.length === beforeDelete - 1, `${beforeDelete} -> ${S.labels.length}`);
 
   // Ctrl+Z / Ctrl+Y.
-  key('z', { ctrl: true }); await wait(300);
-  check('快捷键 Ctrl+Z 撤销', S.labels.length === beforeDelete, `${S.labels.length}`);
-  key('y', { ctrl: true }); await wait(300);
+  const topDepth = api.state.undo.length;
+  key('z', { ctrl: true }); await wait(600);
+  const depthAfter = api.state.undo.length;
+  const labelsRightAfter = S.labels.length;
+  await sleep(700);
+  const probe21 = await (await fetch(`/api/seq/${encodeURIComponent(seqId)}/labels/21`)).json();
+  check('快捷键 Ctrl+Z 撤销', S.labels.length === beforeDelete,
+        `期望 ${beforeDelete}, 客户端 ${S.labels.length}, 服务端 ${probe21.labels.length}`);
+  key('y', { ctrl: true }); await wait(600);
   check('快捷键 Ctrl+Y 重做', S.labels.length === beforeDelete - 1, `${S.labels.length}`);
 
   // Tab toggles proposals, [ and ] drive the threshold.

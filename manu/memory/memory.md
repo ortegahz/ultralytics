@@ -104,16 +104,14 @@
   本地 checkout **一行未变** ⇒ **本地 git 工作区与服务器镜像静默分叉**，任何人回到本地工程都读到过期版本，**且无任何报错**。
   ⇒ 对照铁律三第 9 条「代码已同步 ≠ 权重已就位」，这是它的镜像翻版：**「已同步」也 ≠ 「本地已改」**。
   ⇒ **分叉修复方向：以本地为准重做，严禁把服务器版本 `cp` 回本地**（会倒灌丢失本地未同步改动）。
-- **挂载校验是读 memory 的前置闸门（2026-10-10 用户明确要求，已升为 `rules.md` 核心铁律八）**：memory 全部存放在
-  SSHFS 挂载盘内（`/home/manu/mnt/pycharm_project_10ae9e2e/manu/memory/`），**挂载掉了就读不到 memory，等于失忆开工**，
-  而 SSHFS/NFS 均可能在重启、断网、SSH 会话退出后静默掉线。
-  ⇒ 每次响应「读 memory / 了解背景」类指令，**第一步先跑 `mountpoint -q` 校验三条链路**
-  （`/home/manu/mnt/data` SSHFS 数据集、`/home/manu/mnt/pycharm_project_10ae9e2e` SSHFS 代码仓库、
-  `/home/manu/mnt/nfs` NFS 板卡产物），**缺失即自动补挂，不得把「路径读不到」抛回给用户**，
-  补挂后必须抽验一条真实路径确认可达。
-  ⚠️ **不得只凭目录非空判定已挂载**——掉线后残留目录看起来完全正常；`mountpoint` 通过但读取报
-  `Transport endpoint is not connected` 属**僵尸挂载**，须 `fusermount -u` 后再重挂，严禁在僵尸挂载上反复重挂。
-  ⚠️ **读**挂载盘是允许的（memory 正文的读取入口），**写**仍受上述本地优先铁律约束。
+- ~~**挂载校验是读 memory 的前置闸门（2026-10-10 用户明确要求，已升为 `rules.md` 核心铁律八）**~~ ——
+  🔴 **已于 2026-10-12 经用户要求废止。** 原规则要求「每次读 memory 前先跑 `mountpoint -q` 校验三条挂载链路，
+  缺失即自动补挂」。撤销理由：memory 的**权威副本在本地 checkout**
+  （`/media/manu/1TB-Volume/workspace/ultralytics/manu/memory/`），读 memory 已不依赖任何 SSHFS/NFS 挂载；
+  自动补挂在远端不可达时只会产生噪音，且与「本地优先」铁律语义重复。
+  **保留下来的弱形式**：读取失败时应先确认自己读的是本地副本，而不是去补挂。
+  僵尸挂载（`Transport endpoint is not connected`）的清理知识仍然有效，只是不再作为读 memory 的前置义务：
+  须 `fusermount -u`（必要时 `-uz`）后再重挂，严禁在僵尸挂载上反复重挂。
 
 ---
 
@@ -125,7 +123,7 @@
 | :--- | :--- | :--- |
 | **[`memory/web_annotate_tool.md`](web_annotate_tool.md)** | **网页视频逐帧标注工具 `manu/annotate/`（2026-10-10 新增）**：递归扫描视频 → 多尺度 Trial 0474 预标注 → 浏览器逐帧标注，YOLO 落盘。🔴 **本机 `uav` 环境 torch 1.13.1 配 numpy 2.2.6 张量互操作直接报错，推理只能跑训练服务器（端口 32222）**；本机无任何 Web 框架，服务端用 stdlib `http.server` 零依赖。候选写 `prelabels/`、人工写 `labels/` 彻底分离；效率机制为航迹传播/插补/跳未复核/三色时间线。36/36 自测通过，真实数据 265.8 帧/s | **要标注视频、做预标注、或评估人工标注成本时必读** |
 | **[`memory/memory_compact.md`](memory_compact.md)** | 面向外部高性能模型咨询的精简项目背景、当前 SOTA、核心失败实验与领域迁移 Bad Case | 需要向外部模型提供项目上下文时读取；主 memory 更新时同步维护 |
-| **[`memory/rules.md`](rules.md)** | **第〇节最高优先级铁律「本地优先·严禁直改服务器代码」** + **八大核心铁律**（含免检本地环境、手工执行机制、**读 memory 前必校验三条挂载链路**）、**训练服务器 + RK3588 板卡双机连接**（板卡 `ssh -p 22 root@192.168.0.64` 密码 `ematech`，2026-10-09 实物到手）、SSHFS 挂载及无感自动同步规范、**输入通道语义与多通道数据契约铁律**、计量计时与跨语言等位精确纪律 | 涉及编写脚本、生成缓存或启动命令前必读；**每次读 memory 前先按第一节第 8 条校验挂载**；**任何写操作先按第〇节回本地改再同步** |
+| **[`memory/rules.md`](rules.md)** | **第〇节最高优先级铁律「本地优先·严禁直改服务器代码」** + **核心铁律**（免检本地环境、手工执行机制；~~读 memory 前必校验三条挂载链路~~ **已于 2026-10-12 废止**）、**训练服务器 + RK3588 板卡双机连接**（板卡 `ssh -p 22 root@192.168.0.64` 密码经 `RK3588_PASSWORD` 环境变量传入、不落盘）、SSHFS 挂载及无感自动同步规范、**输入通道语义与多通道数据契约铁律**、计量计时与跨语言等位精确纪律 | 涉及编写脚本、生成缓存或启动命令前必读；**任何写操作先按第〇节回本地改再同步** |
 | **[`memory/spatio_temporal_track.md`](spatio_temporal_track.md)** | **全项目绝对 SOTA（F1=0.9154）** 双向平滑插补系统详解、逐序列大盘 | 涉及系统级后处理、滤波优化与汇报大盘时查阅 |
 | **[`memory/gmc_median_sota.md`](gmc_median_sota.md)** | **单帧绝对 SOTA（Trial 22）** GMC 仿射对齐与 21 帧时域中值建模全解 | 涉及单帧网络架构、输入数据管道与训练参数时查阅 |
 | **[`memory/model_scale_ab_test.md`](model_scale_ab_test.md)** | **骨干容量严谨 A/B 对照**（YOLO26n vs YOLO26s P2 Stride=4 5-Epoch 详测） | 涉及模型尺寸扩展、抗过拟合与虚警机理定性时查阅 |
@@ -138,7 +136,8 @@
 | **[`memory/cpp_port_rk3588.md`](cpp_port_rk3588.md)** | **C++ 移植 / RK3588 Golden Reference（L2 端到端位精确已通过，L3 全量未做）**：`gmc_stream.cpp` 与 Python `OnlineFeaturePipeline` 逐位一致的 C++ 实现。**step 2 臂 G1 400/400、G2 396/396 与冻结 SOTA 特征逐字节相同、`[MATS] max\|diff\|=0`（双分辨率 2/24 序列，覆盖 1.27% 帧）；step 10 臂 G1 亦 400/400 但 ≠ SOTA 特征（400 帧中 354 帧不同，自第 23 帧起分歧）**。含位精确性对优化等级不敏感（-O0/-O3 均通过）、第 12 个缺陷（`CMAKE_CXX_FLAGS_<CONFIG>` 语法错误使浮点守卫从未生效）、反向注入测试纪律、G0 空对照与 G1/G2 验收判据 | 涉及 RK3588 NPU 移植、跨语言等位精确、OpenCV 移植踩坑时**必读** |
 | **[`memory/temporal_integration_tbd.md`](temporal_integration_tbd.md)** | **时域积分与 TBD 专题**：Oracle 亚像素积分证明**目标时间能量完全相干**（15 帧→15.4σ，增益严格 √N）；匹配滤波独立检测器/阈值串联 TBD/检测器级融合**全部证伪**；"悬停目标与静态坏点同构"关键认知；速度滤波组已完成 HC1 操作级 ROC（W=5、FAR≈0.045/frame 时 PD=19.2%，模型注入仍待 Twin A/B） | 涉及多帧输入设计、单帧极限突破、领导追问"人眼为何能看见"时必读 |
 | **[`memory/spire_antiuav_debug.md`](spire_antiuav_debug.md)** | **第三方 SPIRE-IRSTD 在 Anti-UAV 掉分排查（2026-09-30）**：**根因 = 损失函数**。repo 的 `KpLoss` 是全图等权 MSE，每 1 个正样本像素对应 **25,525** 个背景像素，背景梯度总量是目标的 **719 倍**；用户自有网络用 CenterNet focal（`/num_pos` 归一化 + `p^alpha`），简单负样本梯度随 p→0 衰减 **4×10⁵ 倍**，把梯度预算朝目标搬 **24.8 倍**。另发现**评测协议缺陷**：`--val_limit` 是前缀切片，而 `img_idx` 按视频序列排序，`test[:8000]` 只覆盖 8/11 段且 **<7px 微小目标占比 0.000**（真实 0.171），**虚高 F1 0.175**；修正后 SPIRE 诚实基线 **F1 0.5775**（用户 Trial 0474 0.9064，差距 0.33 而非 0.15）。repo 自带 `FocalMSELoss` 方向是反的（峰值/背景权重 0.124） | 涉及 SPIRE 第三方模型、损失函数设计、val 子集抽样偏差、"为什么我的网络能到 90+"时必读 |
-| **[`memory/gmc_ocl_board_run.md`](gmc_ocl_board_run.md)** | **2026-10-10：`gmc_stream_ocl.cpp` 原样交叉编译后在板卡跑通完整链路**（读 BMP → GMC fit → fused Mali kernel → Ch0/Ch1/Ch2，**未改一行源码**）。精度对齐 **x86 `gmc_stream.cpp` 纯 CPU 权威基线**：Ch0/Ch1 **Max\|Diff\|=0 全位精确**，Ch2 仅 1 帧 1 像素（59/60 帧位精确）；性能四配置对照，**瓶颈是 CPU 的 warp+median（86.1%）非 GPU（3.4%）** | **要在板卡上跑完整特征通道、或判断该不该继续优化 GPU 时必读**。含 BMP 方案理由、链接期 OpenCL 实测、与前文旧结论的更正。⚠️ **其 §5 的 fit 17.3 ms 已被 `gmc_fit_cache_rk3588.md` 取代（现 2.65~9.57 ms），引用前先看该文** |
+| **[`memory/gmc_40ms_handles_rk3588.md`](gmc_40ms_handles_rk3588.md)** | 🔥 **2026-10-12 40 ms 硬保证交付（最新，优先级高于本文其它时延数字）**：**稳态 1500 帧 0 超线**（基线 21 帧），`VIDEO00034` max **53.50→14.35**、`VIDEO00036` p99 **42.88→24.34**，Ch0 五序列 **100.0000% 位精确**，最坏单帧 31.85 ms，满载小核干扰下同样 0 超线。四个 handle：`--prealloc-pad`（重分配归零）+ **`--pin-pad`（本轮新增，消除 `pad_` 增长导致的环形整体作废，这是让 40 ms 达成的关键）** + `--fit-corners`（仅 VIDEO00036）+ `--fit-deadline-ms`（**默认关闭，且已有实测依据**）。含**板卡噪声底噪 0.07–0.55 ms**、板卡访问方式、8 条分析器守卫 | **任何涉及 40 ms 预算、handle 开关、板卡时延数字、角点预算精度代价时必读**。三条被证伪的因果已归档进 `falsified_archive.md` 第 38 节 |
+| **[`memory/gmc_ocl_board_run.md`](gmc_ocl_board_run.md)** | **2026-10-10：`gmc_stream_ocl.cpp` 原样交叉编译后在板卡跑通完整链路**（读 BMP → GMC fit → fused Mali kernel → Ch0/Ch1/Ch2，**未改一行源码**）。精度对齐 **x86 `gmc_stream.cpp` 纯 CPU 权威基线**：Ch0/Ch1 **Max\|Diff\|=0 全位精确**，Ch2 仅 1 帧 1 像素（59/60 帧位精确）；性能四配置对照，**瓶颈是 CPU 的 warp+median（86.1%）非 GPU（3.4%）** | **要在板卡上跑完整特征通道、或判断该不该继续优化 GPU 时必读**。含 BMP 方案理由、链接期 OpenCL 实测、与前文旧结论的更正。⚠️ **其 §5 的 fit 17.3 ms 已被 `gmc_fit_cache_rk3588.md` 取代（现 2.65~9.57 ms）**；**其时延数字已被 `gmc_40ms_handles_rk3588.md` 取代**，引用前先看该文 |
 | **[`memory/gmc_fit_cache_rk3588.md`](gmc_fit_cache_rk3588.md)** | 🔥 **2026-10-10 嵌入式时延攻坚专档（本轮唯一交付）**：**GMC Fit 从板卡 18.46 → 2.65 ms（6.96×）、端到端 49.5 → 128.8 fps，全程位精确（MD5 不变）**。①「半分辨率」早已是冻结默认（`downscale=2`），不是可拿收益；②实测 **gFTT 占 fit 65.8%、金字塔构建仅 3.2%**，真杠杆是**按绝对帧号缓存每帧派生量**（resize+角点+金字塔）；③**多线程在本工程位精确**（证伪旧铁律）；④`median_residual` 是自写标量循环、线程池碰不到，单独并行化后再提速 2.1~2.4× | **任何涉及嵌入式时延预算、fit/warp/median 优化、或要引用板卡帧率时必读**。含两个静默失效陷阱（环形槽布尔量、`t_` 0 起始 clamp）、`GMC_VERIFY_CACHE` 自检、精度让步档扫描表 |
 | **[`memory/opencv_arm64_parity.md`](opencv_arm64_parity.md)** | **2026-10-09：arm64 OpenCV 4.10.0 交叉编译 + 逐算子跨架构一致性**。`resize`/`goodFeaturesToTrack`/LK status/RANSAC 内点掩码**全部位精确**；`warpAffine` 19.3M 像素中仅 11 个不同。🔴 记录了 **FMA 归因被证伪**与**23 帧样本不足导致错误结论**两个方法论教训 | **移植 OpenCV 到板卡、或评估跨架构数值可复现性时必读** |
 | **[`pipeline/opencl/board/`](../pipeline/opencl/board/)**（代码，非 memory） | **板卡 OpenCL / OpenCV 实机工具链（2026-10-09 新增）**：`board_cl_probe` 环境探针；`gen_fused_case`（x86+OpenCV 生成含 CPU 基准的用例包）+ `board_fused_accuracy`（板卡跑真 kernel 对账）；`build_opencv_arm64.sh` + `rk3588-aarch64-toolchain.cmake`（**交叉编译 arm64 OpenCV 4.10.0**）；`opencv_parity.cpp` + `gen_opencv_parity_case.cpp` + `compare_opencv_parity.py`（**逐算子跨架构一致性验证**）；`push_and_run.py` scp 部署；`board_opencv_probe` SDK 探测 | **板卡上验证 OpenCL / 融合内核精度、验证 OpenCV 跨架构一致性、或新增任何 RK3588 板端程序时先读**。判决与坑见 `opencl_fused_rk3588.md` 8.1/8.2、`opencv_arm64_parity.md`、`falsified_archive.md` 第三十四/三十五/三十六节 |

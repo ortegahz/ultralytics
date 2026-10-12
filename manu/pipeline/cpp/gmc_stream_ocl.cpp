@@ -349,7 +349,7 @@ public:
         // goodFeaturesToTrack: maxCorners=600, qualityLevel=0.01, minDistance=4, blockSize=3
         std::vector<cv::Point2f> pts_prev;
         if (!cache_) {
-            cv::goodFeaturesToTrack(prev_small, pts_prev, max_corners_, 0.01, 4, cv::noArray(), 3);
+            detect(prev_small, pts_prev);
             ++n_corner_builds_;
         } else {
             corners_of(prev_abs, prev_small, pts_prev);
@@ -492,16 +492,49 @@ private:
         }
     }
 
+    // Detect corners under the budget, and count the frames where the budget
+    // actually bound.
+    //
+    // goodFeaturesToTrack returns corners in descending Shi-Tomasi response and
+    // stops as soon as maxCorners is reached, so asking for `budget + 1` and
+    // dropping the last point yields exactly the same top-`budget` set a plain
+    // maxCorners=budget call returns -- while telling apart "this frame has
+    // exactly `budget` corners" from "this frame had more and we cut it". Without
+    // the probe, `size() == max_corners_` cannot distinguish the two and the
+    // trigger statistic would be an unverified guess.
+    //
+    // The equivalence is an assumption about OpenCV's ordering, so it is not
+    // taken on faith: --corner-probe 0 restores the plain call and the zero-
+    // regression run compares the two MD5 streams on inputs where the budget
+    // never binds.
+    void detect(const Mat& small, std::vector<cv::Point2f>& out) const {
+        ++n_corner_det_;
+        if (!probe_) {
+            cv::goodFeaturesToTrack(small, out, max_corners_, 0.01, 4, cv::noArray(), 3);
+            n_corner_pts_ += static_cast<long>(out.size());
+            return;
+        }
+        std::vector<cv::Point2f> all;
+        cv::goodFeaturesToTrack(small, all, max_corners_ + 1, 0.01, 4, cv::noArray(), 3);
+        if (static_cast<int>(all.size()) > max_corners_) {
+            ++n_corner_capped_;
+            n_corner_dropped_ += static_cast<long>(all.size()) - max_corners_;
+            all.resize(static_cast<size_t>(max_corners_));
+        }
+        n_corner_pts_ += static_cast<long>(all.size());
+        out.swap(all);
+    }
+
     void corners_of(long abs, const Mat& small, std::vector<cv::Point2f>& out) const {
         if (!(parts_ & kCacheCorners)) {
-            cv::goodFeaturesToTrack(small, out, max_corners_, 0.01, 4, cv::noArray(), 3);
+            detect(small, out);
             ++n_corner_builds_;
             return;
         }
         ++n_lookups_;
         const size_t s = slot_of(abs);
         if (tag_corners_[s] == abs) { ++n_hits_; out = corners_[s]; return; }
-        cv::goodFeaturesToTrack(small, corners_[s], max_corners_, 0.01, 4, cv::noArray(), 3);
+        detect(small, corners_[s]);
         tag_corners_[s] = abs;
         ++n_corner_builds_;
         out = corners_[s];
@@ -538,6 +571,29 @@ private:
     mutable std::vector<Mat> pyr_prev_, pyr_curr_;  // scratch aliases for the LK call
     mutable long n_resize_builds_ = 0, n_corner_builds_ = 0, n_pyr_builds_ = 0;
     mutable long n_hits_ = 0, n_lookups_ = 0;
+    // Corner-budget triggers. Frames whose detected corner count exceeded the
+    // budget, and how many points were dropped to bring it back under.
+    mutable long n_corner_capped_ = 0, n_corner_dropped_ = 0;
+    // Corner census: how many detections ran, and how many points they returned.
+    // This is the pipeline's OWN count, which is not the same number as the one
+    // pick_sequences.py reports -- that tool samples a different frame set with
+    // its own detector settings, and on VIDEO00002 the two disagree by ~1.8x
+    // (336.4 sampled vs >=601 actual). Quoting the sampled one as "the" corner
+    // count is how a calibration number ends up cited against the wrong thing.
+    mutable long n_corner_det_ = 0, n_corner_pts_ = 0;
+    bool probe_ = true;
+
+public:
+    void set_probe(bool on) { probe_ = on; }
+    long corner_capped() const { return n_corner_capped_; }
+    long corner_dropped() const { return n_corner_dropped_; }
+    long corner_dets() const { return n_corner_det_; }
+    // Mean corners PER DETECTION. Equal to the true mean only while the budget
+    // never binds; once it binds, this pins at the budget and the real count is
+    // higher -- pair it with corner_capped() and never quote it alone.
+    double corner_mean() const {
+        return n_corner_det_ ? (double)n_corner_pts_ / (double)n_corner_det_ : 0.0;
+    }
 };
 
 Matx33d to33(const Matx23f& m) {
@@ -577,6 +633,88 @@ bool all_finite(const Matx23f& m) {
         for (int j = 0; j < 3; ++j)
             if (!std::isfinite(m(i, j))) return false;
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// Fit plausibility gate.
+//
+// WHY THIS EXISTS (measured, not theoretical)
+//   On 龙泉山 business-domain data the GMC fit produces a FINITE but physically
+//   absurd transform on some frames: translation up to 4863 px on a 640x512
+//   frame. all_finite() passes those. The damage is downstream and silent:
+//   required_pad() faithfully reports ~4863, FusedGpu::configure() is grow-only,
+//   the device image becomes 10366 x 10238 = 106 Mpixel per slot, and 45 slots
+//   are ~4.8 GB -- which the board's global OOM killer takes as
+//   file-rss:7623308kB while host anon-rss is only 60 MB. The process dies with
+//   no assertion, no error, no non-zero rc from the pipeline's own logic.
+//
+//   The fit itself is NOT diverging: measured scale sqrt(det) stayed in
+//   [0.995, 1.004] and lag-2 direct fits stayed at 1.4..5.7 px on the same
+//   sequence. A few frames hand back an outlier, and the outliers -- not the
+//   typical case -- are what kill the run.
+//
+// WHY IDENTITY, NOT A CLAMP
+//   The alternatives were considered and rejected. Clamping the translation to
+//   the cap still yields a wildly wrong warp; better to emit W(.) = IDENTITY for
+//   that one frame, which is exactly the control arm the A/B harness already
+//   validates, and let the temporal median downstream absorb the single bad
+//   frame. A rejected fit is a LOUD, counted, reportable event --
+//   `stats_.n_fit_rejected` exists for precisely this -- rather than an
+//   unbounded allocation.
+//
+//   The bound is one frame width: measured legitimate motion on this corpus
+//   peaks near 76 px on a 640 px frame, while the observed outliers are 3551 and
+//   4863. kDefaultMaxShiftFrac of 1.0 leaves ~8x headroom over real motion and
+//   still caps the device image at ~3.4 Mpixel/slot (~155 MB for 45 slots).
+// ---------------------------------------------------------------------------
+struct FitGate {
+    bool ok = true;
+    const char* why = "";
+};
+
+// Fraction of frame width a transform may translate before it is treated as an
+// outlier. 1.0 == "cannot move further than the frame is wide".
+static constexpr double kDefaultMaxShiftFrac = 1.0;
+static constexpr double kDefaultMinScale = 0.5;
+static constexpr double kDefaultMaxScale = 2.0;
+
+FitGate check_fit(const Matx23f& m, int W, int H, double max_shift_frac,
+                  double min_scale, double max_scale) {
+    if (!all_finite(m)) return {false, "non-finite"};
+    const double a = m(0, 0), b = m(0, 1), c = m(1, 0), d = m(1, 1);
+    const double det = a * d - b * c;
+    const double scale = std::sqrt(std::fabs(det));
+    if (!(scale >= min_scale && scale <= max_scale))
+        return {false, "scale"};
+    const double tx = m(0, 2), ty = m(1, 2);
+    const double lim = max_shift_frac * static_cast<double>(std::max(W, H));
+    if (!(std::fabs(tx) <= lim && std::fabs(ty) <= lim)) return {false, "shift"};
+
+    // Translation and scale are NOT independent for the thing that actually
+    // matters. required_pad() measures where the transform sends the FRAME
+    // CORNERS, and that is scale * extent + translation -- so a transform with
+    // scale 2.0 and translation 640 px on a 640 px frame passes both independent
+    // bounds while mapping a corner to ~1980 px, which demands ~1340 px of pad.
+    // Measured: four frames reached required_pad 1032..1463 and tripped the device
+    // cap while every constituent fit had passed the gate. Independent bounds are
+    // therefore not sufficient; bound the corner extent itself.
+    //
+    // Affine extrema over a rectangle are attained at the corners, so 4
+    // evaluations are exact -- the same argument required_pad() already relies on.
+    double worst = 0.0;
+    for (int cx = 0; cx < 2; ++cx) {
+        for (int cy = 0; cy < 2; ++cy) {
+            const double X = cx ? W : 0.0;
+            const double Y = cy ? H : 0.0;
+            const double sx = a * X + b * Y + tx;
+            const double sy = c * X + d * Y + ty;
+            worst = std::max(worst, std::max(std::fabs(sx - X), std::fabs(sy - Y)));
+        }
+    }
+    // Allow the same headroom the translation bound allows, measured on the
+    // displacement rather than the absolute coordinate.
+    if (!(worst <= lim)) return {false, "extent"};
+    return {true, ""};
 }
 
 // anchor_grid(stride_step, anchor_step, max_lag)
@@ -648,23 +786,183 @@ public:
     int W() const { return W_; }
     int H() const { return H_; }
     int pad() const { return pad_; }
+    // The extent the device images are actually sized for. Equals pad() unless
+    // pre-allocation reserved more than the current transforms need.
+    int alloc_pad() const { return alloc_pad_; }
     const char* channel_note() const { return chan_ == 4 ? "CL_RGBA" : "CL_R8/CL_R"; }
 
-    // Grow-only. The pad needed for BORDER_REFLECT emulation swings with the
-    // warp (37..57 px on real GMC fits), so reallocating every frame would be
-    // absurd; allocate at the largest pad seen so far and only grow.
+    // Track the CURRENT pad, not the historical maximum -- but QUANTISED.
+    //
+    // It used to be grow-only: "allocate at the largest pad seen so far and only
+    // grow", because the pad swings with the warp and reallocating every frame
+    // would be absurd. That reasoning is right about CHURN and wrong about
+    // MAGNITUDE. On 龙泉山 the camera pans continuously, so the historical max is
+    // reached early and never released: measured devpad 2 -> 313 -> 3551 -> 4863
+    // across one sequence, turning a 644x516 image (0.18 ms to upload) into
+    // 7742x7614 (42 ms) and finally into a 4.8 GB allocation the OOM killer ends.
+    //
+    // required_pad() is exact for the transforms it is handed (affine extrema are
+    // attained at the corners), which is what makes shrinking safe: the new pad is
+    // always sufficient for the current warp.
+    //
+    // WHY GROW-ONLY AGAIN, BUT NOT THE ORIGINAL GROW-ONLY
+    //
+    // The original bug was never "grow-only". It was grow-only with NO UPPER BOUND
+    // on the transform: required_pad tracked a finite outlier of 4863 px on a
+    // 640x512 frame, the image became 10366x10238 = 106 Mpixel per slot, and 45
+    // slots were ~4.8 GB -- which the board's OOM killer took as file-rss with
+    // host anon-rss still at 60 MB.
+    //
+    // The bound now comes from the fit plausibility gate, which caps translation
+    // at 1.0 frame width. That makes pad <= ~1.0 W, i.e. at most ~(2W)x(2H) =
+    // 3.4 Mpixel per slot and ~155 MB for all 45 slots -- bounded by construction,
+    // without ever shrinking.
+    //
+    // SHRINKING WAS TRIED AND MEASURED, TWICE, AND BOTH TIMES IT WAS WORSE:
+    //   * multiplicative band [0.7x, 1.4x]  -> 60.9 ms upload spikes, 41 ms residual
+    //   * quantised + shrink-at-half        -> 33..400 reallocations per 400 frames
+    // The reason is mechanical: required_pad() is the max over 21 lags of the
+    // CURRENT transforms, so it fluctuates. Any scheme that lets the buffer shrink
+    // gives that fluctuation somewhere to oscillate, and every oscillation
+    // reallocates all 45 device images. On a panning gimbal the requirement is
+    // monotonically non-decreasing in practice, so growing only costs at most one
+    // reallocation per power-of-two boundary (~6 per sequence) and cannot thrash.
+    //
+    // So: grow-only, quantised to powers of two so the growth is stepped rather
+    // than continuous, bounded from above by the fit gate rather than by luck.
+    static int quantise_pad(int p) {
+        if (p < kPadQuantum) return kPadQuantum;
+        if (p >= kMaxPadDevice) return kMaxPadDevice;
+        int q = kPadQuantum;
+        while (q < p && q < kMaxPadDevice) q <<= 1;
+        return q;
+    }
+
     void configure(int w, int h, int pad) {
-        const bool same_dims = (w == W_ && h == H_);
-        if (same_dims && pad <= pad_) { W_ = w; H_ = h; return; }
-        const int p = std::max(pad, pad_ > 0 ? pad_ : 2);
-        W_ = w; H_ = h; pad_ = p;
+        if (pad > kMaxPadDevice)
+            std::fprintf(stderr,
+                         "[WARN] required_pad=%d exceeds the %d device cap. The fit "
+                         "gate is not holding; output beyond the capped region is "
+                         "undefined.\n", pad, kMaxPadDevice);
+        const int need = std::min(pad, kMaxPadDevice);
+        int bucket = quantise_pad(need);
+
+        // ------------------------------------------------------------------------
+        // PAD PINNING -- the missing half of pre-allocation, added 2026-10-12.
+        //
+        // Pre-allocation removes the allocation EVENT. It does NOT remove the slot
+        // INVALIDATION event, and on the board that turned out to be the larger of
+        // the two. Measured with --prealloc-pad 1024 on RK3588, VIDEO00034 still
+        // breached: devrealloc fell 5 -> 1, yet max only fell 53.50 -> 43.16 ms and
+        // the worst frame was still frame 169. Cause, from the forensics:
+        //
+        //   img_up p50 1.56 / p99 16.47 / max 31.06, and the 2..10 ms band is EMPTY
+        //   (296/300 frames under 2 ms, 2 frames over 20 ms). That is a discrete
+        //   event, not a tail.
+        //
+        // The event is pad_ GROWTH, and it costs the same way a reallocation did:
+        // pad_ is the border copyMakeBorder adds AND the content offset the kernel
+        // samples at, so the moment it grows, all resident slots sit at the wrong
+        // offset and every one of them must be dropped and re-uploaded -- see the
+        // note above. That path returns early and never touches n_reconfigure_, so
+        // `devrealloc == 1` proved the allocation was stable and told us nothing
+        // about the ring.
+        //
+        // Pinning pad_ to the pre-allocation cap removes the event at its source:
+        // pad_ starts at the cap and can never grow, so pad_grew is never true
+        // after the first configure() and the ring is never invalidated.
+        //
+        // COST, and the design note above guessed it wrong. That note said uploading
+        // at the allocation would "scale H2D by cap/bucket (32x at cap 1024 vs
+        // bucket 32) and trade a 41 ms spike for a permanent tax". The board says
+        // otherwise, and the board is the only thing that can price a bus:
+        //
+        //   VIDEO00002 (pad 32,   0.405 Mpixel)  img_up p50 0.37 ms
+        //   VIDEO00034 (pad 512,  2.555 Mpixel)  img_up p50 1.56 ms
+        //   VIDEO00028 (pad 1024, 6.881 Mpixel)  img_up p50 2.45 ms   <- measured
+        //
+        // 17x the bytes for 6.6x the time: the H2D path is bandwidth-saturated and
+        // dominated by fixed cost, so the "permanent tax" is ~2 ms, not ~32x.
+        // Pinning costs under 2.5 ms of p50 on the three sequences that were below
+        // the cap and removes a 43 ms breach. Memory is unchanged -- the images are
+        // ALREADY allocated at the cap; this only stops uploading less than we own.
+        //
+        // Output must be bit-identical: the kernel's offset argument is pad_, and
+        // with a larger border the warp window is further inside the same
+        // allocation, which is what the kernel has always been told to expect.
+        // Verified by the two-arm zero-regression protocol, not by argument.
+        // ------------------------------------------------------------------------
+        if (pin_pad_ && prealloc_cap_ > 0)
+            bucket = std::max(bucket, quantise_pad(prealloc_cap_));
+
+        // The ALLOCATION extent is now decoupled from the pad actually used.
+        //
+        // pad_ keeps its old meaning and its old monotonicity: it is the border
+        // copyMakeBorder adds and the content offset the kernel samples at. It
+        // must never shrink, because cached slots hold frames uploaded at the
+        // pad_ that was current when they were uploaded -- lowering pad_ would
+        // make the kernel read a cached frame at the wrong offset. That is
+        // unchanged from before.
+        //
+        // What pre-allocation removes is the allocation EVENT. With a cap set,
+        // every device image is created once at (W + 2*cap) x (H + 2*cap); pad_
+        // then climbs to the largest quantised requirement seen and can never
+        // exceed the cap. Measured cost of the events this deletes: VIDEO00034
+        // reallocated 5 times per 400 frames and the worst one cost 41.6 ms of
+        // img_up (frame 169, total 53.50 ms) -- the only frame in 2000 that
+        // breached 40 ms for a reason unrelated to fit cost.
+        //
+        // The upload region stays the PADDED size, never the allocated size --
+        // unless --pin-pad is set, which is measured, not estimated. An earlier
+        // version of this comment rejected uploading at the allocation on the
+        // grounds that it "would scale H2D by cap/bucket (32x at cap 1024 vs
+        // bucket 32) and trade a 41 ms spike for a permanent tax". The board
+        // refuted the 32x, because the H2D path saturates and is dominated by
+        // fixed cost:
+        //
+        //   VIDEO00002 pad 32   (0.405 Mpixel)  img_up p50 0.37 ms
+        //   VIDEO00034 pad 512  (2.555 Mpixel)  img_up p50 1.56 ms
+        //   VIDEO00028 pad 1024 (6.881 Mpixel)  img_up p50 2.45 ms
+        //
+        // 17x the bytes for 6.6x the time. The "permanent tax" is ~2 ms, and it
+        // buys 28.81 ms off VIDEO00034's max. Only the board can price a bus.
+        // See the PAD PINNING block in configure() and report section 5A.5.
+        // to the kernel on every dispatch, in launch().
+        const int want_alloc = (prealloc_cap_ > 0)
+                                   ? std::max(bucket, quantise_pad(prealloc_cap_))
+                                   : bucket;
+        // Every resident slot holds a frame uploaded at the pad_ that was current
+        // when it was uploaded, and the kernel locates content at offset pad_. So
+        // pad_ is shared state: the moment it grows, the resident frames are at
+        // the WRONG offset and must be dropped and re-uploaded, even when the
+        // allocation itself does not change.
+        //
+        // Getting this wrong is invisible to the CPU arm (it never touches the
+        // device images, so its MD5 is unchanged) and shows up only as a degraded
+        // GPU-vs-CPU A/B score. It was exactly this bug when pre-allocation was
+        // first added: the images were sized at pad 1024 from the start, so the
+        // pad grew 32 -> 256 without a reallocation, the slots were kept, and
+        // VIDEO00028's Ch0 exact-match fell from 46.55% to 12.86%.
+        const bool pad_grew = bucket > pad_;
+        if (w == W_ && h == H_ && want_alloc <= alloc_pad_) {
+            if (pad_grew) {
+                pad_ = bucket;
+                std::fill(slot_key_.begin(), slot_key_.end(), kNoKey);
+                key_to_slot_.clear();
+            }
+            return;                                     // sufficient: keep it
+        }
+        ++n_reconfigure_;
+        W_ = w; H_ = h;
+        if (pad_grew) pad_ = bucket;                    // monotonic; never shrinks
+        alloc_pad_ = want_alloc;
         std::fill(slot_key_.begin(), slot_key_.end(), kNoKey);   // images are new
         key_to_slot_.clear();
         imgs_.clear();
         for (int i = 0; i < slots_; ++i)
             imgs_.emplace_back(ocl::make_image2d(ctx_.get(), fmt_,
-                                                  (size_t)W_ + 2 * (size_t)pad_,
-                                                  (size_t)H_ + 2 * (size_t)pad_));
+                                                  (size_t)W_ + 2 * (size_t)alloc_pad_,
+                                                  (size_t)H_ + 2 * (size_t)alloc_pad_));
         cl_int e;
         if (!mats_buf_) {
             // No CL_MEM_COPY_HOST_PTR: the 21 matrices are re-uploaded every push,
@@ -677,6 +975,9 @@ public:
             OCL_CHECK(e, "clCreateBuffer(out)");
         }
     }
+    // Number of times the device images were reallocated. A non-trivial count is
+    // the cost of shrinking made visible, so it is reported rather than hidden.
+    long reconfigures() const { return n_reconfigure_; }
 
     // Returns the device slot holding `gray`, uploading only if it is not already
     // resident.
@@ -789,8 +1090,17 @@ public:
     cl_mem slot(size_t i) const { return imgs_[i].get(); }
 
     long device_bytes() const {
-        return (long)imgs_.size() * (long)(W_ + 2 * pad_) * (long)(H_ + 2 * pad_) * chan_;
+        return (long)imgs_.size() * (long)(W_ + 2 * alloc_pad_) * (long)(H_ + 2 * alloc_pad_) * chan_;
     }
+
+    // Reserve room for `cap` px of padding up front so the frame loop never
+    // creates or destroys a device image. 0 (the default) disables it and
+    // restores the grow-only-on-demand behaviour exactly.
+    void set_prealloc_cap(int cap) { prealloc_cap_ = cap < 0 ? 0 : cap; }
+    // Pin pad_ to the cap instead of letting it climb. Off by default so that
+    // every previously published configuration keeps its exact previous meaning;
+    // the zero-regression run compares it against that, not against itself.
+    void set_pin_pad(bool on) { pin_pad_ = on; }
 
 private:
     static constexpr int kWindow = 21;
@@ -804,12 +1114,23 @@ private:
     cl_image_format fmt_{};
     int chan_ = 1;
     int W_ = 0, H_ = 0, pad_ = 0;
+    // Extent the device images are sized for. Equal to pad_ unless pre-allocation
+    // reserved a larger cap, in which case pad_ climbs inside it and no
+    // reallocation can occur.
+    int alloc_pad_ = 0, prealloc_cap_ = 0;
+    bool pin_pad_ = false;
     int slots_ = 43;
     bool hw_linear_ = true;
     std::vector<long> slot_key_;
     std::map<long, size_t> key_to_slot_;
     double last_kernel_ns_ = 0.0;
     static constexpr long kNoKey = -(1LL << 60);
+    // Backstop only -- see configure(). 1024 px on a 640x512 frame is already
+    // ~8x more than the corpus ever legitimately needs; the fit gate is what
+    // actually bounds this in normal operation.
+    static constexpr int kMaxPadDevice = 1024;
+    static constexpr int kPadQuantum = 32;
+    long n_reconfigure_ = 0;
 };
 
 // Pad needed so that every bilinear tap of every warp lands inside the padded
@@ -872,11 +1193,97 @@ std::vector<int> parse_cpu_list(const std::string& spec) {
     return out;
 }
 
+// ===========================================================================
+// STAGE LEDGER for the channel-preparation (preprocess) path.
+//
+// WHY PER-FRAME AND NOT ONE AVERAGE
+//   A single wall-clock total is not evidence on RK3588: it hides which of the
+//   five physical stages owns the jitter, and an ownerless average cannot be
+//   optimised or budgeted. Worse, it hides the stages that are NOT being timed
+//   at all -- which is exactly the bug this ledger was written to catch (see the
+//   `img_up` probe below).
+//
+// WHY THESE SIX STAGES
+//   They are chosen so they TILE. Every timestamp pair is adjacent, so
+//   sum(stages) == total by construction and no cost can hide in a seam:
+//
+//     1 prep      ring push + shape admission              (CPU)
+//     2 fit       Shi-Tomasi + LK + RANSAC + chain compose (CPU A76 xN)
+//     3 img_up    copyMakeBorder + clEnqueueWriteImage     (CPU -> bus -> GPU)
+//     4 mats_up   21 affine matrices via WriteBuffer        (CPU -> bus -> GPU)
+//     5 kernel    warpAffine(manual 2x2) + 21-frame median  (Mali-G610)
+//     6 readback  3-plane clEnqueueReadBuffer              (GPU -> bus -> CPU)
+//
+//   Stage 3 existed in NO earlier accounting even though it moves one full
+//   640x512 image per push; it was being silently charged to nothing. The
+//   residual check in the report is what proves the tiling held on real data.
+// ===========================================================================
+struct FrameProfile {
+    long idx = 0;           // absolute frame index (t_, 1-based)
+    int seq_id = 0;         // which --sequence this row belongs to
+    int seq_frame = 0;      // 0-based position WITHIN that sequence (for warm-up cuts)
+    double io = 0.0;        // ms  decoding the frame from disk (stage 0)
+    double prep = 0.0;      // ms
+    double fit = 0.0;       // ms
+    double warp = 0.0;      // ms  CPU arm only: 22x cv::warpAffine
+    double median = 0.0;    // ms  CPU arm only: 21-frame median + residual
+    double img_up = 0.0;    // ms
+    double mats_up = 0.0;   // ms
+    double kernel = 0.0;    // ms  (enqueue + clFinish)
+    double readback = 0.0;  // ms
+    double total = 0.0;     // ms  (measured prep-entry -> return, NOT the stage sum)
+    double end_to_end = 0.0;// ms  (alias kept explicit; report checks stage sum vs this)
+};
+
+// One stage's distribution. Mean alone would hide a bimodal population, which is
+// exactly what DVFS and scheduler preemption produce, so the tail is carried.
+struct StageStats {
+    double mean = 0, p50 = 0, p95 = 0, p99 = 0, max = 0, min = 0, sd = 0, sum = 0;
+    long n = 0;
+};
+
+// Nearest-rank percentile over an already-sorted vector.
+// Nearest rank, not interpolated: every number in the report must be a value some
+// frame ACTUALLY took. An interpolated P99 is not an observation, and the whole
+// point of a WCET column is that it is one.
+static double pct_nearest_rank(const std::vector<double>& sorted, double q) {
+    if (sorted.empty()) return 0.0;
+    const double n = static_cast<double>(sorted.size());
+    long rank = static_cast<long>(std::ceil(q * n));
+    if (rank < 1) rank = 1;
+    if (rank > static_cast<long>(sorted.size())) rank = static_cast<long>(sorted.size());
+    return sorted[static_cast<size_t>(rank - 1)];
+}
+
+static StageStats summarize(std::vector<double> v) {
+    StageStats s;
+    if (v.empty()) return s;
+    std::sort(v.begin(), v.end());
+    s.n = static_cast<long>(v.size());
+    for (double x : v) s.sum += x;
+    s.mean = s.sum / static_cast<double>(v.size());
+    double acc = 0.0;
+    for (double x : v) acc += (x - s.mean) * (x - s.mean);
+    // Population SD. The run IS the population here -- we are not estimating a
+    // larger process, so dividing by (n-1) would overstate spread slightly.
+    s.sd = std::sqrt(acc / static_cast<double>(v.size()));
+    s.p50 = pct_nearest_rank(v, 0.50);
+    s.p95 = pct_nearest_rank(v, 0.95);
+    s.p99 = pct_nearest_rank(v, 0.99);
+    s.min = v.front();
+    s.max = v.back();
+    return s;
+}
+
 class OnlineFeaturePipeline {
 public:
     struct Stats {
         double t_fit = 0, t_warp = 0, t_median = 0, t_total = 0;
         long n_push = 0, n_fit = 0, n_warp = 0, n_compose = 0;
+        // Fit-gate telemetry. A rejected fit is a real event: it is the difference
+        // between "this frame got W(.) = IDENTITY" and "this frame blew the device
+        // allocation up", so it must be counted and printed, never just handled.
+        long n_fit_rejected = 0, n_fit_rejected_shift = 0, n_fit_rejected_other = 0;
         // GPU arm, segmented. upload / kernel / download are separated because on
         // RK3588 the ring's one-frame-per-push upload and the 3-plane readback are
         // bus traffic, not arithmetic, and they are what decides whether fusing
@@ -934,6 +1341,14 @@ public:
     long est_cache_hits() const { return est_->cache_hits(); }
     long est_cache_lookups() const { return est_->cache_lookups(); }
     size_t est_cache_bytes() const { return est_->cache_bytes(); }
+    // Gate configuration is a runtime value, not a constant: the bound is in
+    // frame widths, so the same numbers mean different things on different
+    // sensors, and tuning it must not require a rebuild.
+    void set_fit_gate(double max_shift_frac, double min_scale, double max_scale) {
+        gate_max_shift_frac_ = max_shift_frac;
+        gate_min_scale_ = min_scale;
+        gate_max_scale_ = max_scale;
+    }
     Stats& stats() { return stats_; }
     const std::array<long, 3>& diff_max() const { return dmax_; }
     double diff_mae(int c) const { return dn_[c] ? dsum_[c] / (double)dn_[c] : 0.0; }
@@ -945,9 +1360,44 @@ public:
     long diff_pixels(int c) const { return dn_[c]; }
     long diff_exact_count(int c) const { return dexact_[c]; }
     int gpu_pad() const { return gpu_ ? gpu_->pad() : 0; }
+    int gpu_alloc_pad() const { return gpu_ ? gpu_->alloc_pad() : 0; }
+    long gpu_reconfigures() const { return gpu_ ? gpu_->reconfigures() : 0; }
+    void gpu_prealloc(int cap) { if (gpu_) gpu_->set_prealloc_cap(cap); }
+    void gpu_pin_pad(bool on) { if (gpu_) gpu_->set_pin_pad(on); }
+    void set_corner_probe(bool on) { if (est_) est_->set_probe(on); }
+    long corner_capped() const { return est_ ? est_->corner_capped() : 0; }
+    long corner_dropped() const { return est_ ? est_->corner_dropped() : 0; }
+    long corner_cap_frames() const { return n_corner_cap_frames_; }
+    long corner_dets() const { return est_ ? est_->corner_dets() : 0; }
+    double corner_mean() const { return est_ ? est_->corner_mean() : 0.0; }
+    void set_fit_deadline(double ms, bool hold) {
+        fit_deadline_ms_ = ms;
+        fit_deadline_hold_ = hold;
+    }
+    long n_fit_deadline() const { return n_fit_deadline_; }
+    // Composed lags rejected by the plausibility gate, counted separately
+    // from rejected FITS: "one bad anchor" and "a bad chain" are different
+    // failure modes and must not share one statistic.
+    long n_chain_rejected() const { return n_chain_rejected_; }
     int width() const { return shape_w_; }
     int height() const { return shape_h_; }
     long gpu_bytes() const { return gpu_ ? gpu_->device_bytes() : 0; }
+
+    // ---- stage ledger access -------------------------------------------------
+    // profiling is opt-in and OFF by default: the per-frame vector grows without
+    // bound and the probes themselves cost a clock read each, so a plain accuracy
+    // run must not pay for a timing run.
+    void set_profiling(bool on) { profiling_ = on; }
+    bool profiling() const { return profiling_; }
+    void set_seq_id(int id) { seq_id_ = id; }
+    void set_seq_frame(int i) { seq_frame_ = i; }
+    // Frame decode cost is paid by the caller, between pushes, and belongs in the
+    // channel-prep budget: on the board the corpus lives on eMMC and decoding is
+    // not free. Leaving it out would report a "end-to-end" number that silently
+    // excludes a stage the delivery actually has to pay.
+    void set_frame_io_ms(double ms) { io_ms_ = ms; }
+    const std::vector<FrameProfile>& profiles() const { return prof_; }
+    void clear_profiles() { prof_.clear(); }
 
     size_t state_bytes() const {
         size_t n = 0;
@@ -972,20 +1422,68 @@ public:
         shape_w_ = frame.cols;
         shape_known_ = true;
 
+        const auto mark_entry = std::chrono::steady_clock::now();
         if (first_.empty()) first_ = frame;
         ++t_;
         ring_[static_cast<size_t>(((t_ % ring_depth()) + ring_depth()) % ring_depth())] = frame;
 
         const auto mark0 = std::chrono::steady_clock::now();
 
+        // Open this frame's ledger row here, before any stage work, so the GPU tail
+        // can fill its own stages into the SAME record (it is a separate function
+        // with no return path back here).
+        if (profiling_) {
+            cur_ = FrameProfile();
+            cur_.idx = t_;
+            cur_.seq_id = seq_id_;
+            cur_.seq_frame = seq_frame_;
+            cur_.io = io_ms_;
+            cur_.prep = std::chrono::duration<double, std::milli>(mark0 - mark_entry).count();
+        }
+
         std::map<int, Matx23f> mats;
         if (!nogmc_) {
         // ---- anchors: direct fit on the anchor grid ----
         const auto mark_anchor = std::chrono::steady_clock::now();
+
+        // Deadline guard: give up on the remaining anchors once this frame's fit
+        // budget is spent. Off unless --fit-deadline-ms is set. When it fires the
+        // whole frame degrades at once -- a half-fitted frame would leave
+        // anchor_below() dangling and silently mix fresh and stale transforms.
+        bool blown = false;
         for (int lag : anchors_) {
+            if (fit_deadline_ms_ > 0.0) {
+                const double spent = std::chrono::duration<double, std::milli>(
+                                         std::chrono::steady_clock::now() - mark_anchor)
+                                         .count();
+                if (spent > fit_deadline_ms_) { blown = true; break; }
+            }
             mats[lag] = fit_similarity(abs_at_lag(lag), t_, frame_at_lag(lag), frame);
             stats_.n_fit += 1;
         }
+        if (blown) {
+            ++n_fit_deadline_;
+            // 'hold' reuses the last frame that was fitted SUCCESSFULLY -- not
+            // literally the previous frame. When the budget is blown on every
+            // single frame there is no successful frame to hold, so 'hold' falls
+            // back to IDENTITY and collapses onto the other mode. That is the
+            // intended safety direction (never propagate a degraded warp forward),
+            // but it means the two modes are indistinguishable in a run where the
+            // guard fires 100% of the time -- check fitdeadline before reading
+            // anything into a hold-vs-identity md5 comparison.
+            //
+            // Both are wrong warps. The choice is a policy knob, not a
+            // correctness claim, and the trigger count is reported either way.
+            if (fit_deadline_hold_ && have_last_mats_ && last_mats_.size() == lags_.size()) {
+                for (size_t k = 0; k < lags_.size(); ++k) mats[lags_[k]] = last_mats_[k];
+            } else {
+                for (int lag : lags_) mats[lag] = kIdentity;
+            }
+            const auto after_blown = std::chrono::steady_clock::now();
+            stats_.t_fit +=
+                std::chrono::duration<double, std::milli>(after_blown - mark_anchor).count();
+            // Do NOT remember this frame as the "last good" one.
+        } else {
         const auto after_anchor = std::chrono::steady_clock::now();
         stats_.t_fit += std::chrono::duration<double, std::milli>(after_anchor - mark_anchor).count();
 
@@ -1003,9 +1501,26 @@ public:
         stats_.t_fit += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
                                                                   after_anchor)
                             .count();
+        last_mats_.assign(lags_.size(), kIdentity);
+        for (size_t k = 0; k < lags_.size(); ++k) {
+            auto it = mats.find(lags_[k]);
+            if (it != mats.end()) last_mats_[k] = it->second;
+        }
+        have_last_mats_ = true;
         if (dump_mats) {
             dump_mats->clear();
             for (const auto& kv : mats) dump_mats->push_back(kv.second);
+        }
+        }  // !blown
+        // Distinct FRAMES on which the corner budget bound, as opposed to the
+        // estimator's count of truncated DETECTIONS. Both are reported because
+        // they answer different questions and conflating them is how a "triggered
+        // 1236 times" line gets misread as "1236 bad frames": one frame can need
+        // several corner sets (prev + curr per anchor), and a frame is what a
+        // reviewer actually wants to count.
+        if (est_) {
+            const long cc = est_->corner_capped();
+            if (cc > corner_capped_prev_) { ++n_corner_cap_frames_; corner_capped_prev_ = cc; }
         }
         }  // !nogmc_
 
@@ -1033,14 +1548,17 @@ public:
             }
             const auto after_warp = std::chrono::steady_clock::now();
             stats_.t_warp += std::chrono::duration<double, std::milli>(after_warp - mark_warp).count();
+            if (profiling_)
+                cur_.warp = std::chrono::duration<double, std::milli>(after_warp - mark_warp).count();
 
             // ---- median + residual ----
             const auto mark_med = std::chrono::steady_clock::now();
             Mat ch2;
             median_residual(frame, history, ch2);
-            stats_.t_median += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
-                                                                          mark_med)
-                                   .count();
+            const auto after_med = std::chrono::steady_clock::now();
+            stats_.t_median += std::chrono::duration<double, std::milli>(after_med - mark_med).count();
+            if (profiling_)
+                cur_.median = std::chrono::duration<double, std::milli>(after_med - mark_med).count();
 
             // Plane-major assembly: row p of a 3 x (H*W) Mat is exactly numpy's out[p].
             const size_t plane = static_cast<size_t>(frame.rows) * static_cast<size_t>(frame.cols);
@@ -1063,8 +1581,25 @@ public:
         }
 
         stats_.n_push += 1;
-        stats_.t_total +=
-            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - mark0).count();
+        const auto mark_done = std::chrono::steady_clock::now();
+        stats_.t_total += std::chrono::duration<double, std::milli>(mark_done - mark0).count();
+
+        if (profiling_) {
+            using ms = std::chrono::duration<double, std::milli>;
+            // `end_to_end` is MEASURED (prep entry -> here), never derived from the
+            // stages. That independence is the point: the report recomputes
+            // prep+fit+img_up+mats_up+kernel+readback and prints the gap against
+            // this number, so an un-tiled stage cannot hide. A ledger that defines
+            // total as its own sum would report a perfect residual by construction
+            // and prove nothing.
+            cur_.end_to_end = ms(mark_done - mark_entry).count() + io_ms_;
+            // fit is the residual between the ring push and the fused tail, so ANY
+            // work this binary does that is not separately attributed still lands in
+            // `fit` instead of disappearing. Stages 1-6 therefore tile exactly.
+            cur_.fit = ms(mark_warp - mark0).count();
+            cur_.total = cur_.end_to_end;
+            prof_.push_back(cur_);
+        }
 
         for (auto it = steps_.begin(); it != steps_.end();) {
             if (it->first < t_ - max_lag_) it = steps_.erase(it);
@@ -1099,6 +1634,26 @@ private:
             if (!nogmc_) {
                 auto it = mats.find(lag);
                 if (it != mats.end()) Hm = it->second;
+                // Gate the COMPOSED transform too, not just the direct fits.
+                //
+                // fit_similarity() gates each fit, but 17 of the 21 lags are
+                // composed from anchor fits by bounded chain composition, and a
+                // composition of individually-plausible steps is not necessarily
+                // plausible: measured required_pad of 1032..1463 px on a 640x512
+                // frame even though every constituent fit passed the 1.0-frame
+                // gate. Without this second gate those frames warp outside the
+                // allocated image -- the device cap stops the OOM, but the output
+                // there is undefined rather than merely degraded.
+                //
+                // So: same gate, same identity fallback, counted separately,
+                // because "one bad anchor" and "a bad chain" are different
+                // failure modes and should not share one statistic.
+                const FitGate gc = check_fit(Hm, W, H, gate_max_shift_frac_,
+                                             gate_min_scale_, gate_max_scale_);
+                if (!gc.ok) {
+                    n_chain_rejected_ += 1;
+                    Hm = kIdentity;
+                }
             }
             cv::Mat M32(2, 3, CV_32F);
             for (int i = 0; i < 2; ++i)
@@ -1106,6 +1661,29 @@ private:
             cv::Mat Mi, Mi64;
             cv::invertAffineTransform(M32, Mi);
             Mi.convertTo(Mi64, CV_64F);
+
+            // Gate the INVERSE, which is the matrix required_pad() actually
+            // consumes and the kernel actually samples with.
+            //
+            // Gating only the forward transform is not enough, and the residual
+            // case is instructive: a forward scale of 0.5 sits exactly on the
+            // allowed floor, but its inverse is 2.0, and the inverse doubles the
+            // corner extent -- so a transform that passes every forward check can
+            // still demand ~1280 px of pad. Measured: two frames still tripped the
+            // device cap after the forward corner-extent gate was added.
+            //
+            // Identity survives inverting (it is its own inverse), so rejecting
+            // here degrades to W(.) = IDENTITY exactly as the forward gate does.
+            Matx23f Inv;
+            for (int i = 0; i < 2; ++i)
+                for (int j = 0; j < 3; ++j) Inv(i, j) = static_cast<float>(Mi64.at<double>(i, j));
+            const FitGate gi = check_fit(Inv, W, H, gate_max_shift_frac_,
+                                         gate_min_scale_, gate_max_scale_);
+            if (!gi.ok) {
+                n_chain_rejected_ += 1;
+                cv::Mat Id = cv::Mat::eye(2, 3, CV_64F);
+                Mi64 = Id;
+            }
             inv.push_back(Mi64);
             for (int j = 0; j < 6; ++j) mf[k * 6 + j] = (float)Mi64.at<double>(j / 3, j % 3);
         }
@@ -1115,12 +1693,24 @@ private:
         // 2. resident frames. frame_at_lag() clamps any lag reaching past the
         //    first frame onto first_ (absolute index 1), so the effective index is
         //    max(1, t - lag) -- the same rule, not a guess.
+        //
+        // The stage-3 marker goes BEFORE configure() on purpose: configure() can
+        // reallocate all 45 device images when the quantised pad bucket changes,
+        // and that allocation belongs to the H2D side of the ledger. With the
+        // marker after it, the reallocation showed up as an unattributed
+        // 41 ms tiling residual -- invisible in every stage, visible only as a
+        // residual, which is exactly how a defect hides.
+        const auto p0 = std::chrono::steady_clock::now();
         gpu_->configure(W, H, pad);
 
         // Content key for a lag: the absolute index frame_at_lag() would use, or
         // kFirstKey when it clamps onto first_. t_ itself is the current frame's
         // key. These are identities, so two different frames can never collide.
         constexpr long kFirstKey = -1;
+
+        // Stage 3 covers configure() + copyMakeBorder + clEnqueueWriteImage: every
+        // CPU->device move the tail performs, including the occasional device-image
+        // reallocation.
         std::vector<cl_mem> slots;
         slots.reserve(lags_.size());
         for (size_t k = 0; k < lags_.size(); ++k) {
@@ -1141,9 +1731,17 @@ private:
         gpu_->download(out);
         const auto u3 = std::chrono::steady_clock::now();
         using ms = std::chrono::duration<double, std::milli>;
+        // Legacy accumulators keep their original meaning (mats upload only) so the
+        // already-published [SEQTIMING] numbers do not silently change meaning.
         stats_.t_gpu_upload += ms(u1 - u0).count();
         stats_.t_gpu_kernel += ms(u2 - u1).count();
         stats_.t_gpu_read += ms(u3 - u2).count();
+        if (profiling_) {
+            cur_.img_up = ms(u0 - p0).count();
+            cur_.mats_up = ms(u1 - u0).count();
+            cur_.kernel = ms(u2 - u1).count();
+            cur_.readback = ms(u3 - u2).count();
+        }
     }
 
     // Per-channel A/B between the CPU arm and the GPU arm of THIS push.
@@ -1203,7 +1801,22 @@ private:
     Matx23f fit_similarity(long prev_abs, long curr_abs, const Mat& prev, const Mat& curr) {
         if (rng_seed_per_fit_) cv::theRNG().state = 0xFFFFFFFFu;
         const Matx23f m = est_->compute_affine(prev_abs, curr_abs, prev, curr);
-        if (!all_finite(m)) return kIdentity;
+        if (!all_finite(m)) {
+            stats_.n_fit_rejected += 1;
+            return kIdentity;
+        }
+        // Plausibility gate. See check_fit() for the measured justification: a
+        // finite outlier here is what produced a 4.8 GB device image and an OOM
+        // kill with no error. Counted, never silently swallowed.
+        const FitGate g = check_fit(m, shape_w_, shape_h_, gate_max_shift_frac_,
+                                     gate_min_scale_, gate_max_scale_);
+        if (!g.ok) {
+            stats_.n_fit_rejected += 1;
+            if (std::strcmp(g.why, "shift") == 0 || std::strcmp(g.why, "extent") == 0)
+                stats_.n_fit_rejected_shift += 1;
+            else stats_.n_fit_rejected_other += 1;
+            return kIdentity;
+        }
         return m;
     }
 
@@ -1300,6 +1913,29 @@ private:
     Mat first_;
     long t_ = -1;
     Stats stats_;
+    bool profiling_ = false;
+    int seq_id_ = 0;
+    int seq_frame_ = 0;
+    double io_ms_ = 0.0;
+    double gate_max_shift_frac_ = kDefaultMaxShiftFrac;
+    double gate_min_scale_ = kDefaultMinScale;
+    double gate_max_scale_ = kDefaultMaxScale;
+    long n_chain_rejected_ = 0;
+    // Fit deadline guard. OFF by default (fit_deadline_ms_ <= 0): the guard makes
+    // the output depend on wall-clock, i.e. on machine load, so the same footage
+    // would decode differently on an idle and a loaded board. The deterministic
+    // handles -- the pre-allocated device images and the corner budget -- are the
+    // ones relied on for the 40 ms bound; this exists for deployments that accept
+    // load-dependent output in exchange for a hard per-frame ceiling, and every
+    // trigger is counted so the cost is never silent.
+    double fit_deadline_ms_ = 0.0;
+    bool fit_deadline_hold_ = false;      // false -> IDENTITY, true -> reuse last good
+    long n_fit_deadline_ = 0;
+    long n_corner_cap_frames_ = 0, corner_capped_prev_ = 0;
+    std::vector<Matx23f> last_mats_;
+    bool have_last_mats_ = false;
+    FrameProfile cur_;               // the in-flight frame, filled across functions
+    std::vector<FrameProfile> prof_;
 };
 
 // -----------------------------------------------------------------------------
@@ -1392,6 +2028,27 @@ void usage() {
         "  --cache-parts N        ablation mask for --pyr-cache: 1=resize 2=corners 4=pyramid\n"
         "                         (default 7 = all three)\n"
         "  --fit-corners N        Shi-Tomasi maxCorners (frozen = 600). Lower = less work,\n"
+        "                         lower LK cost; frames above it are counted as cornercap.\n"
+        "  --corner-probe 0|1      count frames that hit --fit-corners exactly (default 1)\n"
+        "  --prealloc-pad N       create the device images ONCE, sized for N px of pad, so\n"
+        "                         the frame loop can never reallocate (0 = off). Costs\n"
+        "                         (W+2N)x(H+2N)xslots device bytes; the upload region stays\n"
+        "                         the padded size, so H2D is unaffected.\n"
+        "  --pin-pad 0|1          with --prealloc-pad N, also pin pad_ to N from the first\n"
+        "                         frame (default 0). --prealloc-pad alone removes the\n"
+        "                         ALLOCATION event but NOT the RING INVALIDATION event:\n"
+        "                         pad_ growth drops every resident slot and forces a mass\n"
+        "                         re-upload. On RK3588 that left VIDEO00034 breaching at\n"
+        "                         43.16 ms with devrealloc already down to 1. Pinning costs\n"
+        "                         <2.5 ms of p50 (measured: pad-1024 uploads run 2.45 ms vs\n"
+        "                         0.37 ms at pad 32 -- the H2D path saturates) and removes\n"
+        "                         the breach. Output is bit-identical.\n"
+        "  --fit-deadline-ms F    give up on the remaining fits after F ms of fitting in one\n"
+        "                         frame (0 = off, the default). OFF is deliberate: a wall-clock\n"
+        "                         trigger makes the output depend on machine load. Use only if\n"
+        "                         a hard per-frame ceiling outweighs reproducibility.\n"
+        "  --fit-degrade MODE     what --fit-deadline-ms falls back to: identity (W=IDENTITY)\n"
+        "                         or hold (reuse the previous frame's transforms)\n"
         "                         fewer tracked points.\n"
         "  --fit-win N            LK window size (frozen = 15)\n"
         "  --fit-level N          LK pyramid depth (frozen = 2). Lower = cheaper, less\n"
@@ -1406,6 +2063,13 @@ void usage() {
         "  --md5-out PATH         append per-frame md5 lines (seq, index, hash)\n"
         "  --rng-seed-per-fit     reseed theRNG before each fit; MUST be mirrored in Python\n"
         "  --timing               print the fit/warp/median breakdown with fits/frm\n"
+        "  --profile-csv PATH     enable the per-frame stage ledger and write raw rows\n"
+        "                         (prep/fit/warp/median/img_up/mats_up/kernel/readback)\n"
+        "  --profile-warmup N     frames at the head of EACH sequence excluded from the\n"
+        "                         statistics (default 100); raw CSV keeps them\n"
+        "  --fit-gate-shift F    reject a GMC fit whose translation exceeds F x frame\n"
+        "                         width (default 1.0; 0 disables the gate)\n"
+        "  --fit-gate-scale F    max |scale-1| allowed (default 1.0 -> [0.5,2])\n"
         "\n"
         "  --fused cpu|gpu|both   which arm computes the warp+median+assembly tail\n"
         "                         (default both: run BOTH on the same fits and A/B them)\n"
@@ -1420,6 +2084,111 @@ void usage() {
 }
 
 }  // namespace
+
+// ===========================================================================
+// Stage-ledger reporting.
+//
+// One row per physical stage, with the tail carried: a mean alone would hide the
+// bimodal population that DVFS and scheduler preemption produce, which is the
+// entire reason this file exists.
+//
+// The TILING CHECK is the load-bearing part. `resid` is
+// end_to_end - sum(stages), computed per frame. Because the stages are adjacent
+// timestamp pairs, this should sit near zero; a non-zero residual means either
+// unattributed work exists or the probes are wrong, and either way the run's
+// numbers are not yet trustworthy. It is printed, not asserted.
+// ===========================================================================
+static void print_profile_stats(const char* label, const std::vector<FrameProfile>& rows,
+                                int warmup, OnlineFeaturePipeline::Backend backend) {
+    if (rows.empty()) return;
+
+    std::vector<double> prep, fit, warp, median, img_up, mats_up, kernel, readback, total, resid;
+    std::vector<double> io;
+    long dropped = 0;
+    for (const FrameProfile& p : rows) {
+        if (p.seq_frame < warmup) { ++dropped; continue; }
+        io.push_back(p.io);
+        prep.push_back(p.prep);
+        fit.push_back(p.fit);
+        warp.push_back(p.warp);
+        median.push_back(p.median);
+        img_up.push_back(p.img_up);
+        mats_up.push_back(p.mats_up);
+        kernel.push_back(p.kernel);
+        readback.push_back(p.readback);
+        total.push_back(p.total);
+        resid.push_back(p.total - (p.io + p.prep + p.fit + p.warp + p.median + p.img_up +
+                                   p.mats_up + p.kernel + p.readback));
+    }
+    if (total.empty()) {
+        std::printf("[PROFILE] %s: all %zu frames fell inside the warm-up window\n", label,
+                    rows.size());
+        return;
+    }
+
+    struct Row { const char* name; StageStats s; const char* owner; };
+    std::vector<Row> table;
+    table.push_back({"0 frame decode (eMMC/BMP)", summarize(io), "CPU + storage"});
+    table.push_back({"1 prep (ring push)", summarize(prep), "CPU A76"});
+    table.push_back({"2 fit (LK+RANSAC+chain)", summarize(fit), "CPU A76 xN"});
+    table.push_back({"2b warp (x22)", summarize(warp), "CPU A76 xN"});
+    table.push_back({"2c median (21-frame)", summarize(median), "CPU A76 xN"});
+    table.push_back({"3 img_up (H2D image)", summarize(img_up), "bus / Mali"});
+    table.push_back({"4 mats_up (H2D 21 mats)", summarize(mats_up), "bus / Mali"});
+    table.push_back({"5 kernel (warp+median)", summarize(kernel), "Mali-G610"});
+    table.push_back({"6 readback (D2H 3-plane)", summarize(readback), "bus / CPU"});
+
+    const StageStats tot = summarize(total);
+    const StageStats rs = summarize(resid);
+
+    std::printf("\n=========== STAGE LEDGER: %s ===========\n", label);
+    std::printf("frames used=%ld  (warm-up discarded=%ld of %zu)  backend=%s\n", tot.n, dropped,
+                rows.size(), backend == OnlineFeaturePipeline::kCpu
+                                 ? "cpu" : (backend == OnlineFeaturePipeline::kGpu ? "gpu" : "both"));
+    std::printf("%-26s %9s %8s %8s %8s %9s %9s  %s\n", "stage", "mean", "p50", "p95", "p99",
+                "max", "stddev", "owner");
+    std::printf("%-26s %9s %8s %8s %8s %9s %9s  %s\n", "--------------------------", "---------",
+                "--------", "--------", "--------", "---------", "---------", "----------");
+    char line[512];
+    for (const Row& r : table) {
+        std::snprintf(line, sizeof(line),
+                      "%-26s %9.3f %8.3f %8.3f %8.3f %9.3f %9.3f  %s", r.name, r.s.mean, r.s.p50,
+                      r.s.p95, r.s.p99, r.s.max, r.s.sd, r.owner);
+        std::printf("%s\n", line);
+    }
+    std::printf("%-26s %9.3f %8.3f %8.3f %8.3f %9.3f %9.3f  %s\n", "== END-TO-END TOTAL ==",
+                tot.mean, tot.p50, tot.p95, tot.p99, tot.max, tot.sd,
+                tot.p50 > 0.0 ? "steady fps" : "-");
+    std::printf("%-26s %9.3f %8.3f %8.3f %8.3f %9.3f %9.3f  %s\n", "TILING RESIDUAL",
+                rs.mean, rs.p50, rs.p95, rs.p99, rs.max, rs.sd,
+                (std::fabs(rs.mean) < 1e-3 && std::fabs(rs.max) < 1e-2) ? "TILES" : "CHECK ME");
+    std::printf("steady-state fps @p50 = %.2f | @p99 = %.2f | @max = %.2f\n",
+                tot.p50 > 0.0 ? 1000.0 / tot.p50 : 0.0, tot.p99 > 0.0 ? 1000.0 / tot.p99 : 0.0,
+                tot.max > 0.0 ? 1000.0 / tot.max : 0.0);
+    std::printf("[budget] 40ms red line: p99 %s (%.1f ms), max %s (%.1f ms)\n",
+                tot.p99 <= 40.0 ? "PASS" : "FAIL", tot.p99,
+                tot.max <= 40.0 ? "PASS" : "FAIL", tot.max);
+}
+
+// Raw per-frame rows, warm-up frames INCLUDED. The statistics deliberately drop
+// them; the raw trace must not, or a cold-start bug becomes unreproducible.
+static void write_profile_csv(const char* path, const std::vector<FrameProfile>& rows) {
+    FILE* f = std::fopen(path, "w");
+    if (!f) {
+        std::fprintf(stderr, "[FATAL] cannot write %s\n", path);
+        std::exit(2);
+    }
+    std::fprintf(f, "seq_id,frame_idx,seq_frame,io_ms,prep_ms,fit_ms,warp_ms,median_ms,"
+                    "img_up_ms,mats_up_ms,kernel_ms,readback_ms,total_ms,resid_ms\n");
+    for (const FrameProfile& p : rows) {
+        const double sum = p.io + p.prep + p.fit + p.warp + p.median + p.img_up + p.mats_up +
+                           p.kernel + p.readback;
+        std::fprintf(f, "%d,%ld,%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n",
+                     p.seq_id, p.idx, p.seq_frame, p.io, p.prep, p.fit, p.warp, p.median, p.img_up,
+                     p.mats_up, p.kernel, p.readback, p.total, p.total - sum);
+    }
+    std::fclose(f);
+}
 
 int main(int argc, char** argv) {
     std::string why;
@@ -1436,6 +2205,17 @@ int main(int argc, char** argv) {
     long mats_frame = 0;
     std::string mats_all_path;
     bool rng_seed_per_fit = false, want_timing = false;
+    // Stage-ledger controls. CSV empty => profiling OFF (the default), so an
+    // accuracy run pays nothing. warmup frames are dropped from the statistics
+    // (but still computed and still in the CSV) so cold-start plateaus and Mali
+    // driver JIT do not contaminate the steady-state numbers.
+    std::string profile_csv;
+    int profile_warmup = 100;
+    // Fit gate. Defaults are the measured-safe values; 0 disables the gate and is
+    // only for reproducing the pre-fix OOM on purpose.
+    double gate_shift = kDefaultMaxShiftFrac;
+    double gate_scale = 1.0;   // max |scale - 1|; 1.0 -> [0,2] clamped to [0.5,2]
+    double gate_min = kDefaultMinScale, gate_max = kDefaultMaxScale;
     bool pyr_cache = false;
     int threads = 1;
     std::string affinity = "none";
@@ -1443,6 +2223,17 @@ int main(int argc, char** argv) {
     // Fit knobs. Defaults are the frozen values, so omitting every flag
     // reproduces the shipped baseline exactly (same MD5).
     int fit_corners = 600, fit_win = 15, fit_level = 2, fit_iters = 20;
+    // ---- 40 ms guarantee: the two deterministic handles, plus one opt-in ----
+    //
+    // prealloc_cap: create the device images once, sized for this much padding,
+    // so the frame loop can never reallocate. 0 = off (grow-on-demand).
+    // corner_probe: count exactly which frames hit the --fit-corners budget.
+    // fit_deadline: wall-clock fit guard. OFF by default -- see the note on
+    // fit_deadline_ms_; it makes output depend on machine load.
+    int prealloc_cap = 0, corner_probe = 1;
+    bool pin_pad = false;
+    double fit_deadline = 0.0;
+    std::string fit_degrade = "identity";
     std::string fused = "both", kernel_dir = "../opencl/kernels";
     int hw_linear = 0, fp64_coord = 0;
 
@@ -1470,6 +2261,11 @@ int main(int argc, char** argv) {
         else if (a == "--affinity") affinity = next("--affinity");
         else if (a == "--cache-parts") cache_parts = std::atoi(next("--cache-parts").c_str());
         else if (a == "--fit-corners") fit_corners = std::atoi(next("--fit-corners").c_str());
+        else if (a == "--prealloc-pad") prealloc_cap = std::atoi(next("--prealloc-pad").c_str());
+        else if (a == "--pin-pad") pin_pad = std::atoi(next("--pin-pad").c_str()) != 0;
+        else if (a == "--corner-probe") corner_probe = std::atoi(next("--corner-probe").c_str());
+        else if (a == "--fit-deadline-ms") fit_deadline = std::atof(next("--fit-deadline-ms").c_str());
+        else if (a == "--fit-degrade") fit_degrade = next("--fit-degrade");
         else if (a == "--fit-win") fit_win = std::atoi(next("--fit-win").c_str());
         else if (a == "--fit-level") fit_level = std::atoi(next("--fit-level").c_str());
         else if (a == "--fit-iters") fit_iters = std::atoi(next("--fit-iters").c_str());
@@ -1478,6 +2274,10 @@ int main(int argc, char** argv) {
         else if (a == "--md5-out") md5_out = next("--md5-out");
         else if (a == "--rng-seed-per-fit") rng_seed_per_fit = true;
         else if (a == "--timing") want_timing = true;
+        else if (a == "--profile-csv") profile_csv = next("--profile-csv");
+        else if (a == "--profile-warmup") profile_warmup = std::atoi(next("--profile-warmup").c_str());
+        else if (a == "--fit-gate-shift") gate_shift = std::atof(next("--fit-gate-shift").c_str());
+        else if (a == "--fit-gate-scale") { gate_scale = std::atof(next("--fit-gate-scale").c_str()); }
         else if (a == "--fused") fused = next("--fused");
         else if (a == "--kernel-dir") kernel_dir = next("--kernel-dir");
         else if (a == "--hw-linear") hw_linear = std::atoi(next("--hw-linear").c_str());
@@ -1530,6 +2330,10 @@ int main(int argc, char** argv) {
     long g_dex[3] = {0, 0, 0};
     int W0 = 0, H0 = 0, gpu_pad_max = 0;
     long gpu_bytes = 0;
+    // The pipeline is rebuilt per sequence (each gets a clean ring + GPU slots),
+    // so the ledger rows have to be lifted out here to become one run-wide table.
+    std::vector<FrameProfile> all_prof;
+    int seq_counter = 0;
 
     for (const std::string& seq : sequences) {
         std::string seq_dir;
@@ -1552,6 +2356,46 @@ int main(int argc, char** argv) {
         OnlineFeaturePipeline pipe(window, stride_step, anchor_step, downscale, rng_seed_per_fit,
                                     mode == "nogmc", gpu.get(), backend, pyr_cache, fit_corners,
                                     fit_win, fit_level, fit_iters, cache_parts, threads);
+        pipe.set_profiling(!profile_csv.empty());
+        pipe.set_seq_id(seq_counter);
+        if (gate_shift > 0.0)
+            pipe.set_fit_gate(gate_shift, gate_min, gate_max);
+        else
+            std::printf("[FIT-GATE] DISABLED (--fit-gate-shift 0): a finite outlier "
+                        "transform will drive required_pad unbounded. Reproduces the "
+                        "pre-fix OOM by design.\n");
+        std::printf("[FIT-GATE] shift<=%.2f x frame  scale in [%.2f,%.2f]\n", gate_shift,
+                    gate_min, gate_max);
+        pipe.gpu_prealloc(prealloc_cap);
+        pipe.gpu_pin_pad(pin_pad);
+        pipe.set_corner_probe(corner_probe != 0);
+        pipe.set_fit_deadline(fit_deadline, fit_degrade == "hold");
+        if (prealloc_cap > 0)
+            std::printf("[PREALLOC]  device images reserved once for pad<=%d "
+                        "(no runtime reallocation)\n",
+                        prealloc_cap);
+        // The startup banner must never contain the literal "[HANDLE]": the
+        // census parser matches that token, and a banner line would be counted
+        // as a trigger row.
+        if (pin_pad) {
+            if (prealloc_cap <= 0)
+                std::printf("[PIN-PAD] requested without --prealloc-pad; ignored\n");
+            else
+                std::printf("[PIN-PAD]  pad pinned to %d from the first frame, so the "
+                            "ring is never invalidated (no mass re-upload)\n",
+                            prealloc_cap);
+        }
+        if (fit_deadline > 0.0)
+            std::printf("[FIT-DEADLINE] %.2f ms, degrade=%s -- OUTPUT BECOMES "
+                        "LOAD-DEPENDENT; every trigger is counted in the per-sequence "
+                        "handle census\n",
+                        fit_deadline, fit_degrade.c_str());
+        else
+            std::printf("[FIT-DEADLINE] off (deterministic mode: output does not "
+                        "depend on machine load)\n");
+        if (!profile_csv.empty())
+            std::printf("[PROFILE] stage ledger ON -> %s (warmup discarded=%d frames)\n",
+                        profile_csv.c_str(), profile_warmup);
         if (sequences.size() == 1) {
             std::printf("ring_depth=%ld lags=%d..%d anchors=", pipe.ring_depth(),
                         pipe.lags().front(), pipe.lags().back());
@@ -1588,7 +2432,12 @@ int main(int argc, char** argv) {
 
         for (size_t fi = 0; fi < names.size(); ++fi) {
             const std::string path = seq_dir + "/" + names[fi];
+            pipe.set_seq_frame((int)fi);
+            const auto io_t0 = std::chrono::steady_clock::now();
             const Mat frame = cv::imread(path, cv::IMREAD_GRAYSCALE);
+            pipe.set_frame_io_ms(
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - io_t0)
+                    .count());
             if (frame.empty()) {
                 std::fprintf(stderr, "[FATAL] failed to read %s\n", path.c_str());
                 if (fmo) std::fclose(fmo);
@@ -1695,10 +2544,32 @@ int main(int argc, char** argv) {
         if (gpu) { gpu_pad_max = std::max(gpu_pad_max, gpu->pad()); gpu_bytes = gpu->device_bytes();
                    if (!W0) { W0 = pipe.width(); H0 = pipe.height(); } }
         std::printf("[SEQ] %-32s frames=%-6zu md5=%s  fits/frm=%.2f warps/frm=%.2f "
-                    "compose/frm=%.2f  state=%.2f MiB\n",
+                    "compose/frm=%.2f  state=%.2f MiB  devpad=%d  devallocpad=%d  "
+                    "devrealloc=%ld",
                     seq.c_str(), names.size(), seq_md5.hex().c_str(),
                     static_cast<double>(s.n_fit) / n, static_cast<double>(s.n_warp) / n,
-                    static_cast<double>(s.n_compose) / n, pipe.state_bytes() / 1048576.0);
+                    static_cast<double>(s.n_compose) / n, pipe.state_bytes() / 1048576.0,
+                    pipe.gpu_pad(), pipe.gpu_alloc_pad(), pipe.gpu_reconfigures());
+        // ---- special-handle trigger census ---------------------------------
+        // Every fallback path that changed a frame's output is counted here, in
+        // one block, so "how often did the pipeline fall back and why" is a
+        // number you can read instead of a claim.
+        std::printf(" | [HANDLE] cornercap=%ldf/%ldcalls(%ldpts) fitgate=%ld chain=%ld "
+                    "fitdeadline=%ld | corners mean=%.1f over %ld dets (budget %d)",
+                    pipe.corner_cap_frames(), pipe.corner_capped(), pipe.corner_dropped(),
+                    s.n_fit_rejected, pipe.n_chain_rejected(), pipe.n_fit_deadline(),
+                    pipe.corner_mean(), pipe.corner_dets(), fit_corners);
+        if (s.n_fit_rejected) {
+            std::printf("[FIT-GATE] %-28s rejected=%ld/%ld fits (%.3f%%) "
+                        "[shift=%ld other=%ld] -> those frames used W(.)=IDENTITY\n",
+                        seq.c_str(), s.n_fit_rejected, s.n_fit,
+                        100.0 * (double)s.n_fit_rejected / (double)std::max<long>(1, s.n_fit),
+                        s.n_fit_rejected_shift, s.n_fit_rejected_other);
+        }
+        if (pipe.n_chain_rejected()) {
+            std::printf("[FIT-GATE] %-28s rejected=%ld composed lags -> W(.)=IDENTITY\n",
+                        seq.c_str(), pipe.n_chain_rejected());
+        }
         if (want_timing) {
             std::printf("[SEQTIMING] %-32s fit=%.3f warp=%.3f median=%.3f total=%.3f ms/frame",
                         seq.c_str(), s.t_fit / n, s.t_warp / n, s.t_median / n, s.t_total / n);
@@ -1732,6 +2603,21 @@ int main(int argc, char** argv) {
                         100.0 * pipe.diff_exact_frac(1), pipe.diff_max()[2], pipe.diff_mae(2),
                         100.0 * pipe.diff_exact_frac(2));
         }
+        // Lift this sequence's ledger rows into the run-wide table, then print the
+        // per-sequence stage picture. Warm-up frames are EXCLUDED from these stats
+        // (but stay in the CSV) because the first pushes of a fresh pipeline are the
+        // ring-refill / slot-fill / Mali-JIT plateau, not steady state.
+        if (pipe.profiling()) {
+            print_profile_stats(seq.c_str(), pipe.profiles(), profile_warmup, backend);
+            all_prof.insert(all_prof.end(), pipe.profiles().begin(), pipe.profiles().end());
+        }
+        ++seq_counter;
+    }
+
+    if (!profile_csv.empty()) {
+        print_profile_stats("ALL-SEQUENCES", all_prof, profile_warmup, backend);
+        write_profile_csv(profile_csv.c_str(), all_prof);
+        std::printf("[PROFILE-CSV] wrote %s (%zu rows)\n", profile_csv.c_str(), all_prof.size());
     }
 
     std::printf("[TOTAL] sequences=%zu frames=%ld\n", sequences.size(), total_push);

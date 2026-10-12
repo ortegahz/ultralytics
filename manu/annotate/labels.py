@@ -231,15 +231,24 @@ class LabelStore:
 
     def read_prelabels(self, seq_id: str, index: int, width: int, height: int,
                        classes: list[int] | None = None) -> list[dict]:
-        """Proposals for one frame: the tool's own tree first, then any read-only external tree."""
+        """Proposals for one frame: the tool's own tree first, then any read-only external tree.
+
+        ``classes`` filters **external trees only**. It exists to pick one branch out of a set produced
+        elsewhere — e.g. keep class 1 (``uav_hm_coarse``) and drop class 0 (``uav_bbox``) from the
+        project's mixed ``preannot_v1``. The worker's own output is single-class by construction, so
+        applying that filter to it hides every proposal without any visible error: the service started
+        with ``--prelabel-class 1`` ran pre-annotation that writes class 0, all 1239 frames were written
+        to disk, ``summary`` still reported them as prelabelled, and the UI drew nothing.
+        """
         with self._lock:
             path = self.prelabel_path(seq_id, index)
-            external = None
+            external = False
             if not path.exists():
-                external = self.external_prelabel_path(seq_id, index)
-                path = external if external is not None else path
+                found = self.external_prelabel_path(seq_id, index)
+                if found is not None:
+                    path, external = found, True
             boxes = self._read_boxes(path, width, height)
-        if classes:
+        if external and classes:
             boxes = [box for box in boxes if int(box.get("cls", 0)) in classes]
         return boxes
 

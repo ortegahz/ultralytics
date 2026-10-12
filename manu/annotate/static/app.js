@@ -88,20 +88,60 @@ function nearBox(boxes, cx, cy, radius) {
   return best;
 }
 
-function visibleProposals() {
+/**
+ * Has this proposal already been taken over by a label?
+ *
+ * Grabbing a proposal turns it into an editable label. Without this check the frame then showed two
+ * things for one target — the blue candidate plus the yellow box that replaced it — which reads as
+ * "a new box appeared and the original still cannot be edited". Comparing against the live labels (not
+ * a consumed-set) also means deleting the label or undoing it brings the candidate straight back.
+ */
+function isClaimed(proposal, rawIndex) {
+  // Taken over in this session: the label records which proposal it came from, so the suggestion stays
+  // gone however far the box is moved or resized afterwards.
+  if (S.labels.some((b) => b.from === rawIndex)) return true;
+  // After a reload `from` is gone (YOLO has no field for it), so fall back to geometry. Three
+  // independent ways to count as "this target is mine", because any single one misses some resize:
+  //   * the smaller box is ≥70% inside the larger (dividing by the proposal's area alone scored a label
+  //     sitting wholly inside a much larger proposal at ~0.4 and left both drawn);
+  //   * either centre falls inside the other — catches a box dragged off to one corner, where the
+  //     overlap ratio can be small even though it plainly refers to the same target.
+  const pw = proposal.x2 - proposal.x1, ph = proposal.y2 - proposal.y1;
+  const area = pw * ph;
+  if (!(area > 0)) return false;
+  const pcx = (proposal.x1 + proposal.x2) / 2, pcy = (proposal.y1 + proposal.y2) / 2;
+  const inside = (cx, cy, box) => cx >= box.x1 && cx <= box.x2 && cy >= box.y1 && cy <= box.y2;
+  return S.labels.some((b) => {
+    const bw = b.x2 - b.x1, bh = b.y2 - b.y1;
+    const labelArea = bw * bh;
+    if (!(labelArea > 0)) return false;
+    const bcx = (b.x1 + b.x2) / 2, bcy = (b.y1 + b.y2) / 2;
+    if (inside(bcx, bcy, proposal) || inside(pcx, pcy, b)) return true;
+    const ix = Math.min(b.x2, proposal.x2) - Math.max(b.x1, proposal.x1);
+    const iy = Math.min(b.y2, proposal.y2) - Math.max(b.y1, proposal.y1);
+    return ix > 0 && iy > 0 && (ix * iy) / Math.min(area, labelArea) >= 0.7;
+  });
+}
+
+/** Source indices into the raw prelabel array, for the ones the UI is currently offering. */
+function visibleProposalIdx() {
   if (!S.showProposals) return [];
-  return S.prelabels.filter((_, i) => (S.scores[i] ?? 1) >= S.minScore);
+  const out = [];
+  for (let i = 0; i < S.prelabels.length; i++) {
+    if ((S.scores[i] ?? 1) < S.minScore) continue;
+    if (isClaimed(S.prelabels[i], i)) continue;
+    out.push(i);
+  }
+  return out;
+}
+
+function visibleProposals() {
+  return visibleProposalIdx().map((i) => S.prelabels[i]);
 }
 
 /** Map an index in the filtered proposal list back to its index in the raw prelabel array. */
 function proposalSourceIndex(filteredIndex) {
-  let seen = 0;
-  for (let i = 0; i < S.prelabels.length; i++) {
-    if ((S.scores[i] ?? 1) < S.minScore) continue;
-    if (seen === filteredIndex) return i;
-    seen++;
-  }
-  return filteredIndex;
+  return visibleProposalIdx()[filteredIndex];
 }
 
 /* --------------------------------------------------------- image loading */
@@ -300,10 +340,26 @@ function undo() {
     return restoreBatch(entry.previous, entry.index, '撤销');
   }
   S.redo.push({ labels: S.labels.map((b) => ({ ...b })), index: S.index });
-  S.index = entry.index;
-  S.labels = entry.labels;
-  S.selected = -1;
-  return goToFrame(S.index, { fromHistory: true });
+  return applyHistory(entry.labels, entry.index);
+}
+
+/**
+ * Put a single-frame history entry back on screen *and* on disk.
+ *
+ * This used to navigate with `fromHistory: true`, which deliberately skips the save in goToFrame() —
+ * so undo was purely cosmetic: the edited box vanished from the canvas but stayed in the file and came
+ * straight back on the next load. The write is now explicit rather than left to goToFrame's dirty
+ * branch: relying on a flag that a sibling code path also mutates is how the undo silently stopped
+ * persisting in the first place. The reload afterwards is what proves it landed.
+ */
+async function applyHistory(labels, index) {
+  S.index = index;
+  S.labels = labels;
+  S.selected = labels.length ? 0 : -1;
+  S.dirty = true;
+  await saveFrame({ force: true, markReviewed: true });
+  const r = await goToFrame(index, { force: true, fromHistory: true });
+  return r;
 }
 
 function redo() {
@@ -314,10 +370,7 @@ function redo() {
     return restoreBatch(entry.applied, entry.index, '重做');
   }
   S.undo.push({ labels: S.labels.map((b) => ({ ...b })), index: S.index });
-  S.index = entry.index;
-  S.labels = entry.labels;
-  S.selected = -1;
-  return goToFrame(S.index, { fromHistory: true });
+  return applyHistory(entry.labels, entry.index);
 }
 
 /* --------------------------------------------------------------- loading */
@@ -332,6 +385,16 @@ async function goToFrame(index, options = {}) {
 
   S.index = target;
   S.loaded = false;
+  // Reflect the build id the page actually loaded, next to the one the server stamped into the HTML.
+  // They disagree exactly when the browser is running a stale copy.
+  (function showBuild() {
+    const stamp = $('build-stamp');
+    if (!stamp || stamp.textContent) return;
+    const script = document.querySelector('script[src*="app.js"]');
+    const version = script ? (script.getAttribute('src').match(/v=(\d+)/) || [])[1] : null;
+    stamp.textContent = version ? `build ${version.slice(0, 13)}` : 'build ?';
+  })();
+
   S.drawMode = false;
   S.drag = null;
   $('frame-input').value = target;
@@ -373,28 +436,47 @@ function trimRecent() {
 
 /* --------------------------------------------------------------- saving */
 
+/**
+ * Writes are serialised through one chain.
+ *
+ * Several callers fire-and-forget a save — deleteSelected() on the Delete key, an edit on mouseup, an
+ * undo — and two concurrent POSTs to the same frame have no defined arrival order, so whichever landed
+ * last won. That is not theoretical: a delete followed quickly by its undo could persist the deletion
+ * *after* the undo, leaving the frame silently reverted. Chaining them makes the order the caller's.
+ */
+let saveChain = Promise.resolve();
+
 async function saveFrame(options = {}) {
   if (!S.seq || !S.loaded) return;
   if (!S.dirty && !options.force) return;
-  try {
-    await postJSON(`/api/seq/${encodeURIComponent(S.seq.seq_id)}/labels/${S.index}`, {
-      boxes: S.labels,
-      reviewed: options.markReviewed !== false,
-    });
-    S.dirty = false;
-    if (options.markReviewed !== false && S.summary) {
-      recentLabels.set(S.index, S.labels);
-      S.summary.counts.reviewed += 1;
-      if (S.summary.counts.boxes != null) S.summary.counts.boxes += S.labels.length;
-      renderSequenceList();
+  // Snapshot everything now: by the time this write runs the frame may already have moved on.
+  const seqId = S.seq.seq_id;
+  const index = S.index;
+  const body = { boxes: S.labels.map((b) => ({ ...b })), reviewed: options.markReviewed !== false };
+  const markReviewed = options.markReviewed !== false;
+  const advance = options.advance && !options.silent;
+
+  const run = async () => {
+    try {
+      await postJSON(`/api/seq/${encodeURIComponent(seqId)}/labels/${index}`, body);
+      // Only the write for the frame we are still on may clear the dirty flag.
+      if (S.index === index && S.seq.seq_id === seqId) {
+        S.dirty = false;
+        if (markReviewed && S.summary) {
+          recentLabels.set(index, S.labels);
+          S.summary.counts.reviewed += 1;
+          if (S.summary.counts.boxes != null) S.summary.counts.boxes += body.boxes.length;
+          renderSequenceList();
+        }
+        if (advance) await goToFrame(S.index + 1);
+        updateFrameState();
+      }
+    } catch (error) {
+      status(`保存失败：${error.message}`, 'err');
     }
-    if (options.advance && !options.silent) {
-      await goToFrame(S.index + 1);
-    }
-    updateFrameState();
-  } catch (error) {
-    status(`保存失败：${error.message}`, 'err');
-  }
+  };
+  saveChain = saveChain.then(run, run);
+  return saveChain;
 }
 
 async function saveBatch(entries, label) {
@@ -418,9 +500,16 @@ async function saveBatch(entries, label) {
 
 /* ------------------------------------------------------- edit operations */
 
-function addBox(box) {
+function addBox(box, from) {
   pushUndo();
-  S.labels.push(normalizeBox(box.x1, box.y1, box.x2, box.y2));
+  const created = normalizeBox(box.x1, box.y1, box.x2, box.y2);
+  // Remember which proposal this box was taken from. Claiming by geometry alone is not enough: resize
+  // a proposal a little and the grown box stops covering it, so the original suggestion comes back
+  // alongside the box the annotator just made — exactly the "a new box appeared and the original is
+  // still stuck" complaint. `from` is session-only (YOLO has nowhere to put it) and disappears on
+  // reload, at which point the geometry check takes over again.
+  if (from != null) created.from = from;
+  S.labels.push(created);
   S.selected = S.labels.length - 1;
   drawBoxes();
   updateBoxList();
@@ -437,13 +526,17 @@ function deleteSelected() {
 }
 
 function acceptProposals() {
-  if (!S.prelabels.length) {
-    status('本帧没有模型候选', 'err');
+  const pending = visibleProposals();
+  if (!pending.length) {
+    status(S.prelabels.length ? '本帧候选都已处理' : '本帧没有模型候选', 'err');
     return goToFrame(S.index + 1);
   }
   pushUndo();
-  S.labels = S.prelabels.map((b) => ({ ...b }));
-  S.selected = S.labels.length ? 0 : -1;
+  // Only what is still on offer: proposals already turned into labels would otherwise be added a
+  // second time, so pressing Space twice on the same frame duplicates every target.
+  const pendingIdx = visibleProposalIdx();
+  S.labels = S.labels.concat(pendingIdx.map((i) => ({ ...S.prelabels[i], from: i })));
+  S.selected = S.labels.length - pending.length;
   // pushUndo() already marked the frame dirty, but the save is forced anyway: this is the tool's
   // primary action and it must never be a no-op on a frame the annotator had not edited. Without the
   // flag, saveFrame() early-returns on a clean frame and the accepted proposals would live only in
@@ -657,7 +750,10 @@ function updateBoxList() {
     row.onclick = () => { S.selected = Number(row.dataset.i); drawBoxes(); updateBoxList(); };
   });
   list.querySelectorAll('[data-proposal]').forEach((row) => {
-    row.onclick = () => addBox(visibleProposals()[Number(row.dataset.proposal)]);
+    row.onclick = () => {
+        const i = Number(row.dataset.proposal);
+        addBox(visibleProposals()[i], proposalSourceIndex(i));
+      };
   });
 }
 
@@ -758,9 +854,32 @@ function bindMouse() {
       drawBoxes();
       updateBoxList();
     } else {
-      S.selected = -1;
-      drawBoxes();
-      updateBoxList();
+      const candidate = hitCandidate(x, y);
+      if (candidate) {
+        // Grabbing a proposal edits it in place, the way any drawing tool behaves: the proposal is
+        // promoted to a label and the same gesture starts moving or resizing it. The promotion is
+        // provisional — a click that never moves is rolled back on mouseup, otherwise merely glancing
+        // at a proposal would litter the frame with labels nobody wanted.
+        const src = candidate.box;
+        const box = normalizeBox(src.x1, src.y1, src.x2, src.y2);
+        addBox({ ...box, cls: 0 }, candidate.rawIndex);
+        const handle = hitHandle(box, x, y);
+        S.drag = {
+          type: handle ? 'resize' : 'move',
+          index: S.labels.length - 1,
+          handle,
+          origin: { ...box },
+          offsetX: x - box.x1,
+          offsetY: y - box.y1,
+          provisional: true,
+          moved: false,
+          undoDepth: S.undo.length,
+        };
+      } else {
+        S.selected = -1;
+        drawBoxes();
+        updateBoxList();
+      }
     }
   });
 
@@ -776,9 +895,11 @@ function bindMouse() {
       box.x1 = clamp(x - S.drag.offsetX, 0, S.seq.width - w);
       box.y1 = clamp(y - S.drag.offsetY, 0, S.seq.height - h);
       box.x2 = box.x1 + w; box.y2 = box.y1 + h;
+      if (S.drag.provisional) S.drag.moved = true;
       drawBoxes();
     } else if (S.drag.type === 'resize') {
       applyResize(S.drag, x, y);
+      if (S.drag.provisional) S.drag.moved = true;
       drawBoxes();
     }
   });
@@ -796,6 +917,18 @@ function bindMouse() {
       // The create-drag path never pushed an undo entry, so addBox() is what records history here.
       addBox(box);
       S.drawMode = false;
+    } else if (drag.provisional && !drag.moved) {
+      // A click on a proposal that never turned into a drag. Undo the provisional promotion *and* its
+      // undo entry, so glancing at a candidate leaves the frame exactly as it was found.
+      S.labels.splice(drag.index, 1);
+      S.undo.length = drag.undoDepth;
+      S.redo.length = 0;
+      S.selected = -1;
+      S.dirty = false;
+      drawBoxes();
+      updateBoxList();
+      updateFrameState();
+      return;
     }
     S.dirty = true;
     updateFrameState();
@@ -840,9 +973,27 @@ function hitBox(x, y) {
   return best;
 }
 
+/** The smallest *proposal* under the cursor. Candidates are drawn but not editable until adopted. */
+function hitCandidate(x, y) {
+  let best = null;
+  visibleProposalIdx().forEach((rawIndex) => {
+    const b = S.prelabels[rawIndex];
+    if (x >= b.x1 && x <= b.x2 && y >= b.y1 && y <= b.y2) {
+      const area = (b.x2 - b.x1) * (b.y2 - b.y1);
+      if (!best || area < best.area) best = { rawIndex, box: b, area };
+    }
+  });
+  return best;
+}
+
 function hitHandle(box, x, y) {
   const inv = 1 / S.view.z;
   const tolerance = HANDLE * 1.6 * inv;
+  // A box smaller than the handle tolerance cannot offer distinguishable handles — the cursor sits within
+  // tolerance of every corner at once, so grabbing the body silently resizes it instead of moving it.
+  // This bites exactly the targets this tool exists for (median ~34x30 px, down to 8 px), where a drag
+  // shrank a 6x6 box to 2x2. Below that size, move; zoom in if the box genuinely needs resizing.
+  if (Math.min(box.x2 - box.x1, box.y2 - box.y1) < tolerance * 2) return null;
   const points = handlePoints(box);
   const names = ['nw', 'n', 'ne', 'w', 'e', 'sw', 's', 'se'];
   for (let i = 0; i < points.length; i++) {
@@ -1168,5 +1319,5 @@ window.__annotate = {
   goToFrame, saveFrame, saveBatch, addBox, deleteSelected, acceptProposals,
   copyFromPrevious, propagateForward, interpolateToNext, nextUnreviewed,
   applyThreshold, visibleProposals, fitView, zoomAt, pushUndo, undo, redo,
-  hitBox, hitHandle, toImageCoords, updateBoxList, drawBoxes,
+  hitBox, hitHandle, hitCandidate, toImageCoords, updateBoxList, drawBoxes,
 };

@@ -177,7 +177,42 @@ class Handler(BaseHTTPRequestHandler):
         content_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
         if content_type.startswith("text/") or content_type.endswith("javascript"):
             content_type += "; charset=utf-8"
-        self._send(200, target.read_bytes(), content_type, cache="no-cache")
+        payload = target.read_bytes()
+        if target.name == "index.html":
+            payload = self._stamp_assets(payload)
+        self._send(200, payload, content_type, cache="no-cache")
+
+    @staticmethod
+    def _stamp_assets(payload: bytes) -> bytes:
+        """Point every asset reference at the current build, so a reload can never run stale JS.
+
+        ``Cache-Control: no-cache`` only asks the browser to revalidate, and a tab that was left open
+        across a deploy keeps serving the copy it loaded at the time. That produced exactly the
+        "the fix is deployed but the box still cannot be selected" confusion, where the served file was
+        provably new and the page was not. Appending each asset's mtime makes the URL itself change,
+        and the build on screen is then verifiable from devtools.
+        """
+        text = payload.decode("utf-8")
+
+        def stamp(match: re.Match) -> str:
+            url = match.group(2)
+            path = STATIC_ROOT / url[len("/static/") :]
+            try:
+                version = path.stat().st_mtime_ns
+            except OSError:
+                version = 0
+            return f'{match.group(1)}="{url}?v={version}"'
+
+        text = re.sub(r'(src|href)="(/static/[^"?]+)"', stamp, text)
+        # Show the same build id in the status bar. "Is the page running the new code?" was the
+        # hardest question to answer during development, and a visible stamp ends the guessing.
+        try:
+            build = (STATIC_ROOT / "app.js").stat().st_mtime_ns
+        except OSError:
+            build = 0
+        text = text.replace('<span id="build-stamp" class="mono" title="构建号：用来确认页面跑的是不是最新代码"></span>',
+                            f'<span id="build-stamp" class="mono" title="构建号：用来确认页面跑的是不是最新代码">build {build}</span>')
+        return text.encode("utf-8")
 
     def _frame(self, seq_id: str, index: int, query: dict) -> None:
         if not _SEQ_RE.match(seq_id):
