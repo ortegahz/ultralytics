@@ -190,7 +190,15 @@ C flags        : -ffp-contract=off -fno-fast-math ... -O3 -DNDEBUG
 
 **板卡当前占用**：`/mnt/manu/ocvparity` 202M（NFS 数据）+ `/mnt/manu/ocvparity_exec` 7.5M（唯一的可执行文件，必须在本地盘，因为经 NFS 执行必报 `Text file busy`）。
 
-⚠️ `/home/manu/mnt/nfs` 在 x86 侧需 `/home/manu/anaconda3/bin/python` 跑对比脚本——系统 `python3` 无 numpy。
+⚠️ `/home/manu/mnt/nfs` 在 x86 侧需 `/home/anaconda3/bin/python` 跑对比脚本——系统 `python3` 无 numpy。
+
+🔴🔴 **本节自 2026-10-12 起整体作废（挂载方向已反转，详见 `rules.md` §二 1b-0）**
+
+- 当时的 `/mnt/manu` 是**板卡本地目录**（本机把它挂在 `/home/manu/mnt/nfs/`），所以上面「NFS 目录物理上占板卡磁盘、202 MB 吃掉 1.7G 的 12%」在**当时是实测正确的**。
+- **2026-10-12 起板卡把 `/mnt/manu` 指向 host 导出的 `/home/manu/nfs`**，本机侧旧挂载点 `/home/manu/mnt/nfs` 已删除 ⇒ 上面的占用结论**不再成立**：板卡写 `/mnt/manu` 消耗的是 **host 磁盘**。
+- ⇒ **`/mnt/manu/ocvparity/`、`/mnt/manu/ocvparity_exec` 在板卡上已不存在**；若要复用这批 dump，须改从 host `/home/manu/nfs/ocvparity/` 取，且**先确认该目录是否真的存在**（当前 host 导出目录内只有一个 0 字节 `1.txt`）。
+- 新红线：host 导出目录在**根分区**（`/dev/sda1 218G / 193G used / **15G avail 93%**`），**不在 1TB 卷上** ⇒ 放数据前仍须估 GiB（铁律二），只是红线从板卡换到了 host 根分区。
+- ⚠️ 「对比脚本要用 anaconda python（系统 `python3` 无 numpy）」这条**仍然有效**，只是路径要改成 `/home/manu/nfs/…`。
 
 ## 12. 遗留未解
 

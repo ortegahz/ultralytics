@@ -368,3 +368,8 @@ python manu/diagnostics/probe_heatmap_regions_video.py \
   --min-area 4 \
   --device 0 \
   --fps 25
+
+# issue
+1. 悬停目标召回差，特别是复杂背景悬停更差，运动目标相对检出比较稳定。
+2. 近距离大目标检出没有中等距离目标检出稳定，感觉还是感受野问题。
+3. 路灯和窗户有误检，分数还不低。
