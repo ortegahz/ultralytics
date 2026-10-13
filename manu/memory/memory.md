@@ -33,14 +33,15 @@
 
 | 项目 | 状态 | 结论 |
 | :--- | :--- | :--- |
-| 板卡与通道 | ✅ 就绪 / 🔴 挂载待修 | `ssh -p 22 root@192.168.0.64`；**2026-10-12 挂载方向反转：板卡挂 host**，板卡执行 `mount -t nfs 192.168.0.115:/home/manu/nfs /mnt/manu -o nolock,soft,timeo=5,retrans=2`（host `/etc/exports` 已写、服务已 active，但**导出表未刷新，见 C1**）；旧的「本机挂板卡 `/mnt/manu`」已拆除。Agent 可经 `board_run.py` 自动执行（**scp 投递，禁用 base64-over-ssh**，pty 回显会卡死） |
+| 板卡与通道 | ✅ 全部就绪 | `ssh -p 22 root@192.168.0.64`；**2026-10-12 挂载方向反转：板卡挂 host**，板卡执行 `mount -t nfs 192.168.0.115:/home/manu/nfs /mnt/manu -o nolock,soft,timeo=5,retrans=2`（host `/etc/exports` 已写、服务已 active，**2026-10-13 实测导出表已生效，板卡侧 NFS 挂载正常**）；旧的「本机挂板卡 `/mnt/manu`」已拆除。Agent 可经 `board_run.py` 自动执行（**scp 投递，禁用 base64-over-ssh**，pty 回显会卡死） |
 | GPU (Mali-G610) | ✅ 可用 | OpenCL 3.0 实跑 PASS；`FUSED_USE_HW_LINEAR=0`（手动双线性）已定案；尾段 upload+kernel+readback = 5.2~6.7 ms/帧 |
 | arm64 OpenCV 4.10.0 | ✅ 自编译并验证 | 59 帧 × 1933 万元素逐算子比对：`resize`/GFT/LK/RANSAC 内点掩码位精确，`warpAffine` 仅 11 个像素差（0.000057%） |
 | C++ 移植 | 🟡 局部 | L2 端到端位精确通过，**但覆盖 2/24 序列、400/31,613 帧（1.27%）**，L3 全量未做 |
 | 🔥 **GMC Fit 优化** | ✅ **本轮收口** | **板卡 fit 18.46 → 2.65 ms（seq1）/ 48.93 → 9.57 ms（seq2），端到端 → 128.8 / 81.9 fps，全程 MD5 不变（位精确）**。详见 `gmc_fit_cache_rk3588.md` |
 | 🔥 **多线程** | ✅ **位精确** | `--threads N` + `--affinity a76`；**实测证伪「多线程破坏位精确性」旧记载**；绑大核对纹理贫瘠序列比加线程更有效 |
 | 🔥 **median 并行化** | ✅ 完成 | `median_residual` 是自写标量循环、线程池碰不到，是 CPU 臂 47% 瓶颈；并行化后 CPU 臂再提速 2.1~2.4× |
-| 🔴 **阻塞项 1** | 未解决 | **NPU 驱动未使能**：`/dev/rknpu` 不存在、`/proc/devices` 无 rknpu，RKNN 路线当前走不通 |
+| ✅ **阻塞项 1** | **2026-10-13 已解除** | ~~NPU 驱动未使能~~ **是假阴性**：驱动 RKNPU 0.9.8 以 DRM 注册，真实节点 `/dev/dri/card1`，`librknnrt 2.3.0` 可用。**RKNN 推理已实跑通**，且**逐框与 Rockchip 官方 demo 对账一致（偏差 ≤6 px）**；**`rknn_run` 24.4 ms（占 97%）/ 端到端 25.1 ms / 39.8 fps**，已出 OSD 目视确认。自写最小程序见 `manu/pipeline/npu/`（免 OpenCV/RGA，只链 `librknnrt`；**须链板卡那份 `.so` 2.3.0，禁止链 SDK 里那份 1.4.0**）。详见 `rknn_npu_board_run.md` |
+| 🔴 **新阻塞** | 未解决 | 真正的阻塞换成了 **Trial 0474 无任何 NPU 部署产物**（`runs/` 不在同步链路内），且 rknn-toolkit2 是 x86 侧 Python 包，转换须在训练服务器上做 |
 | 🔴 **阻塞项 2** | **本轮已裁决** | 原「时延口径 5 倍分歧」：分阶段实测（fit/warp/median）已把两套数字拆开，**唯一权威口径 = `--timing` 分段表 + 板卡实测**，反解值禁止引用 |
 | ⏳ 下一步 | 未启动 | **median 的内存访问模式**（当前跨 21 个 Mat 按列取数，对缓存极不友好；改行块拷贝同样位精确）是 CPU 臂剩余最大一块；另需补 **Python 侧多线程对账**才能正式改写铁律 |
 
@@ -69,7 +70,9 @@ mount -t nfs 192.168.0.115:/home/manu/nfs /mnt/manu -o nolock,soft,timeo=5,retra
 
 **本机侧已核实（2026-10-12 实测）**：本机 IP `192.168.0.115`（`enp2s0`）；`/etc/exports` = `/home/manu/nfs  192.168.0.0/24(rw,sync,no_subtree_check,insecure,no_root_squash)`；`nfs-server` + `rpcbind` active，2049/111 在监听；导出目录现只有一个 0 字节 `1.txt`；板卡 `192.168.0.64` ping 通。
 
-🔴 **阻塞：导出表未刷新，板卡侧未验证 —— 本条最关键**
+✅ **阻塞已解除（2026-10-13 实测）**：用户已执行 `exportfs -ra`，板卡侧 NFS **现已生效**
+（`mount` 实测 `192.168.0.115:/home/manu/nfs on /mnt/manu type nfs4 (rw,...,soft,proto=tcp,clientaddr=192.168.0.64)`）。
+下方三条「板卡侧未验证」的旧证据已过期，**保留仅供追溯**，不得再作为现状引用。
 
 | 证据 | 内容 |
 | :--- | :--- |
@@ -80,7 +83,9 @@ mount -t nfs 192.168.0.115:/home/manu/nfs /mnt/manu -o nolock,soft,timeo=5,retra
 ⇒ 按内核实况，板卡执行该 mount **应当失败**；用户口头报告「已挂上」，但**板卡侧本次未验证**（Agent shell 内无 `RK3588_PASSWORD`，未登录板卡）。
 **修复（须用户执行，Agent 无 sudo）**：`sudo exportfs -v` 核对 → `sudo exportfs -ra` → 板卡 `umount /mnt/manu && mount …` 复验并 `ls /mnt/manu` 确认能看到 `1.txt`。**本机或 `nfs-server` 重启后同样依赖这一步。**
 
-⚠️ **三条连带影响**
+⚠️ **三条连带影响**（其中 UID 映射已于 2026-10-13 实测坐实，见 `rknn_npu_board_run.md` 第八节：
+板卡 mount 未指定 `uid=/gid=` 且导出带 `no_root_squash` ⇒ 板卡 root 建的文件在 host 上属 `root:root`，
+**必须由板卡侧 `chown 1000:1000` 才能让 host 用户写入**）
 
 1. **红线换了位置，GiB 估算义务不变**：host 导出目录在**根分区**（`/dev/sda1 218G / 193G used / **15G avail (93%)**`），**不在 1TB 卷上**。写爆的是 **host 根分区**，会波及本机系统，不只是板卡。
 2. **同路径语义已变（最易踩）**：`板卡:/mnt/manu` 现在 = `host:/home/manu/nfs`。旧文档里的 `/mnt/manu/ocvparity/`、`/mnt/manu/fused/`、`/mnt/manu/fused_exec/`、`/mnt/manu/ocvparity_exec/` **在板卡上已不存在**（那是旧方向下板卡本地盘的内容）。
@@ -167,6 +172,9 @@ mount -t nfs 192.168.0.115:/home/manu/nfs /mnt/manu -o nolock,soft,timeo=5,retra
 | 模块文件 | 核心职责 | 检索建议 |
 | :--- | :--- | :--- |
 | **[`memory/dual_expert_moe_adapter.md`](dual_expert_moe_adapter.md)** | 🔥 **2026-10-13 业务域攻坚新方案（定稿未实施）**：`Trial 0474 双专家 MoE Adapter`（Expert_Large 大目标补盲 ~12k + Expert_Suppress 地表路灯压制 ~15k，底模 100% 冻结、确定性融合 `H_final=(H_base+Δ_pos)×(1-M_gate)`）。三桶切片挖掘（硬负/漏检/锚点，2~3k 帧）+ 序列级封存 Mini-Golden Val（~1,500 帧）+ 三大物理探针（`P_suppress<0.10` / `R_large≥90%` / `S_anchor≥0.95`）一票否决早停。**含同期一次指标口径政策变更：Anti-UAV「不可退化闸门」废止，降为防崩底板（单帧 0.82~0.88、系统 0.88+）。** 第七节登记 **3 个实施前必须裁决的硬冲突**（铁律二缓存红线、铁律六零初始化门控缺失、挖掘口径与评测口径不一致） | **准备做业务域微调、Adapter/MoE 相关改造、或看到旧文档「不可退化闸门」表述时必读**。⚠️ **零实测，不得当结论引用** |
+| **[`memory/rknn_npu_board_run.md`](rknn_npu_board_run.md)** | 🔥 **2026-10-13 RK3588 NPU 推理打通 + 推翻「NPU 驱动未使能」**：驱动 RKNPU **0.9.8** 以 **DRM 子系统**注册，真实节点是 **`/dev/dri/card1`** 而非 `/dev/rknpu`，`librknnrt` **2.3.0** 可用；**旧的三条判据（`/dev/rknpu`、`/proc/devices`、`lsmod`）全是假阴性**。自写 `manu/pipeline/npu/`（免 OpenCV/RGA）实跑通 `init→inputs_set→run→outputs_get`，bus.jpg 检出 1 bus+4 person，**`rknn_run` 24.4 ms（占 97%）/ 端到端 25.1 ms / 39.8 fps**；⚠️ **开 `RKNN_FLAG_COLLECT_PERF_MASK` 慢 54%**。
+✅ **官方 `rknn_yolov5_demo` 已可交叉编译并运行**（参照臂，逐框对账偏差 ≤6 px）。
+🔴 含 **6 个静默失效坑**：`stbir_resize_uint8` 第 9 参是 `num_channels` 不是 filter（传 0 通道 ⇒ 输入全零）、其返回 `1==成功`、输出是 5 维 `[1,3,85,H,W]`、**center→left 被做两次导致框整体左上歪**、`stbi_write_jpg` 目录不存在时静默失败、NFS 目录项缓存给出假的「文件不存在」；另有 7 条验收闸门 | **判断 NPU 是否可用、链接 librknnrt、或做 RKNN 部署前必读** |
 | **[`memory/web_annotate_tool.md`](web_annotate_tool.md)** | **网页视频逐帧标注工具 `manu/annotate/`（2026-10-10 新增）**：递归扫描视频 → 多尺度 Trial 0474 预标注 → 浏览器逐帧标注，YOLO 落盘。🔴 **本机 `uav` 环境 torch 1.13.1 配 numpy 2.2.6 张量互操作直接报错，推理只能跑训练服务器（端口 32222）**；本机无任何 Web 框架，服务端用 stdlib `http.server` 零依赖。候选写 `prelabels/`、人工写 `labels/` 彻底分离；效率机制为航迹传播/插补/跳未复核/三色时间线。36/36 自测通过，真实数据 265.8 帧/s | **要标注视频、做预标注、或评估人工标注成本时必读** |
 | **[`memory/memory_compact.md`](memory_compact.md)** | 面向外部高性能模型咨询的精简项目背景、当前 SOTA、核心失败实验与领域迁移 Bad Case | 需要向外部模型提供项目上下文时读取；主 memory 更新时同步维护 |
 | **[`memory/rules.md`](rules.md)** | **第〇节最高优先级铁律「本地优先·严禁直改服务器代码」** + **核心铁律**（免检本地环境、手工执行机制；~~读 memory 前必校验三条挂载链路~~ **已于 2026-10-12 废止**）、**训练服务器 + RK3588 板卡双机连接**（板卡 `ssh -p 22 root@192.168.0.64` 密码经 `RK3588_PASSWORD` 环境变量传入、不落盘）、SSHFS 挂载及无感自动同步规范、**输入通道语义与多通道数据契约铁律**、计量计时与跨语言等位精确纪律 | 涉及编写脚本、生成缓存或启动命令前必读；**任何写操作先按第〇节回本地改再同步** |
@@ -417,7 +425,18 @@ sudo mount -t nfs 192.168.0.64:/mnt/manu /home/manu/mnt/nfs -o nolock
 3. **板卡上没有任何 `runs/` 权重**（`runs/` 从未纳入同步链路，权重只在 x86）。板卡推理交付必须把**权重与数据双端就位**列为前置检查项。
 
 ✅ **首次接触摸底已完成（2026-10-09 实测）**，完整结果见 `rules.md` 第一节 1b：主机名 `evm3588`，Ubuntu 20.04.6 LTS，内核 `5.10.160`，8 核 = 4×A76 + 4×A55，**RAM 7.7 GiB**（注意本节「16G/14G/1.7G」是**磁盘**，且 `/mnt/manu` 与 `/` 同一文件系统），GPU `/dev/mali0` 就绪且驱动内核内建，Python `cv2 4.12.0` 可用但**无 OpenCV C++ 头**。
-🔴 **NPU 当前不可用**：`/dev/rknpu` 不存在、`/proc/devices` 无 rknpu 条目，`/usr/lib/librknnrt.so` 虽已安装但**无设备节点** ⇒ 当前内核未使能 rknpu 驱动，**RKNN 路线走不通**。⚠️ **OpenCL 走 GPU 与 NPU 无关，GPU 侧全部结论不代表 NPU 可用。** **PoCL/CPU 模拟时延严禁当作板卡性能。**
+🔴 ~~**NPU 当前不可用**~~ —— **🔴 2026-10-13 实测推翻：NPU 驱动一直正常，RKNN 推理已跑通。**
+`/dev/rknpu` 不存在、`/proc/devices` 无 rknpu 条目这三条判据**全是假阴性**：驱动 **RKNPU 0.9.8**
+以 **DRM 子系统**注册，真实节点是 **`/dev/dri/card1`**，runtime `librknnrt 2.3.0`。
+自写最小程序 `manu/pipeline/npu/rknn_npu_smoke.cpp` 已实跑通
+`init → inputs_set → run → outputs_get`，`bus.jpg` 检出 1 bus + 4 person，
+**`rknn_run` 24.4 ms（占 97%）/ 端到端 25.1 ms / 39.8 fps**（⚠️ 开 `RKNN_FLAG_COLLECT_PERF_MASK` 慢 54% 至 38.8 ms；进预算取 `rknn_run` 而非端到端）。
+✅ **额外把 Rockchip 官方 `rknn_yolov5_demo` 也交叉编译并跑通**，作为逐框对账的**参照臂**
+（`manu/pipeline/npu/{build,run}_sdk_demo*.sh`）——这是抓出框坐标 bug 的唯一手段。
+🔴 本轮踩到 **6 个静默失效坑**，其中最隐蔽的是 **center→left 被做了两次**
+（解码里 `box_x -= box_w/2` 已转成左上角，画框时又按中心点减了一次 ⇒ 整框左上偏半个身位，
+**不抛异常、不改指标、置信度不变**，只能靠与参照实现逐框对账发现）。
+详见 `memory/rknn_npu_board_run.md`。⚠️ **OpenCL 走 GPU 与 NPU 无关，但 GPU 侧结论不代表 NPU 状态——两条线要分别取证。** **PoCL/CPU 模拟时延严禁当作板卡性能。**
 
 ✅ **板卡命令现已可由 Agent 自动执行（2026-10-09 变更）**：本机虽无 `sshpass`，但 **`pexpect` 可用**，已封装 `manu/pipeline/opencl/board/deploy_and_run.py`（base64 单会话传输 + 部署 + 摸底 + 运行，`--exec` 可跑任意查询）。密码**不写入任何文件**，由 `RK3588_PASSWORD` 环境变量或交互输入提供。**本条取代此前「无法非交互登录板卡、必须用户手工执行」的限制。**
 🔴 **可执行文件禁止经 NFS 投递**：x86 写入 `/mnt/manu` 后在板卡执行一律 `Text file busy`，换新文件名也无效 ⇒ **二进制走 SSH，数据走 NFS**。

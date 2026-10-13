@@ -175,7 +175,14 @@ mount -t nfs 192.168.0.115:/home/manu/nfs /mnt/manu -o nolock,soft,timeo=5,retra
     - ✅ **但 apt 源里有候选包**：`apt-cache policy libopencv-dev` ⇒ **Candidate 4.2.0+dfsg-5**。⚠️ **版本远低于 x86 侧的 4.10.0**，直接安装会破坏位精确性前提（见下），装前必须先做等价性验证。
     - ⇒ 结论：`gmc_stream.cpp` 若要在板卡编译，**必须先提供 arm64 OpenCV**；本工具链 sysroot 没有，板卡也没有现成的。
   - **EGL**：`libEGL.so.1.1.0` 与 `libEGL_mesa.so.0` 并存。
-  - 🔴 **NPU 当前不可用（关键阻塞）**：`/dev/rknpu` **不存在**，`/proc/devices` 中**无 rknpu 条目**，`dmesg` 无任何 rknpu 行。`/usr/lib/librknnrt.so`（7.26 MB，2026-02-05，另有 `librknnrt.so_bak`）**已安装但设备节点缺失** ⇒ **当前内核配置未使能 rknpu 驱动**，RKNN 推理在现状下跑不起来。须先解决驱动/设备节点。
+  - 🔴 ~~**NPU 当前不可用（关键阻塞）**~~ —— **🔴 2026-10-13 实测推翻：NPU 驱动一直正常，RKNN 推理已跑通。**
+    旧判据「`/dev/rknpu` 不存在 + `/proc/devices` 无 rknpu + dmesg 无 rknpu 行」**三条全是假阴性**：
+    驱动 **RKNPU 0.9.8**（20240828）以 **DRM 子系统**注册（`[drm] Initialized rknpu ... on minor 1`），
+    设备节点是 **`/dev/dri/card1`**（渲染节点 `/dev/dri/renderD129`）而非 `/dev/rknpu`；
+    `dmesg | grep -c rknpu` 实为 **16**；`lsmod` 查不到属正常（内建驱动，非模块）。
+    **⇒ 唯一正确的探针**：`readlink -f /sys/class/drm/card*/device/driver`，出现 `.../drivers/RKNPU` 即可。
+    ⚠️ 附带教训：**断言「某硬件不可用」前必须先证明探测手段对该版本有效**，不得用「探针没报错 + 没找到」直接下结论。
+    详见 `memory/rknn_npu_board_run.md`。`librknnrt.so` 已装**且可用**（版本 2.3.0，非阻塞）。
   - `python3 -c "import rknn"` → `ModuleNotFoundError`。这是**正常**的：RKNN-Toolkit2 是 x86 侧把模型转 `.rknn` 的 Python 包，板卡只需 `librknnrt.so` 运行时。
 - ⚠️ **PoCL 等 CPU 模拟结果严禁当作板卡性能**（`memory_compact.md` 已记录 PoCL 跑出的 kernel 112~118 ms 是模拟属性，不得进嵌入式预算）。
 - ✅ **板卡命令现已可由 Agent 自动执行（2026-10-09 变更，取代上一条「无法非交互登录」）**：本机虽无 `sshpass`，但 **`pexpect` 可用**，已封装 `manu/pipeline/opencl/board/deploy_and_run.py`（base64 单会话传输 + 部署 + 摸底 + 运行，`--exec` 可执行任意查询）。密码**不写入任何文件**，由 `RK3588_PASSWORD` 环境变量或交互输入提供。
@@ -334,6 +341,35 @@ SOTA 权重位于 `runs/`，而 `runs/` **未纳入代码同步链路**（同步
 
 - **规则**：统一采用 **numpy 原生 `(H, W)`**；跨维度转换必须显式且**伴随打印**；
   守卫条件写完后要用一次已知尺寸的输入**验证它真的能通过**（假 PASS 比 FAIL 更危险）。
+
+### 2b. 坐标字段的命名必须无歧义：转换只做一次，禁止「中心+w/h」这类可两解的表示
+
+【2026-10-13 新增，必读】RK3588 NPU 解码实战教训，详见 `memory/rknn_npu_board_run.md` 第 6.4 节。
+
+- **症状**：yolov5 检测框**整体往左上偏**、宽度偏小，像「尺度没变换回去」。
+- **根因**：参考实现的解码最后一步已经做了 center→left（`box_x -= box_w/2`），
+  移植方**照抄了这一行**，于是数据结构里存的**已经是 left/top**；
+  但画框时又按「中心点」语义处理，**再减了一次 `w/2`**。
+- **为什么所有自检都失效**：框仍是矩形、仍与目标部分重叠、**置信度与任何指标都不变**，
+  不抛异常、不触发任何既有闸门。**纯平移类错误对所有统计型验收都是隐形的。**
+
+- **规则**：
+  1. 检测/几何结构一律存**显式四角** `left/top/right/bottom`，宽度高度用 `w()`/`h()` 访问器派生；
+     **禁止**用 `x/y` 承载「语义已转换过」的量。
+  2. 「移植自参考实现」时，**逐行确认该行的输入语义与输出语义**，不要默认「照抄即等价」。
+  3. 凡涉及坐标换算，**必须有第二条独立路径与之对账**（见下条 2c）。
+
+### 2c. 有权威参照实现时，必须把它跑起来做逐样本对账，禁止「照抄源码 = 正确」的循环论证
+
+【2026-10-13 新增】本轮唯一能定位 2b 那个 bug 的手段，是**把 Rockchip 官方 demo 交叉编译并在板卡上跑起来**，
+逐框对比 `(l,t,r,b)`，偏差 ≤6 px 才收口。
+
+- **规则**：当 SDK/论文/上游仓库提供了可运行的参照实现时，**「抄它的代码」不构成验证**——
+  抄来的代码与参照实现可能共享同一个理解错误。必须让**参照实现本身产出数字**，再逐样本比对。
+- **对账的判据**：给出**逐条明细表**（不是「基本一致」），并**解释残差来源**
+  （本例是 stb_image vs libjpeg-turbo 的 JPEG 解码差异，而非逻辑错误）。
+- **配套**：参照臂要**可复现构建**（本项目 `manu/pipeline/npu/{build,run}_sdk_demo*.sh`），
+  否则这次对账无法在后续 Session 重放。
 
 ### 3. 对账必须先立「空对照」，且必须有一道「重编码后比文件」的闸门
 

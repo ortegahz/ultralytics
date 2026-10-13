@@ -192,7 +192,15 @@ Trial 0474 + 双向时空平滑 + 碎片缝合 + 高确信插补 + 刚性坏点�
     - 详见 `memory/gmc_ocl_board_run.md`。
 - ✅ **Mali OpenCL 实测可用**：`Mali-G610 r0p0`，OpenCL 3.0 `v1.g13p0-01eac0`，FULL_PROFILE，**4 CU**、max WG 1024、global 7902.1 MiB、local 32 KiB。**ICD 是目录式**（ARM 布局，`mali.icd`），且 **`.icd` 指向的 `libMaliOpenCL.so.1` 根本不存在**，真正驱动是 `libmali.so.1.9.0`（包 `libmali-valhall-g610-g13p0-x11-gbm`）——排查时直接 `find`，别信 `.icd`。
 - 🔴 **真机推翻三条原计划**：①**无 `cl_khr_fp64`** ⇒ double-float 回退作废（有 `cl_khr_fp16`）；②**事件级 profiling 不可用** ⇒ 板卡取不到 device-side 时间，只能给 `clEnqueue+clFinish` 墙钟**上界**；③Mali **首次启动某 kernel 会现场编译**（探针 0.475 ms → 二次 0.344 ms），单次数字必须区分首次/稳态。可用扩展：`cl_khr_image2d_from_buffer`、`cl_khr_egl_image`、`cl_khr_suggested_local_work_size`、完整 subgroup 系列。
-- 🔴 **NPU 当前不可用**：`/dev/rknpu` 不存在、`/proc/devices` 无 rknpu 条目、`dmesg` 无 rknpu 行；`/usr/lib/librknnrt.so`（7.26 MB）**已装但无设备节点** ⇒ 当前内核未使能 rknpu 驱动，**RKNN 路线走不通**。⚠️ **OpenCL 走 GPU 与 NPU 无关，探针 PASS 不代表 NPU 可用。**
+- 🔴 ~~**NPU 当前不可用**~~ —— **🔴 2026-10-13 实测推翻：NPU 驱动一直正常，RKNN 推理已跑通。**
+  驱动 **RKNPU 0.9.8** 以 **DRM 子系统**注册，真实设备节点是 **`/dev/dri/card1`**（不是 `/dev/rknpu`），
+  `dmesg | grep -c rknpu` = **16**，`lsmod` 查不到属正常（内建驱动）。
+  **旧的三条判据全部假阴性** ⇒ 正确探针是 `readlink -f /sys/class/drm/card*/device/driver`。
+  `librknnrt.so` **2.3.0** 可用。已实跑 `init→inputs_set→run→outputs_get`，检出正确，
+  **`rknn_run` 24.4 ms（占 97%）/ 端到端 25.1 ms / 39.8 fps**；开 `--perf` 标志慢 54%（进预算取 `rknn_run`）。
+  ✅ 已出 **OSD 图**并与 **Rockchip 官方 demo 逐框对账一致（偏差 ≤6 px）**；官方 demo 也已可复现运行（参照臂）。
+  🔴 踩到 **6 个静默失效坑**，最隐蔽的是 **center→left 做了两次 ⇒ 框整体左上歪**（不报错、指标不变，只能靠与参照实现对账发现）。详见 `memory/rknn_npu_board_run.md`。
+  ⚠️ **教训：断言「硬件不可用」前必须先证明探测手段对该版本有效。** ⚠️ **OpenCL 走 GPU 与 NPU 无关，两条线分别取证。**
 - ✅ **板卡命令现可由 Agent 自动执行**：本机虽无 `sshpass`，但 **`pexpect` 可用**，已封装 `deploy_and_run.py`（base64 单会话传输 + 部署 + 摸底 + 运行，`--exec` 任意查询）；密码不入文件，由 `RK3588_PASSWORD` 环境变量提供。**取代**「无法非交互登录板卡」的限制。
 - **四个编译期查不出的坑**（已入 `falsified_archive.md` 第三十四节）：① `CL_SUCCESS==0` 使 `!rc` 把成功读成失败；② `clEnqueueNDRangeKernel` 真实 ABI 顺序是 `(offset, size, local)`，三参数同型无从校验；③ 未检查的 `clSetKernelArg` 返回值被 **PoCL 误报为 `-52 CL_INVALID_GLOBAL_WORK_SIZE`** 而非 `-51`；④ **ICD 目录/文件布局混淆**——`fopen` 目录会成功而首读 EISDIR ⇒ 伪报「ICD 为空」，与真实故障无法区分。
 
