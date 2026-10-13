@@ -380,10 +380,20 @@ int main(int argc, char** argv) {
   }
 
   if (io_num.n_input != 1) { FAIL("this smoke test assumes exactly 1 input"); return 1; }
-  const int in_h = in_attr[0].dims[1];   // NHWC: N,H,W,C
-  const int in_w = in_attr[0].dims[2];
-  const int in_c = in_attr[0].dims[3];
-  printf("  model input = %dx%dx%d\n", in_h, in_w, in_c);
+  // Input geometry: RKNN may report the model input as NHWC [1,H,W,C] or NCHW
+  // [1,C,H,W]. We always FEED uint8 NHWC (fmt is declared below and the runtime
+  // converts), so only the reported shape needs unpacking correctly.
+  int in_h, in_w, in_c;
+  if (in_attr[0].fmt == RKNN_TENSOR_NCHW) {
+    in_c = (int)in_attr[0].dims[1];
+    in_h = (int)in_attr[0].dims[2];
+    in_w = (int)in_attr[0].dims[3];
+  } else {
+    in_h = (int)in_attr[0].dims[1];
+    in_w = (int)in_attr[0].dims[2];
+    in_c = (int)in_attr[0].dims[3];
+  }
+  printf("  model input = %dx%dx%d (reported fmt=%s)\n", in_h, in_w, in_c, tensor_fmt_name(in_attr[0].fmt));
 
   // --- 4. preprocess -------------------------------------------------------
   printf("\n[4/6] preprocess\n");
@@ -553,18 +563,31 @@ int rc_resize = stbir_resize_uint8(src, sw, sh, 0, input.data(), in_w, in_h, 0, 
     const float thr = 0.25f;
     std::vector<Det>& dets = dets_all;
     for (uint32_t i = 0; i < 3; i++) {
-      // Layout measured on the board, not assumed:
-      //   out[0] dims=[1,3,85,80,80]  ->  [N, A(anchors), C(85), H, W]
-      // i.e. 5-D, anchors are a separate leading axis and channel 85 sits in
-      // the middle, NOT the flattened [1,255,H,W] the SDK demo assumes.
-      // Reading dims[2] as the grid height silently yields gh=85 and turns the
-      // whole decode into noise, so the shape is asserted instead of trusted.
-      if (out_attr[i].n_dims != 5 || out_attr[i].dims[1] != 3 || out_attr[i].dims[2] != kPropBoxSize) {
-        printf("  [WARN] out[%u] unexpected shape for the 5-D yolov5 head, skipping it\n", i);
+      // Two head layouts exist in the wild for the SAME yolov5 graph, both with
+      // 3 anchors x 85 channels, and BOTH index identically as
+      //   (PROP_BOX_SIZE * a + c) * grid_len + i * grid_w + j
+      // because 3 * 85 == 255:
+      //
+      //   5-D [1, 3, 85, H, W]  -- RK3588 head exported with anchors as a
+      //                            separate axis (what the SDK's prebuilt
+      //                            yolov5s-640-640.rknn carries)
+      //   4-D [1, 255, H, W]    -- flat NCHW (what rknn-toolkit2's
+      //                            examples/onnx/yolov5/yolov5s.onnx yields)
+      //
+      // The grid is therefore the LAST TWO dims in both cases; taking dims[2] as
+      // the height (an earlier version of this file) silently yields gh=85 and
+      // turns the decode into noise. Derive it, and assert the shape.
+      int gh = 0, gw = 0;
+      if (out_attr[i].n_dims == 5 && out_attr[i].dims[1] == 3 && out_attr[i].dims[2] == kPropBoxSize) {
+        gh = (int)out_attr[i].dims[3];
+        gw = (int)out_attr[i].dims[4];
+      } else if (out_attr[i].n_dims == 4 && out_attr[i].dims[1] == 3 * kPropBoxSize) {
+        gh = (int)out_attr[i].dims[2];
+        gw = (int)out_attr[i].dims[3];
+      } else {
+        printf("  [WARN] out[%u] shape is neither 5-D[1,3,85,H,W] nor 4-D[1,255,H,W]; skipping it\n", i);
         continue;
       }
-      int gh = (int)out_attr[i].dims[3];
-      int gw = (int)out_attr[i].dims[4];
       if (in_h % gh != 0 || in_w % gw != 0) {
         printf("  [WARN] out[%u] grid %dx%d does not divide %dx%d, skipping it\n", i, gh, gw, in_h, in_w);
         continue;
