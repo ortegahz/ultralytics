@@ -70,6 +70,13 @@ def parse_args():
     parser.add_argument("--device", type=str, default="0")
     parser.add_argument("--conf-thresh", type=float, default=0.02, help="Deep harvest threshold (default: 0.02)")
     parser.add_argument("--top-k", type=int, default=100, help="Max candidate peaks to store per frame (default: 100)")
+    parser.add_argument(
+        "--ablate-p0",
+        action="store_true",
+        help="Ablation: build the model WITHOUT the P0 residual highway (self.p0_highway=None). "
+             "Every p0_highway.* tensor in the checkpoint is then skipped and the detector is exactly "
+             "the frozen base path. Asserts that no p0 tensor was loaded -- see the GATE below.",
+    )
     return parser.parse_args()
 
 
@@ -123,12 +130,12 @@ def main():
         stride=stride,
         num_classes=1,
         temporal_mode="standard",
-        use_p0_highway=True,
+        use_p0_highway=not args.ablate_p0,
         p0_highway_kwargs=p0_kwargs,
     )
 
     # Load trained state_dict directly
-    matched, skipped = 0, 0
+    matched, skipped, n_p0_skipped = 0, 0, 0
     own_state = model.state_dict()
     for k, v in state_dict.items():
         clean_k = k.replace("module.", "").replace("model.model.", "").replace("model.", "")
@@ -137,8 +144,26 @@ def main():
             matched += 1
         else:
             skipped += 1
+            if clean_k.startswith("p0_highway"):
+                n_p0_skipped += 1
 
-    actual_gate = model.p0_highway.gate.item() if hasattr(model, "p0_highway") and hasattr(model.p0_highway.gate, "item") else 0.0
+    # ABLATION GATE: --ablate-p0 is only meaningful if the model really has no P0 stream AND
+    # every p0_highway tensor was actually dropped. Silently "succeeding" with a P0 model would
+    # make the whole ablation a no-op that still prints a lower F1, so fail loudly instead.
+    if args.ablate_p0:
+        if model.p0_highway is not None:
+            raise RuntimeError("[ABLATE-P0 GATE] model.p0_highway is not None -- ablation did not take effect")
+        if n_p0_skipped == 0:
+            raise RuntimeError("[ABLATE-P0 GATE] 0 p0_highway.* tensors were dropped -- nothing was ablated")
+        print(colorstr("yellow", f"[ABLATE-P0 GATE] PASS: p0_highway=None, {n_p0_skipped} p0 tensors dropped"))
+
+    # hasattr() is True even when p0_highway is None (ablation arm), so test the value, not the
+    # attribute -- reading .gate off a None highway raises AttributeError.
+    actual_gate = (
+        model.p0_highway.gate.item()
+        if getattr(model, "p0_highway", None) is not None and hasattr(model.p0_highway.gate, "item")
+        else 0.0
+    )
     print(f"[INFO] Loaded State Dict: {matched} layers matched, {skipped} skipped.")
     print(colorstr("cyan", f"[INFO] Active Gate α Value: {actual_gate:.6f}"))
 
