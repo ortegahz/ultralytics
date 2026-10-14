@@ -310,7 +310,8 @@ as an absolute element count over the whole run — "zero observations" is not
 ./build_opencv_arm64.sh 4                       # OpenCV for arm64 (~4 min)
 ./build_opencv_parity.sh                        # both parity binaries
 
-N=/home/manu/mnt/nfs/ocvparity                  # data on NFS: the board disk has ~1.7 GiB
+N=/run/media/manu/SSD960-LOCAL/nfs/ocvparity   # data on NFS: the board disk has ~1.7 GiB
+# 注意：新导出里当前只有 npu/，没有 ocvparity/，先确认/创建再跑（板卡侧对应 /mnt/manu/ocvparity）
 ./out/gen_opencv_parity_case --seq-dir <seq> --out-dir $N/in --frames 60
 ./out/opencv_parity_x86 --in-dir $N/in --out-dir $N/out_x86b --tag x86
 
@@ -420,7 +421,8 @@ of PoCL initialisation. Always say which number you are quoting.
 ./build_opencv_arm64.sh 4      # OpenCV 4.10.0 for arm64, incl. imgcodecs for BMP
 ./build_gmc_ocl_arm64.sh       # cross-compile gmc_stream_ocl.cpp
 
-N=/home/manu/mnt/nfs/ocvparity
+N=/run/media/manu/SSD960-LOCAL/nfs/ocvparity
+# 注意：新导出里当前只有 npu/，没有 ocvparity/，先确认/创建再跑（板卡侧对应 /mnt/manu/ocvparity）
 ./convert_seq_to_bmp.py --seq-dir <jpeg seq> --out-dir $N/bmp --frames 60
 
 RK3588_PASSWORD=... python3 push_and_run.py push out/gmc_stream_ocl_arm64 \

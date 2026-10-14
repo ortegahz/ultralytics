@@ -24,12 +24,12 @@ SDK="${RKNN_SDK:-/media/manu/1TB-Volume/rk3588/rk3588_sdk/EVM3588-A_20250815/02L
 
 # Two different roots for the SAME directory -- do not conflate them:
 #   board side : /mnt/manu/npu/demo   (the board's NFS mount point)
-#   host  side : /home/manu/nfs/npu/demo
+#   host  side : /run/media/manu/SSD960-LOCAL/nfs/npu/demo
 # The host cannot use the board path and vice versa; that mismatch is the
 # "same path, different meaning" trap recorded in rules.md.
 RGA="$SDK/examples/3rdparty/rga/RK3588/lib/Linux/aarch64/librga.so"
 DEMO_DIR="/mnt/manu/npu/demo"                                    # on the board
-DEMO_DIR_HOST="/home/manu/nfs/npu/demo"                          # on this host
+DEMO_DIR_HOST="/run/media/manu/SSD960-LOCAL/nfs/npu/demo"        # on this host
 
 echo "== prepare NFS demo dir (board creates it and chowns to the host uid) =="
 # Order matters: the board's NFS mount has no uid=/gid= mapping and the export
@@ -61,4 +61,4 @@ echo "== run =="
 python3 "$BOARD/board_run.py" --exec \
   "cd $DEMO_DIR && LD_LIBRARY_PATH=/root/rknn_demo/lib /root/rknn_demo/rknn_yolov5_demo model/RK3588/yolov5s-640-640.rknn bus.jpg"
 echo
-echo "reference OSD: host /home/manu/nfs/npu/demo/out.jpg"
+echo "reference OSD: host /run/media/manu/SSD960-LOCAL/nfs/npu/demo/out.jpg"

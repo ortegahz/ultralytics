@@ -241,7 +241,7 @@ host 侧把模型 `mv` 进 `model/RK3588/` 后立刻在板卡跑，demo 报 `Ope
 
 ### 6.7 ⚠️ 同一目录在板卡侧与 host 侧是两���路径
 
-`板卡:/mnt/manu/npu/demo` ≡ `host:/home/manu/nfs/npu/demo`。
+`板卡:/mnt/manu/npu/demo` ≡ `host:/run/media/manu/SSD960-LOCAL/nfs/npu/demo`（**2026-10-14 换址后；旧记 `/home/manu/nfs/npu/demo` 已作废**）。
 脚本里曾把板卡路径直接用于 host 侧 `cp`，报 `Permission denied`。
 ⇒ `rules.md` 1b-0 的「同路径语义已变」在此具体化为：**同一份数据，两个根路径，写脚本时必须分别定义**。
 
@@ -264,14 +264,14 @@ host 侧把模型 `mv` 进 `model/RK3588/` 后立刻在板卡跑，demo 报 `Ope
 
 ## 八、NFS 相关的两条实测结论（补充 `rules.md` 1b-0）
 
-1. ✅ **「板卡挂 host」方向已生效**（此前 memory 记为「导出表未刷新、mount 应当失败」）：
+1. ✅ **「板卡挂 host」方向已生效，且导出目录已于 2026-10-14 换到 SSD960-LOCAL 大盘**（此前 memory 记为「导出表未刷新、mount 应当失败」）：
    ```
-   192.168.0.115:/home/manu/nfs on /mnt/manu type nfs4 (rw,relatime,vers=4.0,
+   192.168.0.115:/run/media/manu/SSD960-LOCAL/nfs on /mnt/manu type nfs4 (rw,relatime,vers=4.0,
    rsize=1048576,wsize=1048576,namlen=255,soft,proto=tcp,timeo=5,retrans=2,
    sec=sys,clientaddr=192.168.0.64,local_lock=none,addr=192.168.0.115)
    ```
-   ⇒ 用户已执行 `exportfs -ra`，该阻塞**解除**。
-2. ⚠️ **UID 映射风险已实测坐实**：板卡 mount 未指定 `uid=`/`gid=` 且导出带 `no_root_squash`
+   ⇒ 用户已执行 `exportfs -ra`，该阻塞**解除**；**2026-10-14 复测仍生效**，`df -h /mnt/manu` = `880G / 54G used / 782G avail / 7%`（旧记的 `/home/manu/nfs` 已从 `/etc/exports` 与内核导出表移除，仅剩遗留拷贝）。
+2. ⚠️ **UID 映射风险已实测坐实**（2026-10-14 探针复现）：板卡 mount 未指定 `uid=`/`gid=` 且导出带 `no_root_squash`
    ⇒ 板卡 root 创建的文件在 host 上属 **`root:root`**，`manu` 无写权限。
    **对策**：板卡侧建目录后 `chown 1000:1000`（host 用户 UID/GID 均为 1000），
    本轮用 `/mnt/manu/npu/data` 承载模型与图像，host 侧可正常读写。
@@ -404,7 +404,7 @@ I librknnc version: 2.3.0 (c949ad889d@2024-11-07T11:39:30)
 
 ### 9.8 环境位置（不落根分区）
 
-根分区 `/dev/sda1` 仅剩 15 GB / 93% 已用，conda 默认在根分区，故两个环境都建在 1 TB 卷：
+`2026-10-13` 实测根分区 `/dev/sda1` 仅剩 15 GB / 93% 已用（**2026-10-14 NFS 交换区换址到 SSD960-LOCAL 大盘后该红线已解除**，`782G` 可用），conda 默认在根分区，故两个环境都建在 1 TB 卷：
 
 ```
 /media/manu/1TB-Volume/conda-envs/rknn       # toolkit 1.4.0（产出被 NPU 拒绝，留作证据）
@@ -425,7 +425,7 @@ I librknnc version: 2.3.0 (c949ad889d@2024-11-07T11:39:30)
 | 可执行文件 | 板卡本地 `/root/rknn_npu_smoke` | 148 KB | 经 NFS 执行会 `Text file busy`（旧方向实测） |
 | 模型 `.rknn` | `/mnt/manu/npu/data/`（NFS=host） | 7.9 MB | 不占板卡盘 |
 | 测试图 `.jpg` | `/mnt/manu/npu/data/`（NFS=host） | 181 KB | 同上 |
-| 链接用 `librknnrt.so` | host `/home/manu/nfs/npu/` | 7.3 MB | 只在 host 侧用，**不推板卡** |
+| 链接用 `librknnrt.so` | host `/run/media/manu/SSD960-LOCAL/nfs/npu/` | 7.3 MB | 只在 host 侧用，**不推板卡** |
 
 板卡本地盘新增 **仅 148 KB**（`/` 仍有 ~1.7 GB 可用），符合「板卡空间有限，数据一律走 NFS」。
 

@@ -9,7 +9,7 @@
 #       NFS is NOT used for executables: the NFS server still has the write in
 #       flight when the board execs the file, which yields "Text file busy"
 #       (see falsified_archive.md 35.6).
-#   * model/image -> /mnt/manu/npu/data  (NFS == host /home/manu/nfs/npu/data)
+#   * model/image -> /mnt/manu/npu/data  (NFS == host /run/media/manu/SSD960-LOCAL/nfs/npu/data)
 #       Nothing bulky ever lands on the board's own filesystem.
 #
 # Host-side prerequisites:

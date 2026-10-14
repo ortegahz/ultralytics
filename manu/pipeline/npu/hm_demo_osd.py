@@ -23,7 +23,7 @@ and ``gt_from_label`` maps the label back with ``source_norm*src_hw*scale+pad``.
 Usage:
     python hm_demo_osd.py --frame 34_1__000346 \\
         --feat-dir /home/manu/mnt/data/siping/datasets/manu/uav_gmc_median/images/val \\
-        --tsv /home/manu/nfs/npu/out/demo34/npu_det535.tsv \\
+        --tsv /run/media/manu/SSD960-LOCAL/nfs/npu/out/demo34/npu_det535.tsv \\
         --ref  /media/manu/1TB-Volume/rknn_work/hm/demo34/ref_cpu/detections.json \\
         --out  /media/manu/1TB-Volume/rknn_work/hm/demo34/osd_34_1__000346.png
 """

@@ -8,19 +8,20 @@ still has the write in flight when the board tries to exec -> "Text file busy",
 and a fresh filename does not help). So the binary travels inside the SSH
 session. pexpect is used because sshpass is not installed on this host.
 
-The password is read from RK3588_PASSWORD (or prompted); it is never written to
-any file.
+SSH public-key auth is the normal path: ~/.ssh/id_ed25519.pub is installed in the
+board's /root/.ssh/authorized_keys, so no password is needed and RK3588_PASSWORD
+is never consulted. It is only read as a fallback when the key is absent, and it
+is never written to any file.
 
 Usage:
-    RK3588_PASSWORD=... python3 board_run.py \
-        --put out/gmc_stream_ocl_arm64:/mnt/manu/ocvparity_exec/gmc_ocl_pyr \
-        --df \
-        --exec "/mnt/manu/ocvparity_exec/gmc_ocl_pyr --raw-root /mnt/manu/ocvparity/bmp ..."
+    python3 board_run.py --exec "/mnt/manu/npu/out/demo/<seq> && ls"
 """
 
 import argparse
 import base64
 import os
+import re
+import subprocess
 import sys
 
 import pexpect
@@ -33,14 +34,58 @@ PROMPT = r"[#\$]\s*$"
 SENTINEL = "__EOFMARK_9f3a1c__"
 
 
+SSH_OPTS = (
+    "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "
+    "-o BatchMode=yes -o ConnectTimeout=15"
+)
+
+
+def key_auth_ok():
+    """True when the board accepts our SSH public key (no password needed).
+
+    Installed once with ssh-copy-id; after that no RK3588_PASSWORD is required
+    and the password never has to be handed around again.
+    """
+    rc = subprocess.call(
+        ["ssh", *SSH_OPTS.split(), f"{USER}@{HOST}", "true"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    return rc == 0
+
+
 def shell(cmd, quiet=False, timeout=1800):
-    """Run one command over a fresh SSH session; return (rc, output)."""
+    """Run one command over a fresh SSH session; return (rc, output).
+
+    Prefers public-key auth. Falls back to pexpect + RK3588_PASSWORD only when
+    the key is not installed yet.
+    """
+    if key_auth_ok():
+        # The rc capture must live outside the command: a command that ends in a
+        # newline would turn a leading "; __rc=$?" into a bash syntax error, and
+        # an explicit "exit N" inside the command would kill the wrapper before
+        # it can report. A subshell fixes both.
+        full = (
+            f"(\n{cmd}\n)\n__rc=$?\necho \"__RC_${{__rc}}__{SENTINEL}\""
+            if cmd else f"echo \"__RC_0__{SENTINEL}\""
+        )
+        proc = subprocess.run(
+            ["ssh", *SSH_OPTS.split(), f"{USER}@{HOST}", full],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        out = proc.stdout
+        m = re.search(rf"__RC_(\d+)__{SENTINEL}", out)
+        if not m:
+            return -1, out + proc.stderr
+        return int(m.group(1)), out[: m.start()]
+
     pw = os.environ.get("RK3588_PASSWORD")
     if not pw:
-        sys.exit("RK3588_PASSWORD is not set")
+        sys.exit(
+            "board is not reachable by SSH key and RK3588_PASSWORD is not set.\n"
+            f"Fix once with: ssh-copy-id -i ~/.ssh/id_ed25519.pub {USER}@{HOST}"
+        )
     child = pexpect.spawn(
-        f"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "
-        f"-p {PORT} {USER}@{HOST}",
+        f"ssh {SSH_OPTS} {USER}@{HOST}",
         encoding="utf-8",
         timeout=timeout,
     )

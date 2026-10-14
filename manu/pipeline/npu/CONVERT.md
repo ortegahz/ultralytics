@@ -119,7 +119,7 @@ cd /media/manu/1TB-Volume/rknn_work
 $P/bin/python convert_yolov5_to_rknn.py --out models/yolov5s_rknn230.rknn
 
 # 3) 上板（数据走 NFS）
-cp models/yolov5s_rknn230.rknn /home/manu/nfs/npu/demo/model/RK3588/
+cp models/yolov5s_rknn230.rknn /run/media/manu/SSD960-LOCAL/nfs/npu/demo/model/RK3588/
 cd ../../workspace/ultralytics/manu/pipeline/opencl/board
 RK3588_PASSWORD=*** python3 board_run.py --exec \
   'cd /mnt/manu/npu/demo && LD_LIBRARY_PATH=/root/rknn_demo/lib \
@@ -293,7 +293,7 @@ python3 convert_yolov5_to_rknn.py \
 复现：
 
 ```bash
-python3 agree_stats.py /home/manu/nfs/npu/h300_out ref \
+python3 agree_stats.py /run/media/manu/SSD960-LOCAL/nfs/npu/h300_out ref \
         yolov5s_rknn230 yolov5s_rknn230_coco120
 ```
 

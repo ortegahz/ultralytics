@@ -123,7 +123,9 @@ static void ransac_stage(const std::vector<cv::Point2f>& pts,
 }
 
 int main(int argc, char** argv) {
-    const char* dir = argc > 1 ? argv[1] : "/home/manu/mnt/nfs/ocvparity/bmp";
+    // NOTE: ocvparity/ is absent from the current NFS export (only npu/ exists),
+    // so this default still fails without argv[1] — expected, not a new bug.
+    const char* dir = argc > 1 ? argv[1] : "/run/media/manu/SSD960-LOCAL/nfs/ocvparity/bmp";
     const int ds = argc > 2 ? atoi(argv[2]) : 2;
     const int maxLevel = argc > 3 ? atoi(argv[3]) : 2;
     cv::setNumThreads(1);  // same contract as production

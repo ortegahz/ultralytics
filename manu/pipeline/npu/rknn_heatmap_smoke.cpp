@@ -287,8 +287,14 @@ struct Ctx {
   int hm_h = 0, hm_w = 0, off_h = 0, off_w = 0;
 };
 
-// One full run; on success fills hm/off as float32. t_stage, when non-null,
-// receives {inputs_set_ms, run_ms, outputs_get_ms}.
+// One full run; on success fills hm/off with float32. t_stage, when non-null,
+// receives {inputs_set_ms, run_ms, outputs_get_ms, dequant_ms}.
+//
+// dequant is timed separately because it converts the raw INT8 tensors into the
+// float32 buffers the peak decoder consumes: 3 x 320x320 elements per frame,
+// and it sits OUTSIDE the a0..a3 window above. Reporting only a0..a3 made the
+// published "TOTAL" understate the per-frame cost, which is how a 168 ms/frame
+// wall clock came out looking like 57 ms/frame.
 bool run_once(const Ctx& c, const std::vector<uint8_t>& input, std::vector<float>* hm,
               std::vector<float>* off, std::vector<rknn_output>* out, double* t_stage) {
   rknn_input in{};
@@ -316,9 +322,11 @@ bool run_once(const Ctx& c, const std::vector<uint8_t>& input, std::vector<float
     return false;
   }
   double a3 = now_ms();
-  if (t_stage) { t_stage[0] = a1 - a0; t_stage[1] = a2 - a1; t_stage[2] = a3 - a2; }
+  if (t_stage) { t_stage[0] = a1 - a0; t_stage[1] = a2 - a1; t_stage[2] = a3 - a2; t_stage[3] = 0; }
+  double d0 = now_ms();
   if (hm) { if (!dequant((*out)[0], c.out_attr[0], hm)) return false; }
   if (off) { if (!dequant((*out)[1], c.out_attr[1], off)) return false; }
+  if (t_stage) { t_stage[3] = now_ms() - d0; }
   return true;
 }
 
@@ -484,7 +492,11 @@ int main(int argc, char** argv) {
   std::vector<Det> dets;
 
   double sum_total = 0;
-  double sum_stage[3] = {0, 0, 0};
+  double sum_stage[4] = {0, 0, 0, 0};
+  // Per-frame host-side stages that the [7] block used to ignore entirely.
+  // These are wall-clock costs the board actually pays, so they have to be in
+  // the same accounting as inputs_set/rknn_run/outputs_get/dequant.
+  double sum_load = 0, sum_lb = 0, sum_scan = 0, sum_peaks = 0, sum_write = 0;
   int n_timed = 0;
 
   std::ofstream detf;
@@ -496,17 +508,22 @@ int main(int argc, char** argv) {
 
   for (size_t fi = 0; fi < frames.size(); fi++) {
     const std::string& path = frames[fi];
+    double t_write = 0;
     int sw = 0, sh = 0, sc = 0;
+    double t_ld0 = now_ms();
     uint8_t* src = stbi_load(path.c_str(), &sw, &sh, &sc, 3);
     if (!src) { fprintf(stderr, "stbi_load failed: %s\n", path.c_str()); return 1; }
+    double t_load = now_ms() - t_ld0;
     double t_lb0 = now_ms();
     letterbox(src, sw, sh, kDefaultSize, &input);
     double t_lb = now_ms() - t_lb0;
     free(src);
 
     // blank-input refusal (rules 4.2d: non-zero output != usable model)
+    double t_sc0 = now_ms();
     int mn = 255, mx = 0;
     for (uint8_t v : input) { mn = std::min(mn, (int)v); mx = std::max(mx, (int)v); }
+    double t_scan = now_ms() - t_sc0;
     // Guard on the MAX, not the min: a real infrared frame is full of zero
     // background, so testing `mn == 0` rejects every legitimate image and tests
     // nothing. Only an entirely zero buffer means the input path produced
@@ -564,11 +581,22 @@ int main(int argc, char** argv) {
       printf("[5] determinism: run#1=%08x run#2=%08x -> %s\n", h1, h2, h1 == h2 ? "IDENTICAL" : "DIFFER");
       release(c, &out);
     } else {
-      if (!run_once(c, input, &hm, &off, &out, nullptr)) return 1;
+      // Batch mode times THIS inference -- the one that actually produces the
+      // detections. It used to be run untimed and then repeated a second time
+      // purely to fill the [7] block, so every frame paid 2x rknn_run while the
+      // report quoted the cost of only one. The repeat is discarded (hm/off are
+      // nullptr), so dropping it cannot change any detection.
+      double ts[4] = {0, 0, 0, 0};
+      if (!run_once(c, input, &hm, &off, &out, ts)) return 1;
+      for (int s = 0; s < 4; s++) sum_stage[s] += ts[s];
+      sum_total += ts[0] + ts[1] + ts[2] + ts[3];
+      n_timed++;
     }
 
     // peak decode on the board
+    double t_pk0 = now_ms();
     extract_peaks(hm.data(), off.data(), c.hm_h, c.hm_w, stride, thr, top_k, &dets);
+    double t_peaks = now_ms() - t_pk0;
 
     const char* base = strrchr(path.c_str(), '/');
     base = base ? base + 1 : path.c_str();
@@ -578,11 +606,13 @@ int main(int argc, char** argv) {
     if (det_out) {
       // Format: <stem>\t<ndet>\t<x y score>...   -- coordinates are canvas-space
       // and already stride-compensated, matching hm_common.extract_peaks_np.
+      double t_w0 = now_ms();
       detf << base << "\t" << dets.size();
       for (size_t k = 0; k < dets.size(); k++)
         detf << "\t" << dets[k].x << " " << dets[k].y << " " << dets[k].score;
       detf << "\n";
       detf.flush();
+      t_write = now_ms() - t_w0;
     }
 
     if (frames.size() <= 12) {
@@ -606,12 +636,25 @@ int main(int argc, char** argv) {
       if (!ok1 || !ok2) return 1;
     }
 
+    // Accumulate the host-side stages. In batch mode every frame pays all of
+    // them exactly once; summing them here keeps [7] an honest per-frame total
+    // instead of a partial one.
+    sum_load += t_load;
+    sum_lb += t_lb;
+    sum_scan += t_scan;
+    sum_peaks += t_peaks;
+    sum_write += t_write;
+
     // timing
+    // Single-image mode keeps its benchmark behaviour (--warmup/--loops repeats).
+    // Batch mode must NOT: the per-frame inference above is already timed, so
+    // repeating it here would re-introduce the duplicate rknn_run per frame.
+    if (batch_list) continue;
     int w = warmup;
     for (int k = 0; k < w; k++) { run_once(c, input, nullptr, nullptr, &out, nullptr); release(c, &out); }
     int n = std::max(1, loops);
     for (int k = 0; k < n; k++) {
-      double ts[3] = {0, 0, 0};
+      double ts[4] = {0, 0, 0, 0};
       if (!run_once(c, input, nullptr, nullptr, &out, ts)) return 1;
       release(c, &out);
       sum_total += ts[0] + ts[1] + ts[2];
@@ -624,13 +667,29 @@ int main(int argc, char** argv) {
 
   if (n_timed) {
     double avg = sum_total / n_timed;
-    printf("\n[7] latency over %d timed runs (inputs_set + rknn_run + outputs_get)\n", n_timed);
+    double h_load = sum_load / n_timed, h_lb = sum_lb / n_timed, h_scan = sum_scan / n_timed;
+    double h_peaks = sum_peaks / n_timed, h_write = sum_write / n_timed;
+    double host = h_load + h_lb + h_scan + h_peaks + h_write;
+    printf("\n[7] latency over %d timed runs (full per-frame cost)\n", n_timed);
+    printf("    --- NPU stage ---\n");
     printf("    inputs_set   avg %7.3f ms\n", sum_stage[0] / n_timed);
     printf("    rknn_run     avg %7.3f ms  (%.1f%%)\n", sum_stage[1] / n_timed,
            100.0 * sum_stage[1] / sum_total);
     printf("    outputs_get  avg %7.3f ms  (%.1f%%)   [1.2 MB of float32 tensors]\n",
            sum_stage[2] / n_timed, 100.0 * sum_stage[2] / sum_total);
-    printf("    TOTAL        avg %7.3f ms  -> %.1f fps\n", avg, 1000.0 / avg);
+    printf("    dequant      avg %7.3f ms  (%.1f%%)\n",
+           sum_stage[3] / n_timed, 100.0 * sum_stage[3] / sum_total);
+    printf("    --- host stage ---\n");
+    printf("    stbi_load    avg %7.3f ms  (file read + BMP decode)\n", h_load);
+    printf("    letterbox    avg %7.3f ms\n", h_lb);
+    printf("    minmax scan  avg %7.3f ms  (640*640*3 bytes)\n", h_scan);
+    printf("    extract_peaks avg %7.3f ms\n", h_peaks);
+    printf("    det write    avg %7.3f ms  (incl. per-frame flush)\n", h_write);
+    printf("    ---\n");
+    printf("    NPU+dequant  avg %7.3f ms  -> %.1f fps\n", avg, 1000.0 / avg);
+    printf("    + host       avg %7.3f ms  -> %.1f fps   <-- real per-frame cost\n",
+           avg + host, 1000.0 / (avg + host));
+    printf("    host share   %7.1f%% of the per-frame total\n", 100.0 * host / (avg + host));
     if (use_perf) printf("    (--perf ON: RKNN_FLAG_COLLECT_PERF_MASK inflates rknn_run)\n");
   }
   printf("=====================================================================\n");

@@ -19,7 +19,7 @@
   | **本地工程 checkout（唯一可写编辑区）** | `/media/manu/1TB-Volume/workspace/ultralytics/`（内含完整 `manu/`，含 `manu/memory/`） | ✅ **所有 Edit/Write 都发生在这里** |
   | 服务器代码镜像（SSHFS） | `/home/manu/mnt/pycharm_project_10ae9e2e/` | ⛔ **只读 + 同步落地目标，禁止 Edit/Write** |
   | 服务器数据集（SSHFS） | `/home/manu/mnt/data/` | ⛔ 只读 |
-  | RK3588 板卡 ↔ 本机数据交换区（host NFS 导出，**2026-10-12 起板卡反挂此目录**） | `/home/manu/nfs/` | ⛔ 非编辑区，只放数据/产物；挂载与权限见 1b |
+  | RK3588 板卡 ↔ 本机数据交换区（host NFS 导出，**2026-10-12 起板卡反挂此目录**；**2026-10-14 迁至 SSD960-LOCAL 大盘**） | `/run/media/manu/SSD960-LOCAL/nfs/` | ⛔ 非编辑区，只放数据/产物；挂载与权限见 1b |
 
 - **标准工作流（强制三步，不可跳步）**：
   1. **本地编辑**：在 `/media/manu/1TB-Volume/workspace/ultralytics/` 下用 Edit/Write 完成全部修改；
@@ -46,7 +46,7 @@
 
 ---
 
-## 一、四大核心铁律 (STRICT ENFORCEMENT)
+## 一、核心铁律 (STRICT ENFORCEMENT)
 
 ### 1. 【核心铁律一】严禁 Agent 擅自启动任何训练、推理或重型探测脚本！免检本地环境！
 - **分工边界**：一切代码修改、算法设计、参数调优系统与执行指令由 Assistant（Agent）负责编写完毕；所有训练、推理、缓存提取、评测与微调脚本**必须且只能由用户在目标服务器或本地环境中手动执行**。
@@ -95,11 +95,30 @@
 - **同步义务**：以后凡是新增、修正或废止主 memory 中的实验事实、指标、SOTA、工程铁律或阶段结论，必须在同一任务中同步更新 `manu/memory/memory_compact.md` 的对应内容；不得只更新其中一份。
 - **一致性要求**：精简版可以省略细节，但不得保留与主 memory 冲突的结论、指标或当前基线；更新时间必须同步刷新。
 
+### 8. 【核心铁律八】可并行的独立子任务**必须委派子 Agent 并行执行**，主 Agent 只保留结论与整合
+- **动机**：**主 Agent 上下文是最稀缺的资源**。全量扫描、跨文件查漏、多机核对、文档一致性审计这类「只读取证」工作若在主上下文里做，会把成万行文件内容灌进上下文，挤掉后续推理空间，表现为「改到后面忘了前面的约束」这类隐性事故。
+- **判定标准**（满足任一即**应当**委派，而不是自己读）：
+  1. 需要读 **≥3 个文件**才能回答；
+  2. 答案形态是「**还有没有别处残留**」这类**穷尽性**问题 —— 穷尽性只能靠遍历保证，人脑/单次检索保证不了；
+  3. 与当前工作**无依赖、可并行**；
+  4. 子任务有**可验收产物**（带 `文件:行号` 的清单、证据表、报告）。
+- **角色分工**：
+  | 角色 | 用途 | 硬约束 |
+  | :--- | :--- | :--- |
+  | `explore` | 只读取证与影响面扫描 | **禁止**创建/修改任何文件 |
+  | `worker` | 有明确范围的**生产性改动** | 必须声明**独占文件**；禁止改动范围外文件 |
+  | `verifier` | 独立复核 / 验收判定 | 不得改被审对象；结论须带证据 |
+  | 🔴 **并行写同一文件禁止** | —— | 多 Agent 改同一文件必须**串行**，或先拆成互不相交的文件集 |
+- **主 Agent 不可委派的部分**：任务解释与范围界定、方案与取舍决策、**对最终结论负责**、向用户交付。⇒ 子 Agent 的产出**必须由主 Agent 复核后**才可写入 memory 或对外汇报；子 Agent 说「已完成」不等于事实成立。
+- **委派 prompt 必须自包含**：子 Agent **没有本对话历史**，prompt 须写明 —— 目标与动机、**已确认的事实与判定基准**、范围与目录、约束与禁止事项、期望输出格式与长度。缺「判定基准」会让子 Agent 把合规的历史记录误判为待修项。
+- ✅ **用户授权（2026-10-14）**：token 预算充足，**鼓励多开子 Agent、优先并行而非串行**。本条为交互纪律，不是可选项。
+
 > 🔴 **2026-10-12 用户要求删除原「铁律八：每次读 memory 前校验三条挂载链路，缺失即自动补挂」，该条已废止。**
 > 原因：memory 的**权威副本在本地 checkout**（`/media/manu/1TB-Volume/workspace/ultralytics/manu/memory/`），
 > 读 memory 不再依赖任何 SSHFS/NFS 挂载；自动补挂会因远端不可达而产生噪音，
 > 且与铁律零「本地是唯一编辑区」叠加后语义重复。
 > 保留的只有一条弱形式：**读取失败时先确认自己读的是本地副本，而不是去补挂**。
+> ⚠️ 编号说明：本节上方新写入的**【核心铁律八】与这条已废止的旧「铁律八」无关**，只是沿用了空出的编号。
 
 ---
 
@@ -113,28 +132,35 @@
 ### 1b. RK3588 板卡连接与 NFS 挂载（2026-10-09 实物到手；**2026-10-12 挂载方向反转**）
 - **SSH 登录**：`ssh -p 22 root@192.168.0.64`，**密码 `ematech`**（root 账号、明文口令，不得写入任何对外汇报材料或代码仓库）
 
-#### 1b-0 🔥 当前拓扑：**板卡挂载 host**，用 host 存储资源（2026-10-12）
+#### 1b-0 🔥 当前拓扑：**板卡挂载 host**，用 host 存储资源（2026-10-12 反转；**2026-10-14 换导出目录**）
 
 ```bash
-# 在板卡上执行（root）
-mount -t nfs 192.168.0.115:/home/manu/nfs /mnt/manu -o nolock,soft,timeo=5,retrans=2
+# 在板卡上执行（root）—— 2026-10-14 起唯一有效写法
+mount -t nfs 192.168.0.115:/run/media/manu/SSD960-LOCAL/nfs /mnt/manu -o nolock,soft,timeo=5,retrans=2
 ```
 
-- **挂载方向已反转**：2026-10-09 是「**本机挂板卡**的 `/mnt/manu`」；现在改为「**板卡挂本机**的 `/home/manu/nfs`」。⇒ 板卡往 `/mnt/manu` 写的东西落在 **host 磁盘**上，不再吃板卡那 1.7G。
-- **host 侧（本机 2026-10-12 实测已核实）**：本机 IP `192.168.0.115`（网卡 `enp2s0`）；`/etc/exports` 内容为 `/home/manu/nfs  192.168.0.0/24(rw,sync,no_subtree_check,insecure,no_root_squash)`；`nfs-server`（active exited）与 `rpcbind` 均 active，2049/111 端口在监听；导出目录当前只有一个 0 字节 `1.txt`。板卡 `192.168.0.64` ping 通（~1.9 ms）。
-- 🔴 **阻塞：导出表尚未生效，板卡侧未验证（2026-10-12 本机实测发现）**
-  - `/var/lib/nfs/etab`（mtime 15:11:27）里唯一的真实导出仍是 **`/home/manu/mnt/nfs`**，而该目录**已被删除**；
-  - `/proc/fs/nfsd/exports` 内核实况中**不存在 `/home/manu/nfs` 的 rw 导出**，只有 `/`、`/home`、`/home/manu`、`/home/manu/mnt` 四个 **ro v4root 伪导出**（供 NFSv4 路径遍历用，**不是数据导出**）；
-  - `/etc/exports` 的 mtime（15:16:35）**晚于** etab ⇒ 改完 `/etc/exports` 后**没有再执行 `exportfs -ra`**；
-  - ⇒ 按内核实况，板卡执行上面的 mount **应当失败**。用户口头报告「已挂上」，但**板卡侧本次未验证**（Agent shell 内无 `RK3588_PASSWORD`，未登录板卡）。
-  - **修复（须用户执行，Agent 无 sudo 权限）**：`sudo exportfs -v` 先核对 → `sudo exportfs -ra` → 板卡 `umount /mnt/manu && mount -t nfs 192.168.0.115:/home/manu/nfs /mnt/manu -o nolock,soft,timeo=5,retrans=2` 复验，并 `ls /mnt/manu` 看是否能看到 `1.txt`。**本机重启或 `nfs-server` 重启后同样依赖这一步**，否则残留条目失效即挂载必挂。
-- ⚠️ **「板卡磁盘 1.7G 红线」对数据已缓解，但换了一条新红线**：host 导出目录 `/home/manu/nfs` 位于**根分区**，**不在 1TB 卷上** ⇒ 实测 `/dev/sda1  218G 总量 / 193G 已用 / 15G 可用（93%）`。**只有 15G 可用**。往板卡 `/mnt/manu` 放 dump / 数据集 / 模型前仍须先估 GiB（铁律二），且**写爆的是 host 根分区**（会波及本机系统，不只是板卡）。
-- 🔴 **同一路径语义已完全改变（最易踩的坑）**：`板卡:/mnt/manu` 现在 = `host:/home/manu/nfs`。所有旧文档提到的板卡 `/mnt/manu/ocvparity/`、`/mnt/manu/fused/`、`/mnt/manu/fused_exec/`、`/mnt/manu/ocvparity_exec/` **都是旧方向下板卡本地盘上的内容，现在在板卡该路径下已不存在**。引用旧路径前必须先确认日期与方向。
+- **挂载方向已反转**：2026-10-09 是「**本机挂板卡**的 `/mnt/manu`」；现为「**板卡挂本机**的 `/run/media/manu/SSD960-LOCAL/nfs`」。⇒ 板卡往 `/mnt/manu` 写的东西落在 **host 磁盘**上，不再吃板卡那 1.7G。
+- 🔴 **2026-10-14 导出目录换址（旧路径已作废，勿再照抄）**
+  | 项 | 旧（2026-10-12 ~ 10-14） | **新（2026-10-14 起，当前）** |
+  | :--- | :--- | :--- |
+  | host 导出路径 | `/home/manu/nfs` | **`/run/media/manu/SSD960-LOCAL/nfs`** |
+  | 所在分区 | `/dev/sda1`（host **根分区**） | **`/dev/sdb`（SSD960-LOCAL 独立盘）** |
+  | 容量（实测） | `218G` 总 / `67G` 可用（`/home/manu/nfs` 现为 140G/67G） | **`880G` 总 / `54G` 已用 / `782G` 可用 / `7%`** |
+  | `/etc/exports` 条目 | 已删除 | `/run/media/manu/SSD960-LOCAL/nfs  192.168.0.0/24(rw,sync,no_subtree_check,insecure,no_root_squash)` |
+  | 现状 | **仅剩一份 4.5G 遗留拷贝，不再被导出** | **唯一真实 rw 导出** |
+- ✅ **host 侧已核实（2026-10-14 实测）**：本机 IP `192.168.0.115`（`enp2s0`）；`/etc/exports` 只剩新路径一条；`/proc/fs/nfsd/exports` 内核实况**确有** `/run/media/manu/SSD960-LOCAL/nfs  192.168.0.0/24(rw,insecure,no_root_squash,sync,wdelay,no_subtree_check,...)`；`etab` mtime `15:17:12` **晚于** `/etc/exports` mtime `15:15:25` ⇒ 改完配置**确实跑过 `exportfs -ra`**（不再有 10-12 那个「改了没生效」的坑）。
+- ✅ **板卡侧已核实（2026-10-14 实测，本轮登录板卡取证）**：`mount` 实测
+  `192.168.0.115:/run/media/manu/SSD960-LOCAL/nfs on /mnt/manu type nfs4 (rw,relatime,vers=4.0,rsize=1048576,wsize=1048576,namlen=255,soft,proto=tcp,timeo=5,retrans=2,sec=sys,clientaddr=192.168.0.64,local_lock=none,addr=192.168.0.115)`；
+  `df -h /mnt/manu` = `880G / 54G used / 782G avail / 7%`；`/mnt/manu/npu/` 下 `data/`、`out/`、`bench/`、`demo/`、`.so` 全部可读，模型 `*.rknn` 在位。
+- ✅ **写链路已做回环验证（2026-10-14）**：板卡 root 写 `/mnt/manu/.rw_probe.txt` ⇒ host 在 `/run/media/manu/SSD960-LOCAL/nfs/.rw_probe.txt` **当场可见**，属主 `root:root`（印证 `no_root_squash` + mount 未指定 `uid=/gid=` 的既有结论）。探针文件已清理。⇒ **rw 不只是挂载参数里的字样，是真能落盘。**
+- 🟢 **红线大幅缓解**：旧红线「host 根分区仅 15G 可用（93%）」**已消失** —— 新导出目录在独立大盘 `/dev/sdb`，**可用 782G**。GiB 估算义务（铁律二）**不变**，但全量 val 这类 30G 级暂存**不再受限**（此前 33.1G 需求对着 15G 红线是硬阻塞）。
+- ⚠️ **旧路径的坑**：host 上 `/home/manu/nfs/` **仍然存在且内容与新路径一致**（4.5G，mtime 与 md5 均相同，`cp -a` 拷贝而来，非 bind mount），**极易误判成「还是老地址」**。但它**已不在 `/etc/exports`、也不在内核导出表** ⇒ 照旧命令挂载会失败。要清掉需用户 `sudo rm -rf /home/manu/nfs`（Agent 无 sudo，铁律一）。
+- 🔴 **同一路径语义已完全改变（最易踩的坑）**：`板卡:/mnt/manu` 现在 = `host:/run/media/manu/SSD960-LOCAL/nfs`。所有旧文档提到的板卡 `/mnt/manu/ocvparity/`、`/mnt/manu/fused/`、`/mnt/manu/fused_exec/`、`/mnt/manu/ocvparity_exec/` **都是旧方向下板卡本地盘上的内容，现在在板卡该路径下已不存在**。引用旧路径前必须先确认日期与方向。
 - ⚠️ **三条待实测的新风险**：
-  1. **UID 映射**：导出带 `no_root_squash`，板卡 mount 未指定 `uid=`/`gid=` ⇒ 板卡 root 写出的文件在 host 上大概率属 `root:root`，本机 `manu` 删改会 `Permission denied`（需 sudo）。现有 `1.txt` 是 `manu:manu`，但那是 host 侧自己建的，**不构成正反证据**。
+  1. **UID 映射**（已于 2026-10-13/14 双次坐实）：导出带 `no_root_squash`，板卡 mount 未指定 `uid=`/`gid=` ⇒ 板卡 root 写出的文件在 host 上属 `root:root`，本机 `manu` 删改会 `Permission denied`（需 sudo），**必须由板卡侧 `chown 1000:1000`**。本轮探针文件再次复现该行为。
   2. **`soft` 挂载**：板卡侧用 `-o soft,timeo=5,retrans=2`，而旧的本机侧挂载是 `hard` ⇒ host 卡顿时板卡拿 I/O error 而非挂死，**代价是静默 I/O 错误与数据损坏风险**。且**经 `/mnt/manu` 的耗时含网络往返，绝不能计入板卡算子时延预算**——板卡时延一律以本地盘数据 + `--timing` 分段表为准（唯一权威口径）。
   3. **ETXTBSY 结论需复验**：`falsified_archive.md` 35.6 的「可执行文件禁止经 NFS 投递」实测发生在**旧方向**（本机写、板卡 exec）。新方向是板卡写、host 存、板卡 exec，机理未变但**未实测** ⇒ 复验前仍按「**二进制放板卡本地盘（如 `/root`），只有数据走 `/mnt/manu`**」执行。
-- ⚠️ **铁律三同步义务不变**：代码仓库仍在 x86；host 导出的 `/home/manu/nfs` 是**数据交换区，不是代码同步链路**，代码改动仍须显式 scp/rsync。
+- ⚠️ **铁律三同步义务不变**：代码仓库仍在 x86；host 导出的 NFS 目录是**数据交换区，不是代码同步链路**，代码改动仍须显式 scp/rsync。
 
 #### 1b-历史（2026-10-09 ~ 10-11 方向，已拆除，勿照抄）
 - **旧挂载（已作废）**：`mkdir -p /home/manu/mnt/nfs` + `sudo mount -t nfs 192.168.0.64:/mnt/manu /home/manu/mnt/nfs -o nolock`，方向是**本机挂板卡**的 `/mnt/manu`。实测生效参数：`nfs4 vers=4.2, rsize/wsize=1048576, hard, proto=tcp, timeo=600, retrans=2, local_lock=none`，客户端地址 `192.168.0.115`。**端口 22 与 NFS 均可达**，SSH 横幅 `OpenSSH_8.2p1 Ubuntu-4ubuntu0.12` ⇒ 板卡为 **Ubuntu base 的 arm64 Linux**（**此结论仍有效**）。
@@ -147,17 +173,17 @@ mount -t nfs 192.168.0.115:/home/manu/nfs /mnt/manu -o nolock,soft,timeo=5,retra
   ⚠️ **2026-10-12 方向反转后此结论待复验**：新方向是「板卡写 → host 存 → 板卡执行」，机理未变但**未实测**。复验前仍按「二进制放板卡本地盘（如 `/root`），只有数据走 `/mnt/manu`」执行，并注意 `/mnt/manu/fused_exec/`、`/mnt/manu/fused/` 这些旧路径在板卡上已不存在（见 1b-0）。
 - **意义**：本项目**首个真实 NPU 硬件载体**。此前 RK3588 全部工作止于 x86 侧 C++ 移植与 Golden Reference（`memory/cpp_port_rk3588.md`），**板卡到手后「能否真跑」这一阻塞项解除**；NFS 打通后 x86 ↔ 板卡可直接传产物，不必每次 scp。
 - 🔴 **板卡存储空间有限：数据尽量走 NFS，不要堆板卡本地磁盘（2026-10-09 用户明确指示；2026-10-12 方向反转后「NFS」＝host 存储）**
-  - **板卡磁盘余量极紧**：实测 `16G 总量 / 14G 已用 / 1.7G 可用（89%）`。**任何转 rknn、装 runtime、拷模型的板卡操作前必须先看 `df -h /`**；参照铁律二的缓存体积红线。⚠️ **2026-10-12 起板卡 `/mnt/manu` 已是 host 存储**，故数据不再吃板卡磁盘，但 host 导出目录所在**根分区只剩 15G（93% 已用）**——**GiB 估算义务不变，只是红线从板卡换到了 host 根分区**。
-  - ⇒ **规则：除「必须可执行」外，板卡需要的一切都走 `/mnt/manu`（= host `/home/manu/nfs`）。** 具体分工：
+  - **板卡磁盘余量极紧**：实测 `16G 总量 / 14G 已用 / 1.7G 可用（89%）`。**任何转 rknn、装 runtime、拷模型的板卡操作前必须先看 `df -h /`**；参照铁律二的缓存体积红线。⚠️ **2026-10-12 起板卡 `/mnt/manu` 已是 host 存储**，故数据不再吃板卡磁盘；**2026-10-14 起 host 导出目录换到 SSD960-LOCAL 独立大盘（`880G` 总 / `782G` 可用）**，旧「根分区只剩 15G」红线**已解除**——**GiB 估算义务不变，但空间约束基本消失**。
+  - ⇒ **规则：除「必须可执行」外，板卡需要的一切都走 `/mnt/manu`（= host `/run/media/manu/SSD960-LOCAL/nfs`）。** 具体分工：
     | 内容 | 通道 | 原因 |
     | :--- | :--- | :--- |
     | 可执行文件（`.bin`/ELF） | **板卡本地盘**（如 `/root`） | 经 NFS 执行易报 `Text file busy`（旧方向实测；新方向待复验） |
     | 输入数据（图像、原始帧、用例包） | **`/mnt/manu`** | 不占板卡磁盘，host 侧可直接原地读 |
-    | 输出产物（dump、日志、报告） | **`/mnt/manu`** | 同上；**host 侧在 `/home/manu/nfs/<dir>/` 直接比对，不必再传回** |
+    | 输出产物（dump、日志、报告） | **`/mnt/manu`** | 同上；**host 侧在 `/run/media/manu/SSD960-LOCAL/nfs/<dir>/` 直接比对，不必再传回** |
     | 交叉工具链 / SDK / OpenCV 源码与静态库 | **x86 本地，严禁上板** | 见 2b |
   - **为什么输出也走 NFS（关键收益）**：跨架构对比的产物动辄几十 MB。若板卡写本地再 scp 回 host，就是「占板卡磁盘 + 双份传输」；写 `/mnt/manu` 后 host 侧直接比对，**板卡不必为了把结果送回去而再存一份**。
-    🔴 ~~**但 NFS 不等于不占磁盘**（2026-10-09 实测更正过一次自我错误）~~ —— **该结论已于 2026-10-12 作废**：当时 `/mnt/manu` 是**板卡本地目录**，与 `/` 同一文件系统，202 MB dump 使板卡可用空间从 1.7G → 1.5G。**现在 `/mnt/manu` 是 host 导出目录，物理上占用的是 host 磁盘**，结论反转为「NFS 数据确实省板卡磁盘、但吃 host 根分区（仅 15G 可用）」。旧数字**仅在引用旧方向历史时**有效。
-  - ⚠️ **新目录**：`/mnt/manu` 指向 host 的 `manu:manu 0777` 目录，板卡 root（`no_root_squash`）**可直接 `mkdir`**；但板卡建出的文件在 host 上可能属 `root:root`，host 侧 `manu` 删改需 sudo（见 1b-0 待实测项）。
+    🔴 ~~**但 NFS 不等于不占磁盘**（2026-10-09 实测更正过一次自我错误）~~ —— **该结论已于 2026-10-12 作废**：当时 `/mnt/manu` 是**板卡本地目录**，与 `/` 同一文件系统，202 MB dump 使板卡可用空间从 1.7G → 1.5G。**现在 `/mnt/manu` 是 host 导出目录，物理上占用的是 host 磁盘**；**2026-10-14 起更是换到 SSD960-LOCAL 独立大盘（`782G` 可用）** ⇒ 结论反转为「NFS 数据确实省板卡磁盘，且 host 侧空间已不成约束」。旧数字（根分区 15G）**仅在引用旧路径历史时**有效。
+  - ⚠️ **属主坑（2026-10-14 复现坐实）**：`/mnt/manu` 指向 host 的 `manu:manu 0777` 目录，板卡 root（`no_root_squash`）**可直接 `mkdir`**；但板卡建出的文件在 host 上**实测属 `root:root`**，host 侧 `manu` 删改需 sudo 或由板卡侧 `chown 1000:1000`。
   - ⚠️ **铁律三同步义务仍只覆盖 x86 服务器**（`/home/manu/mnt/pycharm_project_10ae9e2e/`）。`/mnt/manu` 只是数据交换区，**不含代码仓库**；代码改动仍须显式 scp/rsync，NFS 不能替代代码同步。
 - ⚠️ 板卡上**任何 `runs/` 权重都不存在**（权重只在 x86 的 `runs/optuna_p0_nas/trial_0474/weights/best.pt`，`runs/` 从未纳入同步链路）。涉及板卡推理的交付，必须把**权重与数据双端就位**列为前置检查项。
 - ✅ **首次接触摸底已完成（2026-10-09 实测，非推测）**，主机名 **`evm3588`**：

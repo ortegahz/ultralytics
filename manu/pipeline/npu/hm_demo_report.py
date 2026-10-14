@@ -31,13 +31,13 @@ F1 is reported bare -- it is not a proportion (rules.md 3.6b).
 Usage:
     python hm_demo_report.py \\
         --sequence 34_1 \\
-        --board-feat /home/manu/nfs/npu/out/demo34/feat \\
+        --board-feat /run/media/manu/SSD960-LOCAL/nfs/npu/out/demo34/feat \\
         --frozen-feat /home/manu/mnt/data/siping/datasets/manu/uav_gmc_median/images/val \\
         --ref /media/manu/1TB-Volume/rknn_work/hm/demo34/ref_cpu \\
         --perframe /media/manu/1TB-Volume/rknn_work/hm/demo34/board_perframe.json \\
-        --gmc-csv /home/manu/nfs/npu/out/demo34/gmc_profile.csv \\
-        --npu-log /home/manu/nfs/npu/out/demo34/npu_run.log \\
-        --gmc-log /home/manu/nfs/npu/out/demo34/gmc_run.log \\
+        --gmc-csv /run/media/manu/SSD960-LOCAL/nfs/npu/out/demo34/gmc_profile.csv \\
+        --npu-log /run/media/manu/SSD960-LOCAL/nfs/npu/out/demo34/npu_run.log \\
+        --gmc-log /run/media/manu/SSD960-LOCAL/nfs/npu/out/demo34/gmc_run.log \\
         --push-offset 1
 """
 

@@ -51,7 +51,9 @@ def run(binary, seq_dir, limit, extra, mats_path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--bin", default="build/gmc_stream_ocl")
-    ap.add_argument("--seq", default="/home/manu/mnt/nfs/ocvparity/bmp2")
+    # NOTE: ocvparity/ is absent from the current NFS export (only npu/ exists),
+    # so --seq must be passed explicitly; this default fails as expected.
+    ap.add_argument("--seq", default="/run/media/manu/SSD960-LOCAL/nfs/ocvparity/bmp2")
     ap.add_argument("--limit", type=int, default=60)
     ap.add_argument("--tmp", default="/tmp/fit_tradeoff")
     ap.add_argument("--configs", default="",

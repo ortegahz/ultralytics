@@ -230,9 +230,9 @@ RK3588_PASSWORD=*** ./run_npu_smoke.sh --perf          # 附带 NPU 自报耗时
 # 出 OSD 图（需要板卡上 /mnt/manu/npu/out 已存在且对 host 可写）
 ssh root@192.168.0.64 'mkdir -p /mnt/manu/npu/out && chown 1000:1000 /mnt/manu/npu/out'
 RK3588_PASSWORD=*** ./run_npu_smoke.sh --loops 30 --osd /mnt/manu/npu/out/bus_osd.jpg
-# host 侧直接取回：/home/manu/nfs/npu/out/bus_osd.jpg
+# host 侧直接取回：/run/media/manu/SSD960-LOCAL/nfs/npu/out/bus_osd.jpg
 
-# 模型/换图：放到 host 的 /home/manu/nfs/npu/data/ 即可，板卡侧无需改动
+# 模型/换图：放到 host 的 /run/media/manu/SSD960-LOCAL/nfs/npu/data/ 即可，板卡侧无需改动
 ```
 
 注意 `board_run.py` 的 `--exec` **只吃单行命令**，多行命令会打断 pty 匹配而静默返回空输出。

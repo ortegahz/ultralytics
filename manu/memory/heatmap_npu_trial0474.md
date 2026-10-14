@@ -253,8 +253,9 @@ ID 14  Conv  INT8  NPU  (1,16,640,640),(64,16,2,2)  → (1,64,320,320)   819,200
 
 **帧清单**：`/media/manu/1TB-Volume/rknn_work/hm/frames_val600.txt`
 （与 CPU 参考臂 `ref_val600/` **同一份 600 帧**，两臂同帧可比）
-**NPU 原始张量落盘**：`/home/manu/nfs/npu/out/hmval/int8_<stem>_{hm,off}.bin`（600 × 2 个文件）
-**逐帧对账记录**：`/home/manu/nfs/npu/out/compare_int8.json`（600 条，每条带 outcome 分类）
+**NPU 原始张量落盘**：`/run/media/manu/SSD960-LOCAL/nfs/npu/out/hmval/int8_<stem>_{hm,off}.bin`（600 × 2 个文件）
+**逐帧对账记录**：`/run/media/manu/SSD960-LOCAL/nfs/npu/out/compare_int8.json`（600 条，每条带 outcome 分类）
+（⚠️ host 导出目录已于 2026-10-14 换址，旧记的 `/home/manu/nfs/npu/...` 只剩遗留拷贝，**新产物一律用上面的路径**）
 
 #### 6.2.1 张量逐元素 NPU(int8) vs CPU(fp32)
 
@@ -795,7 +796,7 @@ CPU0 1800000 Hz / CPU4 2352000 Hz；**根分区剩 1.7 G**。
 
 ### 7.7 🔴 批次清单里的路径前缀必须按「谁执行它」写
 
-- **机制**：清单里写的是 host 视角的 `/home/manu/nfs/...`，
+- **机制**：清单里写的是 host 视角的 NFS 路径（旧记 `/home/manu/nfs/...`，**2026-10-14 换址后为 `/run/media/manu/SSD960-LOCAL/nfs/...`**），
   而**板卡上 `/home/manu` 根本不存在** ⇒ 加载失败 `stbi_load failed`，
   然后**静默 `return 1`** —— **TSV 0 行、且无报错摘要**。
   最难查的地方在于：**退出码非 0，但批处理循环继续跑完，末了报一个"正常结束"。**
@@ -858,7 +859,8 @@ CPU0 1800000 Hz / CPU4 2352000 Hz；**根分区剩 1.7 G**。
 > 🔴 **板卡口令只经环境变量 `RK3588_PASSWORD` 传入，任何脚本、文档、产物都不写入明文。**
 
 ```bash
-# 0) 环境：RKNN 转换用 1 TB 卷上的 toolkit 2.3.0（根分区只剩 15 GB / 93% 已用）
+# 0) 环境：RKNN 转换用 1 TB 卷上的 toolkit 2.3.0（2026-10-13 实测口径：根分区只剩 15 GB / 93% 已用；
+#    2026-10-14 起模型与数据走 /mnt/manu = host /run/media/manu/SSD960-LOCAL/nfs，782G 可用，该红线已解除）
 P=/media/manu/1TB-Volume/conda-envs/rknn230          # rknn-toolkit2 2.3.0，与板卡 runtime 同 commit
 W=/media/manu/1TB-Volume/rknn_work/hm                # 中间产物 / 标定清单 / 参考臂输出
 cd /media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu
@@ -893,7 +895,7 @@ grep -oE '^[DWI] RKNN: \[[0-9:.]+\] [0-9]+ +[A-Za-z0-9_./]+ +[A-Z0-9]+ +(CPU|NPU
 # 4) 部署：二进制走 SSH（禁走 NFS，否则 Text file busy / ETXTBSY），
 #    模型与数据走 NFS（板卡根分区仅剩 1.7 GB）
 scp out/rknn_heatmap_smoke root@192.168.0.64:/root/
-#    模型/帧放到 host 的 /home/manu/nfs/npu/data/ → 板卡侧即 /mnt/manu/npu/data/
+#    模型/帧放到 host 的 /run/media/manu/SSD960-LOCAL/nfs/npu/data/ → 板卡侧即 /mnt/manu/npu/data/
 
 # 5) 板卡单帧推理 + 计时（10 次热身 + 30 次计时）
 #    ⚠️ 必看输出里 `[1] clock sanity` 那行：落在 49–52 ms 外即为 [BAD]，此时时延数字一律不算数

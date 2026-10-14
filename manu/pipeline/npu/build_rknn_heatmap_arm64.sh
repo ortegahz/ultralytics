@@ -18,7 +18,7 @@ STAGE="$HERE/.build-include"
 
 SDK="${RKNN_SDK:-/media/manu/1TB-Volume/rk3588/rk3588_sdk/EVM3588-A_20250815/02Linux软件资料/SDK&Image/SDK/evm3588_linux_sdk_v2.1.1.0/external/rknpu2}"
 TC="${RK3588_TOOLCHAIN:-/media/manu/1TB-Volume/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu}"
-RT_LIB_DIR="${RT_LIB_DIR:-/home/manu/nfs/npu}"
+RT_LIB_DIR="${RT_LIB_DIR:-/run/media/manu/SSD960-LOCAL/nfs/npu}"
 
 CXX="$TC/bin/aarch64-rockchip-linux-gnu-g++"
 READELF="$TC/bin/aarch64-rockchip-linux-gnu-readelf"

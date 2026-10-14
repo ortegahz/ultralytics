@@ -140,7 +140,7 @@ cd /media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu
 
 脚本已内建的约束（不要绕过）：
 
-- 链**板卡自己的** `librknnrt.so`（`RT_LIB_DIR` 默认 `/home/manu/nfs/npu`），
+- 链**板卡自己的** `librknnrt.so`（`RT_LIB_DIR` 默认 `/run/media/manu/SSD960-LOCAL/nfs/npu`），
   断言 `DT_NEEDED` 是**纯 SONAME** `librknnrt.so`，**绝不用** SDK 里那份 1.4.0 的；
 - `-ffp-contract=off` + `-fno-fast-math` + `-fno-unsafe-math-optimizations`（浮点契约）；
 - 头文件私有暂存到 `.build-include/`，**不 `-I/usr/include`**；
@@ -151,9 +151,9 @@ cd /media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu
 ```bash
 # 二进制走 SSH（走 NFS 会 Text file busy / ETXTBSY）
 scp out/rknn_heatmap_smoke root@192.168.0.64:/root/
-# 模型与帧走 NFS：host 的 /home/manu/nfs/npu/ == 板卡的 /mnt/manu/npu/
+# 模型与帧走 NFS：host 的 /run/media/manu/SSD960-LOCAL/nfs/npu/ == 板卡的 /mnt/manu/npu/
 #   （模型与帧清单在 data/，对账输出在 out/；板卡 / 只剩 1.7 GB，别把数据集搬上板卡）
-ls -l /home/manu/nfs/npu/data/trial0474_hm_nop0_int8.rknn /home/manu/nfs/npu/data/hmval_list.txt
+ls -l /run/media/manu/SSD960-LOCAL/nfs/npu/data/trial0474_hm_nop0_int8.rknn /run/media/manu/SSD960-LOCAL/nfs/npu/data/hmval_list.txt
 
 # 单帧 + 计时（--loops/--warmup 决定计时口径；--detections-out 出紧凑 TSV）
 RK3588_PASSWORD=*** python3 ../../opencl/board/board_run.py --exec \
@@ -351,7 +351,7 @@ export RK3588_PASSWORD=...          # 只经环境变量传入，绝不落盘
 PY=/media/manu/1TB-Volume/conda-envs/rknn230/bin/python
 BR=/media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/opencl/board/board_run.py
 SEQ=34_1
-NFS_DIR=/home/manu/nfs/npu/out/demo/$SEQ        # host 侧 == 板卡的 /mnt/manu/npu/out/demo/$SEQ
+NFS_DIR=/run/media/manu/SSD960-LOCAL/nfs/npu/out/demo/$SEQ   # host 侧新导出 == 板卡的 /mnt/manu/npu/out/demo/$SEQ（旧 /home/manu/nfs 已不导出）
 BOARD_DIR=/mnt/manu/npu/out/demo/$SEQ
 FROZEN=/home/manu/mnt/data/siping/datasets/manu/uav_gmc_median/images/val
 WORK=/media/manu/1TB-Volume/rknn_work/hm/$SEQ
@@ -361,7 +361,7 @@ mkdir -p $NFS_DIR/raw/$SEQ
 $PY - <<'PY'
 import os, cv2
 src = "/home/manu/mnt/data/siping/datasets/manu/anti-uav/train/34_1"
-dst = "/home/manu/nfs/npu/out/demo/34_1/raw/34_1"
+dst = "/run/media/manu/SSD960-LOCAL/nfs/npu/out/demo/34_1/raw/34_1"
 for f in sorted(os.listdir(src)):
     if not f.lower().endswith((".png", ".jpg", ".bmp", ".tif")):
         continue
@@ -421,7 +421,7 @@ PY
 ⚠️ 两条**实测踩过的硬约束**：
 - **`dataset_id = push_index + 1`**（`hm_index_probe.py` 逐像素比对定出来的，**不要改成 0**）；
 - **symlink 必须是相对路径** `../feat/<seq>_%06d.bmp`，**清单必须写板卡侧前缀** `/mnt/manu/npu/...`。
-  写成 host 的 `/home/manu/nfs/...` 或绝对 symlink，板卡上 `stbi_load` 会**静默失败**、产物 0 字节。
+  写成 host 的 `/run/media/manu/SSD960-LOCAL/nfs/...` 或绝对 symlink，板卡上 `stbi_load` 会**静默失败**、产物 0 字节。
 
 ```bash
 # ⑥ host：检出级对账 + 三层精度对齐 + 速度（参数见 10.4）
@@ -511,7 +511,7 @@ manu/pipeline/npu/out/lqreview/   视频路径的速度报告 speed_lqreview.txt
 ```
 
 运行期的实际工作目录是 host 的 `$OUT_ROOT/<seq>/` 与板卡可见的
-`/home/manu/nfs/npu/out/demo/<seq>/`（== 板卡的 `/mnt/manu/npu/out/demo/<seq>/`）；
+`/run/media/manu/SSD960-LOCAL/nfs/npu/out/demo/<seq>/`（== 板卡的 `/mnt/manu/npu/out/demo/<seq>/`）；
 上面两行是**归档快照**。
 
 OSD 用 **`hm_demo_osd.py`**（**直接吃 `--detections-out` 的 TSV**）：

@@ -198,7 +198,11 @@ C flags        : -ffp-contract=off -fno-fast-math ... -O3 -DNDEBUG
 - **2026-10-12 起板卡把 `/mnt/manu` 指向 host 导出的 `/home/manu/nfs`**，本机侧旧挂载点 `/home/manu/mnt/nfs` 已删除 ⇒ 上面的占用结论**不再成立**：板卡写 `/mnt/manu` 消耗的是 **host 磁盘**。
 - ⇒ **`/mnt/manu/ocvparity/`、`/mnt/manu/ocvparity_exec` 在板卡上已不存在**；若要复用这批 dump，须改从 host `/home/manu/nfs/ocvparity/` 取，且**先确认该目录是否真的存在**（当前 host 导出目录内只有一个 0 字节 `1.txt`）。
 - 新红线：host 导出目录在**根分区**（`/dev/sda1 218G / 193G used / **15G avail 93%**`），**不在 1TB 卷上** ⇒ 放数据前仍须估 GiB（铁律二），只是红线从板卡换到了 host 根分区。
-- ⚠️ 「对比脚本要用 anaconda python（系统 `python3` 无 numpy）」这条**仍然有效**，只是路径要改成 `/home/manu/nfs/…`。
+- ⚠️ 「对比脚本要用 anaconda python（系统 `python3` 无 numpy）」这条**仍然有效**，只是路径要改（**2026-10-14 再换址后实为 `/run/media/manu/SSD960-LOCAL/nfs/…`**）。
+- 🔴 **2026-10-14 再次换址（上方所有 `/home/manu/nfs` 均已作废）**：host 导出目录已迁到 **`/run/media/manu/SSD960-LOCAL/nfs`**（`/dev/sdb`，`880G` 总 / `782G` 可用）。
+  - 上文「host 导出目录在根分区、仅 15G 可用」的**红线不再成立** —— 现在是独立大盘，`ocvparity` 那 202 MB dump 早已不是空间问题；
+  - 复用旧 dump 须改从 host `/run/media/manu/SSD960-LOCAL/nfs/ocvparity/` 取，并**先确认目录是否真的存在**（实测当前导出目录内只有 `npu/`，无 `ocvparity/`）；
+  - 旧路径 `/home/manu/nfs/` 在 host 上**仍留着一份拷贝**，但已不被导出，别误判。
 
 ## 12. 遗留未解
 
