@@ -2055,6 +2055,12 @@ void usage() {
         "                         capture range for fast motion.\n"
         "  --fit-iters N          LK max iterations (frozen = 20, epsilon 0.03)\n"
         "  --out-dir PATH         write [Ch0,Ch1,Ch2] stacked HxWx3 JPGs (builder layout)\n"
+        "  --out-ext jpg|png|bmp  codec for --out-dir (default jpg, the historical behaviour).\n"
+        "                         LOSSLESS CODEC REQUIRED for any accuracy reconciliation.\n"
+        "                         On RK3588 use bmp: that OpenCV build carries only the\n"
+        "                         built-in BMP codec -- both png and jpg writers are absent\n"
+        "                         (imwrite fails with 'could not find a writer'), and jpg\n"
+        "                         would additionally be lossy on Ch1/Ch2.\n"
         "  --dump-dir PATH        write per-frame .npy (3,H,W); --mats-frame also gets _mats.npy\n"
         "  --mats-all PATH        log every frame's 21x6 transform chain as raw float32\n"
         "                         (~30 KB / 60 frames, vs ~59 MB for --dump-dir)\n"
@@ -2200,6 +2206,13 @@ int main(int argc, char** argv) {
     }
 
     std::string raw_root, out_dir, dump_dir, md5_out, mode = "tree";
+    // Output codec for --out-dir. "jpg" is the historical default and stays the
+    // default, so every existing invocation is byte-identical. "png" is lossless
+    // and is what the frozen uav_gmc_median feature set is stored in -- a JPEG
+    // round-trip (q95 with 4:2:0 chroma subsampling) perturbs Ch1/Ch2 exactly
+    // where the heatmap head is most sensitive, so any accuracy reconciliation
+    // must run with png.
+    std::string out_ext = "jpg";
     std::vector<std::string> sequences;
     int limit = 0, anchor_step = 10, window = 21, stride_step = 2, downscale = 2;
     long mats_frame = 0;
@@ -2270,6 +2283,7 @@ int main(int argc, char** argv) {
         else if (a == "--fit-level") fit_level = std::atoi(next("--fit-level").c_str());
         else if (a == "--fit-iters") fit_iters = std::atoi(next("--fit-iters").c_str());
         else if (a == "--out-dir") out_dir = next("--out-dir");
+        else if (a == "--out-ext") out_ext = next("--out-ext");
         else if (a == "--dump-dir") dump_dir = next("--dump-dir");
         else if (a == "--md5-out") md5_out = next("--md5-out");
         else if (a == "--rng-seed-per-fit") rng_seed_per_fit = true;
@@ -2290,6 +2304,13 @@ int main(int argc, char** argv) {
         }
     }
 
+    if (out_ext != "jpg" && out_ext != "png" && out_ext != "bmp") {
+        std::fprintf(stderr,
+                     "[FATAL] --out-ext must be jpg, png or bmp (got '%s'). Use bmp on the\n"
+                     "        board: its OpenCV has no png/jpg writer.\n",
+                     out_ext.c_str());
+        return 2;
+    }
     if (raw_root.empty() || sequences.empty()) {
         usage();
         return 2;
@@ -2490,7 +2511,8 @@ int main(int argc, char** argv) {
                 // one --out-dir, and a push-index-only name makes every sequence overwrite the
                 // previous one's frames. That silently corrupts the G2 comparison.
                 char nm[256];
-                std::snprintf(nm, sizeof(nm), "%s_%06zu.jpg", seq.c_str(), fi);
+                std::snprintf(nm, sizeof(nm), "%s_%06zu.%s", seq.c_str(), fi,
+                              out_ext.c_str());
                 cv::imwrite(out_dir + "/" + nm, hwc);
             }
             if (!dump_dir.empty()) {

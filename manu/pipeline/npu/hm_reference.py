@@ -43,7 +43,13 @@ from manu.pipeline.npu.hm_common import (  # noqa: E402
     split_seq_frame,
 )
 
-LABEL_ROOT = Path("/home/manu/mnt/data/siping/datasets/manu/uav_gmc_median/labels/val")
+DEFAULT_LABEL_ROOT = Path("/home/manu/mnt/data/siping/datasets/manu/uav_gmc_median/labels/val")
+DEFAULT_WEIGHTS = "/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_p0_nas/trial_0474/weights/best.pt"
+
+# Overridden by --label-root. The x86 workstation and the training server mount the
+# same dataset at different prefixes, so the default here only works on the former;
+# a hardcoded root is what previously made this script unrunnable off-box.
+LABEL_ROOT = DEFAULT_LABEL_ROOT
 
 
 def label_for(image_path: Path) -> Path:
@@ -52,7 +58,10 @@ def label_for(image_path: Path) -> Path:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--weights", default="/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_p0_nas/trial_0474/weights/best.pt")
+    ap.add_argument("--weights", default=DEFAULT_WEIGHTS)
+    ap.add_argument("--label-root", default=str(DEFAULT_LABEL_ROOT),
+                    help="directory of <stem>.txt labels; override when the dataset is "
+                         "mounted at a different prefix (e.g. the training server)")
     ap.add_argument("--frames", required=True, help="text file, one feature JPEG per line")
     ap.add_argument("--out", required=True)
     ap.add_argument("--th", type=float, default=0.25)
@@ -65,6 +74,9 @@ def main():
                     help="drop the P0 residual highway (same semantics as "
                          "cache_trial0474_inferences.py --ablate-p0)")
     args = ap.parse_args()
+
+    global LABEL_ROOT
+    LABEL_ROOT = Path(args.label_root)
 
     from manu.pipeline.npu.hm_export_onnx import build_model
 

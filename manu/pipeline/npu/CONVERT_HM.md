@@ -36,6 +36,10 @@ W=/media/manu/1TB-Volume/rknn_work/hm         # 中间产物 / 标定清单 / �
 
 ## 三、十一个脚本各自干什么
 
+> 本节只列**转换 / 推理 / 对账**链路上的脚本。端到端 demo 另有 4 个
+> （`hm_index_probe.py`、`hm_demo_report.py`、`hm_demo_osd.py`、`run_hm_demo.sh`），
+> 见 **第十节**。
+
 | 脚本 | 职责 | 关键参数 |
 |:---|:---|:---|
 | **`hm_common.py`** | **唯一的一份定义**：letterbox 几何、`extract_peaks_np`、`gt_from_label`。**不是脚本，是被 import 的库** —— 板端 C++ 里的 letterbox/抽峰是它的 1:1 移植，两边必须一起改 | — |
@@ -293,4 +297,234 @@ v1 的 **2 条** Transpose 超限警告被 toolkit **合并进了同一个 `Resh
 - [ ] 手册里**没有把 v1（`trial0474_hm_int8.rknn`）当成交付版**的表述
 - [ ] **未上板的候选（如 `s4_head1x1`）没有写成结论**，明确标注「仅导出 ONNX、int8 未建」
 
-原理与全部实测数字见 `manu/memory/heatmap_npu_trial0474.md`；判据出处见 `manu/memory/rules.md` §三·6b / §三·6c / §三·10 / §三·4b / §四·2e / §四·2f / §四·9 / §四·9e。
+## 十、端到端串行 demo（原始红外 → GMC 特征 → NPU 检测）
+
+前九节的链路都从**已冻结的三通道特征**起步；本章往前再接一段 `gmc_stream_ocl`，
+把**原始红外序列**一路走到检测 —— 目前唯一一条**从像素到检出全程都在板端**的通路。
+原理与取舍见 `manu/memory/heatmap_npu_trial0474.md`。
+
+### 10.1 链路与设计取舍
+
+```
+原始红外序列/视频 --host转BMP--> NFS
+  --board--> gmc_stream_ocl（CPU fit + Mali-G610 融合尾）→ 三通道特征 BMP
+  --board--> rknn_heatmap_smoke（RKNN int8 去 p0）→ 检测 TSV
+  --host--> hm_demo_report.py → 三层精度对齐 + 速度报告
+```
+
+⚠️ **刻意串行、不融合二进制**：两段都是**已认证的现成二进制**。
+代价是多一轮特征 I/O（512×512×3 BMP ≈ **786 KB/帧**）；
+收益是**每段各有独立可归因的计时器**、且**其中一段可单独替换而不动另一段**。
+**不要为了"少一次落盘"去合并两个二进制** —— 合并后 speed 报告就不再可归因。
+
+### 10.2 一条命令的完整用法
+
+```bash
+cd /media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu
+
+export RK3588_PASSWORD=...          # 只经环境变量传入，绝不落盘
+
+# 有配对 GT 的序列 → 三层精度对齐 + 速度
+./run_hm_demo.sh --sequence 34_1
+
+# 视频（本项目里的 .mp4 都是审片渲染、不是干净输入，无配对 GT）→ 只报速度与检出分布
+./run_hm_demo.sh --video /path/clip.mp4 --seq-name clip --frames 120
+```
+
+| 选项 / 环境变量 | 作用 |
+|:---|:---|
+| `--sequence <seq>` | 原始序列目录名（走冻结特征对齐，**有 GT 时用这个**） |
+| `--video <path>` `--seq-name <name>` `--frames <n>` | 视频输入；`--frames 0` = 不限；`--seq-name` 缺省取文件名 |
+| `--limit <n>` | GMC 侧只跑前 n 帧（调试用；正式跑必须 0） |
+| `--th <f>` | 检出阈值，默认 **0.25**，必须与 CPU 权威臂一致 |
+| `--skip-build` | 跳过两个交叉编译步骤 |
+| `OUT_ROOT` | host 侧 CPU 臂与报告的落盘根，默认 `/media/manu/1TB-Volume/rknn_work/hm` |
+| `RK3588_PASSWORD` | **只走环境变量**；不设脚本直接退出 |
+
+⚠️ 脚本第 6 步会检查 `$OUT_ROOT/<seq>/ref_cpu/detections.json`；
+**没有就在 stdout 打印训练服务器上的参考命令并跳过 CPU 臂**，
+此时第 7/8 步要拿精度结论就必须先补这个文件。
+
+### 10.3 手工分步版（脚本失败时照这个走）
+
+```bash
+PY=/media/manu/1TB-Volume/conda-envs/rknn230/bin/python
+BR=/media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/opencl/board/board_run.py
+SEQ=34_1
+NFS_DIR=/home/manu/nfs/npu/out/demo/$SEQ        # host 侧 == 板卡的 /mnt/manu/npu/out/demo/$SEQ
+BOARD_DIR=/mnt/manu/npu/out/demo/$SEQ
+FROZEN=/home/manu/mnt/data/siping/datasets/manu/uav_gmc_median/images/val
+WORK=/media/manu/1TB-Volume/rknn_work/hm/$SEQ
+
+# ① host：原始帧 → 8bit 灰度 BMP（放进板卡可见的 NFS）
+mkdir -p $NFS_DIR/raw/$SEQ
+$PY - <<'PY'
+import os, cv2
+src = "/home/manu/mnt/data/siping/datasets/manu/anti-uav/train/34_1"
+dst = "/home/manu/nfs/npu/out/demo/34_1/raw/34_1"
+for f in sorted(os.listdir(src)):
+    if not f.lower().endswith((".png", ".jpg", ".bmp", ".tif")):
+        continue
+    im = cv2.imread(os.path.join(src, f), cv2.IMREAD_GRAYSCALE)
+    if im is None:
+        raise SystemExit(f"[ERROR] unreadable {f}")
+    cv2.imwrite(os.path.join(dst, os.path.splitext(f)[0] + ".bmp"), im)
+PY
+```
+
+⚠️ **必须是 BMP**：板端交叉构建的 OpenCV **只有内置 BMP 编解码**（不带 libpng/libjpeg），
+喂 PNG 会在写文件时直接报 `could not find a writer`。
+
+```bash
+# ② board：二进制与两个 OpenCL kernel 全部走 SSH（走 NFS 会 Text file busy）
+python3 $BR --put .../opencl/board/out/gmc_stream_ocl_arm64:/root/gmc_stream_ocl
+python3 $BR --put .../npu/out/rknn_heatmap_smoke:/root/rknn_heatmap_smoke
+python3 $BR --put .../opencl/kernels/warp_median_fused.cl:/root/kernels/warp_median_fused.cl
+python3 $BR --put .../opencl/kernels/sortnet_generated.inc:/root/kernels/sortnet_generated.inc
+
+# ③ board：GMC 阶段（原始红外 → 三通道特征 BMP + 分阶段账本）
+python3 $BR --exec "
+cd $BOARD_DIR && mkdir -p feat &&
+/root/gmc_stream_ocl --raw-root raw --sequence $SEQ --out-dir feat --out-ext bmp \
+  --fused gpu --kernel-dir /root/kernels --timing --profile-csv gmc_profile.csv \
+  > gmc_run.log 2>&1
+echo GMC_RC=\$? ; grep -E 'END-TO-END|budget|MD5-SUM' gmc_run.log"
+
+# ⑤ board：NPU 阶段（特征 → RKNN int8 去 p0 → 检测 TSV）
+python3 $BR --exec "
+cd /mnt/manu/npu && /root/rknn_heatmap_smoke data/trial0474_hm_nop0_int8.rknn \
+  --batch $BOARD_DIR/feat_named/list_board.txt --th 0.25 --stride 2 \
+  --detections-out $BOARD_DIR/npu_det.tsv > $BOARD_DIR/npu_run.log 2> $BOARD_DIR/npu_run.err
+echo NPU_RC=\$? ; wc -l $BOARD_DIR/npu_det.tsv"    # ← 产物 0 行即失败，必须追查（§四·9g）
+```
+
+**④ host 映射**（放在 ③ 和 ⑤ 之间，板卡按 push 索引命名输出、对账按数据集 id 找 GT）：
+
+```bash
+$PY - "$NFS_DIR/feat" "$NFS_DIR/feat_named" "$BOARD_DIR/feat_named" "$SEQ" "$FROZEN" <<'PY'
+import os, sys
+from pathlib import Path
+feat, named, board_named, seq, frozen = sys.argv[1:6]
+ids = sorted(int(Path(p).stem.split("__")[-1])
+             for p in os.listdir(frozen) if p.startswith(seq + "__"))
+os.makedirs(named, exist_ok=True)
+for fid in ids:                       # ⚠️ dataset_id = push_index + 1（实测，见 hm_index_probe.py）
+    d = os.path.join(named, f"{seq}__{fid:06d}.bmp")
+    if os.path.lexists(d):
+        os.unlink(d)
+    os.symlink(f"../feat/{seq}_{fid - 1:06d}.bmp", d)   # ⚠️ 必须相对路径
+with open(os.path.join(named, "list_board.txt"), "w") as f:
+    f.write("\n".join(f"{board_named}/{seq}__{i:06d}.bmp" for i in ids) + "\n")
+PY
+```
+
+⚠️ 两条**实测踩过的硬约束**：
+- **`dataset_id = push_index + 1`**（`hm_index_probe.py` 逐像素比对定出来的，**不要改成 0**）；
+- **symlink 必须是相对路径** `../feat/<seq>_%06d.bmp`，**清单必须写板卡侧前缀** `/mnt/manu/npu/...`。
+  写成 host 的 `/home/manu/nfs/...` 或绝对 symlink，板卡上 `stbi_load` 会**静默失败**、产物 0 字节。
+
+```bash
+# ⑥ host：检出级对账 + 三层精度对齐 + 速度（参数见 10.4）
+$PY hm_score_board_det.py --tsv $NFS_DIR/npu_det.tsv --ref $WORK/ref_cpu --dist 8 \
+    --out $WORK/board_perframe.json
+$PY hm_demo_report.py --sequence $SEQ --speed-only --tsv $NFS_DIR/npu_det.tsv     # 无 GT 时只报速度
+```
+
+### 10.4 🔴 三层精度对齐法
+
+**为什么必须分层**：把「板端端到端 vs CPU」压成**一个** recall 数，就把两个含义完全不同的
+偏差来源混在一起了。三层各回答一个问题：
+
+```bash
+# L1 GMC 层：板端特征 vs 冻结数据集特征，逐像素（535 帧全比）
+$PY hm_demo_report.py --sequence 34_1 \
+  --board-feat $NFS_DIR/feat --frozen-feat $FROZEN \
+  --ref $WORK/ref_cpu --perframe $WORK/board_perframe.json \
+  --tsv $NFS_DIR/npu_det.tsv --gmc-csv $NFS_DIR/gmc_profile.csv \
+  --gmc-log $NFS_DIR/gmc_run.log --npu-log $NFS_DIR/npu_run.log --push-offset 1
+
+# L2 检出层：两臂各自对 GT（比例带分子分母 + Wilson 95% CI，F1 不附区间）
+$PY hm_score_board_det.py --tsv $NFS_DIR/npu_det.tsv --ref $WORK/ref_cpu --dist 8
+
+# L3 配对层：同批帧配对 McNemar（L1/L2/L3 由上面那条 hm_demo_report.py 一次出全）
+```
+
+| 层 | 回答的问题 | 偏差大说明什么 |
+|:---|:---|:---|
+| **L1 GMC 层** | 板端特征 vs 冻结特征，逐像素差多少 | 偏差大 ⇒ **预处理缺陷**（流式引擎 / Mali 融合尾）。偏差小 ⇒ **L2 的差异不能归因于特征合成** |
+| **L2 检出层** | 两臂各自对 GT 的 P/R/F1 | 业务真正关心的量；用 `分子/分母 + Wilson 95% CI`，**F1 不是比例，不附区间** |
+| **L3 配对层** | 同一批帧上两臂的不一致 | **非显著的 recall 差不得报为回归**（`rules.md` §三·6c）；「Wilson 区间重叠」不是显著性判据 |
+
+### 10.5 已跑通的实测样例（序列 34_1，535 帧，模型 `trial0474_hm_nop0_int8.rknn`）
+
+**L2 检出层（GT = 503）**：
+
+| 臂 | TP | FP | FN | precision | recall | F1 |
+|:---|---:|---:|---:|:---|:---|---:|
+| CPU 权威臂（冻结特征 + PyTorch 去 p0） | 502 | 72 | 1 | 502/574 = 0.8746 [0.8450, 0.8992] | 502/503 = 0.9980 [0.9888, 0.9996] | 0.9322 |
+| 板端端到端（Mali GMC + RKNN int8 去 p0） | 496 | 49 | 7 | 496/545 = 0.9101 [0.8831, 0.9313] | 496/503 = 0.9861 [0.9716, 0.9932] | 0.9466 |
+
+**L3 配对层**：不一致 **6/535 = 0.0112**，NPU 独中 **0** / CPU 独中 **6**，
+McNemar **p = 0.0312 ⇒ 显著**（不是"不显著所以无差异"，是**单侧劣势且显著**）。
+
+⚠️ **这 6 帧全部是 canvas x ≤ 80.63 的贴边目标**（全序列 GT canvas x 中位数 **352.5**）。
+这是**待业务裁决的弱点**，**不是**已判定的阻塞项 —— 板端链路在正常视野内的目标上
+precision 不降反升（0.8746 → 0.9101）。
+
+**L1 GMC 层**：逐帧 `max|diff|` p50 = **3** / p95 = **7** / 全局 max = **17**（uint8 满量程 255），
+平均 `mean|diff|` = **1.275e-02** ⇒ **高度一致但非逐位**；这是流式引擎与离线 builder 的**既有**差异
+（同量级亦见于 host Python 引擎），其下游后果由 L3 定量给出。
+
+**速度（串行相加，两段各自计时）**：
+
+| 段 | p50 | 备注 |
+|:---|---:|:---|
+| GMC 特征阶段（512×512） | **31.918 ms** | 40 ms 红线 p99 **32.9 ms ⇒ PASS**；`resid` p50 **0.033 ≈ 0** ⇒ 账可信 |
+| NPU 阶段 | **56.934 ms** | `rknn_run` **55.958 ms 占 98%**，时钟自检 `[ok]` |
+| **端到端** | **88.852 ms → 11.25 fps** | = GMC + NPU，**两段相加，未做流水重叠** |
+
+🔴 **分辨率对照（实时性结论必须绑定分辨率，`rules.md` §四·9h）**：
+同一二进制、同一板卡，输入换成 **1024×576** 时 **GMC fit p50 从 23.8 ms 涨到 73.4 ms**、
+40 ms 红线 **FAIL（p99 91.4 ms）**，而 **NPU 阶段恒定 56.6 ms 不受影响**（模型输入恒为 640×640）。
+⇒ **预处理随分辨率近似线性增长，NPU 不受影响**；**禁止拿 512×512 的时延外推到高分辨率**。
+⚠️ 已知问题待修：短片段下 `[S-E2E]` 那一行的 GMC p50 仍按未封顶的 100 帧冷启动计算，
+会与上方分阶段表（已封顶为 `总帧数/5`）的 GMC p50 不一致；引用端到端数时以分阶段表的口径为准。
+
+### 10.6 ⚠️ 本轮踩的坑
+
+| # | 现象 | 根因 / 解法 |
+|:---|:---|:---|
+| 1 | GMC 跑完报 `could not find a writer` | 板端 OpenCV **无 PNG 写入器**（交叉构建不带 libpng/libjpeg）。精度对齐**必须 `--out-ext bmp`**（无损） |
+| 2 | 产物 0 字节 / 0 行，日志末尾没有摘要 | 清单里写了 host 绝对路径或写了绝对 symlink ⇒ `stbi_load` 失败后**静默 return 1**。**产物 0 行必须当失败追查日志全文**（`rules.md` §四·9g） |
+| 3 | 图内中文全渲染成 `?????`，**且报错为零** | `cv2.putText` 是 **Hershey 字库，画不了中文**。**图内文本一律 ASCII，中文走 stdout** |
+| 4 | 坐标反算出负值 | letterbox canvas→源图是 **`(canvas - src*scale)/2`**，不是 `(src*scale - src)/2`。⚠️ **这种错只有画出来才看得见** |
+| 5 | 短序列上"剔除 100 帧冷启动"让 120 帧只剩 20 帧统计 | 报告工具已把 warmup 降为上限 `总帧数/5` 并**打印实际 n**；看到 `⚠️ 仅有 N 帧` 就按该样本量看待结论 |
+| 6 | 管道里没报错却也没报告 | **不要用 `grep`/`sed` 过滤报告输出来判成败**，会把 traceback 一起吞掉。用报告工具自带的 **`--speed-only`**（`rules.md` §四·9g） |
+
+### 10.7 产物清单
+
+```
+manu/pipeline/npu/out/demo34_1/   报告 report_34_1.txt + 逐帧对账 board_perframe.json
+                                  + GMC 账本 gmc_profile.csv / gmc_run.log
+                                  + 检测 TSV npu_det.tsv（535 行）+ 两张 OSD
+manu/pipeline/npu/out/lqreview/   视频路径的速度报告 speed_lqreview.txt（无 GT，只报速度）
+```
+
+运行期的实际工作目录是 host 的 `$OUT_ROOT/<seq>/` 与板卡可见的
+`/home/manu/nfs/npu/out/demo/<seq>/`（== 板卡的 `/mnt/manu/npu/out/demo/<seq>/`）；
+上面两行是**归档快照**。
+
+OSD 用 **`hm_demo_osd.py`**（**直接吃 `--detections-out` 的 TSV**）：
+
+```bash
+$PY hm_demo_osd.py --frame 34_1__000346 \
+  --feat-dir /home/manu/mnt/data/siping/datasets/manu/uav_gmc_median/images/val \
+  --tsv out/demo34_1/npu_det.tsv \
+  --ref $WORK/ref_cpu/detections.json \
+  --out out/osd_34_1__000346.png
+```
+
+⚠️ **`hm_osd.py` 不能用于这条链路**：它只吃板端张量 dump（`_hm.bin`/`_off.bin`，
+经 NFS 约 2 帧/分钟）；demo 路径走的是 TSV，对得上。
+
+原理与全部实测数字见 `manu/memory/heatmap_npu_trial0474.md`；判据出处见 `manu/memory/rules.md` §三·6b / §三·6c / §三·10 / §三·4b / §四·2e / §四·2f / §四·9 / §四·9e / §四·9g / §四·9h。
