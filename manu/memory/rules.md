@@ -46,6 +46,34 @@
 
 ---
 
+## 〇之二、【最高优先级铁律·基线冻结】官方特征构建脚本 `manu/data/build_full_median_dataset.py` **严禁修改**
+
+> 2026-10-15 用户明确指令：**「绝不允许修改，因为这是我的 baseline (ref)，非常关键」**。本条优先级与铁律零并列。
+
+- **受保护对象**：`manu/data/build_full_median_dataset.py`（历史提交 `622b179cb`，原路径 `manu/build_full_median_dataset.py`）。
+- **它是什么**：**生成官方 `uav_gmc_median` 数据集的唯一脚本** —— 即 Trial 0474 全部指标（单帧 F1 0.9064、
+  系统级 0.9209）的输入特征来源。**它定义了 baseline 本身，不是某个实验的脚手架。**
+  证据：服务器 `~/.bash_history` 记录了当年调用
+  `python manu/build_full_median_dataset.py --ref-dataset .../manu/uav --raw-root .../anti-uav
+   --output .../uav_gmc_median --splits train,val --window 21 --workers 16`。
+- **禁止事项**：
+  1. 🔴 **禁止任何 Edit/Write**，包括「优化」「修 bug」「统一风格」「加注释」「补 type hint」。
+  2. 🔴 **禁止为了某个实验而改它的通道编排或算法**（Ch0=`I_t` / Ch1=`|I_t−W(I_{t−2})|` / Ch2=`(I_t−B_t)^+`，
+     且第 257 行 `compute_affine(im_h, im_curr)` 是**逐 lag 直接拟合**，不是相邻帧连乘 —— 这两条都是 baseline 语义本身）。
+  3. 🔴 **禁止用它的副本冒充它**。确有派生需求（如 4 通道暗残差版）时，**另立新文件**，
+     已归档为 `manu/data/build_full_median_signed_dataset.py`，原脚本保持原样。
+- **正确做法**：需要不同行为时**新增脚本**并显式 import 复用，或走 `manu/pipeline/streaming_feature_pipeline.py`
+  的 `OnlineFeaturePipeline`（已实测 `anchor_step=2` 时 G2 与本脚本产物 `max|d| = 0` 逐字节一致）。
+- **校验闸门**：任何声称「复现了官方特征」的结论，必须先过 G2 闸门
+  （`manu/pipeline/verify_streaming_pipeline.py --mode verify --anchor-step 2 --g2-max-diff 0`，
+  判据 `max|d| = 0`）。**未过闸门的一切特征重建结果一律作废**，不得进入评测或汇报。
+- ⚠️ **一个真实事故（本条由来）**：该脚本曾在暗残差实验中被改写成「Ch0-2 直接读官方集、只新算 Ch3」的
+  4 通道版本并留在原路径上，**把唯一的 baseline 构建器覆盖了**，导致后续任何人想从原图重建官方特征时
+  无路可走（曾误用 `build_fpv_ir_gmc_median.py`，因其用**相邻帧仿射连乘**而非逐 lag 直接拟合，特征不同、
+  F1 掉 0.004）。**2026-10-15 已从 `622b179cb` 逐字节恢复并校验 `diff` 一致。**
+
+---
+
 ## 一、核心铁律 (STRICT ENFORCEMENT)
 
 ### 1. 【核心铁律一】严禁 Agent 擅自启动任何训练、推理或重型探测脚本！免检本地环境！

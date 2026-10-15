@@ -92,6 +92,12 @@ def parse_args():
     parser.add_argument("--downscale", type=int, default=2, help="Downscale factor for fast GMC estimation (default: 2)")
     parser.add_argument("--workers", type=int, default=8, help="Number of parallel worker processes (default: 8)")
     parser.add_argument(
+        "--out-ext",
+        type=str,
+        default=".jpg",
+        help="Output image extension. Use .png for a lossless feature set (default: .jpg)",
+    )
+    parser.add_argument(
         "--max-frames",
         type=int,
         default=0,
@@ -167,6 +173,7 @@ def process_single_ir_sequence(
     max_frames: int = 0,
     image_paths: list[Path] | None = None,
     labeled_only: bool = False,
+    out_ext: str = ".jpg",
 ) -> dict:
     """
     Process one IR sequence directory:
@@ -253,7 +260,7 @@ def process_single_ir_sequence(
             continue
 
         # Target filenames
-        dst_im_name = f"{seq_name}__{stem}.jpg"
+        dst_im_name = f"{seq_name}__{stem}{out_ext}"
         dst_lbl_name = f"{seq_name}__{stem}.txt"
         dst_img_path = out_img_p / dst_im_name
         dst_lbl_path = out_lbl_p / dst_lbl_name
@@ -364,6 +371,7 @@ def process_split(
     downscale: int,
     workers: int,
     max_frames: int = 0,
+    out_ext: str = ".jpg",
 ):
     split_dir = fpv_root / split_name
     if not split_dir.exists():
@@ -408,22 +416,26 @@ def process_split(
                 stride_step=stride_step,
                 downscale=downscale,
                 max_frames=max_frames,
+                out_ext=out_ext,
             )
             total_success += res["success"]
             total_fail += res["fail"]
     else:
+        # Keyword args for everything past `downscale`: the optional parameters sit at
+        # positions 9-11, and a positional out_ext silently binds to `image_paths`.
         with ProcessPoolExecutor(max_workers=workers) as executor:
             future_to_seq = {
                 executor.submit(
                     process_single_ir_sequence,
-                    sd.name,
-                    str(sd),
-                    str(out_img_dir),
-                    str(out_lbl_dir),
-                    window,
-                    stride_step,
-                    downscale,
-                    max_frames,
+                    seq_name=sd.name,
+                    seq_dir_str=str(sd),
+                    out_img_dir_str=str(out_img_dir),
+                    out_lbl_dir_str=str(out_lbl_dir),
+                    window=window,
+                    stride_step=stride_step,
+                    downscale=downscale,
+                    max_frames=max_frames,
+                    out_ext=out_ext,
                 ): sd.name
                 for sd in seq_dirs
             }
@@ -496,6 +508,7 @@ def main():
                 downscale=args.downscale,
                 image_paths=segment_paths,
                 labeled_only=True,
+                out_ext=args.out_ext,
             )
             total_success += result["success"]
             total_fail += result["fail"]
@@ -533,6 +546,7 @@ def main():
                 downscale=args.downscale,
                 workers=args.workers,
                 max_frames=args.max_frames,
+                out_ext=args.out_ext,
             )
 
     write_data_yaml(output_root)
