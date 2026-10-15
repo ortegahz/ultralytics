@@ -336,6 +336,13 @@ void release(Ctx& c, std::vector<rknn_output>* out) {
 
 }  // namespace
 
+// ---------------------------------------------------------------------------
+// Reuse hook. Defining RKNN_HEATMAP_SMOKE_NO_MAIN lets e2e_core.cpp #include
+// this file and call the very same letterbox / run_once / dequant /
+// extract_peaks on the very same Ctx. The main() body below is NOT touched, so
+// the e2e demo and this binary produce identical heatmaps by construction.
+// ---------------------------------------------------------------------------
+#ifndef RKNN_HEATMAP_SMOKE_NO_MAIN
 int main(int argc, char** argv) {
   if (argc < 3) {
     printf("Usage: %s <model.rknn> <feature.jpg> [--th F] [--stride N] [--topk N]\n"
@@ -696,3 +703,4 @@ int main(int argc, char** argv) {
   rknn_destroy(c.ctx);
   return 0;
 }
+#endif  // RKNN_HEATMAP_SMOKE_NO_MAIN

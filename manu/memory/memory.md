@@ -2699,3 +2699,124 @@ RK3588 标称 3 个 NPU 核，但**第 3 个并发上下文一提交就撞 RKNPU
 3. **本节未做 PTQ 校准集敏感性分析**。int8 模型 `trial0474_hm_nop0_int8.rknn` 的校准数据与
    量化方案未在本轮复核 ⇒ 「int8 代价 −0.0197」是该**具体模型**的结论，
    不可外推为「int8 量化的普遍代价」。若要改进，应先重训或重校准再测。
+
+---
+
+## 二十一、`e2e_demo.cpp` 单进程纯 C++ demo，与 shell demo 输出逐字节一致（2026-10-15 实测）
+
+**目标**：弃用 `run_hm_demo.sh` 的 shell 编排，单写一个 `e2e_demo.cpp`（纯 C++ 执行），
+在同一个短序列上验证两个 demo 输出**完全一致**——三通道特征 + 推理 heatmap。
+
+**验证序列**：`34_1`（537 帧，真实 val 序列，有 GT）。
+
+| 产物 | 一致数 | 结果 |
+|---|--:|---|
+| 三通道特征 BMP（537 张） | **537 / 537** | 逐字节一致 |
+| heatmap + offset 张量（535 帧 × 2，float32 `.bin`） | **1070 / 1070** | 逐字节一致 |
+| 检出 TSV（535 行） | **535 / 535** | 逐行一致 |
+
+两边 GMC 特征序列 md5 相同 `5caa3c6fc72eb7fad4dd5dfd08ebf4ad`，
+回退计数均为 0（`fitgate=0 chain=0 fitdeadline=0 cornercap=0`）。
+检出总数 ref 545 / e2e 547，差 2 恰为 e2e 多出的 push 0/1 两帧，非差异。
+
+### 21.1 做法：核心代码复用而非重写（本节方法论，可迁移到任何「等价性证明」任务）
+
+```
+e2e_core.h     可复用 API 声明（后续并行 demo 直接调）
+e2e_core.cpp   API 实现：#include 两个生产源，main 编译掉
+e2e_demo.cpp   纯 C++ 驱动，串行调两个 API
+```
+
+复用同一批类与函数：
+- 阶段 A（`cpp/gmc_stream_ocl.cpp`）：`OnlineFeaturePipeline` / `FusedGpu` /
+  `find_sequence_folder` / `list_dir` / `mkdir_p`
+- 阶段 B（`npu/rknn_heatmap_smoke.cpp`）：`letterbox` / `run_once` / `dequant` /
+  `extract_peaks` / `Ctx` / `write_bin` / `fnv1a`
+
+对既有生产文件**只加一行 `#ifndef ..._NO_MAIN` 包裹 main，函数体一字未改**。
+
+**等价性的最强证据**：加 guard 后重编两个原二进制，与板上原有那份**逐字节一致**：
+
+| 二进制 | 重编后 md5 | 板上原版 md5 |
+|---|---|---|
+| `rknn_heatmap_smoke` | `170379506adb4aeaef2f5a5f8ce65cc2` | 同 |
+| `gmc_stream_ocl_arm64` | `aa99da811356694d66a0bce6de108b92` | 同 |
+
+⇒ 编译器产出的机器码都没变，**「同一份代码」是可证事实而非说法**。
+本方法可直接套用于任何「A/B 必须等价」的改造：**只加编译开关，不动被测函数体，
+然后用产物 md5 自证**。
+
+### 21.2 帧号映射（PUSH_OFFSET=1，比对时必须显式换算）
+
+| | 命名 | 覆盖 |
+|---|---|---|
+| 参考 GMC 产出 | `feat/34_1_<push:06d>.bmp` | push 0..536 |
+| 参考改名后 | `feat_named/34_1__<id:06d>.bmp`，`id = push + 1` | id 3..537 |
+| 参考 NPU 阶段 | 读 id 3..537 | = push **2..536**，535 帧 |
+| e2e_demo NPU 阶段 | 读 `feat/34_1_<push:06d>.bmp` | push **0..536**，537 帧 |
+
+⇒ **参考 id N ≡ e2e push N−1**。shell 版需要 host 侧 python 建符号链接改名，
+是因为两个独立进程必须就文件名达成一致；单进程后这个协调步骤**结构性消失**。
+不做这层映射就会得到假的「一致」或假的「差异」。
+
+### 21.3 为并行 demo 预留的能力
+
+`e2ecore::extract_features()` 返回该序列写出的特征路径列表（push 顺序）；
+`e2ecore::run_infer()` 接受任意 `frames` 子集 ⇒ 并行 GMC 可按序列或按帧切分，
+并行 NPU 每个 worker 传自己的 shard。
+
+**硬约束（见 §20.3）**：RK3588 NPU 并行上限 **2**，第 3 个并发上下文撞 RKNPU 6s
+job timeout → 驱动 soft reset → 在飞全陪葬；6/9 进程吞吐反劣化 3 倍。
+
+### 21.4 ⚠️ Mali 驱动锁泄漏 → 板卡必须断电重启（重要运维教训）
+
+§20.3 那次 NPU 并行度扫描触发了 RKNPU 软复位与
+`BUG: spinlock bad magic on CPU#2, kswapd0/146`（debug kernel oops），
+**此后任何打开 `/dev/mali0` 的进程都永久阻塞**：
+
+- 卡在内核 `rwsem_down_write_slowpath`，进程 D 状态，`kill -9` 无效
+- load average 88（8 核），`gmc_stream_ocl` 连 `--help` 都出不来
+- **`reboot` 命令在该状态下不可靠**（后台化后随 ssh 断开一起死），最终是**手动断电**才恢复
+
+**重启后 NFS 挂载会丢，必须手工重挂**（`/etc/fstab` 里没有这条）：
+
+```sh
+mkdir -p /mnt/manu
+mount -t nfs4 -o rw,vers=4.0,rsize=1048576,wsize=1048576,soft,proto=tcp,timeo=5,retrans=2 \
+  192.168.0.115:/run/media/manu/SSD960-LOCAL/nfs /mnt/manu
+```
+
+⇒ **教训**：NPU/GPU 压测前先确认失败模式可恢复；这类驱动 oops 之后不要再假设
+「重启一下就好」，断电是唯一可靠手段。板上任何长跑任务前都要先检查 mali 是否可用
+（`timeout 60 /root/gmc_stream_ocl --help` 冒烟）。
+
+### 21.5 ⚠️ 比对脚本自身的坑（假信号，比被测对象更危险）
+
+本轮 `cmp_e2e_outputs.py` 自己出过两个 bug，**都制造了假结论**：
+
+1. 先把参考的 `_hm.bin` 拿去和 e2e 的 `_off.bin` 比 —— offset 张量是 heatmap 的两倍大
+   （409600 vs 819200），报出「535/1070 全不一致」，实际全一致。
+   ⇒ **必须同种类比同种类**，且要在脚本里显式断言 kind 一致。
+2. 解析帧号漏剥 `.bmp` 后缀，`int('000003.bmp')` 直接抛异常。
+
+⇒ **比对脚本自身必须先自证可靠**：跑出任何数字前，先用「人眼已知该一致/该不一致」的
+样本验证它一遍。第一个跑出来的数字最容易直接采信，也最容易是脚本自己的错。
+
+### 21.6 脚本清单（md5 见实验记录，活文档不重复登记）
+
+- `manu/pipeline/npu/e2e_demo.cpp` — 纯 C++ 驱动
+- `manu/pipeline/npu/e2e_core.h` / `e2e_core.cpp` — 可复用 API
+- `manu/pipeline/npu/build_e2e_demo_arm64.sh` — 合并两条构建链
+- `manu/pipeline/npu/cmp_e2e_outputs.py` — 逐字节比对
+- 板卡 `/root/e2e_demo`（AArch64）
+
+**完整记录（命令 / 环境 / 产物 md5）**：
+`manu/docs/experiments/2026-10-15_e2e_demo_cpp_vs_shell_demo.md`
+
+### 21.7 ⚠️ 本节两条限定
+
+1. **只验证了 `34_1` 一个序列、537 帧**，且全程 `anchor_step=10 / --fused gpu / th=0.25`。
+   未覆盖其余 23 个序列、其它 anchor_step、`--fused cpu`、或 `--th` 其它档位。
+2. **e2e_demo 多了 `release(c, &out)` 而原 rknn 二进制批处理模式没有**。释放上一帧的
+   1.2 MB 张量缓冲不改变 NPU 输出（数值由 `rknn_run` 产生），且 1070/1070 逐字节一致
+   已实测证明；但这确实是**两者的唯一一处行为差异**，引用「完全相同的代码」时需一并说明。

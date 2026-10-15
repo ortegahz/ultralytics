@@ -2196,6 +2196,14 @@ static void write_profile_csv(const char* path, const std::vector<FrameProfile>&
     std::fclose(f);
 }
 
+// ---------------------------------------------------------------------------
+// Reuse hook. Defining GMC_STREAM_OCL_NO_MAIN lets e2e_core.cpp #include this
+// file and drive the very same classes (OnlineFeaturePipeline / FastGMCEstimator /
+// FusedGpu) from a single-process demo. The main() body below is NOT touched --
+// the point is that the e2e demo and this binary execute the identical code, so
+// their features are byte-identical by construction rather than by re-derivation.
+// ---------------------------------------------------------------------------
+#ifndef GMC_STREAM_OCL_NO_MAIN
 int main(int argc, char** argv) {
     std::string why;
     if (!gmcpp::md5_self_test(&why)) {
@@ -2677,3 +2685,4 @@ int main(int argc, char** argv) {
     }
     return 0;
 }
+#endif  // GMC_STREAM_OCL_NO_MAIN

@@ -896,3 +896,83 @@ $PY manu/evaluation/eval_arm_pc_gmc_ab.py \
 2. 臂3 峰值在 th=0.20、臂1/2 在 0.25；同点口径 −0.020986，**两口径不可混用**。
 3. **未做 PTQ 校准敏感性分析** ⇒「int8 代价 −0.0197」是该**具体模型**结论，
    不可外推为 int8 的普遍代价。
+
+---
+
+## 17. ✅ `e2e_demo.cpp` 单进程纯 C++ demo，与 shell demo 逐字节一致（2026-10-15）
+
+弃用 `run_hm_demo.sh` 的 shell 编排，单进程纯 C++ 跑完 raw → 三通道特征 → RKNN int8 → heatmap。
+验证序列 `34_1`（537 帧）：
+
+| 产物 | 一致数 |
+|---|--:|
+| 三通道特征 BMP | **537 / 537** |
+| heatmap + offset 张量（float32 `.bin`） | **1070 / 1070** |
+| 检出 TSV | **535 / 535** |
+
+两边 GMC 特征序列 md5 相同 `5caa3c6fc72eb7fad4dd5dfd08ebf4ad`，回退计数均为 0。
+检出总数 545 vs 547，差 2 恰为 e2e 多出的 push 0/1 两帧，非差异。
+
+### 17.1 方法论（可迁移）
+
+`e2e_core.cpp` **#include 两个生产源、main 编译掉**，调同一批类与函数
+（`OnlineFeaturePipeline`/`FusedGpu`、`letterbox`/`run_once`/`dequant`/`extract_peaks`），
+对既有文件**只加一行 `#ifndef` 包裹 main，函数体一字未改**。
+
+**等价性最强证据**：重编的两个原二进制与板上原版**逐字节一致**
+（`rknn_heatmap_smoke` `170379506ad...`、`gmc_stream_ocl_arm64` `aa99da8113...`）
+⇒ 「同一份代码」是可证事实。
+
+**推广**：任何「A/B 必须等价」的改造，都应走「只加编译开关、不动被测函数体、
+再用产物 md5 自证」这条路。
+
+### 17.2 帧号映射（PUSH_OFFSET=1）
+
+参考按 id 3..537 读（= push 2..536），e2e 按 push 0..536 读
+⇒ **参考 id N ≡ e2e push N−1**。shell 版需要 host 侧 python 建符号链接改名，
+是因为两个进程必须就文件名达成一致；单进程后该步骤结构性消失。
+不做这层映射会得到假的「一致」或假的「差异」。
+
+### 17.3 并行预留 + 硬约束
+
+`extract_features()` 返回特征路径列表，`run_infer()` 接受任意 frames 子集
+⇒ 并行 demo 可按序列或按帧切分。
+**但 RK3588 NPU 并行上限 = 2**（§16.2），第 3 个并发上下文撞 6s job timeout 触发驱动软复位。
+
+### 17.4 ⚠️ Mali 驱动锁泄漏 → 必须断电重启（运维教训）
+
+§16.2 那次 NPU 并行扫描触发 RKNPU 软复位 + `BUG: spinlock bad magic on CPU#2, kswapd0/146`
+（debug kernel oops）后，**任何打开 `/dev/mali0` 的进程都永久阻塞**：
+卡在 `rwsem_down_write_slowpath`，D 状态 `kill -9` 无效，load average 88。
+
+- **`reboot` 在该状态下不可靠**（后台化后随 ssh 断开一起死），最终**手动断电**才恢复。
+- **重启后 NFS 挂载丢失**（`/etc/fstab` 无此条），须手工重挂：
+  ```sh
+  mount -t nfs4 -o rw,vers=4.0,soft,proto=tcp,timeo=5,retrans=2 \
+    192.168.0.115:/run/media/manu/SSD960-LOCAL/nfs /mnt/manu
+  ```
+- 长跑任务前先冒烟：`timeout 60 /root/gmc_stream_ocl --help`
+
+### 17.5 ⚠️ 比对脚本自身的坑
+
+`cmp_e2e_outputs.py` 自己出过两个 bug，**都制造了假结论**：
+① 把参考 `_hm.bin` 和 e2e `_off.bin` 比（offset 是 heatmap 两倍大），报「全不一致」实际全一致；
+② 帧号解析漏剥 `.bmp` 抛异常。
+⇒ **比对脚本自身必须先自证可靠**（用已知该一致/该不一致的样本验证），
+第一个跑出来的数字最容易被直接采信，也最容易是脚本自己的错。
+
+### 17.6 脚本
+
+`manu/pipeline/npu/e2e_demo.cpp`、`e2e_core.h`、`e2e_core.cpp`、
+`build_e2e_demo_arm64.sh`、`cmp_e2e_outputs.py`；板卡 `/root/e2e_demo`。
+
+**完整记录（命令 / 环境 / md5）**：
+`manu/docs/experiments/2026-10-15_e2e_demo_cpp_vs_shell_demo.md`
+
+### 17.7 ⚠️ 两条限定
+
+1. **只测了 `34_1` 一个序列 537 帧**，且全程 `anchor_step=10 / --fused gpu / th=0.25`；
+   其余 23 序列、其它 anchor_step、`--fused cpu` 均未覆盖。
+2. **e2e_demo 多了 `release(c, &out)`，原 rknn 批处理模式没有**。释放上一帧 1.2 MB 缓冲
+   不改变 NPU 输出（数值由 `rknn_run` 产生），且 1070/1070 已实测一致；
+   但这是**两者唯一的行为差异**，说「代码完全相同」时需一并说明。
