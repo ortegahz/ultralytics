@@ -2437,3 +2437,166 @@ ELF machine `0xb7` = **AArch64**（此前记录的「x86 版不可执行」已�
    须另跑 `cache_trial0474_inferences.py --ablate-p0` 后重复本流程。
 4. **逐档 ΔF1 由 `eval_arm_pc_gmc_ab.py` 计算**（GT 就近匹配、Distance ≤ 8.0px、按分数降序占用），
    与 §11 同款逻辑；但该脚本已过 §12.6-3 的自校准闸门，可独立复现 headline。
+
+---
+
+### 13. ✅✅ ARM GMC `anchor_step=10` 评估（2026-10-15）—— **e2e 实际配置，无精度损失**
+
+> 第二轮。评估对象、参照系、口径、评估链路与 §12 **完全一致**，唯一变量是把 ARM 臂特征
+> 从 `anchor_step=2` 换成 `anchor_step=10`。PC 臂**完全复用**（`pc_bmp_full_cache.pkl` 未重跑）。
+> 用户要求「带 bad case handle 的结果，最切合实际场景」——闸门本就是默认开启，本轮即含回退行为。
+> **独立实验记录**：`manu/docs/experiments/2026-10-15_arm_gmc_precision_eval_s10.md`
+> （第一轮记录 `..._arm_gmc_precision_eval.md` 已在头部加了指向本轮的交叉引用与外推禁令）
+
+#### 13.1 结论
+
+**e2e 实际配置（`anchor_step=10`）同样没有精度损失。**
+三臂峰值 F1 全部落在 **0.9021 ~ 0.9025** 的 0.0004 窄带内，两两差异都在噪声下限（±3 TP ≈ ±0.0002）以内。
+
+| 臂 | anchor_step | th | F1 | P | R | TP | FP |
+| :-- | --: | --: | --: | --: | --: | --: | --: |
+| PC-BMP（§12 同源参照） | — | 0.25 | 0.902316 | 94.87% | 86.02% | 21,601 | 1,167 |
+| ARM-BMP（§12） | 2 | 0.25 | 0.902116 | 94.84% | 86.01% | 21,598 | 1,174 |
+| **ARM-BMP（本轮）** | **10** | 0.25 | **0.902513** | 94.91% | 86.03% | 21,603 | 1,159 |
+
+| 对比 | ΔF1 | 折合 TP |
+| :-- | --: | --: |
+| PC vs ARM-step2（§12） | −0.000201 | −3 |
+| **PC vs ARM-step10（本轮）** | **+0.000197** | **+2** |
+| ARM-step2 vs ARM-step10 | +0.000397 | +5 |
+
+跨 15 档：均值 **−0.000078**，区间 [−0.000653, +0.000272]，**负档 7/15**，正负各半。
+⇒ **anchor_step 从 2 换到 10，在这份 val 上分不出差异**；决定精度的是 GMC 本身，不是锚点步长。
+
+⚠️ 口径提醒：memory 另记的 PC 侧 tree 臂 `F1 0.906050 / ΔF1 −0.000311` 是**对冻结 headline
+0.906361** 而言；这里的 0.902 是**对 PC-BMP 臂**而言。两臂共同少 ~0.004（输入为
+`anti_uav_bmp_all` 的 BMP 原帧），**两个口径不可直接相减**。
+
+#### 13.2 🔴 e2e demo 确实用 `anchor_step=10`（三处独立证据，非引 memory）
+
+| # | 证据 | 内容 |
+| --: | :-- | :-- |
+| 1 | 编排脚本 | `manu/pipeline/npu/run_hm_demo.sh:170-172` 调 `gmc_stream_ocl` 时**根本没传 `--anchor-step`** ⇒ 走二进制默认 |
+| 2 | 源码默认 | `manu/pipeline/cpp/gmc_stream_ocl.cpp:2217`：`int limit = 0, anchor_step = 10, window = 21, stride_step = 2, downscale = 2;` |
+| 3 | 板卡运行时 | 按 demo 写法实跑 30 帧探针，二进制自报 `[BUILD] ... anchor_step=10 ... mode=tree` + `[NOTE] mode=tree is the shipping arm; it is NOT equivalent to the frozen native set` |
+
+源码文件头 `:74-77` 亦注明 `--anchor-step 10 (default) ... The shipping config` /
+`--anchor-step 2 ... the ONLY setting that is *exactly* equivalent to the frozen native (SOTA) pipeline`。
+
+⇒ **§12 用 step=2 跑出的「移植无回归」是精确等价档下的结论，不能直接外推到 e2e 实际配置**；
+本节补齐了 step=10 这一档，结论同样成立。
+
+#### 13.3 ✅ bad case handle：默认开启，本轮即含真实回退行为
+
+`run_step10_board.sh` **未传任何闸门参数**，三项 handle 全部处在默认开启状态。
+全量 24 序列闸门触发统计（取自板卡 `<seq>/gmc_s10.log` 的 `[HANDLE]` 行）：
+
+| 序列 | fitgate | chain | | 序列 | fitgate | chain |
+| :-- | --: | --: | :-- | :-- | --: | --: |
+| wg2022_ir_012_split_08 | **116** | **74** | | wg2022_ir_020_split_07 | 57 | 24 |
+| wg2022_ir_052_split_08 | 101 | 64 | | 01_4485_1167-2666 | 57 | 8 |
+| wg2022_ir_041_split_06 | 79 | 65 | | wg2022_ir_040_split_04 | 55 | 29 |
+| wg2022_ir_015_split_01 | 71 | 29 | | wg2022_ir_020_split_05 | 47 | 31 |
+| 02_6321_0274-2773 | 30 | 10 | | wg2022_ir_010_split_01 | 18 | 0 |
+| wg2022_ir_020_split_01 | 11 | 7 | | 其余 13 条 | 0 | 0 |
+
+`fitdeadline` 全程 **0** —— 超时臂按设计关闭（见 §13.4）。坏帧集中在**大晃动序列**，
+正是闸门该起作用的地方。
+
+**三层 handle 的语义**（`gmc_stream_ocl.cpp`）：
+
+| 层 | 位置 | 默认 | 触发后行为 |
+| :-- | :-- | :-- | :-- |
+| 合理性闸门 `fitgate` | `check_fit()` `:670-716` | **开** | `W(.) = IDENTITY`；分 `shift` / `other` 计数 |
+| 连乘链二次闸门 `chain` | `:1651-1656` | **开** | `W(.) = IDENTITY`；「一个坏锚点」与「一条坏链」分开计数 |
+| 超时预算 `fitdeadline` | `--fit-deadline-ms` `:2046-2052` | **关** | `identity` 或 `hold`（复用**上一次成功**拟合，不外推） |
+
+**为什么坏拟合回退 IDENTITY 而不是 clamp**（源码 `:641-668` 原文依据）：
+龙泉山业务域实测出现过**平移 4863 px 的有限但物理荒谬解**，`all_finite()` 会放行；
+`required_pad()` 忠实报告 → 设备图 10366×10238 = 106 Mpixel/槽 × 45 槽 ≈ **4.8 GB**
+→ 板卡 OOM killer 以 `file-rss:7623308kB` 杀进程，**无断言、无报错、无非零 rc**。
+实测真实运动峰值仅 ~76 px（640 px 帧宽），故 `kDefaultMaxShiftFrac = 1.0` 留了约 8× 余量。
+注释原话：`Clamping the translation to the cap still yields a wildly wrong warp`。
+
+**为什么默认关闭超时臂**（`:2047-2049` 原文）：
+`OFF is deliberate: a wall-clock trigger makes the output depend on machine load.`
+⇒ 开了它，同一份 raw 在不同负载下出不同特征，**精度对账失效**。部署要保 40 ms 硬上限时再开。
+
+**实测触发构成**：01_4485 的 `rejected=57/8838 (0.645%) [shift=13 other=44]`
+—— 多数被拒不是「平移超标」而是 scale/extent 类，印证 `scale×extent+translation` 不独立才是真凶。
+
+#### 13.4 附带结论：step=10 比 step=2 快约 3×
+
+| 配置 | min | p50 | max | 每帧拟合 |
+| :-- | --: | --: | --: | --: |
+| `anchor_step=2` | 37.385 | **111.109** | 216.527 | 21 次（零连乘） |
+| `anchor_step=10` | 13.519 | **35.127** | 63.870 | 6.02 次 |
+
+单位 ms/frame，板卡全量 24 序列。二进制自报 `fits/frm=6.02 compose/frm=40.00`（step=2 为 21.00 / 0.00），
+结构上印证 5 锚点 + 深度 4 连乘。**这是嵌入式预算的有利数据**，但仍受 §13.6 限定 3 约束。
+
+#### 13.5 🔴 复现命令清单（铁律九登记项，缺此项本节视为不合格）
+
+PC 臂、评估脚本、口径全部沿用 §12.7，**只有 ARM 特征侧不同**。差异部分：
+
+```sh
+# 1 板卡 step=10 特征生成（脚本已固化在仓库）
+#   manu/pipeline/npu/run_step10_board.sh —— 与 step=2 版仅 --anchor-step 与输出目录不同
+scp -P 22 manu/pipeline/npu/run_step10_board.sh root@192.168.0.64:/root/run_step10.sh
+ssh -p 22 root@192.168.0.64 'chmod +x /root/run_step10.sh && \
+    nohup /root/run_step10.sh > /mnt/manu/armfeat_s10.log 2>&1 &'
+#   产出 /mnt/manu/armfeat_s10/<seq>/feat/<seq>_<k:06d>.bmp，31,661 帧，日志尾输出 STEP10_ALL_DONE
+
+# 2 传输（6 流并行，31,661 帧 / 325 s ≈ 81 MB/s；单流仅 13.8 MB/s）
+split -n l/6 -d /tmp/s10list.txt /tmp/s10part_
+for p in /tmp/s10part_*; do rsync -az -e "ssh -p 32222" --files-from="$p" --relative \
+  /run/media/manu/SSD960-LOCAL/nfs/armfeat_s10/ \
+  huangzhe@192.168.99.40:/mnt/data/siping/datasets/manu/armfeat_stage_s10/ & done; wait
+
+# 3 组装（OFFSET=1，丢弃 k<2 的 48 帧）
+$PY manu/data/assemble_arm_gmc_dataset.py \
+  --stage /mnt/data/siping/datasets/manu/armfeat_stage_s10 \
+  --out   /mnt/data/siping/datasets/manu/arm_gmc_full_s10 \
+  --labels-from /mnt/data/siping/datasets/manu/ref_bmpval \
+  --expect-total 31613 --verify-md5 60
+
+# 4 ARM-step10 臂推理（PC 臂沿用 pc_bmp_full_cache.pkl，不重跑）
+$PY manu/inference/cache_trial0474_inferences.py \
+  --weights runs/optuna_p0_nas/trial_0474/weights/best.pt \
+  --data /mnt/data/siping/datasets/manu/arm_gmc_full_s10/data.yaml \
+  --output runs/gmc_eval/arm_gmc_s10_cache.pkl \
+  --imgsz 640 --stride 2 --batch 32 --device 0 --conf-thresh 0.08 --top-k 80
+
+# 5 A/B 评估（对照臂换成 step10 臂，其余不变）
+$PY manu/evaluation/eval_arm_pc_gmc_ab.py \
+  --arm-a runs/gmc_eval/pc_bmp_full_cache.pkl  --label-a PC-BMP \
+  --arm-b runs/gmc_eval/arm_gmc_s10_cache.pkl  --label-b ARM-S10 \
+  --tol 8.0 \
+  --out-json /mnt/data/siping/datasets/manu/gmc_arm_s10_vs_pc_ab.json
+```
+
+**产物 md5**（训练服务器 `runs/gmc_eval/`）：
+`pc_bmp_full_cache.pkl` = `59c0a19bc8fa4705d37e51fdd8f4a0c5`（§12 PC 臂，本轮未动）
+`arm_gmc_full_cache.pkl` = `7b02d122a2c569e615d88dffb36c4bbc`（step=2 臂，本轮未动）
+`arm_gmc_s10_cache.pkl` = `721f53fd39bf944587d1adf5d6bf33de`（step=10 臂）
+
+**路径隔离**：step=10 全部产物带 `_s10` 后缀（`armfeat_s10` / `armfeat_stage_s10` /
+`arm_gmc_full_s10` / `arm_gmc_s10_cache.pkl`），**step=2 产物一条未删**（用户明确要求保留，
+后续可能复用）：板卡 `armfeat_s2` 31,661 帧 / 服务器 `arm_gmc_full` 31,613 帧。
+
+**板卡二进制**：`/root/gmc_stream_ocl` md5 `aa99da811356694d66a0bce6de108b92`（AArch64），
+两轮共用同一份，仅 `--anchor-step` 不同。
+
+#### 13.6 ⚠️ 本节四条限定（引用前必读）
+
+1. **只覆盖 `anchor_step=10` 与 `2` 两档**。`anchor_step ∈ {4,6,8}` 仍未测
+   （memory 旧记录：只有 10 被实测过，**不得声称 10 最优**）。
+2. **未做 ARM(step10) vs PC-side tree 臂的交叉校验**。PC 侧 tree 参考值 `F1 0.906050`
+   是旧口径且只覆盖部分范围，若要断言「移植在 step=10 下仍保真」，
+   需另建 PC-side tree 参照臂跑同口径 A/B —— **本节的 0.9025 与 0.906050 不可直接相减**。
+3. **§13.4 的时延数字不得直接进嵌入式预算**。memory 旧记录已两度指出该线存在
+   5 倍不自洽（反解 9.06 ms/次拟合 vs stage timing 实测 1.80 ms/次），
+   且 `-O0` Debug 构建与优化构建不可比。
+4. **三臂共同少 ~0.004 F1**（对冻结 headline 0.906361），源于输入为
+   `anti_uav_bmp_all` 的 BMP 原帧，属**共有因素**、在 A/B 中抵消，
+   但**绝对 F1 不得与 headline 直接比大小**（同 §12.9 限定 1）。

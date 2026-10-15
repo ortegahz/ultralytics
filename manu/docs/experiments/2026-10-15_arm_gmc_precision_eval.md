@@ -8,6 +8,11 @@
 - 参照系：**PC SOTA 官方构建器** `manu/data/build_full_median_dataset.py`
   （md5 `7729e77299f8933faffa73577e8e9400`，全程未改动）
 
+> **本文件是 `anchor_step=2` 精确等价档的结果。**
+> e2e demo 实际使用的是 `anchor_step=10`（shipping config），该档结果见
+> [`2026-10-15_arm_gmc_precision_eval_s10.md`](2026-10-15_arm_gmc_precision_eval_s10.md)。
+> ⚠️ **本文件的「移植无回归」结论属精确等价档，不能直接外推到 e2e 实际配置** —— 须引用第二轮。
+
 ---
 
 ## 一句话结论
