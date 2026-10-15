@@ -2300,3 +2300,140 @@ numpy 1.26.4 / torch 1.13.1+cu116，4×RTX 4090D）执行。完整记录见
 3. **跨 15 档扫描由本次自行实现的匹配逻辑计算**（GT 就近匹配、距离 ≤ 8.0px、按分数降序占用），
    与 `ab_test_chained_gmc.py` 的 SELF-CHECK 口径一致 —— **A 臂 th=0.25 复现 0.9064 可作交叉验证**，
    但两者非同源实现，**引用逐档数字时须带此说明**。
+
+---
+
+### 12. ✅✅ ARM GMC 精度损失评估（2026-10-15）—— **板卡实机执行，容器对称全量对照，判定无回归**
+
+> 本节是本周主线任务的收口。评估对象 = `manu/pipeline/cpp/gmc_stream_ocl.cpp` 的 GMC 阶段
+> （fit + warp + 时域中值 + 3 通道组装）。**板卡 aarch64 + Mali-G610 实机执行，未新写代码。**
+> 完整记录：`manu/docs/experiments/2026-10-15_arm_gmc_precision_eval.md`（md5 `00645804bc73379cef291081d281d14f`）
+
+#### 12.1 结论（一句话）
+
+**ARM GMC 未引入精度回归。** 容器对称、严格同集配对的全量对照（24 序列 / 31,613 帧 / GT 25,111）：
+峰值 ΔF1 = **−0.000201**，跨 15 档均值 **+0.000074**，全部落在噪声下限（±3 TP ≈ ±0.0002）以内。
+正确表述是「**两者精度等价**」，**不得**解读为「ARM 更好」或「ARM 更差」。
+
+#### 12.2 峰值结果
+
+| 臂 | th | F1 | P | R | TP | FP |
+| :-- | --: | --: | --: | --: | --: | --: |
+| PC-BMP（官方构建器） | 0.25 | **0.902316** | 94.87% | 86.02% | 21,601 | 1,167 |
+| ARM-BMP（板卡 GPU） | 0.25 | **0.902116** | 94.84% | 86.01% | 21,598 | 1,174 |
+
+| 指标 | 数值 |
+| :-- | --: |
+| 峰值 ΔF1 | **−0.000201** |
+| 跨 15 档均值 ΔF1 | **+0.000074** |
+| 区间 | [−0.000201, +0.000490] |
+| 负档 | 6 / 15 |
+| 峰值 TP 差 | **3 TP**（21,601 → 21,598）= 恰好一个噪声单位 |
+
+两臂峰值门限同为 `th=0.25`，与冻结口径一致，无工作点漂移。
+
+#### 12.3 🔴🔴 本轮作废的旧结论：ΔF1 = +0.0047 **不得再引用**
+
+旧结论「ARM 臂比 PC 同源臂 F1 高 +0.0047（15/15 档全正）」**归因错误，已作废**。
+根因：冻结构建器 `build_full_median_dataset.py:272` 是
+`cv2.imwrite(str(out_img_p / im_name), merged)`，**输出扩展名继承自 ref 数据集文件名**。
+旧 PC 对照用的是含 **6,985 帧 JPG** 的冻结 ref ⇒ 输出被 **JPEG q95 二次压缩**，
+而 ARM 臂是 BMP ⇒ **65.7% 的帧上混入了压缩误差**，PC 臂被系统性劣化。
+
+**修复方式（不动构建器，守第〇之二节）**：构建器只读 ref 的**文件名和标签**，
+**从不读 ref 图像像素**（`merged` 全部由 raw 重算，见 `:268-272`）。
+故构造 `ref_bmpval`（31,613 条全部改名 `.bmp` + 符号链接指回原图 + 硬链接标签）即可强制无损输出。
+构建器 md5 全程保持 `7729e77299f8933faffa73577e8e9400` 未变。
+
+#### 12.4 🔴 索引映射是 `__<k+1>`，**不是 `__<k+3>`**（像素抽样抓出来的）
+
+板卡写 `<seq>_<k:06d>.bmp`（k 从 0，对应 raw 目录 natural 排序第 k+1 个文件）；
+官方 val 写 `<seq>__<i:06d>.bmp`（i 从 3 起）。由冻结构建器索引逻辑
+`curr_list_idx = idx_map[frame_idx]`（`:203-206, :221`）得 **i = k+1**。
+
+**板卡每条序列会为前 2 帧也生成特征**（板卡产出 31,661 = raw 总帧数），
+组装时丢弃 `k<2` 的 48 帧后正好 31,613，与官方 val 逐序列计数完全一致。
+
+**偏移扫描实证（ARM vs PC 同源重建，错位代价 7~10 倍）**：
+
+| 序列 | off=0（采用） | off=1 | off=2 |
+| :-- | --: | --: | --: |
+| wg2022_ir_052_split_08 | **0.179988** | 1.324724 | 1.826539 |
+| wg2022_ir_012_split_08 | **0.166302** | 1.866035 | 2.406699 |
+| 01_4485_1167-2666 | **0.087745** | 0.959308 | 1.388689 |
+| 25_1 | **0.000298** | 1.048780 | 1.116588 |
+
+⇒ **若跳过像素抽样这一步，后续所有 F1 结论都会是错的。**
+
+#### 12.5 ✅ 像素级佐证（ARM-BMP vs PC-BMP，全量 31,613 帧逐像素）
+
+| 分组 | 序列 | Max\|D\| | MAE | >5 比例 |
+| :-- | :-- | --: | --: | --: |
+| 低运动 | 25_1 / 34_1 / 43_1 / 5_1 | 2 / 2 / 3 / 5 | **0.000297 / 0.000332 / 0.000432 / 0.000749** | 0.000% |
+| 中等 | 3700000000002_102004_3 / _153918_1 / DJI_0051_2 / DJI_0175_2 | 2~7 | 0.000115~0.001422 | 0.000% |
+| 高运动 | 01_4485 / 02_6321 / wg2022_ir_012_split_08 / _015_split_01 / _020_split_05 等 | 174~254 | 0.045~0.193 | ≤0.872% |
+| **合计** | 24 序列 | **254** | **0.037025** | **0.1443%** |
+
+低运动序列与 §11 历史记录逐项吻合（25_1 `2 / 0.000297` 等），说明移植在低运动条件下近乎位精确。
+高运动序列 MAE 升高但 **p99 仍只有 0~4**，全局 `>5` 占比仅 **0.144%** ——
+是 21 帧时域中值被 warp 末位浮点差异放大、在少量边缘像素上发生「中值换帧」，属跨架构浮点末位效应。
+
+#### 12.6 ⚠️ 本轮沉淀的三条方法论（比结论本身更重要）
+
+| # | 教训 |
+| --: | :-- |
+| 1 | 🔴 **像素校验的判据不能用 `Max|D|` 单一指标**。高运动序列单点最大差可达 254，但整体 MAE 仅 0.06。按 `Max|D| > 8` 判死刑会把**正确映射误报为错误**。正确判据是 **MAE + `>5` 像素占比**（已落进 `cmp_arm_pc_features.py`）。 |
+| 2 | 🔴 **A/B 对照必须核验两侧容器是否同为无损格式**。`cv2.imwrite` 按 ref 文件名决定扩展名这个坑，会让「ARM 比 PC 好 +0.0047」这种结论凭空出现。 |
+| 3 | 🔴 **评估脚本必须先过自校准闸门**：`eval_arm_pc_gmc_ab.py` 要求先复现冻结 headline（`F1 0.906361 / TP 21,643 / FP 1,004`）才允许继续，且自比（SOTA vs SOTA）15 档 ΔF1 恒为 `+0.000000`。复现不了就不该往下走。 |
+
+#### 12.7 🔴 复现命令清单（铁律九登记项，缺此项本节视为不合格）
+
+一键入口：`bash manu/evaluation/run_arm_pc_gmc_full_ab.sh [all|board|xfer|assemble|infer|ab|pix]`
+（md5 `29d7c1b1e0a0a7a5a52453b5f637d9bf`）。完整版含全部参数与环境见
+`manu/docs/experiments/2026-10-15_arm_gmc_precision_eval.md` §5。
+
+| # | 步骤 | 脚本 | 关键命令 |
+| --: | :-- | :-- | :-- |
+| 1 | 板卡生成 | **`manu/pipeline/npu/run_step2_board.sh`**（已固化，可执行体与板卡 `/root/run_step2.sh` 逐字节一致 md5 `4ebde86e...`） | `scp -P 22 manu/pipeline/npu/run_step2_board.sh root@192.168.0.64:/root/run_step2.sh` 后 `ssh -p 22 root@192.168.0.64 'chmod +x /root/run_step2.sh && nohup /root/run_step2.sh > /mnt/manu/armfeat_s2.log 2>&1 &'`；内部调用 `/root/gmc_stream_ocl --raw-root raw --sequence "$seq" --anchor-step 2 --out-dir /mnt/manu/armfeat_s2/$seq/feat --out-ext bmp --fused gpu --kernel-dir /root/kernels --timing` |
+| 2 | 传输（host） | — | `rsync -az -e "ssh -p 32222" --files-from=<6 分片> --relative $NFS/ huangzhe@192.168.99.40:/mnt/data/siping/datasets/manu/armfeat_stage/`（单流 13.8 MB/s → 6 流 81 MB/s，31,661 帧 / 314 s） |
+| 3 | 无损 ref | — | `ln -sf $FROZEN/images/val/<stem>.jpg $REF_BMP/images/val/<stem>.bmp` + 标签硬链；`data.yaml` 手写 |
+| 4 | PC 臂重建 | `manu/data/build_full_median_dataset.py`（**冻结，md5 `7729e772...` 未改**） | `$PY manu/data/build_full_median_dataset.py --ref-dataset /mnt/data/siping/datasets/manu/ref_bmpval --raw-root /mnt/data/siping/datasets/manu/anti_uav_bmp_all/val --output /mnt/data/siping/datasets/manu/armcmp_pcbmp --splits val --workers 16` |
+| 5 | ARM 臂组装 | `manu/data/assemble_arm_gmc_dataset.py` | `$PY manu/data/assemble_arm_gmc_dataset.py --stage .../armfeat_stage --out .../arm_gmc_full --labels-from .../ref_bmpval --expect-total 31613 --verify-md5 120` |
+| 6 | 双臂推理 | `manu/inference/cache_trial0474_inferences.py` | `$PY manu/inference/cache_trial0474_inferences.py --weights runs/optuna_p0_nas/trial_0474/weights/best.pt --data <DS>/data.yaml --output runs/gmc_eval/<NAME>.pkl --imgsz 640 --stride 2 --batch 32 --device 0 --conf-thresh 0.08 --top-k 80` |
+| 7 | 自校准闸门 | `manu/evaluation/eval_arm_pc_gmc_ab.py` | `$PY manu/evaluation/eval_arm_pc_gmc_ab.py --arm-a runs/gmc_eval/official_rebuild_trial0474_cache.pkl --label-a SOTA --arm-b <同上> --label-b SELFTEST --expect-f1 0.906361 --expect-tp 21643 --expect-fp 1004` |
+| 8 | A/B 评估 | 同上 | `$PY manu/evaluation/eval_arm_pc_gmc_ab.py --arm-a runs/gmc_eval/pc_bmp_full_cache.pkl --label-a PC-BMP --arm-b runs/gmc_eval/arm_gmc_full_cache.pkl --label-b ARM-BMP --tol 8.0 --out-json .../gmc_arm_vs_pc_ab.json` |
+| 9 | 逐像素 | `manu/diagnostics/cmp_arm_pc_features.py` | `$PY manu/diagnostics/cmp_arm_pc_features.py --arm .../arm_gmc_full/images/val --pc .../armcmp_pcbmp/images/val --samples 0 --out-json .../gmc_arm_vs_pc_pixdiff.json` |
+
+**固定环境**：解释器 `/home/huangzhe/anaconda3/envs/uav/bin/python`（py3.10.20 / cv2 4.10.0 / numpy 1.26.4）；
+项目 `/tmp/pycharm_project_10ae9e2e`；GPU RTX 4090 D；板卡 `evm3588`；
+`/root/gmc_stream_ocl` md5 `aa99da811356694d66a0bce6de108b92`（AArch64）；
+权重 `trial_0474/weights/best.pt` md5 `5b07f255735f9fbadf3e0dfe95a7708f`。
+
+⚠️ 板卡轮询**禁止**用 `ls .../*/feat/*.bmp | wc -l` —— 3 万个路径展开进 argv 会撞 `ARG_MAX`
+**静默返回 0**，曾导致误判板卡「产物清零」。用 `find ... -name '*.bmp' | wc -l`。
+
+#### 12.8 新增可复现资产
+
+| 资产 | 路径 |
+| :-- | :-- |
+| A/B 评估脚本（带自校准闸门） | `manu/evaluation/eval_arm_pc_gmc_ab.py` |
+| 逐像素比对脚本 | `manu/diagnostics/cmp_arm_pc_features.py` |
+| 板卡输出组装脚本（OFFSET=1 实证） | `manu/data/assemble_arm_gmc_dataset.py` |
+| PC / ARM 臂 cache | `runs/gmc_eval/pc_bmp_full_cache.pkl` / `arm_gmc_full_cache.pkl` |
+| A/B + 像素差 JSON 报告 | `/mnt/data/siping/datasets/manu/gmc_arm_vs_pc_{ab,pixdiff}.json` |
+| 无损 ref / PC 臂 / ARM 臂数据集 | `.../manu/ref_bmpval` / `.../manu/armcmp_pcbmp` / `.../manu/arm_gmc_full` |
+
+板卡二进制：`/root/gmc_stream_ocl` md5 `aa99da811356694d66a0bce6de108b92`，
+ELF machine `0xb7` = **AArch64**（此前记录的「x86 版不可执行」已过时，现为新交叉编译产物，支持 `--out-ext bmp`）。
+
+#### 12.9 ⚠️ 本节四条限定（引用前必读）
+
+1. **两臂 F1（~0.902）都低于冻结 headline（0.906361），差约 0.004。** 这是**两臂共有**的因素 ——
+   本实验用 `anti_uav_bmp_all` 的 BMP 原始帧作输入，而冻结数据集用的是原始帧容器。
+   共有因素在 A/B 中被完全抵消，**不影响 ΔF1 的有效性**，但**不得**拿本节绝对 F1 去和 headline 直接比大小。
+2. **仅覆盖 `anchor_step=2`。** `anchor_step=10` 未测（用户明确指示后续再测）。
+   memory 记载该档 ≠ SOTA 冻结特征，**须另设参照系，不能与本节结果混谈**。
+3. **未覆盖「去 P0 臂」**（§11.5 限定 2 同样适用于此）。若需 ARM 参考模型的结论，
+   须另跑 `cache_trial0474_inferences.py --ablate-p0` 后重复本流程。
+4. **逐档 ΔF1 由 `eval_arm_pc_gmc_ab.py` 计算**（GT 就近匹配、Distance ≤ 8.0px、按分数降序占用），
+   与 §11 同款逻辑；但该脚本已过 §12.6-3 的自校准闸门，可独立复现 headline。

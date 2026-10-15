@@ -577,3 +577,134 @@ A 臂 / E 臂两臂 G2 闸门均 `[VERIFY PASSED] 31613/31613`、Fail 0（643.7 
 **用恢复后的官方脚本做干净 jpg→png 对照**：只改 `--raw-root`
 （`anti-uav` vs `anti_uav_png_staging`），脚本零改动。两份原图暂存已就绪。
 ARM 侧尚未开始，属后续独立工作。
+
+---
+
+## 14. ✅✅ ARM GMC 精度损失评估（2026-10-15）—— **板卡实机，容器对称全量对照：判定无回归**
+
+> 评估对象 = `manu/pipeline/cpp/gmc_stream_ocl.cpp` 的 GMC 阶段。**板卡 aarch64 + Mali-G610 实机执行。**
+> 详细版见 `memory.md` §12；实验记录 `manu/docs/experiments/2026-10-15_arm_gmc_precision_eval.md`
+
+### 14.1 结论
+
+**ARM GMC 未引入精度回归。** 唯一变量 = 「GMC 特征由谁生成」，全量 24 序列 / 31,613 帧 / GT 25,111：
+
+| | th | F1 | P | R | TP | FP |
+| :-- | --: | --: | --: | --: | --: | --: |
+| PC-BMP | 0.25 | 0.902316 | 94.87% | 86.02% | 21,601 | 1,167 |
+| ARM-BMP | 0.25 | 0.902116 | 94.84% | 86.01% | 21,598 | 1,174 |
+
+峰值 ΔF1 = **−0.000201**（= **3 TP**，恰好一个噪声单位）；跨 15 档均值 **+0.000074**，
+区间 [−0.000201, +0.000490]，负档 6/15 ⇒ **全部落在 ±0.0002 噪声地板内**。
+两臂峰值门限同为 `th=0.25`，无工作点漂移。正确表述是「**两者精度等价**」。
+
+### 14.2 🔴 三条必须随结论一起引用的修正
+
+1. **旧结论「ΔF1 = +0.0047，15/15 档全正」已作废。** 根因：冻结构建器
+   `build_full_median_dataset.py:272` 输出扩展名**继承自 ref 文件名**，旧 PC 对照用含 6,985 帧 JPG 的
+   冻结 ref ⇒ 输出被 **JPEG q95 二次压缩**，而 ARM 臂是 BMP ⇒ 65.7% 帧上混入压缩误差。
+   **修复不动构建器**：它只读 ref 的文件名与标签、从不读 ref 像素（`:268-272`），
+   构造 `ref_bmpval`（全改 `.bmp` + 软链原图）即可强制无损。构建器 md5 全程 `7729e772...` 未变。
+2. **索引映射是 `__<k+1>` 不是 `__<k+3>`。** 板卡 `<seq>_<k>` ↔ raw 第 k+1 个 ↔ 官方 `__<k+1>`；
+   板卡**每序列会多产出前 2 帧**（板卡 31,661 = raw 总帧数），组装丢弃 `k<2` 的 48 帧后正好 31,613。
+   **错位代价 7~10 倍**（MAE 0.18 vs 1.32）⇒ 不做像素抽样，后续所有 F1 都会是错的。
+3. **像素校验不能用 `Max|D|` 单一指标判死刑。** 高运动序列单点最大差达 254 但整体 MAE 仅 0.06；
+   正确判据是 **MAE + `>5` 像素占比**。
+
+### 14.3 像素佐证（31,613 帧全量逐像素）
+
+| 分组 | Max\|D\| | MAE | >5 比例 |
+| :-- | --: | --: | --: |
+| 低运动 25_1/34_1/43_1/5_1 | 2 / 2 / 3 / 5 | 0.000297 / 0.000332 / 0.000432 / 0.000749 | 0.000% |
+| **24 序列合计** | **254** | **0.037025** | **0.1443%** |
+
+低运动序列与 §13.3 历史记录逐项吻合 ⇒ 低运动下移植近乎位精确；
+高运动序列 MAE 升高但 p99 仅 0~4，是 21 帧时域中值被 warp 末位浮点差异放大造成的
+「中值换帧」，属跨架构浮点末位效应（呼应 `opencv_arm64_parity.md`）。
+
+### 14.4 🔴 复现命令（铁律九登记项，缺此项本节视为不合格）
+
+一键入口：`bash manu/evaluation/run_arm_pc_gmc_full_ab.sh [all|board|xfer|assemble|infer|ab|pix]`
+（md5 `29d7c1b1e0a0a7a5a52453b5f637d9bf`）；完整参数见实验记录 §5。
+
+```sh
+# 1 板卡（root@192.168.0.64）：脚本已固化在仓库 run_step2_board.sh
+#   可执行体与板卡 /root/run_step2.sh 逐字节一致（md5 4ebde86e...，21 行）
+scp -P 22 manu/pipeline/npu/run_step2_board.sh root@192.168.0.64:/root/run_step2.sh
+ssh -p 22 root@192.168.0.64 'chmod +x /root/run_step2.sh && \
+    nohup /root/run_step2.sh > /mnt/manu/armfeat_s2.log 2>&1 &'
+#   清单 /mnt/manu/npu/out/demo/expected.tsv（24 行）；内部逐序列调用：
+#   /root/gmc_stream_ocl --raw-root raw --sequence "$seq" --anchor-step 2 \
+#     --out-dir /mnt/manu/armfeat_s2/$seq/feat --out-ext bmp \
+#     --fused gpu --kernel-dir /root/kernels --timing      # -> 31,661 帧，约 75 min
+
+# 2 传输（host，6 流并行；单流 13.8 MB/s -> 6 流 81 MB/s）
+split -n l/6 -d /tmp/arm_bmp_list.txt /tmp/armpart_
+for p in /tmp/armpart_*; do rsync -az -e "ssh -p 32222" --files-from="$p" --relative \
+  /run/media/manu/SSD960-LOCAL/nfs/armfeat_s2/ \
+  huangzhe@192.168.99.40:/mnt/data/siping/datasets/manu/armfeat_stage/ & done; wait
+
+# 3 无损 ref：冻结 ref 全改 .bmp + 软链回原图，标签硬链
+#   （构建器只读文件名与标签，从不读 ref 像素）
+
+# 4 PC 臂无损重建（冻结构建器，零改动）
+$PY manu/data/build_full_median_dataset.py \
+  --ref-dataset /mnt/data/siping/datasets/manu/ref_bmpval \
+  --raw-root   /mnt/data/siping/datasets/manu/anti_uav_bmp_all/val \
+  --output     /mnt/data/siping/datasets/manu/armcmp_pcbmp --splits val --workers 16
+
+# 5 ARM 臂组装（OFFSET=1，丢 k<2 的 48 帧）
+$PY manu/data/assemble_arm_gmc_dataset.py \
+  --stage /mnt/data/siping/datasets/manu/armfeat_stage \
+  --out   /mnt/data/siping/datasets/manu/arm_gmc_full \
+  --labels-from /mnt/data/siping/datasets/manu/ref_bmpval \
+  --expect-total 31613 --verify-md5 120
+
+# 6 双臂推理（同权重同口径）
+$PY manu/inference/cache_trial0474_inferences.py \
+  --weights runs/optuna_p0_nas/trial_0474/weights/best.pt \
+  --data <DS>/data.yaml --output runs/gmc_eval/<NAME>.pkl \
+  --imgsz 640 --stride 2 --batch 32 --device 0 --conf-thresh 0.08 --top-k 80
+
+# 7 自校准闸门（必先跑，复现不出冻结 headline 即中止）
+$PY manu/evaluation/eval_arm_pc_gmc_ab.py \
+  --arm-a runs/gmc_eval/official_rebuild_trial0474_cache.pkl --label-a SOTA \
+  --arm-b runs/gmc_eval/official_rebuild_trial0474_cache.pkl --label-b SELFTEST \
+  --expect-f1 0.906361 --expect-tp 21643 --expect-fp 1004
+
+# 8 A/B 评估
+$PY manu/evaluation/eval_arm_pc_gmc_ab.py \
+  --arm-a runs/gmc_eval/pc_bmp_full_cache.pkl  --label-a PC-BMP \
+  --arm-b runs/gmc_eval/arm_gmc_full_cache.pkl --label-b ARM-BMP \
+  --tol 8.0 --out-json /mnt/data/siping/datasets/manu/gmc_arm_vs_pc_ab.json
+
+# 9 全量逐像素
+$PY manu/diagnostics/cmp_arm_pc_features.py \
+  --arm /mnt/data/siping/datasets/manu/arm_gmc_full/images/val \
+  --pc  /mnt/data/siping/datasets/manu/armcmp_pcbmp/images/val \
+  --samples 0 --out-json /mnt/data/siping/datasets/manu/gmc_arm_vs_pc_pixdiff.json
+```
+
+`$PY=/home/huangzhe/anaconda3/envs/uav/bin/python`（py3.10.20 / cv2 4.10.0 / numpy 1.26.4）；
+项目 `/tmp/pycharm_project_10ae9e2e`；GPU RTX 4090 D。
+
+⚠️ 板卡轮询**禁止** `ls .../*/feat/*.bmp | wc -l` —— 3 万路径展开进 argv 撞 `ARG_MAX`
+**静默返回 0**，曾误判板卡产物清零。改用 `find ... -name '*.bmp' | wc -l`。
+
+### 14.5 评估脚本自校准闸门（新增铁律级做法）
+
+`manu/evaluation/eval_arm_pc_gmc_ab.py` 要求**先复现冻结 headline 才允许继续**：
+`F1 0.906361 / TP 21,643 / FP 1,004` ⇒ **PASS**；自比（SOTA vs SOTA）15 档 ΔF1 恒为 `+0.000000`。
+复现不了就不该往下走。同批新增 `manu/diagnostics/cmp_arm_pc_features.py`、
+`manu/data/assemble_arm_gmc_dataset.py`（OFFSET=1 已写进脚本 docstring）。
+
+### 14.6 ⚠️ 四条限定
+
+1. **两臂 F1（~0.902）都低于冻结 headline 0.906361，差约 0.004** —— 这是**两臂共有**因素
+   （本实验输入是 `anti_uav_bmp_all` 的 BMP 原帧，冻结集用的是原帧容器），A/B 中被抵消，
+   **不影响 ΔF1**，但**绝对 F1 不得与 headline 直接比大小**。
+2. **仅覆盖 `anchor_step=2`**；`anchor_step=10` 未测（用户指示后续再测），且该档 ≠ SOTA 冻结特征，
+   **须另设参照系**。
+3. **未覆盖去 P0 臂**（同 §13.5 限定 2）。
+4. 板卡二进制 `/root/gmc_stream_ocl` md5 `aa99da811356694d66a0bce6de108b92`，
+   ELF machine `0xb7` = **AArch64** —— 此前「x86 版不可执行」的记录**已过时**。
