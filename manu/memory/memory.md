@@ -2820,3 +2820,374 @@ mount -t nfs4 -o rw,vers=4.0,rsize=1048576,wsize=1048576,soft,proto=tcp,timeo=5,
 2. **e2e_demo 多了 `release(c, &out)` 而原 rknn 二进制批处理模式没有**。释放上一帧的
    1.2 MB 张量缓冲不改变 NPU 输出（数值由 `rknn_run` 产生），且 1070/1070 逐字节一致
    已实测证明；但这确实是**两者的唯一一处行为差异**，引用「完全相同的代码」时需一并说明。
+
+---
+
+## 二十二、并行流水线 e2e demo：GMC ∥ NPU，输出逐位一致，1.76× 提速（2026-10-15 实测）
+
+**目标**：特征提取（fit+warp+median，CPU 侧）与 NPU 推理并行，中间加缓存 buffer；
+CPU 侧保留全部逻辑与 bad case handle 且 **≤40 ms**；NPU 全力做。
+验证：短序列 `34_1`（537 帧），特征通道 + heatmap 必须完全一致。
+
+| 配置 | FPS | 墙钟 | GMC p50 | GMC p95 | GMC max | ≤40ms |
+|---|--:|--:|--:|--:|--:|---|
+| 原版（串行 + 落盘） | 5.78 | 93.0 s | 27.33 | 28.11 | 28.65 | **PASS** |
+| 去中间落盘（串行） | 8.16 | 65.8 s | 27.71 | 28.56 | 28.99 | **PASS** |
+| **去落盘 + 并行流水线** | **10.15** | **52.9 s** | 27.40 | 28.10 | 30.71 | **PASS** |
+
+**累计 1.76×，40 ms 全程守住。** 拆解：去落盘 +41%，并行重叠再 +24%。
+
+### 22.1 等价性（三重独立证明）
+
+| 证明 | 内容 | 结果 |
+|---|---|---|
+| 逐字节 | shell demo 基准 ref vs 并行版：三通道特征 | **537/537** |
+| 逐字节 | heatmap + offset 张量 | **1070/1070** |
+| **哈希链（跨 I/O 边界）** | 文件路 vs 无 I/O 路逐帧链式 fnv1a | **三档全 `d5e81977`** |
+
+GMC 序列 md5 四档均 `5caa3c6fc72eb7fad4dd5dfd08ebf4ad`，
+`fitgate=0 chain=0 fitdeadline=0 cornercap=0`（bad case handle 全保留未触发）。
+
+第三条最关键：**证明绕开 BMP 落盘没有偷换通道**，且不落一字节即可证明与文件路逐位相同。
+
+### 22.2 NPU 分阶段归因（ms/帧）
+
+| 阶段 | 文件路 | 无 I/O |
+|---|--:|--:|
+| load（stbi_load 读+BMP 解码） | 8.46 | **0.00** |
+| letterbox（512→640 双线性） | 27.51 | 25~29 |
+| **rknn（set+run+get）** | 55.32 | **59.96** |
+| dequant / peaks | 2.73 / 0.35 | 同 |
+| **write（写 heatmap/det 到 NFS）** | **27.39** | **0.00** |
+
+⇒ 带落盘时**每帧 35.85 ms 纯 I/O**（占 NPU 段 31%）。这就是"5.78 fps 不可信"的来源：
+每帧往 NFS 写 2 × 1.2 MB heatmap。
+剩余真瓶颈：**rknn ~60 ms**，其次 **letterbox ~29 ms**（`rknn_heatmap_smoke.cpp:193`）。
+
+### 22.3 ⚠️⚠️ RK3588 CPU 不是同质的（务必记住）
+
+| CPU | 架构 | capacity | max_freq |
+|---|---|--:|--:|
+| cpu0-3 | A55 | 405 | 1.8 GHz |
+| cpu4-7 | A76 | **1024** | 2.352 GHz |
+
+**算力最重的 GMC 必须绑大核。** 第一次默认绑 `cpu-feat 0-3`，
+GMC p50 从 **27 ms 变 93 ms（3.4× 劣化）**，而代码看起来完全正确。
+
+最终默认：`--cpu-feat 4-7` / `--cpu-npu 0-3`（NPU 线程多阻塞在 `rknn_run`，小核够用）
+/ `--npu-nice 5`。绑定到位后并行版 GMC **p95 从 62.05 ms 回落到 28.10 ms**，
+40 ms 从"被抢占打断"变回"稳定满足"。
+
+⇒ **并行化前必须先读 `/sys/devices/system/cpu/cpu*/cpu_capacity` 确认拓扑**，
+否则"绑核优化"会变成实打实的降速，而且没有任何报错。
+
+### 22.4 设计要点
+
+- **批量路径收成流式薄壳**：`extract_features` 循环 `feature_stream_next`，
+  `run_infer` 循环 `infer_one`；帧体抽成共享 `infer_frame()`（文件路与内存路共用）。
+  ⇒ 串行版与并行版跑同一份逐帧代码，一致是构造性的。
+- **两个 demo 编进同一二进制**（`--mode serial|parallel`）、**同一套计时代码**，
+  FPS 对比不可能是两个测量口径的产物。
+- **通道序**：`cv::imwrite` 存 BGR、`stbi_load` 读回 RGB ⇒ 模型实际看到 `[Ch2,Ch1,Ch0]`。
+  内存路径必须原样复现这个翻转，否则每张 heatmap 都变。
+- 缓存是**有界队列**（`--depth`，默认 6），不是无界的——无界时生产者会把整个序列
+  的 512×512×3 BMP 攥在内存里。
+
+### 22.5 ⚠️ 四个"看起来对"的 bug（全部踩过）
+
+1. **帧名丢目录前缀**：改用构造函数构建 `FeatureStream` 时漏了拼 `seq_dir` 的一行，
+   `imread` 拿裸文件名 → `[FATAL] failed to read 000001.bmp`。
+2. **`setpriority(PRIO_PROCESS, 0, n)` 降的是整个进程**：`who=0` 指当前进程而非当前线程，
+   GMC 被连带降优先级，**p50 27 ms → 91 ms**，代码完全正确。
+   改为按 tid：`setpriority(PRIO_PROCESS, syscall(SYS_gettid), n)`。
+   ⇒ **per-thread 调优 API 的 `who=0` 语义必须确认**。
+3. **双重析构**：`feature_stream_close()` 留着 placement-new 时代的显式析构调用，
+   构造函数版本下 `delete` 又析构一次 → `double free detected in tcache 2`，
+   且只在 stdout 重定向到文件时显形；块缓冲还把崩溃前日志全吞了。
+   ⇒ 已给两个 demo 加 `setvbuf(stdout, nullptr, _IOLBF, 0)`。
+4. **`--no-io` 写在组装之后**：`if (no_io) dump_heatmap=0;` 放在
+   `if (dump_heatmap) ip.dump_dir=...` 之后 ⇒ "不落盘"其实还在写 heatmap，
+   NPU write 仍 25 ms，FPS 只从 5.74 走到 6.59 几乎看不出差别。
+   ⇒ **配置覆盖必须早于它要影响的那次组装**，否则"关掉了"只是看起来关掉了。
+
+### 22.6 脚本（md5 见实验记录，活文档不重复登记）
+
+`manu/pipeline/npu/e2e_par_demo.cpp`、`e2e_core.h`、`e2e_core.cpp`、
+`e2e_demo.cpp`、`build_e2e_demo_arm64.sh`；板卡 `/root/e2e_par_demo`、`/root/e2e_demo`。
+
+**完整记录（命令 / 环境 / 产物 md5 / NPU 归因）**：
+`manu/docs/experiments/2026-10-15_e2e_par_pipeline.md`
+
+### 22.7 ⚠️ 三条限定
+
+1. **只测 `34_1` 一个序列 537 帧**，`anchor_step=10 / --fused gpu / th=0.25`、单进程双线程；
+   其余 23 序列、`--fused cpu`、更深缓存未覆盖。
+2. **10.15 fps 依赖 NFS 状态**：产物落 NFS，写吞吐随网络变化。产品若写本地存储，
+   `write` 那 27.39 ms 会大降、FPS 更高；反之若 heatmap 必须落盘则无 I/O 路不可用。
+3. **`letterbox` 的 ~29 ms 是下一个优化点**（`rknn_heatmap_smoke.cpp:193` 的 float 双线性放大）。
+   本轮未动它——动它会改像素、进而可能改 heatmap，必须重走逐位验证。
+
+---
+
+## 二十三、三级流水线：letterbox 独立成一级，14.07 fps（累计 2.45×）（2026-10-15 实测）
+
+承接 §22。§22 的归因显示 NPU 线程 94.45 ms 里只有 59.96 ms 是硬件，
+**28.60 ms 是挤在同一线程上的 CPU letterbox**，硬件全程空转。
+把 letterbox 拆成流水线上的独立一级（`--split-lb`）：
+
+| 配置 | FPS | 帧时间 | GMC p50 | GMC max | ≤40ms | hash |
+|---|--:|--:|--:|--:|---|---|
+| 原版（串行 + 落盘） | 5.74 | 174.3 ms | 27.52 | 28.83 | PASS | `d5e81977` |
+| 去落盘（串行） | 8.16 | 122.5 ms | 27.71 | 28.99 | PASS | `d5e81977` |
+| 去落盘 + 并行 2 级 | 10.15 | 98.5 ms | 27.40 | 30.71 | PASS | `d5e81977` |
+| **去落盘 + 并行 3 级** | **14.07** | **71.1 ms** | 27.93 | 32.10 | **PASS** | **`d5e81977`** |
+
+**累计 2.45×（5.74 → 14.07）。四档 hash 全部 `d5e81977`，逐位等价。**
+
+三级各段（ms/帧）：GMC 33.19（cpu 4-5）、**letterbox 12.23（cpu 6-7）**、NPU 66.99（cpu 0-3，
+其中 rknn 60.77 + dequant 2.75 + peaks 0.35）。
+
+### 23.1 两条可迁移结论
+
+1. **letterbox 独占线程只要 12.23 ms，挂在 NPU 线程上要 28.60 ms——差 2.3 倍是争抢，不是算法。**
+   ⇒ **"这段代码慢"必须先分清是算法慢还是被抢慢**：把它挪到独占线程再测一次，
+   代价近乎为零，若明显变慢就说明瓶颈在争抢而不在代码。
+2. **等价性是白送的**：三级路径调的是**同一个 `letterbox()`、同样参数**，只换线程。
+   hash 与两级/文件模式一致即可证。**凡是纯搬运/纯计算的无状态阶段，
+   挪到独立线程不需要重新验证精度**——这与 §21 的"核心代码复用"是同一条原则。
+
+### 23.2 当前瓶颈与天花板
+
+- 帧时间 71.1 ms，NPU 线程 66.99 ms（占 94%）
+- 理论上限 max(33.19, 12.23, 66.99) = 66.99 ms → **14.93 fps**（当前重叠效率 94%）
+- **硬地板 rknn 60.77 + dequant 2.75 + peaks 0.35 = 63.87 ms → 15.7 fps**
+- 再往下只能动 `rknn`：`inputs_set / rknn_run / outputs_get` 目前合并统计，
+  需加 `RKNN_FLAG_COLLECT_PERF_MASK` 拆开才能判断是硬件还是 1.2 MB 回读。
+  **本轮未测，不得声称已定位。**
+
+### 23.3 脚本
+
+`manu/pipeline/npu/e2e_par_demo.cpp`（新增 `--split-lb` / `--cpu-lb`）、
+`e2e_core.h` / `e2e_core.cpp`（新增 `letterbox_feature()` / `infer_preboxed()`）；
+板卡 `/root/e2e_par_demo`。
+
+**完整记录**：`manu/docs/experiments/2026-10-15_e2e_par_pipeline.md`（§7 为本轮追加）
+
+---
+
+## 二十四、等价性复核：重跑逐位比对，修正三个「比对方法」坑（2026-10-15 实测）
+
+交付最终报告时按裸 `diff -rq` 重比 §22/§23 的产物，**报 1070/1070 不一致**。
+不采信"当时验过"，重做了一遍。结论：**数据没变，是比对方法错了**。
+
+### 24.1 复核结果（全部一致）
+
+| 证据 | 对象 | 结果 |
+|---|---|---|
+| 特征 BMP 聚合 md5 | `ref` / `io_serial` / `io_parallel` 各 537 张 | 三档全 `f47f91356b6fb9aaae1c2cf9c8260e24` |
+| GMC 序列 md5 | 6 档全部 | `5caa3c6fc72eb7fad4dd5dfd08ebf4ad` |
+| heatmap+offset 张量 | `ref` vs `io_serial` | 535 帧 × 2 = **1070/1070 逐字节一致** |
+| heatmap+offset 张量 | `ref` vs `io_parallel` | 535 帧 × 2 = **1070/1070 逐字节一致** |
+| 检出 TSV | `ref` vs 两档 | 535 可比帧，**0 行差异**，均 `detections=547` |
+| bad case handle | 6 档全部 | `fitgate=0 chain=0 fitdeadline=0 cornercap=0` |
+
+### 24.2 坑一：帧名偏移让 `diff -rq` 必然全报不一致
+
+`ref` 由 shell demo 产出、**从第 3 帧起**（`frame_34_1__000003_hm.bin`，535 帧）；
+`e2e_par_demo` 从第 0 帧起（`34_1_34_1_000000_hm.bin`，537 帧）。
+裸 `diff -rq` 把「名字对不上」当内容不一致。
+
+**正确映射 `ref = serial + 1`，且是唯一解**（扫 0~4 五档）：
+
+| 偏移假设 | io_serial vs ref | io_parallel vs ref |
+|---|--:|--:|
+| ref = serial + 0 | 1068/1068 不一致 | 1068/1068 不一致 |
+| **ref = serial + 1** | **0/1070 不一致** | **0/1070 不一致** |
+| ref = serial + 2 | 1070/1070 不一致 | 1070/1070 不一致 |
+| ref = serial + 3 | 1070/1070 不一致 | 1070/1070 不一致 |
+| ref = serial + 4 | 1068/1068 不一致 | 1068/1068 不一致 |
+
+> **铁律级教训：比对前先扫偏移确定唯一解，再看该解是否为零差异。
+> 只看"某个偏移下是 0"不够——全零文件在任何偏移下都是 0。**
+
+### 24.3 坑二：哈希链与落盘档之间证据是断的（已搭桥）
+
+三级档 `--no-io` 不落字节，证据只有链值 `d5e81977`；而落盘档（已证 == `ref`）当时**没开
+`--hash`**，日志无链值。两组各证一半。
+
+搭桥办法：用**独立实现**重算。按 `e2e_core.cpp:485-487` 规则（初值 2166136261，逐帧
+`h ^= fnv1a(hm); h ^= fnv1a(off)`，`fnv1a` 见 `rknn_heatmap_smoke.cpp:75`）
+直接读落盘档 `.bin` 重算：
+
+```
+io_serial  (帧 0..536): d5e81977  (659,865,600 字节)
+io_parallel(帧 0..536): d5e81977  (659,865,600 字节)
+noio_* / split_lb / v2_noio_parallel 日志链值: d5e81977
+```
+
+⇒ 三级档 == 落盘档 == `ref`，**传递可证**。FNV 是字节级串行链，659 MB Python 跑不动，
+故写 C（`/tmp/fnvchain.c`，用法 `fnvchain <hm目录> <前缀> <首帧> <末帧>`）。
+
+### 24.4 坑三：两个误导产物目录
+
+`/mnt/manu/npu/out/e2e_verify/` 里有两个**不能进结论**的目录：
+
+1. `noio_serial` / `noio_parallel` —— **修 `--no-io` 位置 bug 之前的旧运行**。
+   头部写 `io=NONE` 但 breakdown 里 `write` 仍 25.37 / 25.18 ms，FPS 被低估成 6.59 / 8.16。
+   表内用修复后的 `v2_noio_serial`（8.16）/ `v2_noio_parallel`（10.15）。
+2. `e2e/` —— 更早一轮 `e2e_demo` 的产物，**所有偏移下都对不上**（1068/1068），
+   模型/配置与本轮不同，不参与本轮结论。
+
+> **判据：头部声明的参数与 breakdown 里的数字必须自洽，不自洽的目录直接作废。**
+
+### 24.5 速度表最终口径（原版档 5.78 → 5.74）
+
+复核按 `io_serial/run.log` **实测值**取数：**5.74 fps / 93.61 s / 174.3 ms**
+（此前记的 5.78 是另一次运行）。单次运行、未重复取方差，两值同量级。
+§22/§18 表里的 5.78 保留原样，那是各自那次的原始记录。
+§23/§19 的四级表首行已统一改为 5.74，累计倍率随之 2.43× → **2.45×**。
+
+实验记录：`manu/docs/experiments/2026-10-15_e2e_par_pipeline.md` §8
+
+### 24.6 rknn 三段拆分（已改，**未上板跑**）
+
+`e2e_core.cpp:413` 原把 `rknn_inputs_set / rknn_run / rknn_outputs_get` 加总成 `rknn_ms`。
+已改为三段各自计时（`inputs_set_ms` / `run_ms` / `outputs_get_ms`），`rknn_ms` 保留作和以兼容旧口径。
+`--rknn-perf`（`RKNN_FLAG_COLLECT_PERF_MASK`）路线**判定不可用**：两次读数都不合理
+（run_duration 差分得 744 ms/帧，远超 rknn wall 69 ms），且该 flag 拖慢运行（14.07 → 13.16 fps）。
+
+源码 md5（本地 = host 镜像，已校验）：
+`e2e_core.h 846bba0a70d31d4d204f123e12b617f5` /
+`e2e_core.cpp 7ab66dc57431fd96d1ba534afd364612` /
+`e2e_par_demo.cpp 3a0e7e05b6ededa0317627b0ccf839cf` /
+新编 `out/e2e_par_demo cfc750ad70e2b8626938367c1e1ed824`
+
+**复核更正（重要）**：此前记录的「产出二进制 md5 = `5599bcde9e86cdcacf395a47eb234d5d`」**是错的**。
+板上 `/root/e2e_par_demo` 最后一次推送 **17:11:59**，实际 md5 **`d314f84ecb1c2711d69d5cb302cdd0e6`**；
+`io_serial`(17:50:58) ~ `split_lb`(18:07:29) 全部在其之后，故 **§23 全部数字均由 `d314f84e…` 产出**。
+新编 `cfc750ad70e2b8626938367c1e1ed824`（本地 18:14:55）**从未上过板**。
+`rknn 60.77 ms` 内部构成仍未定位，勿声称已定位。
+
+### 24.7 新增限定
+
+1. 只测 `34_1` 537 帧、每档单次运行，未重复取方差。
+2. 三级档未在板上落文件做逐位复核，靠链值传递证明（链值已独立重算验证）。
+3. 这三个坑都是**比对方法**问题不是代码问题，但说明：等价性结论必须附**可复现的比对命令**，
+   否则无法被重新验证——"验过"本身不是证据。
+
+---
+
+## 二十五、【收口】e2e 三级流水线最终总结：2.45× 且与原版逐位一致（2026-10-15）
+
+> 本节自洽：只读 §25 即可拿到全部结论，不需要回看 §22–§24。
+> 详细报告：`manu/docs/experiments/2026-10-15_e2e_par_final_report.md`
+> 实验记录：`manu/docs/experiments/2026-10-15_e2e_par_pipeline.md`
+
+### 25.1 一句话
+
+三级流水线（GMC ∥ letterbox ∥ NPU）在**特征、heatmap+offset 张量、检出结果三层全部与原版
+逐字节一致**，检出恒 547，坏例分支全程未触发，GMC 全程 ≤40 ms；
+速度 **5.74 → 14.07 fps，累计 2.45×**。唯一未完成项是 `rknn 60.77 ms` 内部构成，勿声称已定位。
+
+### 25.2 速度（序列 34_1 / 537 帧 / anchor_step=10 / --fused gpu / th=0.25 / 预热 100 帧剔除）
+
+| # | 配置 | 目录 | FPS | 墙钟 | 帧时间 | GMC p50 | GMC p95 | GMC max | ≤40ms |
+|:--|---|---|--:|--:|--:|--:|--:|--:|---|
+| 1 | 原版（串行+落盘） | `io_serial` | 5.74 | 93.61 s | 174.3 ms | 27.52 | 28.39 | 28.83 | PASS |
+| 2 | 去中间落盘（串行） | `v2_noio_serial` | 8.16 | 65.84 s | 122.5 ms | 27.71 | 28.56 | 28.99 | PASS |
+| 3 | 去落盘+并行 2 级 | `v2_noio_parallel` | 10.15 | 52.91 s | 98.5 ms | 27.40 | 28.10 | 30.71 | PASS |
+| 4 | **去落盘+并行 3 级** | `split_lb` | **14.07** | **38.18 s** | **71.1 ms** | 27.93 | 28.57 | 32.10 | PASS |
+
+各级墙钟与重叠效率：
+
+| 档 | GMC wall avg | NPU wall avg | 串行等价 | 实际帧时间 | 重叠效率 |
+|---|--:|--:|--:|--:|--:|
+| 1 | 46.18 | 119.21 | 165.39 | 174.3 | 0.949× |
+| 2 | 32.05 | 86.32 | 118.37 | 122.5 | 0.965× |
+| 3 | 31.60 | 94.45 | 126.04 | 98.5 | **1.279×** |
+| 4 | 33.19 | 66.99 | 100.18 | 71.1 | **1.409×** |
+
+提速分解：5.74→8.16 **+42%**（去落盘，每帧省 load+write ≈ 38 ms 纯 I/O）；
+8.16→10.15 **+24%**（两级重叠）；10.15→14.07 **+39%**（letterbox 拆独立级，NPU 线程 94.45→66.99）。
+
+三级绑核与段耗时：GMC cpu 4-5 / 33.19 ms（含 imread+RGB 组装+入队）；
+letterbox cpu 6-7 / `avg 12.23 p50 12.35 p95 12.36 max 21.58`；NPU cpu 0-3 / 66.99 ms。
+
+天花板：`max(33.19,12.23,66.99)=66.99` → 14.93 fps（当前重叠效率 94%）；
+硬地板 `rknn 60.77 + dequant 2.75 + peaks 0.35 = 63.87` → 15.7 fps。
+
+### 25.3 NPU 段分阶段（ms/帧）
+
+| 阶段 | 1 原版 | 2 去落盘 | 3 并行2级 | 4 并行3级 |
+|---|--:|--:|--:|--:|
+| load（stbi_load 读文件+BMP 解码） | 8.38 | 0 | 0 | 0 |
+| letterbox（512→640 双线性） | 28.38 | 25.10 | 28.60 | **0（已拆出）** |
+| **rknn（inputs_set+run+outputs_get）** | 55.79 | 56.88 | 59.96 | **60.77** |
+| dequant | 2.72 | 2.72 | 2.75 | 2.75 |
+| peaks | 0.34 | 0.35 | 0.35 | 0.35 |
+| write（heatmap+det TSV→NFS） | **29.55** | 0 | 0 | 0 |
+
+两条要记住的结论：
+1. **落盘路径每帧纯 I/O ≈ 37.9 ms**，占 NPU 段 32%。这就是"原版 5.74 fps 不可信"的直接来源——
+   瓶颈在 NFS 往返不在算。
+2. **letterbox 独占线程只要 12.23 ms，比挂在 NPU 线程上的 28.60 ms 快 2.3 倍**，差额是争抢
+   （内存带宽+cache）不是算法。⇒ **"某段代码慢"要先分清算法慢还是被抢慢**，挪到独占线程再测。
+
+### 25.4 精度判定（五条独立证据，全部一致）
+
+| 证据 | 对象 | 结果 |
+|---|---|---|
+| 特征 BMP 聚合 md5 | `ref`/`io_serial`/`io_parallel` 各 537 张 | 三档全 `f47f91356b6fb9aaae1c2cf9c8260e24` |
+| GMC 序列 md5 | 6 档 | `5caa3c6fc72eb7fad4dd5dfd08ebf4ad` |
+| heatmap+offset | `ref` vs 两档 | **1070/1070 逐字节一致**（535 帧×2） |
+| 检出 TSV | `ref` vs 两档 | 535 可比帧 **0 行差异**，均 547 |
+| 链式哈希 | 6 档 | `d5e81977`（已用独立实现重算闭合证据链，见 §24.3） |
+
+坏例逻辑：`fitgate=0 chain=0 fitdeadline=0 cornercap=0` 四档全未触发；
+`--fit-deadline-ms` 保持 **0**（确定性模式），GMC 输出与机器负载无关。
+通道序：模型看 `[Ch2,Ch1,Ch0]`（imwrite 存 BGR / stbi_load 读回 RGB），内存路原样复现翻转，
+链值与文件路一致即证未偷换。
+
+### 25.5 环境与产物
+
+| 项 | 值 |
+|---|---|
+| 板卡 | RK3588 `evm3588`，`ssh -p 22 root@192.168.0.64`，Linux 5.10.160 / Ubuntu 20.04.6 |
+| CPU | **cpu0-3 `capacity=405`@1.80GHz（A55 小核）／cpu4-7 `capacity=1024`@2.352GHz（A76 大核）** |
+| GPU | Mali-G610 r0p0，4 CU，OpenCL 3.0 v1.g13p0-01eac0 |
+| 模型 | `trial0474_hm_nop0_int8.rknn` `ef302edb1b5aff1d376204bb7ad77550`，3,799,304 B，fnv1a32=`70a6edc7` |
+| 内核 | `warp_median_fused.cl` `b764f0a8…`／`sortnet_generated.inc` `1642b63a…` |
+| **产出本节全部数字的板卡二进制** | **`/root/e2e_par_demo` `d314f84ecb1c2711d69d5cb302cdd0e6`（推送 17:11:59）** |
+| 原版基线 | `/root/gmc_stream_ocl` `aa99da811356694d66a0bce6de108b92`／`/root/rknn_heatmap_smoke` `170379506adb4aeaef2f5a5f8ce65cc2` |
+
+四档参数一致：`th=0.25 stride=2 topk=100 anchor_step=10 fused=gpu`，opencv 4.10.0，
+`window=21 downscale=2 mode=tree`，`ring_depth=43 lags=2..42`，`--depth 6`。
+
+复现命令：
+```sh
+/root/e2e_par_demo --raw-root raw --sequence 34_1 --out-root OUT \
+  --model /mnt/manu/npu/data/trial0474_hm_nop0_int8.rknn \
+  --kernel-dir /root/kernels --fused gpu --anchor-step 10 --th 0.25 \
+  --mode parallel --no-io --hash --split-lb --depth 6 \
+  --cpu-feat 4-5 --cpu-lb 6-7 --cpu-npu 0-3
+```
+
+### 25.6 最终判定表
+
+| 判定项 | 结论 |
+|---|---|
+| 与原版特征通道一致？ | **是**，537/537 逐字节 |
+| 与原版 heatmap 一致？ | **是**，1070/1070 逐字节（偏移 `ref=serial+1` 经扫描为唯一解） |
+| 与原版检出结果一致？ | **是**，535 可比帧 0 行差异，均 547 |
+| 坏例逻辑保留？ | **是**，四项计数全 0，四档一致 |
+| GMC ≤40 ms？ | **是**，p95 ≤28.57、max ≤32.10 ms |
+| 提速？ | **2.45×**（5.74→14.07 fps） |
+| `rknn` 内部构成定位？ | **否，未完成** |
+
+### 25.7 仍然欠着的一项
+
+`rknn 60.77 ms` 内部构成未拆开。代码已改（`e2e_core.cpp:413` 拆成
+`inputs_set_ms`/`run_ms`/`outputs_get_ms`，`rknn_ms` 保留作和），
+新版 `out/e2e_par_demo cfc750ad70e2b8626938367c1e1ed824` **从未上过板**，需逐次授权（铁律一）。
+`--rknn-perf`（`COLLECT_PERF_MASK`）已判定不可用。
+若大头在 `outputs_get`（每帧约 1.2 MB 回读）有优化余地；若在 `rknn_run` 本身则是模型/驱动地板。

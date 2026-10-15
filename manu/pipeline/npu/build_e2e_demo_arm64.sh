@@ -64,27 +64,36 @@ if [ ! -d "$STAGE/CL" ]; then
 fi
 echo "[stage] headers -> $STAGE"
 
-echo "== cross-compiling e2e_demo.cpp + e2e_core.cpp -> aarch64 =="
-"$CXX" -std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter \
-  $FP_FLAGS \
-  -DCL_TARGET_OPENCL_VERSION=300 \
-  -I"$STAGE" \
-  -I"$PIPE/cpp" \
-  -I"$PIPE/opencl/host" \
-  -I"$INSTALL/include/opencv4" \
-  "$SRC_DEMO" "$SRC_CORE" -o "$BIN" \
-  -L"$RT_LIB_DIR" -lrknnrt -Wl,-rpath-link,"$RT_LIB_DIR" \
-  -L"$LIBDIR" -L"$INSTALL/lib" -L"$TP_LIB" \
-  $OPENCV_LIBS -ltegra_hal -lzlib -lOpenCL -lpthread -ldl -lm
+echo "== cross-compiling -> aarch64 =="
+# Both demos link the SAME e2e_core.cpp, so the serial and the pipelined build
+# provably share one copy of the feature/inference frame bodies. That is what
+# lets "outputs identical" be a structural claim rather than a hope.
+for NAME in e2e_demo e2e_par_demo; do
+  SRC_DEMO="$HERE/$NAME.cpp"
+  [ -f "$SRC_DEMO" ] || die "missing source: $SRC_DEMO"
+  BIN="$OUT/$NAME"
+  echo "-- $NAME"
+  "$CXX" -std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter \
+    $FP_FLAGS \
+    -DCL_TARGET_OPENCL_VERSION=300 \
+    -I"$STAGE" \
+    -I"$PIPE/cpp" \
+    -I"$PIPE/opencl/host" \
+    -I"$INSTALL/include/opencv4" \
+    "$SRC_DEMO" "$SRC_CORE" -o "$BIN" \
+    -L"$RT_LIB_DIR" -lrknnrt -Wl,-rpath-link,"$RT_LIB_DIR" \
+    -L"$LIBDIR" -L"$INSTALL/lib" -L"$TP_LIB" \
+    $OPENCV_LIBS -ltegra_hal -lzlib -lOpenCL -lpthread -ldl -lm || die "compile failed: $NAME"
+
+  echo "[ok] $BIN"
+  file "$BIN" | cut -d, -f1-3
+  "$READELF" -d "$BIN" | grep -q 'librknnrt\.so' \
+    || die "$NAME: DT_NEEDED does not contain plain librknnrt.so"
+done
 
 echo
-echo "[ok] $BIN"
-file "$BIN" | cut -d, -f1-3
-echo "    NEEDED:"
-"$READELF" -d "$BIN" | grep NEEDED | sed 's/^/      /'
-
-"$READELF" -d "$BIN" | grep -q 'librknnrt\.so' \
-  || die "DT_NEEDED does not contain plain librknnrt.so"
-echo "    [ok] resolves librknnrt.so via the board's own runtime"
-
-echo "    [ok] copy with: scp $BIN root@192.168.0.64:/root/e2e_demo"
+echo "    NEEDED (e2e_demo):"
+"$READELF" -d "$OUT/e2e_demo" | grep NEEDED | sed 's/^/      /'
+echo "    [ok] both resolve librknnrt.so via the board's own runtime"
+echo "    [ok] copy with:"
+echo "      scp $OUT/e2e_demo $OUT/e2e_par_demo root@192.168.0.64:/root/"

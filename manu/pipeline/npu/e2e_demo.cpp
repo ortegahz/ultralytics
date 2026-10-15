@@ -60,6 +60,7 @@ const char* need(int argc, char** argv, int& i, const char* name) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    std::setvbuf(stdout, nullptr, _IOLBF, 0);
     std::string raw_root, sequence, out_root, model, kernel_dir = "/root/kernels";
     std::string fused = "gpu", out_ext = "bmp";
     float th = 0.25f;
