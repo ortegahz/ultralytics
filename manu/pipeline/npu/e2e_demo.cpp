@@ -45,6 +45,9 @@ void usage(const char* argv0) {
         "  --anchor-step N    GMC anchor step           (default 10 = the shipping arm)\n"
         "  --limit      N     cap frames, 0 = all      (default 0)\n"
         "  --no-heatmap      skip heatmap .bin dump (only features + detections)\n"
+        "  --no-feat         skip feature image dump (detections only; the GMC state\n"
+        "                    is unchanged, only cv::imwrite is skipped -- a 24-sequence\n"
+        "                    sweep would otherwise write ~25 GB of 786 KB BMPs)\n"
         "  --dump-input      also dump the exact uint8 NHWC NPU input\n",
         argv0);
 }
@@ -65,6 +68,7 @@ int main(int argc, char** argv) {
     std::string fused = "gpu", out_ext = "bmp";
     float th = 0.25f;
     int stride = 2, top_k = 100, anchor_step = 10, limit = 0, dump_heatmap = 1, dump_input = 0;
+    int no_feat = 0;
 
     for (int i = 1; i < argc; ++i) {
         const char* a = argv[i];
@@ -79,6 +83,7 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(a, "--topk"))       top_k = std::atoi(need(argc, argv, i, "--topk"));
         else if (!std::strcmp(a, "--anchor-step")) anchor_step = std::atoi(need(argc, argv, i, "--anchor-step"));
         else if (!std::strcmp(a, "--limit"))      limit = std::atoi(need(argc, argv, i, "--limit"));
+        else if (!std::strcmp(a, "--no-feat"))     no_feat = 1;
         else if (!std::strcmp(a, "--no-heatmap")) dump_heatmap = 0;
         else if (!std::strcmp(a, "--dump-input")) dump_input = 1;
         else if (!std::strcmp(a, "-h") || !std::strcmp(a, "--help")) { usage(argv[0]); return 0; }
@@ -105,7 +110,7 @@ int main(int argc, char** argv) {
     e2ecore::FeatureParams fp;
     fp.raw_root = raw_root;
     fp.sequence = sequence;
-    fp.out_dir = out_root + "/feat";
+    if (!no_feat) fp.out_dir = out_root + "/feat";
     fp.out_ext = out_ext;
     fp.kernel_dir = kernel_dir;
     fp.fused = fused;

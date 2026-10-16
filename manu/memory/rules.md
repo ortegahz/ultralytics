@@ -1151,3 +1151,28 @@ grep -ic 'fallback' build.log     # 期望 0
   > ②结论必须**交叉验证**——GPU 直测 ↔ 独立 CPU 探针，两者一致才采信；
   > ③工具输出要有「分布」而不只是「最大值」（|diff| 直方图 + 超差像素坐标），
   > 「max=2、MAE=0.003」和「max=2、MAE=1.4」标题相同、成因完全相反。
+
+## 板卡测量前置：必须先清残留进程（2026-10-16 新增，来自污染事故）
+
+**任何一次板卡 demo 测量之前，先确认没有残留的 `e2e_par2_demo` / `e2e_par_demo` / `rknn_heatmap_smoke` 进程。**
+
+理由（实测事故）：一个已失败的实验（core 0+2，`failed to submit!`）的进程没有随实验退出，
+仍占着一个 rknn 上下文。下一个实验再开 2 个 worker = 3 个上下文，越过 RK3588 的
+2 上下文上限，于是：
+
+```
+E RKNN: failed to submit!, op id: 144, op name: Add:/model/c19/m.0/m/m.0/Add, int status: 0x100
+rk_iommu fdab9000.iommu: Page fault at 0x... of type write
+RKNPU: job abort, ret: -22 / RKNPU: soft reset, num: 6
+```
+
+**这个污染是静默的**：进程还活着、TSV 行数还在涨、退出码最后也可能不是 0，
+不主动 `ps` 查进程表就会把污染数据当成有效结果记进实验记录。
+本轮就因此作废了一次混合模型的速度测量，并连带把板卡打到掉线（需断电恢复）。
+
+⇒ 检查命令：
+```sh
+ssh root@<board> 'ps -eo pid,etime,args | grep "[e]2e_par2_demo"'
+```
+输出非空就先 `pkill -9`，确认归零再开新实验。
+⇒ 这条与 §四·9g（0 帧/残缺产物判失败）同源：**"看起来在跑"不等于"这次测量属于这个实验"**。

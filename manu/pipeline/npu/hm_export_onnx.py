@@ -53,7 +53,7 @@ class OnnxWrapper(torch.nn.Module):
         return out["heatmap"], out["offset"]
 
 
-def build_model(ckpt_path: str, ablate_p0: bool = False):
+def build_model(ckpt_path: str, ablate_p0: bool = False, merge_head_branches: bool = False):
     """Rebuild the detector from the checkpoint.
 
     ``ablate_p0=True`` reproduces ``manu/inference/cache_trial0474_inferences.py
@@ -62,13 +62,22 @@ def build_model(ckpt_path: str, ablate_p0: bool = False):
     frozen base path. Verified bit-identical to that script's construction
     (494/494 tensors equal, heatmap/offset max|diff| = 0.0).
 
+    ``merge_head_branches=True`` additionally folds ``head.heatmap.0`` and
+    ``head.offset.0`` (two 3x3 C=64 convs at 320x320, 3.775 G MAC each under
+    stride=2) into one ``head.branch3x3`` Conv2d(64,128,3). This is an exactly
+    equivalent rewrite -- the two convs share input, kernel and padding and only
+    differ in weights, which are concatenated along the output-channel axis --
+    so the checkpoint needs just a 4-key remap and **no retraining**. It saves
+    one read of the 320x320x64 feature (~25 MiB FP32), not any multiply: total
+    MAC stays 21.48 G. See manu/pipeline/npu/verify_merge_head_branches.py.
+
     The GATE is adopted from that script deliberately: an ablation that silently
     fails to take effect would still print a lower F1 and look like a real
     result. Failing loudly is the only safe behaviour.
     """
     import torch
 
-    from manu.models.heatmap_model import YOLO26HeatmapDetector
+    from manu.models.heatmap_model import YOLO26HeatmapDetector, remap_head_branches_state_dict
 
     ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     p0_kwargs = ckpt["p0_kwargs"]
@@ -81,15 +90,25 @@ def build_model(ckpt_path: str, ablate_p0: bool = False):
         temporal_mode="standard",
         use_p0_highway=not ablate_p0,
         p0_highway_kwargs=p0_kwargs,
+        merge_head_branches=merge_head_branches,
     )
     own = model.state_dict()
 
     # Key normalisation matches cache_trial0474_inferences.py: a checkpoint saved
     # from a wrapped module may carry module./model.model./model. prefixes.
+    # Normalise FIRST, then optionally remap the merged-Head keys, so the remap
+    # operates on the same normalised names the matcher below compares against.
+    normalised = {k.replace("module.", "").replace("model.model.", "").replace("model.", ""): v
+                  for k, v in sd.items()}
+    if merge_head_branches:
+        if not getattr(model.head, "merge_branches", False):
+            raise RuntimeError("[MERGE-HEAD GATE] model.head.merge_branches is False "
+                               "-- the merge did not take effect")
+        normalised = remap_head_branches_state_dict(normalised)
+
     matched = skipped = n_p0_skipped = 0
     with torch.no_grad():
-        for k, v in sd.items():
-            clean = k.replace("module.", "").replace("model.model.", "").replace("model.", "")
+        for clean, v in normalised.items():
             if clean in own and own[clean].shape == v.shape:
                 own[clean].copy_(v)
                 matched += 1
@@ -97,6 +116,16 @@ def build_model(ckpt_path: str, ablate_p0: bool = False):
                 skipped += 1
                 if clean.startswith("p0_highway"):
                     n_p0_skipped += 1
+
+    if merge_head_branches:
+        # A merge that loaded 0 of the 4 source tensors would produce a model
+        # with randomly-initialised head weights and still export cleanly.
+        if not torch.is_tensor(model.head.branch3x3.weight):
+            raise RuntimeError("[MERGE-HEAD GATE] branch3x3 has no weight tensor")
+        if "head.branch3x3.weight" not in normalised:
+            raise RuntimeError("[MERGE-HEAD GATE] branch3x3.weight absent after remap")
+        print(f"[MERGE-HEAD GATE] PASS: head.branch3x3 "
+              f"{tuple(model.head.branch3x3.weight.shape)} loaded from 4 remapped keys")
 
     if ablate_p0:
         if model.p0_highway is not None:
@@ -154,6 +183,12 @@ def main():
                     help="leave nn.PixelUnshuffle alone (default is to rewrite it "
                          "as a fixed stride-2 depthwise conv, which keeps the "
                          "shuffle on the NPU)")
+    ap.add_argument("--merge-head-branches", action="store_true",
+                    help="fold head.heatmap.0 + head.offset.0 into one "
+                         "Conv2d(64,128,3) via a 4-key weight remap. Exactly "
+                         "equivalent, no retraining; saves one read of the "
+                         "320x320x64 feature, NOT any multiply (MAC stays 21.48 G). "
+                         "See manu/pipeline/npu/verify_merge_head_branches.py")
     args = ap.parse_args()
 
     import numpy as np
@@ -161,7 +196,8 @@ def main():
     from manu.pipeline.npu.hm_common import letterbox_to_input
     from manu.pipeline.npu.hm_pixelshuffle import swap_to_strided_conv
 
-    model, _ = build_model(args.weights, ablate_p0=args.ablate_p0)
+    model, _ = build_model(args.weights, ablate_p0=args.ablate_p0,
+                           merge_head_branches=args.merge_head_branches)
     assert not model.training, "model must be in eval mode before anything else"
 
     # nn.PixelUnshuffle exports as reshape + permute + reshape. On (1,16,640,640)

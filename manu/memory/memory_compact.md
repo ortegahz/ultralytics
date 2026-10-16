@@ -1441,3 +1441,52 @@ rknn-toolkit2 2.3.0 重转，属模型侧改动。
 - **采纳默认 AUTO**（功能/帧率等价，少两个参数少一个失败模式），开关保留在代码里。
 - 闸门：v0auto / v1c01 vs 基线各 **537/537 IDENTICAL**；新增代码后
   `e2e_par_demo` int8 chain hash 仍 **`d5e81977`**（13.86 fps）。板卡 `/mnt/manu/npu/out/par2l/`。
+
+---
+
+## 24. ❌ 混合精度（int8 输入 + 敏感层 fp16）：toolkit 2.3.0 上**建不出来**（2026-10-16）
+
+**结论**：四条独立路径逐一实测封死。记录 `docs/experiments/2026-10-16_hybrid_precision_int8_input.md`。
+
+**为什么「输入必须 int8」是硬约束**：int8 图输入 1 B/px ⇒ `inputs_set` **0.34 ms**；
+fp16 图输入 2 B/px ⇒ **45.41 ms**（运行时用户态展宽 1,228,800 元素，37 ns/元素）。
+133× 差距，混合模型若输入是 fp16 则一分不省。
+
+**逐层量化损失（做出来了，两套方法互相印证）**
+
+- toolkit 自己（`hybrid_quantization_step1(proposal=True, size=1)`，rc=0）：
+  给出 **76 个应保 float16 的张量**，分数 0.977864–0.999718。
+  Conv 29 / Mul 24 / Concat 5 / Add 4 / Slice 3 / MaxPool 2。
+  最低分：`/model/b1/act/Mul` 0.9779、`/model/b0/act/Mul` 0.9882、`/model/b2/Concat` 0.99635。
+- 我独立算的 SQNR（426 张量，12 张标定图，per-tensor 非对称仿射 int8）：
+  p1=**27.7 dB** / p10=34.4 / 中位 40.3。最差：`/model/b2/cv2/conv/Conv` **27.24 dB**、
+  `attn/Softmax` 28.73、`head/Sigmoid`/`Clip` 29.98、`/model/b2/cv1/conv` 30.16。
+- ⇒ **两套方法都把 `/model/b2` 排在最前**，其次 attn Softmax 与 head 输出。损失高度集中。
+
+**四条封死的路径**
+
+| 路径 | 结果 |
+|---|---|
+| 两步式 step1/step2 | step1 通、给出层清单；**step2 崩**（`KeyError` on Sigmoid） |
+| `quantized_hybrid_level=1/2/3` | **三档输入全 FLOAT16、内部内存全 105,600 KB（= fp16）** |
+| UINT8 图输入 ONNX | **abort rc=134** `Not Support Dtype: 2`，quant / no-quant 同样崩 ⇒ 与量化无关 |
+| `quantized_dtype='w8a16'` | toolkit 拒绝：`not support in 'rk3588'` |
+| `custom_string` 混合 DSL | 2.3.0 已移除 |
+
+**根因**：toolkit 把「图输入 dtype」与「计算精度」绑死 —— 没有开关能让输入停在 int8 而图内混精度。
+step2 崩溃的具体机制：原 ONNX **77 个 Sigmoid**，图融合后只剩 **1 个**；step2 重建图后优化器
+仍按 ONNX 级列表查融合后图的参数表 → KeyError。**toolkit 自身缺陷。**
+
+**已建成但不合用**：hybridL1/L2/L3（5.74/5.74/4.48 MB，md5 `c43c94a5`/`2e87dc88`/`8a347afc`），
+输入都是 FLOAT16，`inputs_set` 仍 45 ms。
+
+**两个自己的坑（已修并注释）**：① 注入常量是 0 维标量 → 改 shape (1)；
+② **`TensorProto.UINT8` 是 2 不是 1**（1 是 FLOAT），硬编码导致"输入已 uint8 ⇒ 不传 std_values"
+静默失效、模型被除两次 255。**枚举值必须 import，不能硬编码。**
+
+**板卡污染事故（已升铁律）**：失败实验的残留进程占着 NPU 上下文，加上新实验 2 worker = 3 上下文
+⇒ `failed to submit!` + IOMMU page fault + soft reset，板卡掉线需断电。
+⇒ **板卡测量前必须先确认无残留 demo 进程**（污染是静默的：进程还在跑、行数还在涨）。
+
+**继续的两条路线**：① 换更新 toolkit（所有失败都在 toolkit 侧，先验 76 层清单能否喂给 step2）；
+② ONNX 层自建隔离子图——需 toolkit 支持"子图豁免量化"，**目前无证据表明有**，属研究路线。

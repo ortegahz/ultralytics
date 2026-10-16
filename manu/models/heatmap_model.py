@@ -29,27 +29,56 @@ class HeatmapHead(nn.Module):
     - offset:  (B, 2, H, W), sub-pixel offset (dx, dy) within the stride cell
     """
 
-    def __init__(self, in_channels: int, head_conv: int = 64, num_classes: int = 1):
+    def __init__(self, in_channels: int, head_conv: int = 64, num_classes: int = 1, merge_branches: bool = False):
         super().__init__()
+        self.merge_branches = merge_branches
+        self.head_conv = head_conv
+
         # Feature refining convolution layers
         self.feat_conv = nn.Sequential(
             Conv(in_channels, head_conv, k=3),
             Conv(head_conv, head_conv, k=3),
         )
 
-        # 1. Heatmap branch (probability of object presence)
-        self.heatmap = nn.Sequential(
-            nn.Conv2d(head_conv, head_conv, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(head_conv, num_classes, kernel_size=1),
-        )
+        if merge_branches:
+            # `heatmap.0` 与 `offset.0` 的输入 (feat)、kernel、padding 完全相同，仅权重不同，
+            # 且都紧跟 ReLU —— 数学上等价于把两者拼成一个 Conv2d(head_conv, 2*head_conv, 3)，
+            # 输出前 head_conv 通道给 heatmap、后 head_conv 通道给 offset。
+            # 收益不在 MAC（不变），而在**少读一次 320x320x64 输入**（trial0474 stride=2 下约 25 MiB）
+            # 并少一次 320x320 激活落盘。参见 memory.md §二十六与 rules.md §四·9f：
+            # 该层结构参数本身健康（C=128 完全 32 对齐、groups=1、40x40），
+            # 合并属等价改写，不触碰 Trial 0474 冻结底模，无需重训。
+            self.branch3x3 = nn.Conv2d(head_conv, head_conv * 2, kernel_size=3, padding=1)
+            # 1x1 尾层刻意保留 heatmap.* / offset.* 原索引：Sequential 按位置建键，
+            # 故 index0 放无参 Identity 占位，让 1x1 仍落在 index2，checkpoint 无需重映射该键。
+            # ReLU 必须 inplace=False 且整体前置到 Split 之前：
+            #   (1) chunk/split 返回的是 SplitBackward0 视图，PyTorch 禁止对其原地写；
+            #   (2) rknn-toolkit2 2.3.0 对 Conv 直连 Split 会丢 pads，
+            #       报 [ShapeInferenceError] branch3x3 推断 (318) vs 声明 (320)（318=320-3+1）。
+            #       ReLU 逐元素，relu(h)[:, :64] ≡ relu(h[:, :64])，故前置到整幅 128 通道上
+            #       数学等价，且让 Split 不再紧贴卷积。
+            self.heatmap = nn.Sequential(
+                nn.Identity(),
+                nn.Conv2d(head_conv, num_classes, kernel_size=1),
+            )
+            self.offset = nn.Sequential(
+                nn.Identity(),
+                nn.Conv2d(head_conv, 2, kernel_size=1),
+            )
+        else:
+            # 1. Heatmap branch (probability of object presence)
+            self.heatmap = nn.Sequential(
+                nn.Conv2d(head_conv, head_conv, kernel_size=3, padding=1),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(head_conv, num_classes, kernel_size=1),
+            )
 
-        # 2. Offset branch (sub-pixel shift dx, dy in [0, 1])
-        self.offset = nn.Sequential(
-            nn.Conv2d(head_conv, head_conv, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(head_conv, 2, kernel_size=1),
-        )
+            # 2. Offset branch (sub-pixel shift dx, dy in [0, 1])
+            self.offset = nn.Sequential(
+                nn.Conv2d(head_conv, head_conv, kernel_size=3, padding=1),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(head_conv, 2, kernel_size=1),
+            )
 
         self._init_weights()
 
@@ -61,11 +90,57 @@ class HeatmapHead(nn.Module):
 
     def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
         feat = self.feat_conv(x)
-        hm = torch.sigmoid(self.heatmap(feat))
+        if self.merge_branches:
+            # 合并路径：一次 3x3 卷积 + 一次整幅 ReLU，然后按通道切两半各接 1x1。
+            # ReLU 前置（逐元素等价），Split 不再紧贴 Conv —— 见 __init__ 里的
+            # rknn-toolkit2 2.3.0 pads 丢失说明。
+            h = torch.relu_(self.branch3x3(feat))
+            hm_feat, off_feat = torch.split(h, self.head_conv, dim=1)
+            hm = torch.sigmoid(self.heatmap(hm_feat))
+            offset = self.offset(off_feat)
+        else:
+            hm = torch.sigmoid(self.heatmap(feat))
+            offset = self.offset(feat)
         # Clamp hm to avoid log(0) and fp16 underflow/overflow
         hm = torch.clamp(hm, min=1e-5, max=1.0 - 1e-5)
-        offset = self.offset(feat)
         return {"heatmap": hm, "offset": offset}
+
+
+def remap_head_branches_state_dict(state_dict: dict, head_prefix: str = "head.") -> dict:
+    """把未合并版 Head 的权重映射到合并版（数学等价，不引入新参数）。
+
+    未合并: head.heatmap.0.{w,b} (64,64,3,3)  + head.offset.0.{w,b} (64,64,3,3)
+            head.heatmap.2.{w,b} (1,64,1,1)   + head.offset.2.{w,b} (2,64,1,1)
+    合并后: head.branch3x3.{w,b} (128,64,3,3)，沿输出通道 cat
+            head.heatmap.1.{w,b} / head.offset.1.{w,b}（1×1 尾层因 ReLU 前置而上移一位）
+
+    `feat_conv.*` 键名全部保持不变；1×1 尾层因合并路径把 ReLU 提到 Split 之前，
+    索引从 2 变 1，故一并重映射。
+    """
+    pairs = [
+        (f"{head_prefix}heatmap.0.weight", f"{head_prefix}branch3x3.weight"),
+        (f"{head_prefix}heatmap.0.bias", f"{head_prefix}branch3x3.bias"),
+        (f"{head_prefix}offset.0.weight", None),   # 拼进 branch3x3，不单独保留
+        (f"{head_prefix}offset.0.bias", None),
+        (f"{head_prefix}heatmap.2.weight", f"{head_prefix}heatmap.1.weight"),
+        (f"{head_prefix}heatmap.2.bias", f"{head_prefix}heatmap.1.bias"),
+        (f"{head_prefix}offset.2.weight", f"{head_prefix}offset.1.weight"),
+        (f"{head_prefix}offset.2.bias", f"{head_prefix}offset.1.bias"),
+    ]
+    srcs = [p[0] for p in pairs]
+    missing = [k for k in srcs if k not in state_dict]
+    if missing:
+        raise KeyError(f"[MERGE-HEAD GATE] 源权重缺少期望键，无法重映射: {missing}")
+
+    out = {k: v for k, v in state_dict.items() if k not in srcs}
+    for src, dst in pairs:
+        if dst is not None:
+            out[dst] = state_dict[src]
+    out[f"{head_prefix}branch3x3.weight"] = torch.cat(
+        [state_dict[f"{head_prefix}heatmap.0.weight"], state_dict[f"{head_prefix}offset.0.weight"]], dim=0)
+    out[f"{head_prefix}branch3x3.bias"] = torch.cat(
+        [state_dict[f"{head_prefix}heatmap.0.bias"], state_dict[f"{head_prefix}offset.0.bias"]], dim=0)
+    return out
 
 
 class LocalCorrelationBlock(nn.Module):
@@ -456,6 +531,7 @@ class YOLO26HeatmapDetector(nn.Module):
         scale: str = "n",  # 'n' or 's'
         use_p0_highway: bool = False,
         p0_highway_kwargs: dict | None = None,
+        merge_head_branches: bool = False,
     ):
         super().__init__()
         assert stride in (2, 4), f"Only stride 4 (P2) or stride 2 (P1) is supported, got {stride}."
@@ -545,7 +621,7 @@ class YOLO26HeatmapDetector(nn.Module):
         else:
             self.p0_highway = None
 
-        self.head = HeatmapHead(in_channels=head_in_ch, head_conv=64 * w, num_classes=num_classes)
+        self.head = HeatmapHead(in_channels=head_in_ch, head_conv=64 * w, num_classes=num_classes, merge_branches=merge_head_branches)
 
         if weights:
             self.load_pretrained(weights)

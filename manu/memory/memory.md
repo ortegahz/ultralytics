@@ -3452,3 +3452,188 @@ fp16 图 105,600 KB 内部内存，均未动过）；
 闸门补充：v0auto / v1c01 vs 基线各 **537/537 IDENTICAL**（571 检测）；
 新增 core-mask 代码后重跑 `e2e_par_demo` int8，chain hash 仍 **`d5e81977`**、13.86 fps；
 `dmesg` 无 `failed to submit` 以外的错误行。板卡输出 `/mnt/manu/npu/out/par2l/{v0auto,v1c01,v2c02,REG2}`。
+
+---
+
+## 二十八、混合精度（int8 输入 + 敏感层 fp16）可行性：toolkit 2.3.0 上不可达（2026-10-16 实测）
+
+### 28.1 结论
+
+**「输入保持 int8 + 量化损失大的层用 fp16」这个组合，在 rknn-toolkit2 2.3.0 上构建不出来。**
+四条独立路径逐一实测封死。而"逐层量化损失"本身做出来了，结论很集中。
+
+完整记录：`docs/experiments/2026-10-16_hybrid_precision_int8_input.md`
+
+### 28.2 为什么"输入必须 int8"是硬约束
+
+| 模型 | 输入 attr | `inputs_set` | `rknn_run` |
+|---|---|--:|--:|
+| int8 | `type=2` INT8，1228800 B (1 B/px) | **0.34 ms** | 61.56 ms |
+| fp16 | `type=1` FLOAT16，2457600 B (2 B/px) | **45.41 ms** | 111.46 ms |
+
+133× 差距来自输入张量字节宽度：int8 图输入原样上传；fp16 图输入要由运行时在用户态展宽
+全部 640×640×3 元素（45.41 ms ÷ 1,228,800 = 37 ns/元素 ≈ 74 cycles）。
+
+### 28.3 逐层量化损失（两条独立方法互相印证）
+
+**toolkit 自己的**（`hybrid_quantization_step1(proposal=True, proposal_dataset_size=1)`，rc=0，
+产出 `trial0474_hm_nop0.quantization.cfg` 97,662 B）：`custom_quantize_layers` 给出
+**76 个应保 float16 的张量**，每行带逐层分数 0.977864–0.999718（中位 0.999273）。
+按算子：Conv 29、Mul 24、Concat 5、Add 4、Slice 3、MaxPool 2、其余 9。
+最低分：`/model/b1/act/Mul` 0.9779、`/model/b0/act/Mul` 0.9882、`/model/Concat_5` 0.99635、
+`/model/b2/Concat` 0.99635、`/model/b2/Slice` 0.99639、`/model/b2/cv1/act/Mul` 0.99670。
+
+**我自己独立算的**（`analyze_quant_loss_per_layer.py`，426 张量全暴露为图输出，
+onnxruntime 跑 12 张标定图，按 toolkit 配置做 per-tensor 非对称仿射 int8 fake-quant）：
+SQNR p1=**27.7 dB** / p10=34.4 dB / 中位 40.3 dB。最差实体张量：
+`/model/b2/cv2/conv/Conv` **27.24 dB**、`attn/Softmax` 28.73、`head/Clip` 29.98、
+`head/Sigmoid` 29.98、`/model/b2/cv1/conv/Conv` 30.16、`c19/m.0/cv3/conv` 30.40、
+`/model/b2/m.0/cv2/conv/Conv` 30.55、`/model/fuse_p2/conv/Conv` 30.97。
+
+⇒ **两套方法都把 `/model/b2`（stem 与颈部衔接段）排在最前**，其次是 attention 的 Softmax
+与 head 的 Sigmoid/Clip。量化损失高度集中，不是均匀分布。
+
+### 28.4 四条封死的路径
+
+| 路径 | 结果 |
+|---|---|
+| 两步式 `hybrid_quantization_step1/2` | step1(size=1) 通、给出层清单；**step2 崩**：`KeyError '/model/head/feat_conv/feat_conv.1/act/Sigmoid_output_0'`，`quant_optimizer._p_adjust_tanh_sigmoid` |
+| `quantized_hybrid_level=1/2/3` | **三档输入全是 FLOAT16、内部内存全是 105,600 KB（与 fp16 相同，int8 是 20,400 KB）** |
+| UINT8 图输入 ONNX | **abort rc=134** `Not Support Dtype: 2`，在 `rknn::RKNNInitRNNConst`；`--no-quant` 与 hybrid 两种配置**同样 abort** ⇒ 与量化无关 |
+| `quantized_dtype='w8a16'` | toolkit 直接拒绝：`not support in 'rk3588'` |
+| `custom_string` 混合 DSL | 2.3.0 已移除（二进制里搜不到任何 DSL 字符串） |
+
+**根因**：toolkit 把「图输入张量 dtype」与「计算精度」绑死。
+`--no-quant` ⇒ 输入 FLOAT16；量化 ⇒ 全图 int8；混合 ⇒ 它选中间态，把**输入**判成 float16
+而只量化**部分中间层**。没有开关能让输入停在 int8 而图内混精度。
+
+**step2 崩溃的根因（实测确认）**：原 ONNX 有 **77 个 Sigmoid**，step1 图融合后只剩 **1 个**
+（`/model/head/Sigmoid`，其余 Conv+Sigmoid 被融合）。step1 自己的 quant_optimizer 输出
+`adjust_tanh_sigmoid: ['/model/head/Sigmoid']` 是对的；step2 重建图后同一优化器拿 ONNX 级
+Sigmoid 列表查融合后图的参数表 → KeyError。**toolkit 自身缺陷，不是本模型的问题。**
+（把缺失 Sigmoid 塞进 fp16 列表绕过 → 报 `Invalid operands name`，因为该张量在图里不存在。）
+
+### 28.5 建成的混合模型（有，但输入是 fp16）
+
+| 档 | 大小 | md5 | 输入 | 内部内存 |
+|---|--:|---|---|--:|
+| L1 | 5,740,974 B | `c43c94a519f2` | FLOAT16 | 105,600 KB |
+| L2 | 5,740,974 B | `2e87dc887760` | FLOAT16 | 105,600 KB |
+| L3 | 4,483,182 B | `8a347afca515` | FLOAT16 | 105,600 KB |
+
+板上实测 L1：`input attr: type=1 n_elems=1228800 size=2457600`。
+⇒ `inputs_set` 仍是 fp16 的 45 ms，**不满足目标**。
+
+### 28.6 UINT8 输入 ONNX（逐位等价但 toolkit 拒收）
+
+`make_uint8_input_onnx.py` 把图输入改 UINT8、`Cast(u8→f32)+Div(/255)` 作为图内前两节点。
+**等价性逐位验证**：与原 float ONNX 在 3 组随机输入上所有输出 `max_abs_diff = 0.000e+00`。
+但 toolkit abort（见 28.4）。
+
+途中修掉两个自己的坑（都已注释）：
+① 注入常量 `/model/pre/scale` 一开始是 0 维标量 → 改 shape (1)；
+② **`TensorProto.UINT8` 是 2 不是 1**（1 是 FLOAT），导致自动判断"输入已是 uint8 ⇒ 不传
+std_values"的逻辑静默失效，模型会被除两次 255 而静默输出垃圾。**枚举值必须 import，不要硬编码。**
+
+### 28.7 板卡污染事故（已升为铁律）
+
+混合模型上板测量被作废：一个已失败的 core(0,2) 实验的进程没有退出，仍占一个 NPU 上下文；
+新实验再开 2 个 worker = 3 上下文 ⇒ `failed to submit!` + IOMMU page fault + `soft reset`，
+随后板卡掉线（100% 丢包），需断电恢复。
+
+⇒ 新增 `rules.md` 铁律：**板卡任何一次测量前必须先确认无残留 demo 进程**。
+该污染是静默的——进程还活着、行数还在涨，不查进程表就会把污染数据当结果。
+
+### 28.8 若必须继续，可行的两条研究路线
+
+1. **换 toolkit 版本**：本轮所有失败都在 toolkit 侧（quant_optimizer / RKNNInitRNNConst /
+   平台级 w8a16 限制）。Rockchip 后续版本重写过 hybrid quantization。
+   先在更新版本上验证 28.3 那份 76 层清单能否直接喂给 step2 —— 性价比最高。
+2. **ONNX 层自建隔离子图**：需要 toolkit 支持"子图豁免量化"的机制，
+   **目前没有证据表明 2.3.0 有**，属需先验证可行性的研究路线，不是可直接开做的工程任务。
+
+### 28.9 产物
+
+`hm_convert_hybrid_rknn.py`（step1/step2/build 三模式）、`analyze_quant_loss_per_layer.py`、
+`make_uint8_input_onnx.py`、`patch_hybrid_cfg.py`、`run_npu_pcfeat_board_generic.sh`；
+`rknn_work/hm/hybrid/trial0474_hm_nop0.quantization.cfg`（76 层建议）、
+`quant_loss_per_layer.csv`（426 张量 SQNR）、
+`models/trial0474_hm_nop0_hybridL{1,2,3}.rknn`。
+记录：`docs/experiments/2026-10-16_hybrid_precision_int8_input.md`。
+
+---
+
+## 二十九、🔴 Head 分支合并（heatmap.0 + offset.0 → 单个 Conv2d(64,128,3)）：**实测负结果，双臂均变慢**（2026-10-16 实测）
+
+### 1. 动机与结构依据
+
+静态枚举全网 85 个卷积（stride=2 / imgsz=640 / scale=n / 去P0 / nearest，**21.48 G MAC**，
+与交付版 v3 构建日志 21.54 G 差 0.3%，口径已还原正确）发现：
+**82.4%（17.70 G MAC）全部压在 320×320 上的 5 个 3×3 卷积**（`head.feat_conv.1` 3.775G、
+`head.heatmap.0` 3.775G、`head.offset.0` 3.775G、`fuse_p1.conv` 3.539G、`head.feat_conv.0` 2.831G）。
+`heatmap.0` 与 `offset.0` 输入/kernel/padding 完全相同、仅权重不同 ⇒ 可拼成 `Conv2d(64,128,3)`，
+**数学等价、4 键重映射、零重训、不碰 Trial 0474 冻结底模**。
+
+⚠️ **纠正一个当时差点照抄的错误判据**：「HW≥320×320 且通道窄（C≤32）= 几十毫秒黑洞」在本模型**会指错靶子**。
+命中该判据的 `b0.conv`（320×320/C=16）MAC 仅 0.044G = 全网 0.2%；真正的大头是 **C=64（完全 32 对齐）** 的层。
+本轮真正规律是「**高分辨率 + 高 MAC**」，不是「窄通道」。
+
+### 2. 🔴 实测结果：变慢，不是变快（板卡 RK3588，`--warmup 10 --loops 30`，时钟自检 4/4 `[ok]`）
+
+| 臂 | `rknn_run` | `inputs_set` | NPU+dequant | fps | 判定 |
+|:---|---:|---:|---:|---:|:---|
+| **base int8** | **55.501 ms** | 0.252 ms | 56.448 ms | **17.7** | 基线（复现案卷 55.5 ms ✅） |
+| **merge int8** | **56.882 ms** | 0.246 ms | 57.835 ms | **17.3** | 🔴 **+1.381 ms / +2.49% 变慢** |
+| **base fp16** | **103.104 ms** | 42.404 ms | 146.307 ms | **6.8** | 基线 |
+| **merge fp16** | **105.458 ms** | 42.274 ms | 148.540 ms | **6.7** | 🔴 **+2.354 ms / +2.28% 变慢** |
+
+**结论：合并没有省下任何搬运开销。** 机理：把两次读换成一次读省下的带宽，
+被 RKNN 为通道切分插入的 `Split` 的拷贝成本**抵消有余**，净亏约 1.4~2.4 ms。
+佐证：NPU 内部内存 **20,400 KB → 25,600 KB（+25.5%）** —— 128 通道输出多占了一块 scratch。
+
+### 3. 连带证伪：`Conv:/model/b5/conv/Conv` 的 3Core→单核不是形状问题
+
+fp16 两臂构建日志的 fallback **逐字相同**（只差时间戳），仍是那条既有的
+`Conv:/model/b5/conv/Conv` 3Core→单核 ⇒ **本次改动未引入任何新 fallback**。
+同时静态枚举证实 `b5.conv` 参数全部健康（输出 128ch / 40×40、**C%32=0**、groups=1），
+三把尺子全不命中 ⇒ 该警告是 **fp16 编译器调度决策，不是模型结构缺陷，改网络结构修不掉**。
+
+### 4. 踩到的两个真 bug（均为「静默失效」型，已修）
+
+1. **`nn.Sequential` 按位置建键**：少放一层导致 1×1 尾层从 `heatmap.2` 挪到 `heatmap.1`，
+   整个 checkpoint 对不上。由自检 Gate 立即炸出（`missing: head.heatmap.1.weight`）。
+2. 🔴 **rknn-toolkit2 2.3.0 对 `Conv → Split` 直连会丢 pads**：
+   `[ShapeInferenceError] (Conv: /model/head/branch3x3/Conv) Inferred shape and existing
+   shape differ in dimension 2: (318) vs (320)`（**318 = 320−3+1 即 pad 被当 0**）。
+   降 `optimization_level=2` **无效**，是结构问题不是融合深度问题。
+   **解法：把 ReLU 整体提到 Split 之前** —— ReLU 逐元素，`relu(h)[:, :64] ≡ relu(h[:, :64])`，
+   数学等价且让 Split 不再紧贴卷积。改后 4 个 RKNN 全部构建成功。
+   ⚠️ 另：`chunk` 会被 ONNX 追踪成 Shape/Gather/Add/Div 约 9 个标量节点，**必须用静态 `torch.split`**。
+
+### 5. 上板闸门（§四·9e）
+
+`int8` 双臂 **fallback 警告 0 条 = PASS**（交付口径只约束 int8）；
+`fp16` 双臂各 1 条，是**既有的 b5 警告**，非本次引入。
+
+### 6. 产物
+
+- 代码：`manu/models/heatmap_model.py`（`merge_head_branches` 开关，**默认关闭向后兼容**；
+  `remap_head_branches_state_dict()` 8 键重映射）、`manu/pipeline/npu/hm_export_onnx.py`
+  （`--merge-head-branches` + `[MERGE-HEAD GATE]`）、`manu/pipeline/opencl/board/board_run.py`
+  （`put()` 原先**无条件要求 RK3588_PASSWORD**，与 `shell()` 不一致 → 已改为优先公钥）。
+- 自检：`manu/pipeline/npu/verify_merge_head_branches.py`
+  （CPU FP32 8 帧 **max|d| = 0.000e+00** 逐位相同）。
+- runbook：`manu/pipeline/npu/run_merge_head_speed_ab.sh {onnx|build|board|all}`。
+- 产物：`rknn_work/hm/merge_head/`（2 ONNX + 4 RKNN + 4 构建日志）。
+- 🔴 **工具链位置更正**：rknn-toolkit2 **2.3.0 在本机**
+  `/media/manu/1TB-Volume/conda-envs/rknn230/bin/python`（**训练服务器上没有**，
+  `~/anaconda3/envs` 只有 llm 与 uav）。同目录 `conda-envs/rknn` 是弃用的 1.4.0。
+
+### 7. 对「20 ms 硬时延」目标的含义
+
+合并是**唯一零风险、零重训的改写**，实测已证明它**只值 +2.5% 变慢**、没有收益。
+⇒ 20 ms（需压到 6~8 G MAC）**不可能由等价改写达成**，只剩三条路：
+(a) Head 轻量化（3×3 → DW+PW，约 21.5 → 11.6 G）但需重训蒸馏、撞底模冻结；
+(b) 动态 ROI 局部裁剪（跟踪态只跑 160~256 patch，算力降至 1/16 以下）；
+(c) 降分辨率 —— ⚠️ 但 §四·9h：512×512 GMC fit 23.8 ms → 1024×576 是 73.4 ms，
+**40 ms 红线会由 PASS 翻成 FAIL**，不能只看 NPU 段。

@@ -123,10 +123,28 @@ def put(local, remote):
     command lines into an interactive pty means the tty ECHOES every one of
     them, and the unread echo backlog fills the buffer and wedges the session.
     scp also verifies the transfer for us.
+
+    Key auth is tried first, exactly like shell(). The password path used to be
+    mandatory here even when the public key was installed, so put() and shell()
+    disagreed about whether RK3588_PASSWORD was needed at all -- --put aborted
+    on a board that --exec reached just fine.
     """
+    scp_args = ["-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+                "-o", "BatchMode=yes", "-P", str(PORT), local, f"{USER}@{HOST}:{remote}"]
+
+    if key_auth_ok():
+        proc = subprocess.run(["scp", *scp_args], capture_output=True, text=True, timeout=1800)
+        if proc.returncode == 0:
+            rc, out = shell(f"chmod 755 {remote} && md5sum {remote} && ls -l {remote}")
+            return rc == 0, out
+        print(f"[warn] key-auth scp failed (rc={proc.returncode}): "
+              f"{(proc.stderr or '').strip()[:200]} -- falling back to password")
+
     pw = os.environ.get("RK3588_PASSWORD")
     if not pw:
-        sys.exit("RK3588_PASSWORD is not set")
+        sys.exit("board is not reachable by SSH key and RK3588_PASSWORD is not set.\n"
+                 f"Fix once with: ssh-copy-id -i ~/.ssh/id_ed25519.pub {USER}@{HOST}"
+                 f" -p {PORT}")
     child = pexpect.spawn(
         f"scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "
         f"-P {PORT} {local} {USER}@{HOST}:{remote}",

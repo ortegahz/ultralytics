@@ -216,6 +216,7 @@ int main(int argc, char** argv) {
     int npu_workers = 2;
     int no_det = 0;
     int want_hash = 1;
+    int no_feat = 0;
     int f16_in = 0;
     int f16_div255 = 0;
     int f32_in = 0;
@@ -253,6 +254,7 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(a, "--warmup"))   warmup_frames = std::atol(need(argc, argv, i, a));
         else if (!std::strcmp(a, "--no-det"))   no_det = 1;
         else if (!std::strcmp(a, "--no-hash"))  want_hash = 0;
+        else if (!std::strcmp(a, "--no-feat"))  no_feat = 1;
         else if (!std::strcmp(a, "--f16-in"))   f16_in = 1;
         else if (!std::strcmp(a, "--f16-div255")) f16_div255 = 1;
         else if (!std::strcmp(a, "--f32-in"))   f32_in = 1;
@@ -267,7 +269,8 @@ int main(int argc, char** argv) {
                         "            [--f16-in] [--f16-div255]   (REJECTED by runtime: needs 4 B/px)\n"
             "            [--f32-in] [--f32-div255]   (float32 upload, pass_through=1)\n"
             "            [--f32-no-passthrough]       (same buffer, type=FLOAT32 instead)\n"
-            "            [--npu-core0 MASK] [--npu-core1 MASK]   1/2/4 = NPU core 0/1/2, 0=auto\n",
+            "            [--npu-core0 MASK] [--npu-core1 MASK]   1/2/4 = NPU core 0/1/2, 0=auto\n"
+            "            [--no-feat]         skip feature image dump (~25 GB over 24 sequences)\n",
                         argv[0]);
             return 0;
         } else {
@@ -290,7 +293,7 @@ int main(int argc, char** argv) {
     e2ecore::FeatureParams fp;
     fp.raw_root = raw_root;
     fp.sequence = sequence;
-    fp.out_dir = out_root + "/feat";
+    if (!no_feat) fp.out_dir = out_root + "/feat";
     fp.out_ext = "bmp";
     fp.kernel_dir = kernel_dir;
     fp.fused = fused;
