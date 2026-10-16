@@ -232,6 +232,83 @@ bool letterbox_feature(const uint8_t* rgb, int w, int h, std::vector<uint8_t>* d
 bool infer_preboxed(InferEngine* e, const std::vector<uint8_t>& boxed, const char* name,
                     long* n_det_out = nullptr, InferTiming* t = nullptr);
 
+// -------------------------------------------------------------------------
+// Pre-widened input path (fp16 graphs only).
+//
+// Feeding an fp16 graph as UINT8 makes rknn_inputs_set widen all 640*640*3
+// elements itself -- measured 45.4 ms/frame, 29% of a 162 ms fp16 frame, and it
+// sits on the NPU worker's critical path. These two move that widening onto the
+// letterbox thread.
+//
+// The values handed over are the same 0..255 integers the uint8 path carries
+// (the graph's std_values division is inside the model, not the upload). That is
+// an expectation the caller must CONFIRM by diffing the detections TSV against
+// the uint8 path -- it is not established by the type change alone.
+// infer_preboxed_f16 refuses to run on a non-FLOAT16 graph.
+// -------------------------------------------------------------------------
+// `div255`: pass 0..1 instead of raw 0..255.
+//
+// MEASURED, and the choice is not cosmetic: handing the runtime raw 0..255
+// while declaring RKNN_TENSOR_FLOAT16 produced **zero detections** on all 537
+// frames (process exit 0 -- a silent-wrong-output trap), which says the FLOAT16
+// declaration makes the runtime STOP applying the graph's std_values=[[255]].
+// So the caller has to hand over values already in model space. This flag
+// exists so the semantics can be settled by measurement instead of by reading
+// the SDK header, and so a future re-test costs one build instead of two.
+bool letterbox_feature_f16(const uint8_t* rgb, int w, int h, std::vector<uint16_t>* dst,
+                           double* ms = nullptr, bool div255 = false);
+bool infer_preboxed_f16(InferEngine* e, const std::vector<uint16_t>& boxed_f16, const char* name,
+                        long* n_det_out = nullptr, InferTiming* t = nullptr);
+
+// -------------------------------------------------------------------------
+// Pre-widened input path, FLOAT32 edition -- the one the runtime accepts.
+//
+// An fp16 graph fed RKNN_TENSOR_UINT8 makes rknn_inputs_set widen and normalise
+// all 640*640*3 elements on the caller's thread: measured 45.40 ms/frame on
+// 34_1, 28% of a 162 ms fp16 frame, pure CPU work between two rknn_run calls.
+// pass_through=1 removes it -- provided the upload is exactly the model's own
+// input size, which for this graph is 640*640*3*4 = 4915200 BYTES of float32,
+// even though RKNN_QUERY_INPUT_ATTR reports in_attr.type == FLOAT16:
+//
+//   E RKNN: rknn_inputs_set, param input size(2457600) < model input size(4915200)
+//
+// A uint16 upload is rejected on every frame, so the uint16 variant above is a
+// documented dead end, not an alternative.
+//
+// `div255`: hand over values already divided by 255. pass_through=1 performs no
+// conversion, so the graph's std_values=[[255,255,255]] is NOT applied for us.
+// Which side the model wants is settled by diffing the detections TSV against
+// the uint8 path -- not by assumption, and not by the type declaration.
+//
+// `u8` is kept alongside `f32` so the all-zero guard and dump_input still see
+// the real frame's bytes.
+//
+// `passthrough` selects the upload mode, and the default is the one that is
+// MEASURED to be broken: pass_through=1 passes the size check and then SIGSEGVs
+// inside librknnrt's memcpy. Passing false uploads the same buffer as an
+// ordinary RKNN_TENSOR_FLOAT32 input instead.
+// -------------------------------------------------------------------------
+struct F32Boxed {
+    std::vector<uint8_t> u8;    // byte-identical to letterbox_feature()'s output
+    std::vector<float>   f32;   // the upload buffer
+};
+
+bool letterbox_feature_f32(const uint8_t* rgb, int w, int h, F32Boxed* dst,
+                           double* ms = nullptr, bool div255 = false);
+bool infer_preboxed_f32(InferEngine* e, const F32Boxed& b, const char* name,
+                        long* n_det_out = nullptr, InferTiming* t = nullptr,
+                        bool passthrough = true);
+
+// Pin a context to specific NPU cores, e.g. one worker per core on RK3588.
+// Mask values are rknn_core_mask bits: CORE_0 = 1, CORE_1 = 2, CORE_2 = 4,
+// combinable; 0 leaves the runtime's default (RKNN_NPU_CORE_AUTO) alone.
+// Must be called after infer_open and before the first rknn_run. Returns 0 on
+// success and logs FATAL + returns non-zero if the runtime refuses -- the
+// distinction matters, because an unapplied mask leaves the throughput numbers
+// valid but the "worker N owns core N" claim unproven.
+int infer_set_npu_core(InferEngine* e, int mask);
+int infer_npu_core_mask(const InferEngine* e);
+
 // Rolling fnv1a over every frame's (heatmap, offset) tensors. This is how the
 // no-I/O path is PROVEN equivalent to the file path without writing a byte:
 // both modes print the same 32-bit chain hash iff every tensor matched.

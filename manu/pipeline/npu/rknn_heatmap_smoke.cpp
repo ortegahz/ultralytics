@@ -285,6 +285,17 @@ struct Ctx {
   std::vector<rknn_tensor_attr> out_attr;
   int in_h = 0, in_w = 0, in_c = 0;
   int hm_h = 0, hm_w = 0, off_h = 0, off_w = 0;
+  // True when the graph's input tensor is FLOAT16 (an fp16 / --no-quant build).
+  // An fp16 graph fed RKNN_TENSOR_UINT8 makes the runtime widen every one of the
+  // 640*640*3 elements inside rknn_inputs_set, and for this graph that measured
+  // 45.4 ms/frame -- 29% of a 162 ms fp16 frame. A caller that already holds the
+  // widened buffer can hand it over and skip the work entirely.
+  bool input_is_f16 = false;
+  // NPU core mask requested for this context. 0 == leave the runtime's default
+  // (RKNN_NPU_CORE_AUTO), which is what every run used until the core-0/core-1
+  // split was made explicit -- recorded because "two workers" and "one worker per
+  // NPU core" are different claims and only the second one is a measurement.
+  int core_mask = 0;
 };
 
 // One full run; on success fills hm/off with float32. t_stage, when non-null,
@@ -296,14 +307,74 @@ struct Ctx {
 // published "TOTAL" understate the per-frame cost, which is how a 168 ms/frame
 // wall clock came out looking like 57 ms/frame.
 bool run_once(const Ctx& c, const std::vector<uint8_t>& input, std::vector<float>* hm,
-              std::vector<float>* off, std::vector<rknn_output>* out, double* t_stage) {
+              std::vector<float>* off, std::vector<rknn_output>* out, double* t_stage,
+              const uint16_t* in_f16 = nullptr, size_t in_f16_elems = 0,
+              const float* in_f32 = nullptr, size_t in_f32_elems = 0,
+              bool in_f32_passthrough = true) {
   rknn_input in{};
   in.index = 0;
-  in.type = RKNN_TENSOR_UINT8;
-  in.fmt = RKNN_TENSOR_NHWC;
-  in.size = (uint32_t)input.size();
-  in.buf = const_cast<uint8_t*>(input.data());
-  in.pass_through = 0;
+  if (in_f32 && in_f32_elems && in_f32_passthrough) {
+    // THE pass_through path, and the only one that can work. Measured, not
+    // assumed: the driver rejects anything smaller than the model's own input
+    // and prints the requirement --
+    //   E RKNN: rknn_inputs_set, param input size(2457600) < model input size(4915200)
+    // 4915200 = 640*640*3*4, i.e. the runtime wants a float32 HOST buffer even
+    // though RKNN_QUERY_INPUT_ATTR reports in_attr.type == FLOAT16 for this
+    // graph. A 2-byte-per-element upload can therefore never be accepted, which
+    // is why the uint16 branch below fails on every single frame.
+    //
+    // pass_through=1 means no conversion at all, so the 45.4 ms uint8 widening
+    // + std_values normalisation leaves the NPU worker's critical path -- but
+    // the values handed over must already be in MODEL space, which is what the
+    // div255 switch on the letterbox side decides. That is a measurement to run,
+    // not a fact to assume.
+    //
+    // fmt stays zero: the SDK header says pass_through=TRUE needs neither type
+    // nor fmt, and a stale fmt next to pass_through=1 is exactly the kind of
+    // self-contradiction worth not sending.
+    in.pass_through = 1;
+    in.size = (uint32_t)(in_f32_elems * sizeof(float));
+    in.buf = const_cast<float*>(in_f32);
+  } else if (in_f32 && in_f32_elems) {
+    // Same float32 buffer, but handed over as an ordinary typed upload instead of
+    // a pass-through. pass_through=1 is the mode that SEGVs inside librknnrt's
+    // memcpy, so this variant exists to price the alternative: the runtime still
+    // converts (float32 -> float16), but a correctly typed upload may take a
+    // vectorised path where the uint8 -> float16 route measured 37 ns/element.
+    in.pass_through = 0;
+    in.fmt = RKNN_TENSOR_NHWC;
+    in.type = RKNN_TENSOR_FLOAT32;
+    in.size = (uint32_t)(in_f32_elems * sizeof(float));
+    in.buf = const_cast<float*>(in_f32);
+  } else if (in_f16 && in_f16_elems) {
+    // rknn_api.h on pass_through:
+    //   TRUE  -> "the buf data is passed directly to the input node of the rknn
+    //             model without any conversion"
+    //   FALSE -> "the buf data is converted into an input consistent with the
+    //             model according to the following type and fmt"
+    // So pass_through=0 is precisely what forces the 45.4 ms CPU conversion this
+    // path exists to avoid -- and feeding FLOAT16 with it still gave ZERO
+    // detections on all 537 frames, i.e. it converted the fp16 values again.
+    //
+    // With pass_through=1 the buffer must already be in the model's own input
+    // format, which for this graph RKNN_QUERY_INPUT_ATTR reports as NHWC
+    // FLOAT16. We therefore hand over exactly that and set neither type nor fmt
+    // (the header says they need not be set).
+    //
+    // The values are the same 0..255 integers the UINT8 path carries -- the
+    // graph's std_values=[[255,255,255]] normalisation is baked into the model,
+    // not into the upload. That is an expectation, not a guarantee: the caller
+    // must diff the detections TSV against the uint8 path to confirm it.
+    in.pass_through = 1;
+    in.size = (uint32_t)(in_f16_elems * sizeof(uint16_t));
+    in.buf = const_cast<uint16_t*>(in_f16);
+  } else {
+    in.pass_through = 0;
+    in.fmt = RKNN_TENSOR_NHWC;
+    in.type = RKNN_TENSOR_UINT8;
+    in.size = (uint32_t)input.size();
+    in.buf = const_cast<uint8_t*>(input.data());
+  }
 
   out->assign(c.n_out, rknn_output{});
   for (uint32_t i = 0; i < c.n_out; i++) {

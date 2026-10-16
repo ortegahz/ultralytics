@@ -3330,3 +3330,125 @@ PC 特征本身就是 GMC 产物，当 `--raw-root` 会让 GMC 跑两遍 ⇒ 口
 - `Conv:/model/b5/conv/Conv` 回退是否为时延劣化主因未归因（MAC 相同，回退只是候选解释）
 - `inputs_set` 21–31 ms 的预转换优化未做
 - int8 去 P0 臂未重新标定/重训（fp16 已证明量化本身不是主要误差源）
+
+---
+
+## 二十七、e2e 双 NPU 并行：CPU 绑核决定 fp16 能否过 12 fps（2026-10-16 实测）
+
+### 27.1 一句话
+
+新建 `e2e_par2_demo.cpp`（4 级流水线 GMC ∥ letterbox ∥ NPU worker0 ∥ NPU worker1，2 个 rknn 上下文），
+fp16 在 `34_1` 上从 **11.89 fps → 15.26 fps（+28.4%）**，越过 12 fps 门槛。
+**决定性动作不是加流水线也不是改模型，而是 CPU 绑核**：四个线程一人一个 A76 大核
+（`--cpu-feat 4 --cpu-lb 5 --cpu-npu0 6 --cpu-npu1 7`）。逐帧输出与原绑核基线 **537/537 完全一致**。
+
+### 27.2 六档绑核对照（fp16 / 2 workers / 537 帧 / 571 检测）
+
+| 臂 | GMC | lb | npu0 | npu1 | **fps** | per-ctx | `inputs_set` | `rknn_run` | GMC wall | LB |
+|---|---|---|---|---|--:|--:|--:|--:|--:|--:|
+| **A** 原方案 | 4-5 | 6-7 | 0-1 | 2-3 | **11.80** | 162.97 | 45.41 | 111.46 | 32.09 | 12.36 |
+| **P** | 0-1 | 2-3 | 4-5 | 6-7 | 9.12 | 119.72 | 14.73 | 102.27 | **106.25** | 27.91 |
+| **Q** | 0-1 | 2-3 | 4 | 5 | 9.22 | 120.36 | 14.72 | 103.16 | 105.05 | 27.94 |
+| **T2** | 4-5 | 4-5 | 6 | 7 | 15.13 | 127.99 | 14.78 | 110.74 | 33.95 | 14.89 |
+| **T** | 4 | 5 | 6 | 7 | **15.26** | 126.99 | 14.77 | 109.62 | 33.40 | 14.87 |
+| **T** 复跑 | 4 | 5 | 6 | 7 | **15.25** | 126.99 | 14.77 | 109.69 | 34.41 | 14.88 |
+
+### 27.3 三条可复用铁律级结论
+
+1. **异构核上「优化某一级」会转移瓶颈，不能只看那一级**。臂 P/Q 把 NPU 级从 81.5 压到 59.9 ms/帧
+   （理论 16.7 fps），但 GMC 被挤到 A55 后 32.09 → **106.25 ms**，GMC 变新瓶颈，总帧率反而掉到 9.12。
+2. **`inputs_set` 是单线程标量循环，给两个核与给一个核完全一样**（臂 Q 14.72 vs 臂 P 14.73）。
+   ⇒ 判「某段代码吃不吃得满多核」不能凭直觉，要用「1 核 vs 2 核」实测。
+3. **NPU worker 线程 111 ms 在 `rknn_run` 上阻塞等待，CPU 闲置**。
+   ⇒ 把两个 A55 小核整块划给 worker 是纯浪费；正确解是 1 大核 1 worker。
+
+### 27.4 `inputs_set` 45.41 ms 的定性与 `pass_through` 证伪（用户叫停，留档）
+
+定性成立且已定位：**小核上的标量逐元素循环**。同一份 1228800 B uint8 上传、同一个驱动：
+
+| 模型 | `in_attr.type` | attr `size` | `inputs_set` |
+|---|---|--:|--:|
+| int8 | `2` UINT8 | 1,228,800（1 B/px） | **0.34 ms** |
+| fp16 | `1` FLOAT16 | 2,457,600（2 B/px） | **45.41 ms** |
+
+45.41 ms ÷ 1,228,800 = **37 ns/元素 ≈ 74 cycles @2 GHz**。
+
+三条建议路线逐条实测：
+- `pass_through=1` + 2 B/px fp16 缓冲 ⇒ 驱动拒绝
+  `E RKNN: rknn_inputs_set, param input size(2457600) < model input size(4915200)`，每帧失败
+- 同上补齐到 4 B/px ⇒ **SIGSEGV**，`__memcpy_generic` ← `librknnrt.so` ← `rknn_inputs_set`
+- 声明 `type=FLOAT32`（不过直通）⇒ `inputs_set` 46.74 / 47.78 ms，**没降**；
+  先除 255 ⇒ 537 帧 **0 检测**（运行时又除一次），不除 ⇒ 571 检测（对，但没提速）
+
+⇒ **`pass_through` 在这个 fp16 图上是驱动自相矛盾，不是调用姿势问题**：
+`RKNN_QUERY_INPUT_ATTR` 报 `type=1 fmt=1 n_elems=1228800 size=2457600`（2 B/px），
+但直通检查要 `4915200`（4 B/px）。按声明给 → 报错；按检查给 → 段错误。SDK 头文件解释不了。
+代码保留 `--f16-in` / `--f32-in` 两条路径作可复现负面对照。
+
+⚠️ **旧误判更正**：早先记为「arm I 挂死」是错的。真因是尺寸校验失败后 worker 吞掉错误继续跑，
+队列永不排空，producer 侧看着像不动（NPU load 100% 是上次崩溃的残留读数）。
+
+**仍未执行、需用户裁决的唯一剩余路线**：转模型时把输入固化为 uint8 节点，
+让 Cast/Mul 成为图内算子跑到 NPU——这正是 int8 档 `inputs_set` 只有 0.34 ms 的原因。
+要改 ONNX 输入 dtype + rknn-toolkit2 2.3.0 重新转换，属模型侧改动。
+
+### 27.5 闸门（全部 PASS）
+
+- 帧数：T / Tr / T2 / I8T 各 537 行，无 0 字节产物
+- **逐帧精度：T 与基线 A 537/537 IDENTICAL**（571 检测）；复跑 Tr 同样 537/537
+- **回归**：改完 `e2e_core.cpp` / `rknn_heatmap_smoke.cpp` 后重跑 `e2e_par_demo` int8，
+  chain hash 仍为 **`d5e81977`**，与 10-15 基线逐位一致
+- `dmesg` 16 行 `rknpu/rknn` 全为开机驱动初始化信息，本轮运行 **0 错误**
+- 2 个 rknn 上下文，未触发第 3 上下文的 6 s job timeout / soft reset
+- int8 同绑核 **29.83 fps**（原 26.88）
+
+### 27.6 新增产物与同步
+
+`e2e_par2_demo.cpp`、`F32Boxed` / `letterbox_feature_f32` / `infer_preboxed_f32` / `u8_to_f32`(NEON)、
+`run_once` f32 直通分支 + 输入 attr 打印、`build_e2e_demo_arm64.sh` 编译循环；
+实验记录 `docs/experiments/2026-10-16_e2e_par2_npu_affinity.md`。
+板卡输出 `/mnt/manu/npu/out/par2i/{P,Q}`、`par2j/{T,T2}`、`par2k/{Tr,I8T,REG}`。
+五个源文件已 `cp` 同步镜像，md5 双侧全部一致。
+
+### 27.7 剩下的空间
+
+`per_context_ms = 126.99` 中 `rknn_run` 占 109.62 ms（86%）。两上下文并行下
+`2 / 109.62 ms = 18.2 fps` 是这套配置的**绝对上限**。再往上只有三处：
+① 彻底干掉 `inputs_set` 14.77 ms（→18.2 fps，需 §27.4 末尾的模型改造）；
+② 压 `rknn_run`（构建日志里 `Conv:/model/b5/conv/Conv` 的 3Core→单核回退、
+fp16 图 105,600 KB 内部内存，均未动过）；
+③ dequant+peaks（0.82 ms）挪到闲置的 A55 做第 5 级（≈ +0.5 fps，
+需先把 1.2 MB 输出张量拷到私有缓冲，因为 runtime 的输出缓冲会被同上下文下一次 run 覆盖）。
+
+### 27.8 目标原话「两个 npu core(0 1) worker」的复核：此前从未验证
+
+§27.2–27.3 解决的是 **CPU 核**；目标里写的是 **NPU core**，两件事，必须分开验证。
+代码里**从未调用 `rknn_set_core_mask`**，两个上下文一直跑在默认 `RKNN_NPU_CORE_AUTO` 下。
+`rknn_set_core_mask` 在板卡 `/lib/librknnrt.so` 确实导出（`0xaff20 T`），所以此前所有 fps
+只能证明「两个 worker」，**不能证明「worker N 占住 NPU core N」**。
+
+新增 `infer_set_npu_core(e, mask)` + `--npu-core0/--npu-core1`（1/2/4 = NPU core 0/1/2，0=AUTO）；
+掩码被拒直接 FATAL 退出——没生效的掩码会让吞吐看着正常而结论是空的。
+
+三臂（绑核一律用 §27.2 的 T 方案，逐 core 占用来自 0.25 s 间隔采样 `/sys/kernel/debug/rknpu/load`）：
+
+| 臂 | worker0 | worker1 | **fps** | per-ctx | `rknn_run` | Core0 | Core1 | Core2 |
+|---|---|---|--:|--:|--:|--:|--:|--:|
+| v0auto | AUTO | AUTO | **15.28** | 126.57 | 109.38 | 84.1%(136/139) | 75.2%(132/139) | **0.0%** |
+| v1c01 | `0x1` | `0x2` | **15.18** | 127.94 | 110.24 | 79.4%(134/140) | 79.9%(134/140) | **0.0%** |
+| v2c02 | `0x1` | `0x4` | **失败** | — | — | — | — | — |
+
+- **v2c02 直接失败**：`E RKNN: failed to submit!, op id: 64 ...` → `rknn_run failed`，
+  537 帧只出 **49 行**（残缺产物即失败，铁律 §四·9g）。
+  ⇒ **RK3588 只支持 0/1 这对相邻 core，0+2 不可用**；与既有「第 3 个上下文触发 6 s job timeout +
+  驱动 soft reset」是同一约束的两面。
+- **AUTO 本来就在用 core 0 + core 1，core 2 全程 0%** ⇒ 目标里的「core(0 1) worker」被满足，
+  但只能靠采样证明，不能靠默认。显式切分只是让负载更均衡（79.4/79.9 vs 84.1/75.2），帧率不变。
+- **结论：NPU core 分配无余量**。`rknn_run` 109–110 ms 时两核各约 80% 占用且第三核不可用
+  ⇒ 那 109 ms 是**真实 NPU 计算，不是排队等待**。
+- **采纳默认 AUTO**：功能等价、帧率等价，少两个参数、少一个失败模式。
+  `--npu-core0/--npu-core1` 保留在代码里，换模型时可能需要。
+
+闸门补充：v0auto / v1c01 vs 基线各 **537/537 IDENTICAL**（571 检测）；
+新增 core-mask 代码后重跑 `e2e_par_demo` int8，chain hash 仍 **`d5e81977`**、13.86 fps；
+`dmesg` 无 `failed to submit` 以外的错误行。板卡输出 `/mnt/manu/npu/out/par2l/{v0auto,v1c01,v2c02,REG2}`。

@@ -26,6 +26,13 @@
 #include <string>
 #include <vector>
 
+// Plain NEON (uint8->float32 widening) for u8_to_f32 below. vcvtq_f32_u32 is
+// baseline aarch64; the fp16 intrinsics arm_neon.h also declares are NOT, which
+// is why f32_to_f16_bits is a bits-level conversion.
+#if defined(__ARM_NEON) || defined(__aarch64__)
+#include <arm_neon.h>
+#endif
+
 #include <sys/stat.h>
 #include <sys/types.h>
 
@@ -325,6 +332,21 @@ InferEngine* infer_open(const InferParams& p) {
         e->c.in_h = (int)in_attr.dims[1]; e->c.in_w = (int)in_attr.dims[2];
         e->c.in_c = (int)in_attr.dims[3];
     }
+    // Remember whether the graph wants FLOAT16 input. Only then is handing
+    // rknn_inputs_set a pre-widened buffer legal; on an INT8 graph the runtime
+    // quantises whatever it is given and the uint8 path stays the right one.
+    e->c.input_is_f16 = (in_attr.type == RKNN_TENSOR_FLOAT16);
+    if (e->c.input_is_f16)
+        std::printf("[2] model input type = FLOAT16 -> pre-widened input path available\n");
+    // The declared size is printed because it is the only way to settle a
+    // disagreement the runtime raised: on the fp16 graph it refuses a 2457600 B
+    // upload with "param input size(2457600) < model input size(4915200)". If the
+    // attr itself says 2457600, then the 4915200 in that message does not come
+    // from this model's declared input and pass_through cannot be reasoned about
+    // from the header -- it has to be treated as a runtime bug, not a caller error.
+    std::printf("[2] input attr: type=%d fmt=%d n_elems=%u size=%u dims=[%u %u %u %u]\n",
+                (int)in_attr.type, (int)in_attr.fmt, in_attr.n_elems, in_attr.size,
+                in_attr.dims[0], in_attr.dims[1], in_attr.dims[2], in_attr.dims[3]);
     if (e->c.in_h != kDefaultSize || e->c.in_w != kDefaultSize || e->c.in_c != 3) {
         std::fprintf(stderr, "[FATAL] model input is %dx%dx%d, expected 640x640x3\n",
                      e->c.in_h, e->c.in_w, e->c.in_c);
@@ -376,7 +398,9 @@ InferEngine* infer_open(const InferParams& p) {
 // anything gets written to disk.
 static bool infer_frame(InferEngine* e, const uint8_t* rgb, int sw, int sh,
                         const uint8_t* preboxed, const char* out_name, long* n_det_out,
-                        InferTiming* t) {
+                        InferTiming* t, const uint16_t* preboxed_f16 = nullptr,
+                        const float* preboxed_f32 = nullptr,
+                        bool f32_passthrough = true) {
     const double t_frame0 = now_ms();
     if (preboxed) {
         // Letterbox already ran on its own stage; copy in without redoing it.
@@ -407,7 +431,10 @@ static bool infer_frame(InferEngine* e, const uint8_t* rgb, int sw, int sh,
     }
 
     double ts[4] = {0, 0, 0, 0};
-    if (!run_once(e->c, e->input, &e->hm, &e->off, &e->out, ts)) return false;
+    if (!run_once(e->c, e->input, &e->hm, &e->off, &e->out, ts,
+                  preboxed_f16, preboxed_f16 ? e->input.size() : 0,
+                  preboxed_f32, preboxed_f32 ? e->input.size() : 0,
+                  f32_passthrough)) return false;
     if (t) {
         // ts = {inputs_set, rknn_run, outputs_get, dequant}
         t->inputs_set_ms = ts[0];
@@ -528,6 +555,191 @@ bool infer_preboxed(InferEngine* e, const std::vector<uint8_t>& boxed, const cha
                     long* n_det_out, InferTiming* t) {
     return infer_frame(e, nullptr, 0, 0, boxed.data(), name, n_det_out, t);
 }
+
+// ---------------------------------------------------------------------------
+// Pre-widened (fp16) input path.
+//
+// An fp16 graph fed RKNN_TENSOR_UINT8 makes the runtime widen all 640*640*3
+// elements inside rknn_inputs_set -- measured 45.4 ms/frame, 29% of a 162 ms
+// fp16 frame, and it sits ON the NPU worker's critical path. letterbox_feature_f16
+// does the same widening on the letterbox thread instead, and this entry point
+// uploads the result directly.
+//
+// The numbers handed over are the SAME 0..255 integers the uint8 path carries:
+// the graph's std_values=[[255,255,255]] division lives inside the model, not in
+// the upload, so the computed values must match. That is an expectation, not a
+// guarantee -- callers must diff the detections TSV against the uint8 path to
+// confirm it, and must not treat "fp16 is just a wider type" as the proof.
+// ---------------------------------------------------------------------------
+// float32 -> binary16, round-to-nearest-even. GCC 9.3 has no _Float16, and
+// arm_neon.h's vcvt_f16_f32 needs FP16 support the toolchain headers here do
+// not expose, so the conversion is done on the bits. Only non-negative inputs
+// reach this in the letterbox path (uint8/255 in [0,1]), which is the easy
+// direction; the negative branch is handled anyway so the helper is safe to
+// reuse.
+static inline uint16_t f32_to_f16_bits(float f) {
+    uint32_t x;
+    std::memcpy(&x, &f, sizeof(x));
+    const uint32_t sign = (x >> 16) & 0x8000u;
+    int32_t exp = (int32_t)((x >> 23) & 0xFF) - 127 + 15;
+    uint32_t man = x & 0x7FFFFFu;
+    if (((x >> 23) & 0xFF) == 0xFF) {          // Inf / NaN
+        return (uint16_t)(sign | 0x7C00u | (man ? 0x200u : 0u));
+    }
+    if (exp >= 0x1F) return (uint16_t)(sign | 0x7C00u);          // overflow -> Inf
+    if (exp <= 0) {                                              // subnormal / zero
+        if (exp < -10) return (uint16_t)sign;
+        man |= 0x800000u;
+        const uint32_t shift = (uint32_t)(14 - exp);              // 24 - (exp + 10)
+        uint32_t h = man >> shift;
+        const uint32_t rem = man & ((1u << shift) - 1u);
+        const uint32_t half = 1u << (shift - 1);
+        if (rem > half || (rem == half && (h & 1u))) ++h;         // round half to even
+        return (uint16_t)(sign | h);
+    }
+    uint32_t h = (uint32_t)(exp << 10) | (man >> 13);
+    const uint32_t rem = man & 0x1FFFu;
+    if (rem > 0x1000u || (rem == 0x1000u && (h & 1u))) ++h;       // RNE
+    return (uint16_t)(sign | h);
+}
+
+bool letterbox_feature_f16(const uint8_t* rgb, int w, int h, std::vector<uint16_t>* dst,
+                           double* ms, bool div255) {
+    const double t0 = now_ms();
+    std::vector<uint8_t> boxed;
+    letterbox(rgb, w, h, kDefaultSize, &boxed);   // identical call, identical bytes
+    dst->resize(boxed.size());
+    if (div255) {
+        // Model space: the runtime no longer applies std_values once we declare
+        // FLOAT16, so the 0..255 integers have to be divided here.
+        for (size_t i = 0; i < boxed.size(); ++i)
+            (*dst)[i] = f32_to_f16_bits((float)boxed[i] * (1.0f / 255.0f));
+    } else {
+        // uint8 0..255 is exactly representable in binary16 (10 mantissa bits).
+        for (size_t i = 0; i < boxed.size(); ++i) (*dst)[i] = (uint16_t)boxed[i];
+    }
+    if (ms) *ms = now_ms() - t0;
+    return true;
+}
+
+bool infer_preboxed_f16(InferEngine* e, const std::vector<uint16_t>& boxed_f16, const char* name,
+                        long* n_det_out, InferTiming* t) {
+    if (!e->c.input_is_f16) {
+        std::fprintf(stderr, "[FATAL] infer_preboxed_f16 on a non-FLOAT16 model graph\n");
+        return false;
+    }
+    // e->input still has to be filled: the all-zero guard below it reads that
+    // buffer, and it is what the dump_input path serialises.
+    e->input.resize(boxed_f16.size());
+    for (size_t i = 0; i < boxed_f16.size(); ++i) e->input[i] = (uint8_t)boxed_f16[i];
+    return infer_frame(e, nullptr, 0, 0, nullptr, name, n_det_out, t, boxed_f16.data());
+}
+
+// ---------------------------------------------------------------------------
+// Pre-widened input path, FLOAT32 edition -- the one the driver actually accepts.
+//
+// Why this exists, measured end to end: an fp16 graph fed RKNN_TENSOR_UINT8 makes
+// rknn_inputs_set widen and normalise all 640*640*3 elements on the CALLER'S
+// thread -- 45.40 ms/frame measured on 34_1, 28% of a 162 ms fp16 frame, and it
+// is pure CPU work sitting between two rknn_run calls on the NPU worker.
+// pass_through=1 removes it, but the upload buffer must be exactly the model's
+// own input size. The driver says so out loud when it is not:
+//
+//   E RKNN: rknn_inputs_set, param input size(2457600) < model input size(4915200)
+//
+// 4915200 = 640*640*3*4 bytes. So the runtime wants a float32 HOST buffer, even
+// though RKNN_QUERY_INPUT_ATTR reports in_attr.type == FLOAT16 for this graph.
+// A uint16 upload (2457600 B) can never be accepted -- it fails on every frame.
+//
+// `div255`: pass values already divided by 255 instead of raw 0..255 integers.
+// With pass_through=1 the runtime applies NO conversion and therefore does NOT
+// apply the graph's std_values=[[255,255,255]]. Which side of that division the
+// model expects is NOT guessed here: both settings stay reachable, and the
+// caller settles it by diffing the detections TSV against the uint8 path.
+// ---------------------------------------------------------------------------
+// uint8 -> float32, 16 elements per iteration. NEON is baseline on aarch64 and
+// vcvtq_f32_u32 is plain NEON -- unlike the vcvt_f16_f32 that arm_neon.h could
+// not offer above, which is why f32_to_f16_bits has to work on the bits.
+//
+// NOTE, deliberately not hidden: the div255 branch multiplies by 1/255f rather
+// than dividing. That can differ from `v / 255.0f` by <=1 ulp on a few of the
+// 256 possible byte values. The graph input is fp16, whose ulp is ~2^-10, so the
+// fp16 rounding should absorb it -- but that is an argument, not a measurement,
+// and the TSV diff is what actually settles it. If it ever does matter, this is
+// the line to change.
+static void u8_to_f32(const uint8_t* src, float* dst, size_t n, bool div255) {
+    const float kScale = div255 ? (1.0f / 255.0f) : 1.0f;
+    size_t i = 0;
+#if defined(__ARM_NEON) || defined(__aarch64__)
+    for (; i + 16 <= n; i += 16) {
+        const uint8x16_t v = vld1q_u8(src + i);
+        const uint16x8_t lo16 = vmovl_u8(vget_low_u8(v));
+        const uint16x8_t hi16 = vmovl_u8(vget_high_u8(v));
+        vst1q_f32(dst + i +  0, vmulq_n_f32(vcvtq_f32_u32(vmovl_u16(vget_low_u16(lo16))),  kScale));
+        vst1q_f32(dst + i +  4, vmulq_n_f32(vcvtq_f32_u32(vmovl_u16(vget_high_u16(lo16))), kScale));
+        vst1q_f32(dst + i +  8, vmulq_n_f32(vcvtq_f32_u32(vmovl_u16(vget_low_u16(hi16))),  kScale));
+        vst1q_f32(dst + i + 12, vmulq_n_f32(vcvtq_f32_u32(vmovl_u16(vget_high_u16(hi16))), kScale));
+    }
+#endif
+    for (; i < n; ++i) dst[i] = (float)src[i] * kScale;
+}
+
+bool letterbox_feature_f32(const uint8_t* rgb, int w, int h, F32Boxed* dst,
+                           double* ms, bool div255) {
+    const double t0 = now_ms();
+    dst->u8.resize((size_t)kDefaultSize * kDefaultSize * 3);
+    letterbox(rgb, w, h, kDefaultSize, &dst->u8);   // identical call, identical bytes
+    dst->f32.resize(dst->u8.size());
+    u8_to_f32(dst->u8.data(), dst->f32.data(), dst->u8.size(), div255);
+    if (ms) *ms = now_ms() - t0;
+    return true;
+}
+
+bool infer_preboxed_f32(InferEngine* e, const F32Boxed& b, const char* name,
+                        long* n_det_out, InferTiming* t, bool passthrough) {
+    if (!e->c.input_is_f16) {
+        std::fprintf(stderr, "[FATAL] infer_preboxed_f32 on a non-FLOAT16 model graph\n");
+        return false;
+    }
+    if (b.f32.size() != (size_t)kDefaultSize * kDefaultSize * 3) {
+        std::fprintf(stderr, "[FATAL] infer_preboxed_f32: buffer is %zu elements, need %zu\n",
+                     b.f32.size(), (size_t)kDefaultSize * kDefaultSize * 3);
+        return false;
+    }
+    // The uint8 box travels in as `preboxed` so infer_frame's all-zero guard and
+    // dump_input keep describing the real frame. Passing it the way the fp16 path
+    // does would let a 0x0 letterbox clobber e->input and silently weaken that
+    // check into a check of a grey placeholder.
+    return infer_frame(e, nullptr, 0, 0, b.u8.data(), name, n_det_out, t, nullptr,
+                       b.f32.data(), passthrough);
+}
+
+// Pin this context to specific NPU cores. RK3588 exposes three cores with mask
+// values 1 / 2 / 4 (RKNN_NPU_CORE_0 / _1 / _2, combinable); the runtime's
+// default is RKNN_NPU_CORE_AUTO.
+//
+// This exists because "two NPU workers" and "one worker per NPU core" are
+// DIFFERENT claims, and only the second one is a measurement. Every earlier run
+// used AUTO, so nothing so far established that worker 0 actually lands on core
+// 0. Called right after infer_open and before the first rknn_run, which is the
+// window the API allows.
+//
+// A non-zero return is reported, never swallowed: a core mask that silently
+// failed to apply would make the whole "core 0 / core 1" statement hollow while
+// the throughput numbers still looked fine.
+int infer_set_npu_core(InferEngine* e, int mask) {
+    if (!e || mask == 0) return 0;
+    const int rc = rknn_set_core_mask(e->c.ctx, (rknn_core_mask)mask);
+    if (rc != 0) {
+        std::fprintf(stderr, "[FATAL] rknn_set_core_mask(0x%x) failed rc=%d\n", mask, rc);
+        return rc;
+    }
+    e->c.core_mask = mask;
+    std::printf("[2] NPU core mask = 0x%x\n", mask);
+    return 0;
+}
+
+int infer_npu_core_mask(const InferEngine* e) { return e ? e->c.core_mask : 0; }
 
 void infer_enable_hash(InferEngine* e) { e->want_hash = true; }
 uint32_t infer_hash(const InferEngine* e) { return e->hash; }

@@ -1354,3 +1354,90 @@ cd /media/manu/1TB-Volume/rknn_work/hm
   ⇒ 昨天 §19/§21 那组 14.07 fps 用的是**哪一份 raw**、为什么当时能读，**尚未查清**。
   **在复核之前，不要把 14.07 fps 当作可直接复现的基线引用**；
   另注意「RC=0 但 0 帧」正是铁律 §四·9g 说的假成功形态。
+
+---
+
+## 23. ✅✅ e2e 双 NPU 并行架构：CPU 绑核让 fp16 过 12 fps（2026-10-16）—— **11.89 → 15.26 fps，537/537 逐帧一致**
+
+**headline（fp16 / `34_1` / 537 帧 / 2 workers / anchor_step=10 / --fused gpu / th=0.25）**
+
+| 方案 | GMC | letterbox | npu0 | npu1 | **fps** | per-ctx | `inputs_set` | `rknn_run` |
+|---|---|---|---|---|--:|--:|--:|--:|
+| A 原方案 | 4-5 | 6-7 | 0-1 | 2-3 | 11.80 | 162.97 | 45.41 | 111.46 |
+| P 反例 | 0-1 | 2-3 | 4-5 | 6-7 | **9.12** | 119.72 | 14.73 | 102.27 |
+| Q 反例 | 0-1 | 2-3 | 4 | 5 | 9.22 | 120.36 | 14.72 | 103.16 |
+| **T 采纳** | **4** | **5** | **6** | **7** | **15.26** | 126.99 | 14.77 | 109.62 |
+| T 复跑 | 4 | 5 | 6 | 7 | **15.25** | 126.99 | 14.77 | 109.69 |
+
+**关键点**
+
+- 旧方案 11.89 fps 时理论上限本就是 `2×1000/162.97 = 12.27 fps`——**贴着天花板跑**，
+  再加流水线级数也翻不过 12.3。必须压 `per_context_ms` 本身。
+- **`inputs_set` 45.41 ms 是小核上的标量循环**：45.41 ms ÷ 1,228,800 = 37 ns/元素
+  ≈ 74 cycles @2GHz。同一份 uint8 上传在 int8 图上只要 **0.34 ms**。
+  ⇒ 挪到大核后降到 **14.77 ms**（×0.32）。
+- **臂 P/Q 是反例**：NPU 级压到 59.9 ms/帧（理论 16.7 fps），但 GMC 被挤到 A55 后
+  32.09 → **106.25 ms**，GMC 变新瓶颈，总帧率反而 9.12。**异构核上优化一级会转移瓶颈。**
+- **臂 Q 证明 `inputs_set` 吃不满多核**：1 核 14.72 vs 2 核 14.73，一模一样。
+- **采纳解 T**：四个线程一人一个 A76 大核，cpu 0-3 的 A55 全程闲置。
+  GMC 33.40（对 A 档 32.09 仅退化 4%），理论 15.75 / 实测 **15.26**（97% 流水线效率）。
+  int8 同绑核 **29.83 fps**（原 26.88）。
+
+**`pass_through` 路线证伪（驱动自相矛盾）**
+
+- `RKNN_QUERY_INPUT_ATTR` 报 `type=1(FLOAT16) fmt=1(NHWC) n_elems=1228800 size=2457600`（2 B/px），
+  但驱动的直通检查要 `4915200`（4 B/px）：`E RKNN: rknn_inputs_set,
+  param input size(2457600) < model input size(4915200)`。按声明给 → 报错；补齐到 4 B/px → **SIGSEGV**
+  （`__memcpy_generic` ← `librknnrt.so` ← `rknn_inputs_set`）。
+- 改声明 `type=FLOAT32` 也不过直通 ⇒ `inputs_set` 46.74 / 47.78 ms 没降；
+  先除 255 ⇒ 537 帧 **0 检测**（运行时又除一次 255），不除 ⇒ 571 检测（对，但没提速）。
+- ⇒ 不是调用姿势问题，是驱动 bug。代码保留 `--f16-in` / `--f32-in` 作负面对照。
+- ⚠️ **旧误判更正**：「arm I 挂死」实为尺寸校验失败后 worker 吞错误继续跑、队列不排空。
+
+**唯一未执行的剩余路线（需用户裁决）**：转模型时把输入固化为 uint8 节点，让 Cast/Mul 成为
+图内算子跑到 NPU——这正是 int8 档 `inputs_set` 只有 0.34 ms 的原因。要改 ONNX 输入 dtype +
+rknn-toolkit2 2.3.0 重转，属模型侧改动。
+
+**闸门（全 PASS）**：T/Tr/T2/I8T 各 537 行无 0 字节产物；**T 与基线 537/537 逐帧 IDENTICAL**
+（571 检测），复跑同样 537/537；改代码后 `e2e_par_demo` int8 chain hash 仍 **`d5e81977`**
+与 10-15 基线逐位一致；`dmesg` 本轮 0 错误（16 行全是开机初始化）；2 个上下文未触发
+第 3 上下文 soft reset。
+
+**天花板**：`rknn_run` 109.62 ms 占 per-ctx 的 86%，两上下文并行下
+`2/109.62 ms = 18.2 fps` 是绝对上限。
+
+**产物**：`e2e_par2_demo.cpp`、`F32Boxed`/`letterbox_feature_f32`/`infer_preboxed_f32`/
+`u8_to_f32`(NEON)、`run_once` f32 分支 + 输入 attr 打印；
+记录 `docs/experiments/2026-10-16_e2e_par2_npu_affinity.md`；
+板卡 `/mnt/manu/npu/out/par2i/{P,Q}`、`par2j/{T,T2}`、`par2k/{Tr,I8T,REG}`。
+五个源文件已同步镜像，md5 双侧一致。
+
+**复现**（`--raw-root` 必须 `bmpraw`，arm64 OpenCV 没编 PNG 解码器）：
+```sh
+/root/e2e_par2_demo --raw-root bmpraw --sequence 34_1 --out-root <OUT> \
+  --model /mnt/manu/npu/data/trial0474_hm_nop0_fp16.rknn --kernel-dir /root/kernels \
+  --fused gpu --anchor-step 10 --th 0.25 --workers 2 --depth 6 \
+  --cpu-feat 4 --cpu-lb 5 --cpu-npu0 6 --cpu-npu1 7
+```
+
+**补充复核：目标里的「两个 npu core(0 1) worker」= NPU core，不是 CPU 核**
+
+代码此前**从未调 `rknn_set_core_mask`**，两个上下文一直在默认 `RKNN_NPU_CORE_AUTO` 下，
+所以此前 fps 只证明「两个 worker」，没证明「worker N 占住 NPU core N」。
+新增 `infer_set_npu_core` + `--npu-core0/--npu-core1`（1/2/4 = core 0/1/2；被拒即 FATAL，不静默吞）。
+逐 core 占用由 0.25 s 间隔采样 `/sys/kernel/debug/rknpu/load` 得到：
+
+| 臂 | w0 | w1 | **fps** | per-ctx | `rknn_run` | Core0 | Core1 | Core2 |
+|---|---|---|--:|--:|--:|--:|--:|--:|
+| v0auto | AUTO | AUTO | **15.28** | 126.57 | 109.38 | 84.1% | 75.2% | **0.0%** |
+| v1c01 | `0x1` | `0x2` | **15.18** | 127.94 | 110.24 | 79.4% | 79.9% | **0.0%** |
+| v2c02 | `0x1` | `0x4` | **失败**（`failed to submit!`，只出 49/537 行） | — | — | — | — | — |
+
+- **AUTO 本来就用 core 0 + core 1，core 2 全程 0%** ⇒ 目标里的 core(0,1) 成立，但只能靠采样证明。
+- **显式切分只让负载更均衡**（79.4/79.9 vs 84.1/75.2），帧率不变 ⇒ **NPU core 分配无余量**；
+  `rknn_run` 109 ms 是真实计算不是排队。
+- ⚠️ **RK3588 只支持 0/1 这对相邻 core，0+2 直接 `failed to submit!`**（残缺产物 49/537 行，
+  按铁律 §四·9g 判失败）。与「第 3 个上下文触发 soft reset」是同一约束的两面。
+- **采纳默认 AUTO**（功能/帧率等价，少两个参数少一个失败模式），开关保留在代码里。
+- 闸门：v0auto / v1c01 vs 基线各 **537/537 IDENTICAL**；新增代码后
+  `e2e_par_demo` int8 chain hash 仍 **`d5e81977`**（13.86 fps）。板卡 `/mnt/manu/npu/out/par2l/`。

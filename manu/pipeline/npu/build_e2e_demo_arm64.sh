@@ -68,7 +68,7 @@ echo "== cross-compiling -> aarch64 =="
 # Both demos link the SAME e2e_core.cpp, so the serial and the pipelined build
 # provably share one copy of the feature/inference frame bodies. That is what
 # lets "outputs identical" be a structural claim rather than a hope.
-for NAME in e2e_demo e2e_par_demo; do
+for NAME in e2e_demo e2e_par_demo e2e_par2_demo; do
   SRC_DEMO="$HERE/$NAME.cpp"
   [ -f "$SRC_DEMO" ] || die "missing source: $SRC_DEMO"
   BIN="$OUT/$NAME"
@@ -94,6 +94,6 @@ done
 echo
 echo "    NEEDED (e2e_demo):"
 "$READELF" -d "$OUT/e2e_demo" | grep NEEDED | sed 's/^/      /'
-echo "    [ok] both resolve librknnrt.so via the board's own runtime"
+echo "    [ok] all three resolve librknnrt.so via the board's own runtime"
 echo "    [ok] copy with:"
-echo "      scp $OUT/e2e_demo $OUT/e2e_par_demo root@192.168.0.64:/root/"
+echo "      scp $OUT/e2e_demo $OUT/e2e_par_demo $OUT/e2e_par2_demo root@192.168.0.64:/root/"
