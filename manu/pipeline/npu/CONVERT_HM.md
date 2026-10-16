@@ -16,7 +16,7 @@
 | 中间版 `trial0474_hm_dw_int8.rknn`（v2，带 p0） | 4,168,968 B，**103.7 ms → 9.5 fps**；CPU 算子已清零，但被 v3 取代 |
 | **加速归因（两笔独立的账，代价相当）** | ① `nn.PixelUnshuffle` 改写成 depthwise conv ⇒ 清掉 **1 个 CPU 计算算子**：**151.2 → 103.7 ms（−47.5 ms）**；② 删 P0 Highway：**103.7 → 55.5 ms（−48.2 ms）**。⚠️ **只查回退会漏掉后一半**；v2→v3 MAC 只降 6.8%（23.11 → 21.54 G）却降时延 46.5%，因为 p0 那几层是 **640×640 / C=16** 的卷积，**同时踩中 NPU「大分辨率搬运」与「窄通道空转」两个最差工况**（原理见 `manu/memory/heatmap_npu_trial0474.md`） |
 | P0 可删的依据 | 底模 Trial 22 **100% 物理冻结**（1,790,531 参数），p0 支路仅 **1,954 参数**零初始化冷启动、**Step 0 绝对数学恒等**；训练收益仅召回 **+0.15pp**，收敛后 F1 反而略降（0.9057 → 0.9055）。600 帧配对检验：带 p0 vs 去 p0 **不一致帧 1/600，McNemar p = 1.0000 ⇒ 无可归因精度代价** |
-| `trial0474_hm_fp16.rknn` | **6,739,809 B**，**同图 fp16 在板卡提交失败** ⇒ 别拿 fp16 当安全对照臂（详见第六节） |
+| `trial0474_hm_fp16.rknn` | **6,739,809 B**，**带 P0 的图** fp16 在板卡提交失败 ⇒ 别拿它当对照臂（详见第六节）。⚠️ **2026-10-16 限定：该结论只对「图里含 `p0_highway` 支路」成立** —— 去 P0 的 fp16（`trial0474_hm_nop0_fp16.rknn` md5 `07c893e4…`）在同板实测可提交、可全量跑通 31,613 帧。失败算子是 `Conv:/model/p0_highway/p0_dw/Conv`，在 P0 支路内部 |
 | 诚实性闸门 | 空白输入拒答 ✅ / 空对照（输入取反 ⇒ 两个输出哈希都变）✅ / 两次运行逐字节一致 ✅ / **时钟自检 `[ok]`** ✅（50 ms `usleep` 实测 50.137 / 50.080 / 50.124 / 50.133 ms） |
 | int8 的真实代价（v1 口径，结论未被 v2/v3 推翻） | 剔除 DJI 后召回 **0.8955 → 0.8727（−2.27 pp）**，配对 McNemar **p = 0.0129 ⇒ 统计显著**；但**检出位置分歧 0/600**，代价全在阈值附近的峰值 |
 
@@ -226,7 +226,7 @@ $P/bin/python hm_osd.py --mode single --image <feature.jpg> --ref $W/ref_val600 
 |:---|:---|:---|:---|
 | 1 | ONNX 与 PyTorch 差得离谱（heatmap max diff **0.2801**、offset **1.677**），像是导出坏了 | `torch.onnx.export` **返回后模型仍在 train 模式**，BN 走批统计 | **在导出之前抓参考值**，或导出后 `model.eval()` 再比。同口径下应为 **5.07e-7 / 2.48e-5**（`rules.md` §三·10） |
 | 2 | 指标全崩但只有纵向偏（recall 31/158 = 0.1962 → 144/158 = 0.9114） | 原始 `.txt` 标签按**源尺寸**归一，不是画布 | 换算必须是 `source_norm * src_hw * scale + pad`。⚠️ dataloader 的 `batch["bboxes"]` 是**画布归一**，两套标签源不可混用（`rules.md` §四·2e） |
-| 3 | `rknn_init` 成功、第一次推理就 `failed to submit!, op id: 8, op name: Conv:/model/p0_highway/p0_dw/Conv` | **同一份 ONNX 的 fp16（`--no-quant`）构建在 RK3588 上提交失败**，int8 正常 | **对照臂必须自己上过板**。本轮只能拿 int8 当可运行的对照臂（`rules.md` §四·2f） |
+| 3 | `rknn_init` 成功、第一次推理就 `failed to submit!, op id: 8, op name: Conv:/model/p0_highway/p0_dw/Conv` | **带 P0 的那份 ONNX**，其 fp16（`--no-quant`）构建在 RK3588 上提交失败，int8 正常 | **对照臂必须自己上过板**。本轮只能拿 int8 当可运行的对照臂（`rules.md` §四·2f）。⚠️ **2026-10-16 更新**：失败算子落在 `p0_highway` 支路内，**去 P0 的 fp16 实测完全正常**（见 `manu/docs/experiments/2026-10-16_npu_fp16_vs_int8.md`）。⇒ 本条的适用边界是「图含 p0 支路」，不是「这块板子不支持 fp16」 |
 | 4 | 输出看着「有结构」但整体错 | 空白输入也照样给结果 | 空对照闸门：输入取反 ⇒ 两个输出张量哈希**都必须改变**；再测两次运行是否逐字节一致 |
 | 5 | 模型跑起来但慢得离谱 / 分数全挤在 0.99 附近 | toolkit 与板卡 runtime 版本不对齐 | 核对 commit hash（本轮均为 `c949ad889d` / 2.3.0）。**注意报错文本相似但成因不同**（1.4.0 的 `OutputOperator` 失败 vs 本行的 `Conv` 失败） |
 | 6 | 板端报 `Text file busy` | 可执行文件经 NFS 执行 | 二进制走 SSH，**数据/模型**才走 NFS |

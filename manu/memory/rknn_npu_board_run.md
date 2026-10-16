@@ -448,6 +448,14 @@ I librknnc version: 2.3.0 (c949ad889d@2024-11-07T11:39:30)
 （同 commit `c949ad889d`）完全对齐**，`rknn_init` 成功、张量属性也读得出来，
 **但同一份 ONNX 的 fp16 构建（6,739,809 B）在第一次推理就提交失败**：
 
+> ⚠️ **2026-10-16 更新**：这里的「同一份 ONNX」是**带 P0 Highway 支路**的那份。
+> 失败算子 `Conv:/model/p0_highway/p0_dw/Conv` 在 P0 支路内部 ⇒
+> **去 P0 的 fp16 实测可提交、可全量跑通**（`trial0474_hm_nop0_fp16.rknn`，
+> md5 `07c893e4…`，F1 0.901401 / R 85.81%，相对 PC-FP32 仅 −0.000533）。
+> ⇒ 本条应读作「**图含 p0 支路时** fp16 提交失败」，不是「板子/runtime 不支持 fp16」。
+> 「toolkit 版本必须与板卡 runtime 对齐」这一条本身**依然成立**。
+> 见 `docs/experiments/2026-10-16_npu_fp16_vs_int8.md`。
+
 ```
 failed to submit!, op id: 8, op name: Conv:/model/p0_highway/p0_dw/Conv, flags: 0x1, ...
 ```

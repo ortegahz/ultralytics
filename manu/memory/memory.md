@@ -181,7 +181,7 @@ mount -t nfs 192.168.0.115:/run/media/manu/SSD960-LOCAL/nfs /mnt/manu -o nolock,
 | **[`memory/rknn_npu_board_run.md`](rknn_npu_board_run.md)** | 🔥 **2026-10-13 RK3588 NPU 推理打通 + 推翻「NPU 驱动未使能」**：驱动 RKNPU **0.9.8** 以 **DRM 子系统**注册，真实节点是 **`/dev/dri/card1`** 而非 `/dev/rknpu`，`librknnrt` **2.3.0** 可用；**旧的三条判据（`/dev/rknpu`、`/proc/devices`、`lsmod`）全是假阴性**。自写 `manu/pipeline/npu/`（免 OpenCV/RGA）实跑通 `init→inputs_set→run→outputs_get`，bus.jpg 检出 1 bus+4 person，**`rknn_run` 24.4 ms（占 97%）/ 端到端 25.1 ms / 39.8 fps**；⚠️ **开 `RKNN_FLAG_COLLECT_PERF_MASK` 慢 54%**。
 ✅ **官方 `rknn_yolov5_demo` 已可交叉编译并运行**（参照臂，逐框对账偏差 ≤6 px）。
 🔴 含 **6 个静默失效坑**：`stbir_resize_uint8` 第 9 参是 `num_channels` 不是 filter（传 0 通道 ⇒ 输入全零）、其返回 `1==成功`、输出是 5 维 `[1,3,85,H,W]`、**center→left 被做两次导致框整体左上歪**、`stbi_write_jpg` 目录不存在时静默失败、NFS 目录项缓存给出假的「文件不存在」；另有 7 条验收闸门 | **判断 NPU 是否可用、链接 librknnrt、或做 RKNN 部署前必读** |
-| **[`memory/heatmap_npu_trial0474.md`](heatmap_npu_trial0474.md)** | 🔥 **Trial 0474 热图检测器 RK3588 NPU 移植**：PyTorch→ONNX→RKNN int8→板卡闭环打通。**当前交付版 = v3「去 p0 highway」`trial0474_hm_nop0_int8.rknn`：CPU 计算算子 0、fallback 警告 0 条、`rknn_run` 55.5 ms、端到端 56.5 ms → 17.6–17.7 fps**（三代累计 152.4 → 56.7 ms = **2.69×**；⚠️ 原记的 151.701 ms / 6.5 fps 是 **v1 带 p0** 的数字，**已于 2026-10-14 作废为历史档**）。🔴 **关键归因**：v2→v3 的 Conv MAC 只降 **6.8%** 而时延降 **46.5%** ⇒ p0 那几层 640×640/C=16 是 **NPU 最劣形状**（⇒ 铁律 §四·9f 禁止用 MAC/FLOPs 外推 NPU 时延）。三道诚实闸门全过（空白拒答 / 空对照 / 确定性）+ 时钟自检 `[ok]`。标定政策：200 张**已建特征 JPEG**、跨 199 序列分层、只取 `images/train`、`mean 0 / std 255`。🔴 **八条**新铁律：**§三·10** `torch.onnx.export` 后模型留在 **train 态**（BN 用批统计 ⇒ heatmap diff **0.2801** / offset **1.677**；eval 态应 **5.07e-7 / 2.48e-5**）；**§四·2e** 标签按**源尺寸**归一 `source_norm*src_hw*scale+pad`，两套标签源禁止混用（同一 200 帧 recall **31/158 = 0.1962** [0.1418, 0.2650] → **144/158 = 0.9114** [0.8568, 0.9465]）；**§四·2f** 对比臂必须自己上过板（同图 **fp16 构建提交失败**，不得由 int8 成功外推）；**§三·6c** 配对实验必须用配对检验，**「两个 Wilson 区间重叠」不能当显著性判据**（本轮据此推翻了自己的初版结论）；**§四·9e** int8 上板模型必须 **0 个 CPU 计算算子**（`InputOperator`/`OutputOperator` 不计入）；**§四·9f** 禁止用 MAC/FLOPs 外推 NPU 时延；**§四·9g** 验收不得靠 `grep`/`sed` 过滤判成败；**§四·9h** 预处理时延必须绑定分辨率引用。CPU 参考臂 600 帧分层 P **402/419 = 0.9594** [0.9360, 0.9745]、R **402/490 = 0.8204** [0.7840, 0.8519]、F1 **0.8845**（非比例不附区间）；R 缺口 **42/88 FN 来自 DJI 两序列**（512×512），属模型域弱点非移植缺陷。✅ 600 帧 NPU↔CPU 对账：一致帧 **572/600 = 0.9533** [0.9334, 0.9675]，**「两边都检出但相距 >8 px」= 0/600**；🔴 剔除 DJI 后召回 **0.8955 → 0.8727（−2.27 pp）**，配对 McNemar **p = 0.0129 ⇒ 统计显著**。✅ 端到端串行 demo 已跑通（原始红外 → 板端 GMC → NPU）：序列 `34_1` 全 535 帧对齐，板端 F1 **0.9466** > CPU 权威臂 **0.9322**，端到端 88.852 ms → 11.25 fps，**GMC 40 ms 红线 PASS**。操作手册 `pipeline/npu/CONVERT_HM.md` | **要部署 Trial 0474、做 RKNN 转换/标定、或引用板卡时延与对账数字时必读**。⚠️ 小样本帧集（31 帧单序列 → R 1.0000）会系统性美化本模型 |
+| **[`memory/heatmap_npu_trial0474.md`](heatmap_npu_trial0474.md)** | 🔥 **Trial 0474 热图检测器 RK3588 NPU 移植**：PyTorch→ONNX→RKNN int8→板卡闭环打通。**当前交付版 = v3「去 p0 highway」`trial0474_hm_nop0_int8.rknn`：CPU 计算算子 0、fallback 警告 0 条、`rknn_run` 55.5 ms、端到端 56.5 ms → 17.6–17.7 fps**（三代累计 152.4 → 56.7 ms = **2.69×**；⚠️ 原记的 151.701 ms / 6.5 fps 是 **v1 带 p0** 的数字，**已于 2026-10-14 作废为历史档**）。🔴 **关键归因**：v2→v3 的 Conv MAC 只降 **6.8%** 而时延降 **46.5%** ⇒ p0 那几层 640×640/C=16 是 **NPU 最劣形状**（⇒ 铁律 §四·9f 禁止用 MAC/FLOPs 外推 NPU 时延）。三道诚实闸门全过（空白拒答 / 空对照 / 确定性）+ 时钟自检 `[ok]`。标定政策：200 张**已建特征 JPEG**、跨 199 序列分层、只取 `images/train`、`mean 0 / std 255`。🔴 **八条**新铁律：**§三·10** `torch.onnx.export` 后模型留在 **train 态**（BN 用批统计 ⇒ heatmap diff **0.2801** / offset **1.677**；eval 态应 **5.07e-7 / 2.48e-5**）；**§四·2e** 标签按**源尺寸**归一 `source_norm*src_hw*scale+pad`，两套标签源禁止混用（同一 200 帧 recall **31/158 = 0.1962** [0.1418, 0.2650] → **144/158 = 0.9114** [0.8568, 0.9465]）；**§四·2f** 对比臂必须自己上过板（同图 **fp16 构建提交失败**，不得由 int8 成功外推；⚠️ **2026-10-16 收窄为「含 p0 支路的图」** —— 去 P0 的 fp16 已实测可提交可全量跑通，见 §二十六）；**§三·6c** 配对实验必须用配对检验，**「两个 Wilson 区间重叠」不能当显著性判据**（本轮据此推翻了自己的初版结论）；**§四·9e** int8 上板模型必须 **0 个 CPU 计算算子**（`InputOperator`/`OutputOperator` 不计入）；**§四·9f** 禁止用 MAC/FLOPs 外推 NPU 时延；**§四·9g** 验收不得靠 `grep`/`sed` 过滤判成败；**§四·9h** 预处理时延必须绑定分辨率引用。CPU 参考臂 600 帧分层 P **402/419 = 0.9594** [0.9360, 0.9745]、R **402/490 = 0.8204** [0.7840, 0.8519]、F1 **0.8845**（非比例不附区间）；R 缺口 **42/88 FN 来自 DJI 两序列**（512×512），属模型域弱点非移植缺陷。✅ 600 帧 NPU↔CPU 对账：一致帧 **572/600 = 0.9533** [0.9334, 0.9675]，**「两边都检出但相距 >8 px」= 0/600**；🔴 剔除 DJI 后召回 **0.8955 → 0.8727（−2.27 pp）**，配对 McNemar **p = 0.0129 ⇒ 统计显著**。✅ 端到端串行 demo 已跑通（原始红外 → 板端 GMC → NPU）：序列 `34_1` 全 535 帧对齐，板端 F1 **0.9466** > CPU 权威臂 **0.9322**，端到端 88.852 ms → 11.25 fps，**GMC 40 ms 红线 PASS**。操作手册 `pipeline/npu/CONVERT_HM.md` | **要部署 Trial 0474、做 RKNN 转换/标定、或引用板卡时延与对账数字时必读**。⚠️ 小样本帧集（31 帧单序列 → R 1.0000）会系统性美化本模型 |
 | **[`memory/web_annotate_tool.md`](web_annotate_tool.md)** | **网页视频逐帧标注工具 `manu/annotate/`（2026-10-10 新增）**：递归扫描视频 → 多尺度 Trial 0474 预标注 → 浏览器逐帧标注，YOLO 落盘。🔴 **本机 `uav` 环境 torch 1.13.1 配 numpy 2.2.6 张量互操作直接报错，推理只能跑训练服务器（端口 32222）**；本机无任何 Web 框架，服务端用 stdlib `http.server` 零依赖。候选写 `prelabels/`、人工写 `labels/` 彻底分离；效率机制为航迹传播/插补/跳未复核/三色时间线。36/36 自测通过，真实数据 265.8 帧/s | **要标注视频、做预标注、或评估人工标注成本时必读** |
 | **[`memory/memory_compact.md`](memory_compact.md)** | 面向外部高性能模型咨询的精简项目背景、当前 SOTA、核心失败实验与领域迁移 Bad Case | 需要向外部模型提供项目上下文时读取；主 memory 更新时同步维护 |
 | **[`memory/rules.md`](rules.md)** | **第〇节最高优先级铁律「本地优先·严禁直改服务器代码」** + **核心铁律**（免检本地环境、手工执行机制；~~读 memory 前必校验三条挂载链路~~ **已于 2026-10-12 废止**；**§一·8 可并行子任务必须委派子 Agent 并行执行、主 Agent 只留结论与整合，2026-10-14 用户强调 token 充足鼓励多开**）、**训练服务器 + RK3588 板卡双机连接**（板卡 `ssh -p 22 root@192.168.0.64` 密码经 `RK3588_PASSWORD` 环境变量传入、不落盘）、SSHFS 挂载及无感自动同步规范、**输入通道语义与多通道数据契约铁律**、计量计时与跨语言等位精确纪律 | 涉及编写脚本、生成缓存或启动命令前必读；**任何写操作先按第〇节回本地改再同步** |
@@ -1285,7 +1285,9 @@ sudo mount -t nfs 192.168.0.64:/mnt/manu /home/manu/mnt/nfs -o nolock
 2. **§三·6c**：配对数据必须用**配对检验**判定显著性，「两个 Wilson 区间重叠」**不是**显著性判据。
 3. **§四·2e**：标签按**源尺寸**归一（`source_norm*src_hw*scale+pad`），与 dataloader 的画布归一**禁止混用**。
 4. **§四·2f**：**对比臂必须自己上过板**，fp16 不得由 int8 的成功推定
-   （本图 fp16 构建**提交失败**，失败点精确到 `Conv:/model/p0_highway/p0_dw/Conv`）。
+   （**带 p0 支路**的图 fp16 构建**提交失败**，失败点精确到 `Conv:/model/p0_highway/p0_dw/Conv`）。
+   ⚠️ **2026-10-16 收窄**：该失败点在 P0 支路内部 ⇒ **去 P0 的 fp16 实测完全正常**
+   （全量 31,613 帧，F1 0.901401 / R 85.81%，挽回 int8 量化损失的 97.3%）。见 §二十六。
 5. **§四·9e**：🔴 **用户铁律 —— int8 上板模型必须 0 个 CPU 计算算子**
    （含判定命令、`InputOperator` / `OutputOperator` 豁免，及三条配套：改写须**逐位等价**；
    **改写张量表达式救不了布局类回退**；⚠️ **`fallback` 警告条数 ≠ CPU 计算算子数** ——
@@ -1516,7 +1518,11 @@ L1 把前两者隔离，L3 把最后一种隔离。
    可动杠杆是**降采样、减 corner 数、stride / head 结构变体上板实测**；
    ⚠️ **本轮未验证其中任何一项**，且 §十四·4 已证伪线性外推，**必须实测才能给结论**。
 3. **int8 对贴边目标丢 6 帧（p = 0.0312，统计显著）⇒ 待业务裁决**：
-   是否可接受（业务上贴边目标占比多少）、是否需 fp16 对照、是否需边界敏感后处理，**均未验证**。
+   是否可接受（业务上贴边目标占比多少）、是否需边界敏感后处理，**均未验证**。
+   ⚠️ **2026-10-16 更新**：「是否需 fp16 对照」这一项**已不再是空白** —— 全量 fp16 臂已跑完
+   （§二十六，F1 0.901401 / R 85.81%）。但**「fp16 是否能改善这 6 帧贴边不一致」仍未验证**：
+   本轮 fp16 与 int8 的对比是全量 F1 口径，**未按贴边/非贴边分层**，
+   也未把 `34_1` 这 6 帧单独拉出来做配对检验。**不得拿全量 F1 改善推断贴边问题已解决。**
 
 完整交付物：`manu/pipeline/npu/out/demo34_1/`；视频路径 `manu/pipeline/npu/out/lqreview/`；
 操作手册：`manu/pipeline/npu/CONVERT_HM.md`；完整证据：`manu/memory/heatmap_npu_trial0474.md` §六之三。
@@ -3191,3 +3197,136 @@ letterbox cpu 6-7 / `avg 12.23 p50 12.35 p95 12.36 max 21.58`；NPU cpu 0-3 / 66
 新版 `out/e2e_par_demo cfc750ad70e2b8626938367c1e1ed824` **从未上过板**，需逐次授权（铁律一）。
 `--rknn-perf`（`COLLECT_PERF_MASK`）已判定不可用。
 若大头在 `outputs_get`（每帧约 1.2 MB 回读）有优化余地；若在 `rknn_run` 本身则是模型/驱动地板。
+
+---
+
+## 二十六、NPU fp16 vs int8 受控对照：fp16 挽回量化损失 97.3%，代价 ×1.85 时延（2026-10-16 实测）
+
+完整记录见 `manu/docs/experiments/2026-10-16_npu_fp16_vs_int8.md`；本节是主档摘要。
+
+### 26.1 结论（全量 31,613 帧 / GT 25,111 / tol 8.0px / 15 档，两臂闸门 PASS）
+
+| 臂 | 峰值 th | F1 | P% | R% | TP | FP |
+|---|--:|--:|--:|--:|--:|--:|
+| 臂1  PC-FP32 +P0（冻结基准） | 0.25 | 0.902316 | 94.87 | 86.02 | 21601 | 1167 |
+| 臂2  PC-FP32 −P0 | 0.25 | 0.901935 | 94.86 | 85.96 | 21586 | 1169 |
+| 臂3  NPU-int8 −P0 | 0.20 | 0.882231 | 94.27 | 82.90 | 20818 | 1265 |
+| 臂4  NPU-fp16 −P0 | 0.25 | 0.901401 | 94.93 | 85.81 | 21548 | 1151 |
+
+- int8 量化代价 −0.019704（−768 TP）；**fp16 量化代价 −0.000533（−38 TP）**
+- **fp16 挽回 +0.019171（+730 TP），15 档负档仅 1/15 ⇒ 挽回率 97.3%**
+- fp16 对 PC-FP32 的 15 档：峰值 −0.000533、均值 −0.002132、负档 12/15
+- −38 TP 超噪声下限（±3 TP ≈ ±0.0002 F1）约 12 倍 ⇒ **fp16 的 −0.000533 是真实小损失**
+
+### 26.2 业务判据分水岭
+
+业务判据 F1 ≥ 88% 且 **R ≥ 85%**：int8 臂 R 82.90% **不达标**；**fp16 臂 R 85.81% 达标**。
+⇒ 召回硬线若必须过，**int8 在这块板子上不合格，fp16 合格**。
+fp16 峰值 th = 0.25（与 PC-FP32 一致），int8 峰值 th = 0.20 ⇒ e2e 固化的 `TH=0.25`
+**对 fp16 是正确工作点，对 int8 偏保守**（int8 固 0.25 为 0.880949，比峰值低 0.001282）。
+
+### 26.3 旧禁令适用边界被推翻
+
+「同图 fp16 在板卡提交失败」的失败算子 `Conv:/model/p0_highway/p0_dw/Conv`
+**位于 P0 支路内部**。交付模型是去 P0 图 ⇒ 该算子不存在 ⇒ **fp16 可提交、可全量跑完**。
+应改写为「**带 P0 的图**上 fp16 提交失败」。已同步修正 `CONVERT_HM.md` 模型表 + 坑表 #3。
+`rules.md` §四·2f「对照臂必须自己上过板」仍然正确 —— 板子没变，是对照臂换了图。
+
+### 26.4 构建与验收
+
+```sh
+cd /media/manu/1TB-Volume/rknn_work/hm
+/media/manu/1TB-Volume/conda-envs/rknn230/bin/python \
+  /media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu/hm_convert_rknn.py \
+  --onnx models/trial0474_hm_nop0.onnx --out models/trial0474_hm_nop0_fp16.rknn \
+  --compress-weight --no-quant
+```
+
+- `trial0474_hm_nop0_fp16.rknn` 6,327,393 B，md5 **`07c893e4d2ca3af9a47a4bf88335fe33`**
+- 源 ONNX md5 **`028f23c655f421fe61a5e43575715fca`**（与 int8 臂同一份）
+- 🔴 **toolkit 陷阱**：host 两个 rknn env —— `conda-envs/rknn` = **1.4.0（弃用）**，
+  `conda-envs/rknn230` = **2.3.0**（与板卡 runtime `c949ad889d` 同版本）。
+  转换前必须核对 `importlib.metadata.version('rknn-toolkit2')`。
+- 验收：CPU 计算算子 **0** ✅；回退警告 **1** 条（`Conv:/model/b5/conv/Conv` 3Core→单核，int8 无）；
+  **NPU 内部内存 105,600 KB（int8 的 5.18×）**
+
+### 26.5 两条被实测推翻/证伪的外推
+
+1. **「内部内存 105.6 MB ⇒ P=2 并发必挂」证伪**：实测 P=2 双 worker 跑完 31,613 帧，
+   **0 次 soft reset / job timeout**，稳定 12.6 fps。
+   ⇒ 「Total Internal Memory Size」不能当每上下文预留量线性外推并发上限。
+2. **fp16 慢 ≠ 降频**：温度 47–49 °C、NPU 锁 1 GHz performance、CPU 满频，
+   与降频无关。`rknn_run` 55.3 → 104.4 ms 是模型/驱动固有。
+
+### 26.6 tensor 级校验（板卡实见输入闭环喂原始 ONNX）
+
+新增 `manu/pipeline/npu/compare_npu_onnx_tensor.py`。12 帧，fp16 vs int8（均对 ONNX-FP32）：
+
+| 指标 | **fp16** | int8 |
+|---|--:|--:|
+| heatmap worst max_abs | **7.099e-03** | 1.914e-01（**27×**） |
+| heatmap 峰值 worst \|Δ\| | **4.665e-03** | 1.914e-01（**41×**） |
+| heatmap argmax 一致 | **10/12** | 8/12 |
+| offset avg mean_abs | **2.840e-03** | 7.462e-02（**26×**） |
+
+闸门 `tol_hm=2e-2/tol_off=2e-1`：fp16 **PASS**，int8 **FAIL**。
+**int8 误差主要打在 offset（位置）上** ⇒ 峰值被搬离 GT ⇒ 掉召回 —— 物理机制确认。
+限定：fp16 offset worst 1.978e-1 已达门限 99%，勉强过；`max_rel` 被近零分母放大，
+**不可作判据**。
+
+### 26.7 时延
+
+| 阶段 | int8 | fp16 |
+|---|--:|--:|
+| `inputs_set` | 0.184 ms | **21.0 ms（P=2 下 30.9 ms）** |
+| `rknn_run` | 55.3 ms | **104.4 ms** |
+| 单进程整帧 | 84.4 ms / 11.8 fps | **159.2 ms / 6.3 fps** |
+| P=2 实测 | 19.64 fps | **12.6 fps（2.02×）** |
+
+**fp16 多出的 21–31 ms 全在 `inputs_set`（uint8→fp16 转换）**，不是 NPU 计算本身 ⇒
+独立于模型精度的可优化点，本轮未做。
+
+### 26.8 3 级并行程序为何不能用于本次精度口径
+
+`e2e_par_demo` 强制 `--raw-root`，stage A 就是 GMC：
+`e2e_core.cpp:36-40` 把 `gmc_stream_ocl.cpp` 与 `rknn_heatmap_smoke.cpp` 编进同一 TU，
+`FeatureStream` 里 `OnlineFeaturePipeline pipe(...)` **无条件构造**，**没有喂预建特征的分支**。
+PC 特征本身就是 GMC 产物，当 `--raw-root` 会让 GMC 跑两遍 ⇒ 口径失效。
+**提速改用 P=2 双 worker（int8 臂同一策略，两臂同条件）**。
+
+### 26.9 与板卡既有 `fp_no_p0.rknn` 的等价性
+
+板上结构变体产物（fnv1a32 `e2443a11`）vs 本轮重建（`aaf9cf62`）：
+**输入 12/12 逐字节一致，输出 24/24 逐字节一致 ⇒ 功能等价**，差异仅在 RKNN 容器元数据。
+仍一律用重建版 —— 结论只建立在可复现路径上。
+用户要求「用生成 int8 的代码重新生成 f16」在方法论上完全正确：
+消除的正是「结果依赖来源不明二进制」这类风险，哪怕两者最终等价。
+
+### 26.10 汇总脚本自身踩的一个坑（已修）
+
+四臂汇总最初把臂1 取自 `cmp2_arm2_vs_arm3.json` 的 `arm_a` —— 那份是「臂2 vs 臂3」，
+`arm_a` 是**臂2**不是臂1，导致表格出现「臂1 == 臂2」、「去 P0 代价 +0.000000」的假象。
+已改为取 `cmp3_arm1_vs_arm3.json` 的 `arm_a`，并加**标签断言**：
+`run_int8_vs_f16_eval.sh` STEP 5 现在逐臂校验 JSON 里的 `label`，不符即 exit。
+
+⇒ 教训：**跨脚本复用 JSON 时必须断言 `label`，不能只认位置。**
+
+### 26.11 新增产物
+
+`compare_npu_onnx_tensor.py`、`run_npu_pcfeat_board_f16.sh`、`run_int8_vs_f16_eval.sh`、
+`int8_vs_f16_pipeline.sh`、`docs/experiments/2026-10-16_npu_fp16_vs_int8.md`；
+板卡 `/mnt/manu/npu_pcfeat_f16`（24 序列 / 31,613 帧）；
+服务器 `arm_npu_f16_nop0_cache.pkl`、`int8_vs_f16/cmp{F,I}_*.json`。
+
+### 26.12 仍欠
+
+- e2e 三级口径下 fp16 的 fps 未测（int8 为 14.07 fps）
+- ⚠️ **`14.07 fps` 本身待复核（2026-10-16 实测发现）**：`e2e_par_demo` 读 raw 帧用
+  `cv::imread`（`e2e_core.cpp:173`），而配套 arm64 OpenCV 4.10.0 **未编图像编解码**
+  （模块仅 core/imgproc/features2d/video/calib3d/flann）。实测 `--raw-root raw`
+  （**PNG**）⇒ `frames=0` + `[FATAL] failed to read` 而**进程 RC=0**；
+  `--raw-root bmpraw`（**BMP**）⇒ 正常。**昨天 §二十五 那组 14.07 fps 用的 raw 来源尚未查清，
+  复核前不要当作可直接复现的基线。**「RC=0 但 0 帧」即铁律 §四·9g 的假成功形态。
+- `Conv:/model/b5/conv/Conv` 回退是否为时延劣化主因未归因（MAC 相同，回退只是候选解释）
+- `inputs_set` 21–31 ms 的预转换优化未做
+- int8 去 P0 臂未重新标定/重训（fp16 已证明量化本身不是主要误差源）
