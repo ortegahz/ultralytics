@@ -189,6 +189,23 @@ def main():
                          "equivalent, no retraining; saves one read of the "
                          "320x320x64 feature, NOT any multiply (MAC stays 21.48 G). "
                          "See manu/pipeline/npu/verify_merge_head_branches.py")
+    ap.add_argument("--head-conv", type=int, default=None,
+                    help="override Head 的通道宽度（默认 64*w）。只减搬运、不增算力，"
+                         "是 late 结构下唯一还有空间的纯结构杠杆。🔴 非等价改写，须重训。")
+    ap.add_argument("--late-upsample", action="store_true",
+                    help="延迟上采样：把 Head 的 5 个 320x320 密集 3x3 全部下移到 "
+                         "160x160 计算，只把最终 1+2=3 个通道一次性放大回 320x320。"
+                         "**搬运量与 MAC 同向削减**（搬运 -44%、MAC -62%），"
+                         "这是 §三十 DW 探针做不到的。🔴 非等价改写（P1 经 avg_pool2d "
+                         "降采样进融合），必须重训；本轮只作时延探针。")
+    ap.add_argument("--dw-head", action="store_true",
+                    help="replace the five 320x320 dense 3x3 convs with DW+PW. "
+                         "🔴 NOT an equivalent rewrite -- requires retraining. "
+                         "This flag exists for LATENCY UPPER-BOUND PROBING ONLY: "
+                         "depthwise conv is an NPU compute anti-pattern (1 channel "
+                         "per group, MAC array idles), so the MAC drop does not "
+                         "translate into a proportional latency drop "
+                         "(rules.md §四·9f). Weight values are meaningless here.")
     args = ap.parse_args()
 
     import numpy as np
@@ -199,6 +216,45 @@ def main():
     model, _ = build_model(args.weights, ablate_p0=args.ablate_p0,
                            merge_head_branches=args.merge_head_branches)
     assert not model.training, "model must be in eval mode before anything else"
+
+    if args.late_upsample or args.dw_head:
+        import torch as _t
+        from manu.models.heatmap_model import YOLO26HeatmapDetector as _D
+        if args.late_upsample:
+            print("\n" + "=" * 78)
+            print("[LATE-UPSAMPLE PROBE] 🔴 这是时延探针，不是可交付模型")
+            print("[LATE-UPSAMPLE PROBE] Head 的 320x320 密集卷积全部下移到 160x160，")
+            print("[LATE-UPSAMPLE PROBE] 只把最终 3 通道一次性放大回 320x320。")
+            print("[LATE-UPSAMPLE PROBE] 非等价（P1 经 avg_pool2d 降采样），必须重训。")
+            print("=" * 78 + "\n")
+        probe = _D(stride=2, num_classes=1, scale="n", upsample_mode="nearest",
+                   use_p0_highway=False, dw_head=args.dw_head,
+                   late_upsample=args.late_upsample, head_conv=args.head_conv).eval()
+        keep = {k: v for k, v in model.state_dict().items()
+                if k in probe.state_dict() and probe.state_dict()[k].shape == v.shape}
+        probe.load_state_dict(keep, strict=False)
+        model = probe
+        model.eval()
+
+    if False and args.dw_head:
+        # 重建为 DW+PW 结构：checkpoint 的密集 3x3 权重无法套用（DW+PW 非等价），
+        # 故只装载形状仍匹配的骨干/Neck 张量，Head 全部随机初始化。
+        print("\n" + "=" * 78)
+        print("[DW-HEAD PROBE] 🔴 这是时延上界探针，不是可交付模型")
+        print("[DW-HEAD PROBE] 密集 3x3 -> DW+PW 是**非等价改写**，必须重训/蒸馏才能用；")
+        print("[DW-HEAD PROBE] 本次只回答「这个结构在 NPU 上能快多少」，与精度无关。")
+        print("[DW-HEAD PROBE] DW 在 NPU 上是算力反模式（每组 1 通道、MAC 阵列空转），")
+        print("[DW-HEAD PROBE] 故 MAC 降幅**不会**等比例转成时延降幅（rules.md §四·9f）。")
+        print("=" * 78 + "\n")
+        import torch as _t
+        from manu.models.heatmap_model import YOLO26HeatmapDetector as _D
+        probe = _D(stride=2, num_classes=1, scale="n", upsample_mode="nearest",
+                   use_p0_highway=False, dw_head=True).eval()
+        keep = {k: v for k, v in model.state_dict().items()
+                if k in probe.state_dict() and probe.state_dict()[k].shape == v.shape}
+        probe.load_state_dict(keep, strict=False)
+        model = probe
+        model.eval()
 
     # nn.PixelUnshuffle exports as reshape + permute + reshape. On (1,16,640,640)
     # rknn-toolkit2 needs a Transpose whose 2-D product is 640*640 = 409600,

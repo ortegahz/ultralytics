@@ -29,16 +29,26 @@ class HeatmapHead(nn.Module):
     - offset:  (B, 2, H, W), sub-pixel offset (dx, dy) within the stride cell
     """
 
-    def __init__(self, in_channels: int, head_conv: int = 64, num_classes: int = 1, merge_branches: bool = False):
+    def __init__(self, in_channels: int, head_conv: int = 64, num_classes: int = 1, merge_branches: bool = False,
+                 dw_head: bool = False, late_upsample: bool = False):
         super().__init__()
         self.merge_branches = merge_branches
+        self.dw_head = dw_head
+        self.late_upsample = late_upsample
         self.head_conv = head_conv
 
         # Feature refining convolution layers
-        self.feat_conv = nn.Sequential(
-            Conv(in_channels, head_conv, k=3),
-            Conv(head_conv, head_conv, k=3),
-        )
+        # dw_head=True 时把两个 3x3 密集卷积换成 DW+PW（**非等价改写**，仅作时延上界探针）
+        if dw_head:
+            self.feat_conv = nn.Sequential(
+                dw_pw(in_channels, head_conv, act=True),
+                dw_pw(head_conv, head_conv, act=True),
+            )
+        else:
+            self.feat_conv = nn.Sequential(
+                Conv(in_channels, head_conv, k=3),
+                Conv(head_conv, head_conv, k=3),
+            )
 
         if merge_branches:
             # `heatmap.0` 与 `offset.0` 的输入 (feat)、kernel、padding 完全相同，仅权重不同，
@@ -67,18 +77,28 @@ class HeatmapHead(nn.Module):
             )
         else:
             # 1. Heatmap branch (probability of object presence)
-            self.heatmap = nn.Sequential(
-                nn.Conv2d(head_conv, head_conv, kernel_size=3, padding=1),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(head_conv, num_classes, kernel_size=1),
-            )
-
             # 2. Offset branch (sub-pixel shift dx, dy in [0, 1])
-            self.offset = nn.Sequential(
-                nn.Conv2d(head_conv, head_conv, kernel_size=3, padding=1),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(head_conv, 2, kernel_size=1),
-            )
+            if dw_head:
+                # DW+PW 替掉两条分支的 3x3；1x1 尾层保持不变
+                self.heatmap = nn.Sequential(
+                    dw_pw(head_conv, head_conv, act=True),
+                    nn.Conv2d(head_conv, num_classes, kernel_size=1),
+                )
+                self.offset = nn.Sequential(
+                    dw_pw(head_conv, head_conv, act=True),
+                    nn.Conv2d(head_conv, 2, kernel_size=1),
+                )
+            else:
+                self.heatmap = nn.Sequential(
+                    nn.Conv2d(head_conv, head_conv, kernel_size=3, padding=1),
+                    nn.ReLU(inplace=True),
+                    nn.Conv2d(head_conv, num_classes, kernel_size=1),
+                )
+                self.offset = nn.Sequential(
+                    nn.Conv2d(head_conv, head_conv, kernel_size=3, padding=1),
+                    nn.ReLU(inplace=True),
+                    nn.Conv2d(head_conv, 2, kernel_size=1),
+                )
 
         self._init_weights()
 
@@ -96,13 +116,24 @@ class HeatmapHead(nn.Module):
             # rknn-toolkit2 2.3.0 pads 丢失说明。
             h = torch.relu_(self.branch3x3(feat))
             hm_feat, off_feat = torch.split(h, self.head_conv, dim=1)
-            hm = torch.sigmoid(self.heatmap(hm_feat))
-            offset = self.offset(off_feat)
+            hm_logit, offset = self.heatmap(hm_feat), self.offset(off_feat)
         else:
-            hm = torch.sigmoid(self.heatmap(feat))
-            offset = self.offset(feat)
+            hm_logit, offset = self.heatmap(feat), self.offset(feat)
+
+        if self.late_upsample:
+            # 延迟上采样：heatmap/offset 先在**小尺度**（P2=160x160）算完，
+            # 只把最终 1+2=3 个通道一次性放大到 stride 2 的输出分辨率。
+            # 原本要在 320x320 上搬 C=64/48 的大张量共 77.3 M 元素，
+            # 改后整条 Head 段只搬 25.9 M（-67%），5 个 3x3 的 MAC 从 17.70 G
+            # 降到 3.50 G —— **搬运与算力两端同向削减**，这正是 §三十 的
+            # DW 探针（只降 MAC、搬运不动）没能做到的事。
+            # ⚠️ 非等价改写：P1 高频信息经 AvgPool2d 降采样进融合，必须重训。
+            both = F.interpolate(torch.cat([hm_logit, offset], dim=1),
+                                 scale_factor=2, mode="nearest")
+            hm_logit, offset = both[:, :1], both[:, 1:]
+
         # Clamp hm to avoid log(0) and fp16 underflow/overflow
-        hm = torch.clamp(hm, min=1e-5, max=1.0 - 1e-5)
+        hm = torch.clamp(torch.sigmoid(hm_logit), min=1e-5, max=1.0 - 1e-5)
         return {"heatmap": hm, "offset": offset}
 
 
@@ -141,6 +172,27 @@ def remap_head_branches_state_dict(state_dict: dict, head_prefix: str = "head.")
     out[f"{head_prefix}branch3x3.bias"] = torch.cat(
         [state_dict[f"{head_prefix}heatmap.0.bias"], state_dict[f"{head_prefix}offset.0.bias"]], dim=0)
     return out
+
+
+def dw_pw(cin: int, cout: int, k: int = 3, act: bool = True) -> nn.Sequential:
+    """深度可分离 3x3：DWConv(k) + PWConv(1)。
+
+    🔴 **这不是等价改写**。密集 3x3 的 k*k*C_in 个权重被拆成 C_in（DW 核）+ C_in*C_out（PW），
+    表达能力下降，必须重训/蒸馏才能用。本构造仅供**时延上界探针**使用。
+
+    刻意不放 BatchNorm：评测/推理时 BN 会被编译器折叠进前一卷积，对 RKNN 图结构无净贡献，
+    省掉可让探针只反映"DW+PW 本身的开销"。若要真正训练，须在 DW 与 PW 之间补 BN。
+
+    已知代价：DWConv 在 NPU 上是**算力反模式** —— 每组仅 1 通道，MAC 阵列大幅空转，
+    瓶颈落在带宽而非计算。MAC 骤降**不等于**时延同比例下降（rules.md §四·9f 的由来）。
+    """
+    layers: list[nn.Module] = [
+        nn.Conv2d(cin, cin, k, padding=k // 2, groups=cin, bias=False),
+        nn.Conv2d(cin, cout, 1, bias=False),
+    ]
+    if act:
+        layers.append(nn.ReLU(inplace=False))
+    return nn.Sequential(*layers)
 
 
 class LocalCorrelationBlock(nn.Module):
@@ -532,6 +584,9 @@ class YOLO26HeatmapDetector(nn.Module):
         use_p0_highway: bool = False,
         p0_highway_kwargs: dict | None = None,
         merge_head_branches: bool = False,
+        dw_head: bool = False,
+        late_upsample: bool = False,
+        head_conv: int | None = None,
     ):
         super().__init__()
         assert stride in (2, 4), f"Only stride 4 (P2) or stride 2 (P1) is supported, got {stride}."
@@ -543,6 +598,7 @@ class YOLO26HeatmapDetector(nn.Module):
         self.temporal_mode = temporal_mode
         self.upsample_mode = upsample_mode
         self.use_p0_highway = use_p0_highway
+        self.late_upsample = late_upsample
 
         # Width scale multiplier (n: 0.25 -> 1x base; s: 0.50 -> 2x base)
         w = 1 if scale == "n" else 2
@@ -606,9 +662,19 @@ class YOLO26HeatmapDetector(nn.Module):
             c_p1_fuse = 48 * w
             if upsample_mode == "pixelshuffle":
                 self.up_p1 = PixelShuffleUpsample(in_channels=c_p2_out, out_channels=c_p2_out, scale_factor=2)
-                self.fuse_p1 = Conv(c_p2_out + c_p1, c_p1_fuse, 3, 1)
+            elif late_upsample:
+                # 延迟上采样：p2_out 本就在 P2 尺度(160)，**不做上采样**；
+                # 只把 b0 的 P1 特征降采样到同一尺度（见 extract_features 的 avg_pool2d）。
+                # 这样全程不产生 C=80 @320x320 的大张量。AvgPool 零 MAC，
+                # 代价是 P1 高频细节被降采样（非等价，须重训）。
+                self.up_p1 = nn.Identity()
             else:
                 self.up_p1 = nn.Upsample(scale_factor=2, mode="nearest")
+            # fuse_p1 在现状里是 320x320 上最大的卷积（80->48 k3 = 3.539 G MAC，占全网 16.5%）；
+            # late_upsample 下它在 160x160 上跑，只剩 0.885 G。
+            if dw_head:
+                self.fuse_p1 = dw_pw(c_p2_out + c_p1, c_p1_fuse, act=True)
+            else:
                 self.fuse_p1 = Conv(c_p2_out + c_p1, c_p1_fuse, 3, 1)
             head_in_ch = c_p1_fuse
         else:
@@ -621,7 +687,13 @@ class YOLO26HeatmapDetector(nn.Module):
         else:
             self.p0_highway = None
 
-        self.head = HeatmapHead(in_channels=head_in_ch, head_conv=64 * w, num_classes=num_classes, merge_branches=merge_head_branches)
+        # head_conv 显式覆盖：只减搬运、不增算力（late 结构下 Head 已在 160x160）。
+        # None = 保持 64*w 原值，对既有路径零影响。
+        hc = (64 * w) if head_conv is None else head_conv
+        self.head = HeatmapHead(in_channels=head_in_ch, head_conv=hc, 
+                                num_classes=num_classes, merge_branches=merge_head_branches,
+                                dw_head=dw_head, late_upsample=late_upsample)
+        print(f"[head_conv] {hc}")
 
         if weights:
             self.load_pretrained(weights)
@@ -646,7 +718,10 @@ class YOLO26HeatmapDetector(nn.Module):
         p2_out = self.fuse_p2(torch.cat([p2_fpn, self.up_p2(p3_pan)], dim=1))
 
         if self.stride == 2:
-            p1_out = self.fuse_p1(torch.cat([self.up_p1(p2_out), p1], dim=1))
+            # late_upsample: b0 的 P1 特征也要降到 P2 尺度，否则拼接时尺寸不匹配。
+            # 这里同样零 MAC，代价是 P1 高频细节被降采样（非等价，须重训）。
+            p1_feat = F.avg_pool2d(p1, 2) if self.late_upsample else p1
+            p1_out = self.fuse_p1(torch.cat([self.up_p1(p2_out), p1_feat], dim=1))
             return p1_out
         return p2_out
 
