@@ -70,6 +70,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-area", type=int, default=4, help="Minimum connected-component pixel count")
     parser.add_argument("--max-detections", type=int, default=100, help="Detections cached per frame per source")
     parser.add_argument("--hm-weights", default="runs/optuna_p0_nas/trial_0474/weights/best.pt")
+    parser.add_argument(
+        "--ablate-p0",
+        action="store_true",
+        help="Build the RK3588 ref model: same checkpoint, P0 residual branch dropped after training "
+        "(YOLO26HeatmapDetector(use_p0_highway=False)). Gated: aborts if no p0 tensor was actually dropped",
+    )
     parser.add_argument("--device", default="0")
     parser.add_argument("--imgsz", type=int, default=640)
     parser.add_argument("--median-window", type=int, default=21)
@@ -259,10 +265,13 @@ def main() -> None:
         raise FileNotFoundError(f"No sequences selected under {source_root}")
 
     device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() and args.device != "cpu" else "cpu")
-    model, stride = load_hm_model(resolve_weights(args.hm_weights), device)
+    model, stride = load_hm_model(
+        resolve_weights(args.hm_weights), device, use_p0_highway=not args.ablate_p0
+    )
     all_scales = [0] + args.scales
     print(
-        f"[INFO] sequences={len(sequences)} | scales={all_scales} (0 = native letterbox) | stride={stride} | device={device}\n"
+        f"[INFO] sequences={len(sequences)} | scales={all_scales} (0 = native letterbox) | stride={stride} | "
+        f"device={device} | ablate_p0={args.ablate_p0}\n"
         f"[INFO] fused row = per-pixel max across scales >= {args.main_threshold} dilated by {args.fusion_dilate}, "
         f"components with area >= {args.min_area}",
         flush=True,
@@ -370,6 +379,10 @@ def main() -> None:
                 "main_threshold": args.main_threshold,
                 "fusion_dilate": args.fusion_dilate,
                 "min_area": args.min_area,
+                # Model identity: without these two a P0 and a no-P0 cache are indistinguishable on disk,
+                # which is exactly how a later A/B silently compares one arm against the other.
+                "hm_weights": str(args.hm_weights),
+                "use_p0_highway": not args.ablate_p0,
             },
             "frame_index": np.asarray(frame_indices, dtype=np.int32),
             "offset": np.concatenate([[0], np.cumsum(np.asarray(per_frame_counts, dtype=np.int64))]).astype(np.int64),

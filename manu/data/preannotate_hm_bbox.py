@@ -60,7 +60,7 @@ def resolve_weights(value: str) -> Path:
     return path
 
 
-def load_hm_model(weights: Path, device: torch.device, stride_fallback: int = 2):
+def load_hm_model(weights: Path, device: torch.device, stride_fallback: int = 2, use_p0_highway: bool = True):
     ckpt = torch.load(weights, map_location="cpu")
     state_dict = ckpt["model"] if "model" in ckpt else ckpt.get("state_dict", ckpt)
     if hasattr(state_dict, "state_dict"):
@@ -82,18 +82,33 @@ def load_hm_model(weights: Path, device: torch.device, stride_fallback: int = 2)
         stride=stride,
         num_classes=1,
         temporal_mode="standard",
-        use_p0_highway=True,
+        use_p0_highway=use_p0_highway,
         p0_highway_kwargs=p0_kwargs,
     )
     own_state = model.state_dict()
     matched = 0
+    dropped_p0 = 0
     for key, value in state_dict.items():
         clean_key = key.replace("module.", "").replace("model.model.", "").replace("model.", "")
         if clean_key in own_state and own_state[clean_key].shape == value.shape:
             own_state[clean_key].copy_(value)
             matched += 1
+        elif clean_key.startswith("p0_highway"):
+            dropped_p0 += 1
+
+    # ABLATION GATE: use_p0_highway=False is only meaningful if the model really has no P0 stream AND
+    # every p0_highway tensor was actually dropped. Silently "succeeding" with a P0 model would make
+    # the whole ablation a no-op that still reports lower numbers, so fail loudly instead.
+    # Same gate as inference/cache_trial0474_inferences.py --ablate-p0.
+    if not use_p0_highway:
+        if model.p0_highway is not None:
+            raise RuntimeError("[ABLATE-P0 GATE] model.p0_highway is not None -- ablation did not take effect")
+        if dropped_p0 == 0:
+            raise RuntimeError("[ABLATE-P0 GATE] 0 p0_highway.* tensors were dropped -- nothing was ablated")
+        print(f"[ABLATE-P0 GATE] PASS: p0_highway=None, {dropped_p0} p0 tensors dropped")
+
     model.to(device).eval()
-    print(f"[INFO] HM weights loaded: {matched} tensors from {weights}")
+    print(f"[INFO] HM weights loaded: {matched} tensors from {weights} | use_p0_highway={use_p0_highway}")
     return model, stride
 
 
