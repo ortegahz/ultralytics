@@ -525,15 +525,26 @@ def write_summary(out_dir, params: dict, overall: dict, per_sequence: dict) -> P
     return path
 
 
-def resolve_sequences(cache_root, sequence: str, all_seqs: bool) -> list[str]:
-    """Either the requested sequence or every cached sequence, sorted."""
+def resolve_sequences(cache_root, sequence: str, all_seqs: bool, sequences_csv: str = "") -> list[str]:
+    """Either the requested sequence(s) or every cached sequence, sorted.
+
+    ``--seqs`` takes a comma separated subset and keeps the caller's order, so a named pool
+    (golden pool, blind hold-out) is evaluated as one aggregate instead of 7 separate runs.
+    A missing cache is an error: a typo must not silently shrink the pool.
+    """
     if all_seqs:
         sequences = sorted(path.stem for path in Path(cache_root).glob("*.pkl"))
         if not sequences:
             raise FileNotFoundError(f"No .pkl caches under {cache_root}")
         return sequences
+    requested = [name.strip() for name in sequences_csv.split(",") if name.strip()]
+    if requested:
+        missing = [name for name in requested if not (Path(cache_root) / f"{name}.pkl").exists()]
+        if missing:
+            raise FileNotFoundError(f"missing cache .pkl under {cache_root}: {missing}")
+        return requested
     if not sequence:
-        raise ValueError("either --seq or --all-seqs is required")
+        raise ValueError("either --seq, --seqs or --all-seqs is required")
     return [sequence]
 
 
@@ -547,6 +558,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cache-root", required=True, help="Directory of <sequence>.pkl heatmap caches")
     parser.add_argument("--labels-root", required=True, help="Directory of {sequence}__{index:06d}.txt labels")
     parser.add_argument("--seq", default="", help="Single sequence name")
+    parser.add_argument("--seqs", default="", help="Comma separated sequence subset, evaluated in the given order")
     parser.add_argument("--all-seqs", action="store_true", help="Run every cached sequence")
     parser.add_argument("--dedup-radius", type=float, default=None, help="Cross-scale de-duplication radius (px)")
     parser.add_argument("--params-json", default="", help="JSON file with the full parameter set")
@@ -554,6 +566,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out-preds-dir", default="", help="Optional directory for the per-sequence predictions")
     parser.add_argument("--no-pipeline", action="store_true", help="Single-frame arm only, no system post-processing")
     parser.add_argument("--self-check", action="store_true", help="Run the adapter correctness gate and exit")
+    parser.add_argument("--expect-f1", type=float, default=None, help="Self-calibration gate on the overall F1")
+    parser.add_argument("--expect-tp", type=int, default=None, help="Self-calibration gate on the overall TP")
+    parser.add_argument("--expect-fp", type=int, default=None, help="Self-calibration gate on the overall FP")
     return parser.parse_args()
 
 
@@ -574,7 +589,7 @@ def main() -> None:
     labels_root = Path(args.labels_root)
     started = time.perf_counter()
 
-    sequences = resolve_sequences(cache_root, args.seq, args.all_seqs)
+    sequences = resolve_sequences(cache_root, args.seq, args.all_seqs, args.seqs)
     params = load_params(args.params_json)
     if args.dedup_radius is not None:
         params["dedup_radius"] = float(args.dedup_radius)
@@ -651,6 +666,21 @@ def main() -> None:
         f"FAR={overall['far_per_frame']:.4f}",
         flush=True,
     )
+
+    if args.expect_f1 is not None:
+        f1_ok = abs(overall["f1"] - args.expect_f1) < 5e-6
+        tp_ok = args.expect_tp is None or overall["tp"] == args.expect_tp
+        fp_ok = args.expect_fp is None or overall["fp"] == args.expect_fp
+        passed = f1_ok and tp_ok and fp_ok
+        print(
+            f"[GATE] 期望 F1={args.expect_f1:.6f} TP={args.expect_tp} FP={args.expect_fp} | "
+            f"实测 F1={overall['f1']:.6f} TP={overall['tp']} FP={overall['fp']} -> "
+            f"{'PASS' if passed else 'FAIL'}",
+            flush=True,
+        )
+        if not passed:
+            print("[GATE] 未复现冻结 baseline，后续对比不可信 —— 中止")
+            raise SystemExit(2)
 
     if args.out_preds_dir:
         write_summary(args.out_preds_dir, params, overall, per_sequence_metrics)

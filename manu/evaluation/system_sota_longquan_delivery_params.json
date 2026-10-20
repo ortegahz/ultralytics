@@ -1,0 +1,60 @@
+{
+  "_provenance": {
+    "what": "Delivered business-domain (Longquanshan) system-SOTA working point, frozen 2026-10-20.",
+    "source": "runs/sys_sota_preds/summary.json (params block) == runs/logs/sys_sota_longquan_search.json best_global.params",
+    "search_json_md5": "a9aa7299ead003ccaaad8965f06e3f12",
+    "delivered_metrics": {
+      "tp": 114443,
+      "fp": 4919,
+      "fn": 18814,
+      "gt": 133257,
+      "recall": 0.8588141711129622,
+      "precision": 0.9587892294029926,
+      "f1": 0.9060521971823182,
+      "far_per_frame": 0.02977188405972534
+    },
+    "delivery_criteria": {
+      "f1_min": 0.88,
+      "recall_min": 0.85,
+      "far_max": 0.03
+    },
+    "usage": "python manu/evaluation/system_sota_longquan.py --params-json <this file> --seqs <pool> ...",
+    "note": "This file is the FROZEN delivery configuration. Do not edit it in place; a new working point gets a new file."
+  },
+  "params": {
+    "th_base": 0.3,
+    "th_salvage": 0.06,
+    "th_ground": 0.22,
+    "sky_ratio": 0.6,
+    "min_hits": 3,
+    "max_age": 3,
+    "match_dist": 16.0,
+    "max_match_dist": 24.0,
+    "instant_conf": 0.25,
+    "min_disp": 2.5,
+    "min_track_score": 0.08,
+    "stitch_gap": 6,
+    "infill_gap": 3,
+    "min_hits_infill": 5,
+    "min_rigid_disp": 2.0,
+    "max_rigid_var": 1.0,
+    "min_hits_prune": 4,
+    "dedup_radius": 768.0,
+    "th_deep": 0.0,
+    "min_hits_deep": 3,
+    "min_rigid_disp_sky": -1.0,
+    "hover_vel": 0.0,
+    "hover_infill_gap": 15,
+    "coast_frames": 0,
+    "min_hits_hover": 8,
+    "hover_sky_only": 1,
+    "stitch_long_gap": 0,
+    "stitch_vel_diff": 4.0,
+    "confirm_consec": 6,
+    "confirm_gap_tol": 0,
+    "confirm_trim_prefix": 1,
+    "persist_min_hits": 0,
+    "persist_window": 0,
+    "persist_tol": 4.0
+  }
+}
