@@ -84,6 +84,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=8, help="GPU batch size, auto-halved on CUDA OOM")
     parser.add_argument("--cpu-threads", type=int, default=1)
     parser.add_argument("--limit-per-sequence", type=int, default=0)
+    parser.add_argument(
+        "--adapter-weights",
+        default="",
+        help="Optional HeatmapAdapter state_dict applied to every scale's heatmap before it is "
+        "mapped back to native pixels. The frozen base model stays 100% untouched.",
+    )
+    parser.add_argument("--adapter-mid-channels", type=int, default=16)
+    parser.add_argument(
+        "--adapter-guide-channel",
+        type=int,
+        default=0,
+        choices=[0, 1, 2],
+        help="Channel of the MODEL-ORDERED canvas [median residual, GMC diff, I_t] that guides the "
+        "adapter. Mining stored the Longquan guidance with index 0, so 0 is the trained setting.",
+    )
+    parser.add_argument("--adapter-single", action="store_true", help="Load a single-branch adapter")
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
@@ -214,18 +230,52 @@ def detect_components(heatmap: np.ndarray, threshold: float, dilate: int, min_ar
     return entries[:limit]
 
 
-def run_heatmaps(model, canvases: np.ndarray, device: torch.device, batch: int) -> np.ndarray:
-    """Run the heatmap detector over pre-padded canvases, halving the batch on CUDA OOM."""
+def run_heatmaps(model, canvases: np.ndarray, device: torch.device, batch: int,
+                 adapter=None, guide_channel: int = 0) -> np.ndarray:
+    """Run the heatmap detector over pre-padded canvases, halving the batch on CUDA OOM.
+
+    When ``adapter`` is given, it is applied on the model grid -- the same place the official
+    pipeline applies it, and the same grid AdapterFrameDataset trained on -- so every scale's
+    correction is learned at deployment resolution. The guidance channel is read from the raw
+    0..255 canvas, exactly as the training npz stored it.
+    """
     collected: list[np.ndarray] = []
     start = 0
     size = max(1, batch)
+    identity_checked = adapter is None
     while start < len(canvases):
         count = min(size, len(canvases) - start)
+        window = canvases[start : start + count]
         try:
             with torch.no_grad():
-                tensor = torch.from_numpy(canvases[start : start + count]).to(device).float() / 255.0
+                tensor = torch.from_numpy(window).to(device).float() / 255.0
                 prediction = model(tensor)
-                collected.extend(prediction["heatmap"][:, 0].cpu().numpy())
+                heatmap = prediction["heatmap"][:, 0]
+                if adapter is not None:
+                    grid_h, grid_w = heatmap.shape[-2:]
+                    guide = torch.nn.functional.interpolate(
+                        torch.from_numpy(window[:, guide_channel : guide_channel + 1])
+                        .to(device).float(),
+                        size=(grid_h, grid_w),
+                        mode="bilinear",
+                        align_corners=False,
+                    )
+                    # this path drops the channel axis for the downstream numpy stack; the adapter
+                    # (like the official pipeline) wants it back
+                    corrected, delta_h = adapter(heatmap[:, None], guide)
+                    if not identity_checked:
+                        base_delta = float(delta_h.abs().max())
+                        base_drift = float((corrected[:, 0] - heatmap).abs().max())
+                        identity_checked = True
+                        if base_delta == 0.0 and base_drift != 0.0:
+                            raise RuntimeError(
+                                f"[ADAPTER IDENTITY GATE] FAILED: delta is zero yet the heatmap moved "
+                                f"by {base_drift:.3e}"
+                            )
+                        print(f"[ADAPTER IDENTITY GATE] first batch: max|delta_h|={base_delta:.3e} "
+                              f"max|H_final-H_base|={base_drift:.3e}", flush=True)
+                    heatmap = corrected[:, 0]
+                collected.extend(heatmap.cpu().numpy())
             start += count
         except RuntimeError as error:
             if not is_cuda_oom(error):
@@ -268,6 +318,25 @@ def main() -> None:
     model, stride = load_hm_model(
         resolve_weights(args.hm_weights), device, use_p0_highway=not args.ablate_p0
     )
+    adapter = None
+    if args.adapter_weights:
+        from manu.models.adapter_model import HeatmapAdapter  # noqa: E402  (lazy: optional feature)
+
+        adapter = HeatmapAdapter(
+            in_channels=2,
+            mid_channels=args.adapter_mid_channels,
+            dual=not args.adapter_single,
+        ).to(device)
+        state = torch.load(args.adapter_weights, map_location=device)
+        adapter.load_state_dict(state)
+        adapter.eval()
+        for parameter in adapter.parameters():
+            parameter.requires_grad_(False)  # inference only; the base model is never touched
+        print(
+            f"[ADAPTER] {adapter.describe()} | guide=ch{args.adapter_guide_channel} "
+            f"(model order) | weights={args.adapter_weights}",
+            flush=True,
+        )
     all_scales = [0] + args.scales
     print(
         f"[INFO] sequences={len(sequences)} | scales={all_scales} (0 = native letterbox) | stride={stride} | "
@@ -318,7 +387,8 @@ def main() -> None:
                 canvases[index * len(all_scales) : (index + 1) * len(all_scales)] = np.stack(scale_canvases)
                 chunk_mappings.append(mappings)
 
-            heatmaps = run_heatmaps(model, canvases, device, args.batch_size)
+            heatmaps = run_heatmaps(model, canvases, device, args.batch_size,
+                                    adapter=adapter, guide_channel=args.adapter_guide_channel)
             if device.type == "cuda":
                 torch.cuda.empty_cache()
 
@@ -383,6 +453,12 @@ def main() -> None:
                 # which is exactly how a later A/B silently compares one arm against the other.
                 "hm_weights": str(args.hm_weights),
                 "use_p0_highway": not args.ablate_p0,
+                # Adapter identity: an adapter cache and a base cache must never be confusable,
+                # for the same reason the P0 flag above exists.
+                "adapter_weights": str(args.adapter_weights) if args.adapter_weights else "",
+                "adapter_mid_channels": args.adapter_mid_channels if args.adapter_weights else 0,
+                "adapter_guide_channel": args.adapter_guide_channel if args.adapter_weights else -1,
+                "adapter_single": bool(args.adapter_single) if args.adapter_weights else False,
             },
             "frame_index": np.asarray(frame_indices, dtype=np.int32),
             "offset": np.concatenate([[0], np.cumsum(np.asarray(per_frame_counts, dtype=np.int64))]).astype(np.int64),

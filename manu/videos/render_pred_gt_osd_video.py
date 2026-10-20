@@ -40,7 +40,11 @@ COLOR_TP = (0, 220, 0)
 COLOR_FP = (0, 0, 255)
 COLOR_GT = (255, 255, 255)
 COLOR_FN = (0, 220, 255)
-SCALE_COLORS = ((255, 160, 0), (255, 0, 255), (0, 255, 255))
+# Scale-box colours. BGR, and deliberately a cool triad so they never collide with the semantic palette
+# above: the 80 scale used to be pure yellow, which was indistinguishable from COLOR_FN (amber) in the
+# rendered frames. Names are what the on-screen legend prints, since raw BGR tuples read as the wrong hue.
+SCALE_COLORS = ((255, 160, 0), (255, 0, 255), (255, 255, 0))
+SCALE_COLOR_NAMES = ("BLUE", "MAGENTA", "CYAN")
 ROW_HEADER = 30
 PAD = 8
 
@@ -257,9 +261,17 @@ def main() -> None:
     present = [tag for tag in scale_tags if tag in per_tag]
     merged = merge_scales_with_sizes(per_tag, present, args.merge_radius)
     show_scales = [int(item) for item in args.show_scales.split(",") if item.strip()]
-    unknown = [tag for tag in show_scales if tag not in per_tag]
-    if unknown:
-        raise ValueError(f"--show-scales references tags absent from the cache: {unknown}")
+    # A scale with no row above --threshold is a legitimate state, not an error: a high per-sequence
+    # threshold (e.g. VIDEO00012 at 0.60) can leave the 160/80 rows empty while tag 0 still fires.
+    # Aborting the whole video there would silently drop an otherwise renderable sequence.
+    missing = [tag for tag in show_scales if tag not in per_tag]
+    if missing:
+        print(
+            f"[WARN] {args.seq}: no detections at th={args.threshold} for scale tags {missing} "
+            f"(present: {present}) -- those scales are simply not drawn",
+            flush=True,
+        )
+        show_scales = [tag for tag in show_scales if tag in per_tag]
 
     truth = load_ground_truth(labels_root, args.seq, width, height, set(wanted))
 
@@ -362,7 +374,7 @@ def main() -> None:
                         (tag_sizes[position][1] * factor) or 2.0,
                         SCALE_COLORS[tag % len(SCALE_COLORS)],
                         f"s{scale_labels[tag]} {tag_scores[position]:.2f}",
-                        thickness=1,
+                        thickness=2,
                     )
 
             canvas = np.zeros((args.canvas[1], args.canvas[0], 3), np.uint8)
@@ -400,14 +412,25 @@ def main() -> None:
             cv2.putText(canvas, header, (PAD, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
             legend = "GREEN TP | RED FP | WHITE GT(hit) | YELLOW FN"
             for tag in show_scales:
-                legend += f" | s{scale_labels[tag]}={SCALE_COLORS[tag % len(SCALE_COLORS)]}"
+                legend += f" | s{scale_labels[tag]}={SCALE_COLOR_NAMES[tag % len(SCALE_COLOR_NAMES)]}"
+            (legend_w, legend_h), baseline = cv2.getTextSize(
+                legend, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1
+            )
+            legend_y = args.canvas[1] - 10
+            cv2.rectangle(
+                canvas,
+                (PAD - 6, legend_y - legend_h - baseline - 4),
+                (PAD + legend_w + 6, legend_y + baseline),
+                (0, 0, 0),
+                -1,
+            )
             cv2.putText(
                 canvas,
                 legend,
-                (PAD, args.canvas[1] - 10),
+                (PAD, legend_y),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.45,
-                (190, 190, 190),
+                (235, 235, 235),
                 1,
                 cv2.LINE_AA,
             )

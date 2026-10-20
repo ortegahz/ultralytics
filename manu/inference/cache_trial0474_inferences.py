@@ -77,6 +77,25 @@ def parse_args():
              "Every p0_highway.* tensor in the checkpoint is then skipped and the detector is exactly "
              "the frozen base path. Asserts that no p0 tensor was loaded -- see the GATE below.",
     )
+    parser.add_argument(
+        "--adapter-weights",
+        type=str,
+        default="",
+        help="Optional HeatmapAdapter .pt. When set, the frozen base heatmap is corrected by "
+             "H_final = clamp(H_base + delta, 0, 1) BEFORE extract_peaks, so the cache format, the "
+             "downstream A/B evaluator and the frozen headline all stay byte-comparable.",
+    )
+    parser.add_argument("--adapter-mid-channels", type=int, default=16,
+                        help="16 keeps the dual-branch adapter at ~2.3%% of the base model's MACs")
+    parser.add_argument("--adapter-single", dest="adapter_dual", action="store_false", default=True,
+                        help="Use the single-branch reference layout instead of the dual-branch one")
+    parser.add_argument(
+        "--adapter-guide-channel",
+        type=int,
+        default=2,
+        help="Which channel of the GMC+median input guides the adapter. Measured on-disk order of "
+             "uav_gmc_median is [I_t, motion, (I_t-B_t)^+], so 2 = median residual (default, sparsest).",
+    )
     return parser.parse_args()
 
 
@@ -170,6 +189,23 @@ def main():
     model.to(device)
     model.eval()
 
+    # 2b. Optional lightweight adapter. Loaded AFTER the base model so the frozen detector is
+    #     never touched; the adapter only rescales the heatmap that feeds extract_peaks.
+    adapter = None
+    if args.adapter_weights:
+        from manu.models.adapter_model import HeatmapAdapter
+
+        adapter = HeatmapAdapter(in_channels=2, mid_channels=args.adapter_mid_channels,
+                                 dual=args.adapter_dual)
+        payload = torch.load(args.adapter_weights, map_location="cpu")
+        adapter.load_state_dict(payload.get("state_dict", payload) if isinstance(payload, dict) else payload)
+        adapter.to(device)
+        adapter.eval()
+        for parameter in adapter.parameters():
+            parameter.requires_grad_(False)
+        print(colorstr("cyan", f"[ADAPTER] {adapter.describe()} | guide=ch{args.adapter_guide_channel} "
+                               f"| weights={args.adapter_weights}"))
+
     # 3. Setup DataLoader
     data_dict = check_det_dataset(args.data)
     cfg = get_cfg(DEFAULT_CFG)
@@ -182,16 +218,55 @@ def main():
 
     records = []
     t0 = time.time()
+    identity_checked = adapter is None
 
     with torch.no_grad():
         for batch in tqdm(val_loader, desc="Trial 0474 Inference & Caching"):
-            imgs_tensor = batch["img"].to(device, non_blocking=True).float() / 255.0
+            # Keep the raw 0..255 copy: the adapter was TRAINED on guidance channels that come
+            # straight off disk as uint8 (AdapterFrameDataset does payload["guide"].astype(float32)
+            # with no /255), so feeding it imgs_tensor/255 would shrink the guidance by 255x and
+            # silently flatten the correction. The detector itself still wants 0..1.
+            imgs_u8 = batch["img"].to(device, non_blocking=True).float()
+            imgs_tensor = imgs_u8 / 255.0
             bboxes = batch["bboxes"]
             b_idx = batch["batch_idx"]
             im_files = batch.get("im_file", [""] * imgs_tensor.shape[0])
             bs = imgs_tensor.shape[0]
 
             preds = model(imgs_tensor)
+
+            if adapter is not None:
+                heatmap = preds["heatmap"]
+                grid_h, grid_w = heatmap.shape[-2:]
+                guide = torch.nn.functional.interpolate(
+                    imgs_u8[:, args.adapter_guide_channel : args.adapter_guide_channel + 1],
+                    size=(grid_h, grid_w),
+                    mode="bilinear",
+                    align_corners=False,
+                )
+                corrected, delta_h = adapter(heatmap, guide)
+
+                if not identity_checked:
+                    # Epoch-0 gate, expressed in the official pipeline: a freshly zero-initialised
+                    # delta head must leave the heatmap bit-identical, so the cache produced with an
+                    # untrained adapter has to reproduce the frozen headline exactly.
+                    base_delta = float(delta_h.abs().max())
+                    base_drift = float((corrected - heatmap).abs().max())
+                    identity_checked = True
+                    if base_delta == 0.0 and base_drift != 0.0:
+                        raise RuntimeError(
+                            f"[ADAPTER IDENTITY GATE] FAILED: delta is zero yet the heatmap moved by "
+                            f"{base_drift:.3e}; the clamp path is not a pure identity"
+                        )
+                    print(colorstr(
+                        "yellow",
+                        f"[ADAPTER IDENTITY GATE] first batch: max|delta_h|={base_delta:.3e} "
+                        f"max|H_final-H_base|={base_drift:.3e} "
+                        + ("(untrained adapter == frozen base)" if base_delta == 0.0 else "(adapter is trained)"),
+                    ))
+
+                preds = dict(preds)
+                preds["heatmap"] = corrected
 
             peaks_list = extract_peaks(
                 heatmap=preds["heatmap"],
