@@ -1,0 +1,36 @@
+{
+  "raw_root": "/mnt/data/siping/datasets/manu/anti-uav/train",
+  "canonical_root": "/mnt/data/siping/datasets/manu/uav_gmc_median/images/train",
+  "window": 21,
+  "stride_step": 2,
+  "downscale": 2,
+  "sequences": {
+    "01_1751_0250-1750": {
+      "raw_frames": 1500,
+      "canonical_frames": 299,
+      "sampled": 25,
+      "byte_identical": 25,
+      "mismatches": []
+    },
+    "01_2192_0001-1500": {
+      "raw_frames": 1500,
+      "canonical_frames": 299,
+      "sampled": 25,
+      "byte_identical": 25,
+      "mismatches": []
+    },
+    "01_4485_2985-4484": {
+      "raw_frames": 1500,
+      "canonical_frames": 299,
+      "sampled": 25,
+      "byte_identical": 25,
+      "mismatches": []
+    }
+  },
+  "summary": {
+    "sampled": 75,
+    "byte_identical": 75,
+    "mismatch": 0,
+    "verdict": "PARITY_OK"
+  }
+}

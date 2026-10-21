@@ -5163,3 +5163,367 @@ python manu/evaluation/system_sota_longquan.py \
 - 实证：`001531` 单帧 FP **3** → 系统级 FP **11**；新增的 8 个全是**天空区弱候选被连成轨**（§三十九·附3 已逐帧定位：`track 4477` 连续 10 帧最右缘 x≈594~610、score 0.136~0.414，`min_disp` 静态抑制在天空区不生效）。**跟踪器在这里净增 FP。**
 - 反向：跟踪器在 `014053`(6→0)、`001307`(8→0)、`000703`(5→1) 上净减 FP（弱候选不成轨被剪掉）⇒ 黄金池整体 FP 25→17。
 - 🔴 **因此所有门禁必须写死口径**：`--no-pipeline`（单帧，th=0.30，r=768）与系统级（全套 34 参数，含 salvage）是**两个不同的指标**，混用会得出完全错误的结论。
+
+---
+
+# 四十、❌🔬【否定结果】255-I 极性翻转在"复杂地表背景"工况下**零训练无效**(2026-10-20 18:00~18:30)
+
+> **一句话**:用户提出"把输入做 `255 - I` 极性翻转,让暗机身变成亮刚体,零训练救回复杂背景下的漏检"。
+> 本轮用 `001324`(地表相对反相工况的典型序列)实测了 **4 个输入端臂 + 2 个融合方案**:
+> **全部 recall = 0,零效果**。但实验把"为什么没效果"定位得很干净:**物理通路是通的(残差从 0 变成 73),
+> 瓶颈在底模的判别能力,不在极性。**
+
+## 1. 先把物理算清楚(这一步决定了实验怎么设计)
+
+特征三通道,磁盘顺序 `[I_t, GMC motion, median residual]`:
+
+- `motion = absdiff(I_t, warp(I_{t-1}))` → **对极性不变**,翻转后逐位相同;
+- `residual = clip(I_t - B_t, 0, 255)`,`B_t` = 21 帧 × stride 2 的中值背景 → **单边截断,负半轴被丢弃**。
+
+翻转后 `I' = 255-I`、`B' = 255-B`:
+
+| 通道 | 翻转后 | 含义 |
+|:---|:---|:---|
+| `I_t` | `255 - I_t` | 暗机身变亮 |
+| `motion` | **不变** | absdiff 对极性不变 |
+| `residual` | `clip((255-I) - (255-B), 0, 255)` = **`clip(B - I, 0, 255)`** | **极性反转** —— 原本"比背景亮"变成"比背景暗" |
+
+⇒ 暗机身在翻转后确实变成正残差脉冲(与用户预判一致)。但模型从未见过这个分布 ⇒ 必须实测。
+
+## 2. 实验设计(工具:`manu/evaluation/invert_pass_probe.py`)
+
+- **窗口自动选取**:用冻结单帧基线(r=768 / th=0.22 / inbox)统计每帧命中,挑漏检最密集的连续窗口
+  ⇒ **帧 677..876(200 帧,其中 200 帧有 GT,200/200 全部漏检)**;全序列单帧漏检 2,315/10,535 帧。
+- **四个臂 + 两个融合**:
+
+| 臂 | 做法 |
+|:---|:---|
+| `normal` | 原始帧(与生产缓存同模型/尺度/门限/膨胀,逐位同口径) |
+| `invert` | **物理翻转**:从翻转帧重算全部特征(`motion` 不变、`residual` 极性反转) |
+| `tensor_flip` | 字面版 `255 - input`,直接作用在 3 通道模型张量上(物理不自洽,对照臂) |
+| `abs_residual` | **通道 0 换成 `\|I_t - B_t\|`**(保留符号后取绝对值),通道 1/2 保持正常极性 —— 用户"走向 A"里的零训练变体 |
+| `fusion` / `fusion_abs` | 像素级 `P = max(P_normal, P_invert)` / `max(P_normal, P_abs)` |
+
+## 3. 结果(200 帧,全部为单帧漏检帧)
+
+| 臂 | TP | FP | Recall% | Precision% | F1% | 命中帧率% | **GT 内热力图峰值中位** | GT 外峰值中位 | GT 外 FP 像素/帧 |
+|:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `normal` | 0 | 32 | 0.00 | 0.00 | 0.00 | 0.00 | 0.009 | 0.108 | 37 |
+| `invert`(255-I 物理翻转) | 0 | 34 | 0.00 | 0.00 | 0.00 | 0.00 | **0.007** | 0.134 | 5 |
+| `tensor_flip`(字面 255-input) | 0 | 2 | 0.00 | 0.00 | 0.00 | 0.00 | **0.038** | 0.100 | 0 |
+| `abs_residual`(\|I-B\|) | 0 | 47 | 0.00 | 0.00 | 0.00 | 0.00 | 0.010 | 0.127 | 56 |
+| `fusion`(max normal,invert) | 0 | 60 | 0.00 | 0.00 | 0.00 | 0.00 | 0.011 | 0.156 | 42 |
+| `fusion_abs`(max normal,abs) | 0 | 53 | 0.00 | 0.00 | 0.00 | 0.00 | 0.010 | 0.144 | 59 |
+
+> 🔴 **全部零效果**:没有任何一臂命中过一帧。
+> 🔴 **normal 臂的 GT 外峰值(0.108)是 GT 内峰值(0.009)的 12 倍** ⇒ 模型在这 200 帧里
+> **对背景的响应远强于对目标的响应** —— 它看到的是一片城市灯光杂波,不是目标。
+> ✅ **自洽校验**:normal 臂(从原始帧重算特征)与冻结单帧基线(预存特征 JPG)在 200 帧上
+> **一致率 100.00%** ⇒ 管线复刻无误,结论不是复现错误造成的。
+
+## 4. 决定性证据:残差通道里有强信号,但模型不用它
+
+直接在 GT 框内量**残差通道**(绕开热力图,排除"模型+实现"两个黑箱):
+
+| 量 | 中位值 |
+|:---|---:|
+| 残差(normal)在 GT 处 max | **71.0** |
+| 残差(invert)在 GT 处 max | **73.0** |
+| 目标框灰度中位 vs 紧邻环灰度中位 | 122.0 vs 114.0 ⇒ **+11.9** |
+| 局部极性为负(目标更暗)的比例 | 0.5% |
+
+> ✅ **翻转臂的残差 73.0 ≫ 0 ⇒ 物理通路是通的,我的实现也没有 bug**。暗目标确实被翻成了强正残差。
+> ❌ **但热力图在目标处只有 0.007** ⇒ **模型对"翻转后的残差"不响应**。
+> ⇒ **瓶颈在底模的判别能力(对这类输入是分布外),不在极性、也不在信号强度。**
+
+## 5. 目标到底是什么(目视 + 统计)
+
+`runs/logs/contrast_probe_001324/zoom_*.png`:GT 框内是**清晰的暗色刚体轮廓**(深色机身),
+嵌在**明亮的城市建筑群**里 —— 用户的"暗机身"判断**目视成立**。
+
+| 序列 | contrast 中位(框均 − 环均) | 比背景暗 | 比背景亮 | 冷像素占比中位 | 热像素占比中位 | \|对比\|/噪声 | 目标边长中位 |
+|:---|---:|---:|---:|---:|---:|---:|---:|
+| **`001324`(失败段)** | +23.29 | 2.7% | 97.3% | 0.0% | 32.5% | **3.99** | 57 px |
+| `000818`(好检) | +15.43 | 0.0% | 100.0% | 5.6% | 27.8% | 3.60 | 50 px |
+| `001415`(好检) | +15.05 | 0.0% | 100.0% | 0.2% | 21.8% | 1.27 | 54 px |
+| `002001` | +17.05 | 0.7% | 99.3% | 0.0% | 19.4% | 1.50 | 62 px |
+
+> ⚠️ **我自己踩的统计坑(重要)**:"框均 − 环均"这个量在**明亮城市背景**下会被背景里的大片极亮
+> 建筑像素拉高,把"目标比邻域暗"这个事实掩盖掉(读出 +23.29 / 97.3% 更亮,与看图完全相反)。
+> 换成**中位数 + 紧邻环**才看得出真相(框内中位 122 vs 环中位 114),而**目视才是最终裁决**。
+> ⇒ **对比度一定要用中位数(抗离群),别用均值;并配合目视复核。**
+> ⭐ **更关键**:`001324` 的 \|对比\|/噪声 = **3.99,比三个"好检"序列(1.27~3.60)都高**,
+> 目标尺寸也相当(57 px vs 50~62 px)⇒ **目标信号质量并不差,001324 的失败不是"目标看不见",
+> 而是"模型在强杂波城市背景里认不出它"。**
+
+## 6. 结论与下一步(对用户方案的修正)
+
+1. ✅ **用户的"走向 B"成立**:底模缺少"在强杂波城市背景里分辨暗色刚体"的判别能力 ⇒ **必须切片微调**。
+2. 🔴 **但解法方向要改**:原方案"把翻转后的数据喂进微调集"会让模型学成"找暗目标",
+   而**部署时若不走双流就完全对不上**;要走双流则前向成本翻倍。
+   **更省且更一致的做法:用【原图】切片微调**(让模型学会在城市背景里认暗色刚体),**部署链路完全不变**。
+3. 🔴 **零训练输入端 trick(翻转 / 字面翻转 / 绝对值残差 / 像素级融合)本轮全部证伪,不要再试。**
+4. 📌 **切片训练集规模现成**:`001324` 单帧漏检 **2,315 帧**(全序列);`002001`、`003002` 同口径可再算。
+   建议配比:正样本 = 漏检帧(带 GT),负样本 = 同一段里模型响但落空的 FP 帧(专治城市灯光杂波)。
+
+## 7. 可复制命令
+
+```bash
+# ① 极性翻转前向探针(自动选漏检最密集窗口,4 臂 + 2 融合)
+python manu/evaluation/invert_pass_probe.py \
+  --seq VIDEO00007_19700101_001324 \
+  --frames-root "/mnt/data/siping/datasets/manu/龙泉山/frames_ir_jpg" \
+  --labels-root "/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010" \
+  --cache-root runs/ms_cache_nop0 --out-dir runs/logs/invert_probe_001324_v2 \
+  --auto-segment 200 --save-vis 6 --ablate-p0
+
+# ② 目标对比度探针(与"好检"序列对照)
+python manu/evaluation/contrast_probe.py \
+  --frames-root "/mnt/data/siping/datasets/manu/龙泉山/frames_ir_jpg" \
+  --labels-root "/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010" \
+  --seq VIDEO00007_19700101_001324 --seq VIDEO00007_19700101_000818 \
+  --seq VIDEO00002_19700101_001415 --seq VIDEO00008_19700101_002001 --sample 150
+```
+
+> 产物:`runs/logs/invert_probe_001324_v2/`(JSON + MD + 6 张对比图)、
+> `runs/logs/contrast_probe_001324/`(目视放大图)、`runs/logs/contrast_probe.json`。
+
+---
+
+# §四十一 龙泉山微调数据集（三轨划分）—— 已构建 + 精度对账通过（2026-10-21）
+
+## 1. 结论速览
+
+- ✅ **三轨单帧 baseline 现场复现全过**（Anti-UAV 官方 / 黄金池 7 条 / 盲测 001324），三道 `[GATE] PASS`。
+- ✅ **新数据集已构建**：`/mnt/data/siping/datasets/manu/longquanshan_ft_gmc_median`
+  （val 8 条全帧 28,997 + train 9 条步长 5 抽帧 13,918 = 42,915 帧；ignore 7 条直接排除）。
+- ✅ **用新数据集跑两条 val，与 2026-10-20 冻结 baseline 逐位一致**（黄金池 F1 0.987882 / TP 16,264 / FP 25；
+  001324 F1 0.834789 / TP 7,981 / FP 605），两处 `[GATE] PASS`。
+- 🔴 **重大发现：两条参考线用的不是同一套 GMC 语义**（见 §2）。
+- 🔴 **旧特征缓存的标签全空**（见 §3）⇒ **特征可复用、标签不可复用**。
+
+## 2. 🔴🔴 特征语义分裂（本轮最重要的发现）
+
+`runs/ms_cache_nop0` 的 `meta.source = "features"` ⇒ **龙泉山业务域的全部评测与三轨 baseline
+都建立在既有特征缓存 `longquanshan_ir_gmc_median` 之上**。而它由**哪个构建器**产出，此前从未被验证过。
+本轮逐字节验证结论：
+
+| 特征集 | GMC 语义 | 产出脚本 | 证据 |
+|:---|:---|:---|:---|
+| `longquanshan_ir_gmc_median`（龙泉山 165,223 张） | **相邻帧仿射连乘** | `build_fpv_ir_gmc_median.py` | 重算 **7/7 逐字节命中**；且其 `data.yaml` 头部与 FPV 脚本 `write_data_yaml` 写出的 `# Ultralytics UAV Dataset: FPV Infrared GMC+Median Mode` **逐字相同** |
+| `uav_gmc_median`（Anti-UAV 官方集 74,621 张） | **逐 lag 直接拟合** | `build_full_median_dataset.py` | 官方构建器口径 |
+
+⇒ **Anti-UAV 官方大盘 0.906361 与龙泉山业务域 90.605% 虽用同一套权重，输入特征语义却不同**
+（逐像素差 26~70 / 255）。两套语义在**非边界帧**上官方臂 0/5 命中、FPV 臂 5/5 命中。
+
+**判定工具**：`manu/data/verify_longquan_feature_source.py`（双臂重算 + sha256 比对）。
+两个必须踩对的实现细节：
+1. `compose_affine` 是**左乘**累积 `M = H3 @ M`（结果 = `H_n @ ... @ H_1`）⇒ 写反会导致永远判不出来；
+2. FPV 构建器在 `curr_idx == 0` 时 `diff2 = np.zeros_like(im_curr)`（**不是** `im_curr`），且中值窗口 `h_idx < 0` 是 `break` 而非 clamp。
+
+## 3. 🔴 旧特征缓存的标签是全空文件
+
+- `longquanshan_ir_gmc_median/labels/train`：11,810 个 `.txt` **全部 0 字节**（`001324` 等序列实测）；
+- `longquanshan_ir_dataset/train/<seq>/`：`jpg=0`、`txt=0`（符号链接已断）；
+- ⇒ **特征图可以复用；标签必须重新取** `Final_Labels_merged_20261010`。
+  若整目录复制旧缓存，得到的是**零标注训练集**（YOLO 会当纯背景图训练）。
+- 去重口径须与评测端一致：`eval_multiscale_cache_th.py::load_ground_truth` 按 **`(cx,cy,w,h)` 四元组**
+  去重（类 id 不参与去重键），丢弃字段数 < 5 的行。
+
+## 4. ⚠️ 工具坑（会让抽帧子集静默错位）
+
+- `multiscale_heatmap_cache.py` 的 `frame_index = start + index` 取的是**排序位置**，不是文件名里的帧号
+  ⇒ **只有连续 0..N-1 命名的目录才能与真值 `{seq}__{idx:06d}.txt` 对齐**；
+  抽帧子集（步长 5）建缓存会帧号错位。本数据集 val 为全帧连续，故安全。
+- `FastGMCEstimator` 的 GMC 估计**必须在原始灰度上做**；特征磁盘通道序 = `[I_t, GMC_Diff, (I_t-B_t)^+]`，
+  推理时须反转为模型序 `[median_residual, GMC_Diff, I_t]`（`scale_inputs` 内已做）。
+- 🔴 **内存坑**：自写构建器若把整条序列的特征攒进 dict 再落盘，stride=1 长序列
+  （`001324` 11,810 帧 × 983KB ≈ **11.6 GB**）会把 worker 撑爆，表现为**0 帧/s 的假死**
+  （本次踩到，已改为生成器边算边写）。
+
+## 5. 新数据集规格
+
+| 项 | 值 |
+|:---|:---|
+| 路径 | `/mnt/data/siping/datasets/manu/longquanshan_ft_gmc_median/` |
+| 划分配置 | `manu/data/longquan_ft_split.json`（Val 8 / Train 9 / Ignore 7，含每条的 F1 与角色） |
+| val | 8 条（黄金池 7 + 盲测 001324），**全帧 0 间隔**（含第 0 帧，与 baseline 帧集合逐帧一致），28,997 帧，GT 27,173 |
+| train | 9 条，**步长 5 起点 0**（Anti-UAV 参考集 `uav` 为步长 5 起点 6，可用 `--train-start 6` 复刻），13,918 帧，GT 12,120 |
+| ignore | 7 条直接排除，未进入任何产物 |
+| 命名 | `<seq>__frame_<真值帧号:06d>.jpg` ↔ 同名 `.txt`（1:1 镜像） |
+| 特征 | 3 通道 JPG，FPV 仿射连乘语义；**与既有缓存逐字节 42,915/42,915 一致** |
+| 标签 | `Final_Labels_merged_20261010`，按评测端口径去重，非法行 0，源标签抽样一致 40/40 |
+| 划分健康度 | train∩val 泄漏 0；ignore 入组 0；非法行 0；重复框 0 |
+
+## 6. 新增工具（本地仓库，服务器 `/tmp/pycharm_project_10ae9e2e` 同路径）
+
+| 工具 | 作用 |
+|:---|:---|
+| `manu/data/longquan_ft_split.json` | 24 序列三轨划分 + 冻结 baseline 参照 |
+| `manu/data/build_longquan_ft_dataset.py` | 构建数据集（`--gmc-semantics {fpv,official}`、`--feature-mode {rebuild,copy}`、边算边写） |
+| `manu/data/verify_longquan_feature_source.py` | 判定特征缓存的 GMC 语义（官方 vs FPV 双臂逐字节） |
+| `manu/data/verify_longquan_ft_features.py` | 特征逐字节比对 + 按标签目录驱动补齐（只补图不碰标签） |
+| `manu/data/check_longquan_ft_dataset.py` | 数据集完整性校验（帧集合/标签/GT 对账/特征健康度/泄漏） |
+| `manu/data/validate_longquan_ft_dataset.sh` | 一条命令跑完：建 val 缓存 → 跑双 val 对账 → 跑数据集校验 |
+
+## 7. 可复制命令
+
+```bash
+# 服务器 ssh -p 32222 huangzhe@192.168.99.40；conda activate uav；cd /tmp/pycharm_project_10ae9e2e
+D="/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010"
+P=manu/evaluation/system_sota_longquan_delivery_params.json
+FT=/mnt/data/siping/datasets/manu/longquanshan_ft_gmc_median
+
+# ① 特征逐字节验证 + 按需补齐（只补特征图，标签永远取合并真值）
+python manu/data/verify_longquan_ft_features.py \
+  --dataset-root $FT \
+  --cache-root /mnt/data/siping/datasets/manu/longquanshan_ir_gmc_median/images/train \
+  --split-config manu/data/longquan_ft_split.json \
+  --fill-missing --out-json runs/logs/lq_ft_feature_parity.json
+
+# ② 数据集完整性校验（GT 必须对账 16638 / 10535）
+python manu/data/check_longquan_ft_dataset.py \
+  --dataset-root $FT --split-config manu/data/longquan_ft_split.json \
+  --labels-root "$D" --out-json runs/logs/longquan_ft_dataset_check.json
+
+# ③ 精度对账闭环（建 val 缓存 + 跑两条 val + 校验），必须两条 GATE 都 PASS
+bash manu/data/validate_longquan_ft_dataset.sh
+
+# ④ 从原始帧重建数据集（可选；语义可选 fpv=baseline 同源 / official=Anti-UAV 同源）
+python manu/data/build_longquan_ft_dataset.py \
+  --split-config manu/data/longquan_ft_split.json \
+  --raw-root "/mnt/data/siping/datasets/manu/龙泉山/frames_ir_jpg" \
+  --labels-root "$D" --out-root $FT \
+  --feature-mode rebuild --gmc-semantics fpv --groups val,train --workers 24
+```
+
+## 8. ⚠️ 待裁决（**未启动**，仅登记）
+
+- 🔴 **Anti-UAV 回放混合用哪套语义**：`1:4` 回放时，Anti-UAV 侧特征是 `uav_gmc_median`（official 语义），
+  龙泉山侧是 FPV 语义 ⇒ 两侧存在 GMC 语义差。选哪一套、或是否把 Anti-UAV 侧也按 FPV 重建，
+  **必须在开训前裁决**。
+- ⏳ Replay 切片微调方案本身仍在 §四十 待裁决清单内，本轮只准备数据，**未启动任何训练**。
+- 📌 切片挖掘（正样本=漏检帧、负样本=同段 FP 帧）可用 `manu/data/mine_adapter_training_samples.py`，
+  其 `--features-root` 已支持本数据集的扁平命名。
+
+---
+
+# §四十二 特征语义统一到 Anti-UAV official 口径 + Baseline v2 重锁（2026-10-21）
+
+## 1. 决策与理由
+
+**统一到 `official`（逐 lag 直接拟合）语义**，与 Anti-UAV 官方集 `uav_gmc_median` **完全同源**。
+理由：①底模 `trial_0474` 是在 official 语义上训的，stem conv 学的是 official 的物理残差分布，
+混训会引入协变量偏移；②严控单一变量（只检验「切片+配比」这一个假说）；
+③板端部署前处理是轻量直接拟合，长程仿射连乘难以高保真复刻。
+
+## 2. ✅ 同源性已被实证锁死（不是"实现看起来一样"）
+
+`manu/data/verify_antiuav_gmc_parity.py`：把本项目构建器的 `official` 模式作用在
+**Anti-UAV 原始帧**上，与官方特征集 `uav_gmc_median` 的产物做 **sha256 逐字节**比对：
+
+| 官方划分 | 序列 | 抽样 | 逐字节相同 |
+|:---|:---|--:|:--|
+| val | `01_4485_1167-2666` | 25 | **25/25** |
+| val | `02_6321_0274-2773` | 25 | **25/25** |
+| train | `01_1751_0250-1750` | 25 | **25/25** |
+| train | `01_2192_0001-1500` | 25 | **25/25** |
+| train | `01_4485_2985-4484` | 25 | **25/25** |
+| **合计** | | **125** | **125/125** |
+
+⇒ 通道序、GMC 拟合方式、中值窗口、编码参数**全部无差异**。
+（注意 Anti-UAV 原始帧是 `anti-uav/train/<seq>/000001.jpg…` **从 1 开始**，
+官方特征集从 `__000003` 起；冻结构建器与本项目都用「尾部数字→列表位置」映射，对得上。）
+
+## 3. ✅ 新数据集
+
+- 路径：`/mnt/data/siping/datasets/manu/longquanshan_ft_gmc_median_official/`
+- 与 §四十一 同划分同采样（val 8 全帧 28,997 / train 9 步长 5 共 13,918 = **42,915 帧**）
+- 特征 = official 语义重算；标签 = `Final_Labels_merged_20261010`（与 FPV 版同源同口径）
+- 完整性校验 PASS：**GT 对账 16,638 / 10,535 全 MATCH**、泄漏 0、ignore 入组 0、非法行 0
+- 重算耗时 **1,053 s ≈ 17.6 min**（56 进程 / 68 任务，实测 64.6 帧/s 峰值）
+
+## 4. ⭐ Baseline v2（official 语义，**微调前现行基线**）
+
+口径：`system_sota_longquan.py --no-pipeline`（纯单帧裸跑）。
+
+| 轨道 | F1 | TP | FP | FN | GT | 帧 | R% | P% | FAR |
+|:---|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| **黄金池 7 条** | **0.9884359729262149** | 16,283 | 26 | 355 | 16,638 | 17,187 | 97.866 | 99.841 | 0.0015128 |
+| **盲测 001324** | **0.8373308251032032** | 8,012 | 590 | 2,523 | 10,535 | 11,810 | 76.051 | 93.141 | 0.0499577 |
+| **Anti-UAV 官方**（本来就是 official 语义，**不变**） | 0.906361237907785 | 21,643 | 1,004 | 3,468 | 25,111 | 31,613 | 86.189 | 95.567 | 0.0317557 |
+
+逐序列（official）：`001531` 99.567 / `014053` 98.990 / `015000` 92.742 / `015052` 99.960 /
+`000703` 99.713 / `001307` 97.072 / `000818` 99.946 / `001324` 83.733。
+
+## 5. ⭐ 换语义的精度影响：**全序列无一下降**
+
+| 序列 | FPV F1% | official F1% | ΔF1(pp) |
+|:---|--:|--:|--:|
+| `001531` | 98.712 | 99.567 | **+0.855** |
+| `001307` | 96.924 | 97.072 | **+0.148** |
+| `000703` | 99.627 | 99.713 | **+0.086** |
+| `001324`（盲测） | 83.479 | 83.733 | **+0.254** |
+| `015052` | 99.919 | 99.960 | **+0.040** |
+| `000818` | 99.933 | 99.946 | **+0.012** |
+| `014053` | 98.986 | 98.990 | **+0.003** |
+| `015000` | 92.742 | 92.742 | **0.000** |
+| **黄金池合计** | 98.788 | **98.844** | **+0.055** |
+| **盲测 001324** | 83.479 | **83.733** | **+0.254** |
+
+⇒ **official 语义不降反微升**，且让两条参考线（Anti-UAV 大盘 + 龙泉山业务域）输入语义归一，
+彻底消除 §四十一 记录的「协变量偏移」隐患。**§四十一 记录的 FPV 口径数值作废，以本节 v2 为准。**
+
+## 6. ⚠️ 数值变更带来的连锁影响（**已同步处理**）
+
+- `manu/data/longquan_ft_split.json` 的 `baseline_reference` 已切到 official 口径，
+  旧 FPV 数值保留在 `legacy_fpv_semantics` 节点下供追溯。
+- `manu/data/validate_longquan_ft_dataset.sh` 的 `--expect-*` 门禁默认已换成 v2 数值；
+  `FT_EXPECT_GATES=0` 可关闭门禁（重锁 Baseline 时用）。
+- 报告命名分离：FPV 侧 `runs/logs/ft_fpv_*.json`（历史留存），
+  official 侧 `runs/logs/ft_official_*.json`（现行）。
+
+## 7. 新增工具
+
+| 工具 | 作用 |
+|:---|:---|
+| `manu/data/verify_antiuav_gmc_parity.py` | 证明 `official` 模式 ≡ Anti-UAV 官方特征集（逐字节） |
+| `manu/data/compare_lq_baselines.py` | 两套语义的单帧 baseline 对比表（Markdown + JSON） |
+| `manu/data/run_lq_official_baseline.sh` | 一键：校验 → 建缓存 → 跑双 val → 出对比表 |
+| `manu/data/build_longquan_ft_dataset.py --split-chunks N` | 长序列切块并行（关键路径优化，**已证结果不变**） |
+
+## 8. 可复制命令
+
+```bash
+# 服务器 ssh -p 32222 huangzhe@192.168.99.40；conda activate uav；cd /tmp/pycharm_project_10ae9e2e
+D="/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010"
+FT=/mnt/data/siping/datasets/manu/longquanshan_ft_gmc_median_official
+
+# ① 同源性证明（official 模式 ≡ Anti-UAV 官方特征集）
+python manu/data/verify_antiuav_gmc_parity.py \
+  --raw-root "/mnt/data/siping/datasets/manu/anti-uav/train" \
+  --canonical-root "/mnt/data/siping/datasets/manu/uav_gmc_median/images/val" \
+  --sample 25 --out-json runs/logs/antiuav_gmc_parity.json
+
+# ② 全量重算 official 特征（17.6 min @ 56 进程）
+python manu/data/build_longquan_ft_dataset.py \
+  --split-config manu/data/longquan_ft_split.json \
+  --raw-root "/mnt/data/siping/datasets/manu/龙泉山/frames_ir_jpg" \
+  --labels-root "$D" --out-root $FT \
+  --feature-mode rebuild --gmc-semantics official \
+  --groups val,train --split-chunks 4 --workers 56
+
+# ③ Baseline v2 全链路（校验 + 建缓存 + 双 val + 对比表）
+bash manu/data/run_lq_official_baseline.sh
+
+# ④ 日常回归（默认已用 v2 门禁）
+bash manu/data/validate_longquan_ft_dataset.sh
+```
+
+## 9. ⚠️ 待裁决（**未启动**，仅登记）
+
+- 🔴 **Anti-UAV 1:4 回放的底座特征**：Anti-UAV 侧现有 `uav_gmc_median` **本来就是 official 语义**，
+  与新龙泉山数据集**现已自动同源** ⇒ 原本的语义冲突**已消解**，无需额外重建。
+  但**配比、切片策略、损失定义、底模是否解冻**仍在 §四十 待裁决清单内，本轮未启动任何训练。
+- ⏳ `001324` 在 official 语义下 F1 83.733，仍是最大短板（漏检 2,523 帧），
+  与 §四十「必须切片微调」结论不变。

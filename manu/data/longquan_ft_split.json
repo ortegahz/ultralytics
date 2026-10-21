@@ -1,0 +1,257 @@
+{
+  "version": "1.0",
+  "created": "2026-10-21",
+  "author": "manu",
+  "purpose": "龙泉山业务域微调数据集的三轨划分（黄金池守护大盘 + 001324 单帧难例盲测）",
+  "rationale": "按 2026-10-20 全量评测的实测表现与失效归因划分：Val 守大盘防退化，Train 采失效机理养料，Ignore 剔除脏数据避免梯度污染。",
+  "sampling": {
+    "val_stride": 1,
+    "val_start": 0,
+    "val_note": "全帧 0 间隔，含第 0 帧；与 2026-10-20 冻结单帧 baseline 的帧集合逐帧一致（golden pool 17187 帧 / 001324 11810 帧）",
+    "train_stride": 5,
+    "train_start": 0,
+    "train_note": "每 5 帧抽 1 帧，起点 0；Anti-UAV 参考集 uav 的 train 为步长 5（起点 6）、val 为步长 1，若需完全复刻可传 --train-start 6",
+    "anti_uav_reference": {
+      "dataset": "/mnt/data/siping/datasets/manu/uav",
+      "train_sequences": 185,
+      "train_step": 5,
+      "train_first_index": 6,
+      "val_sequences": 20,
+      "val_step": 1,
+      "val_first_index": 3,
+      "data_yaml": "path: /mnt/data/siping/datasets/manu/uav | train: images/train | val: images/val | names: {0: uav}"
+    }
+  },
+  "feature_spec": {
+    "layout": "3 通道 JPG，磁盘通道序 [I_t, |I_t - W(I_{t-2})|, (I_t - B_t)^+]",
+    "model_channel_order": "推理时需反转为 [median_residual, gmc_diff, I_t]（见 manu/data/multiscale_heatmap_cache.py）",
+    "window": 21,
+    "stride_step": 2,
+    "downscale": 2,
+    "gmc_semantics": "逐 lag 直接拟合（compute_affine(h, t)），与 manu/data/build_full_median_dataset.py 一致；禁用 FPV 仿射连乘变体",
+    "naming": "<sequence>__frame_<真值帧号:06d>.jpg，与同名 .txt 1:1 镜像"
+  },
+  "groups": {
+    "val": {
+      "description": "8 条：黄金守护池 7 条 + 独立难例盲测 1 条",
+      "sequences": [
+        {
+          "sequence": "VIDEO00009_19700101_001531",
+          "role": "golden_pool",
+          "single_frame_f1": 0.98712,
+          "note": "黄金池 1/7，标准空域白热基准"
+        },
+        {
+          "sequence": "VIDEO00029_19700101_014053",
+          "role": "golden_pool",
+          "single_frame_f1": 0.98986,
+          "note": "黄金池 2/7"
+        },
+        {
+          "sequence": "VIDEO00033_19700101_015000",
+          "role": "golden_pool",
+          "single_frame_f1": 0.92742,
+          "note": "黄金池 3/7，黄金池内最弱一条"
+        },
+        {
+          "sequence": "VIDEO00034_19700101_015052",
+          "role": "golden_pool",
+          "single_frame_f1": 0.99919,
+          "note": "黄金池 4/7"
+        },
+        {
+          "sequence": "VIDEO00006_19700101_000703",
+          "role": "golden_pool",
+          "single_frame_f1": 0.99627,
+          "note": "黄金池 5/7"
+        },
+        {
+          "sequence": "VIDEO00008_19700101_001307",
+          "role": "golden_pool",
+          "single_frame_f1": 0.96924,
+          "note": "黄金池 6/7"
+        },
+        {
+          "sequence": "VIDEO00007_19700101_000818",
+          "role": "golden_pool",
+          "single_frame_f1": 0.99933,
+          "note": "黄金池 7/7"
+        },
+        {
+          "sequence": "VIDEO00007_19700101_001324",
+          "role": "blind_hardcase",
+          "single_frame_f1": 0.834789,
+          "note": "独立难例盲测金石；全序列绝对留出，严禁任何切片进训练集；单帧漏检 2315 帧、跟踪器挽回率仅 1.7%",
+          "absolute_holdout": true
+        }
+      ]
+    },
+    "train": {
+      "description": "9 条：覆盖典型失效机理，离线局部切片提供微调养料",
+      "sequences": [
+        {
+          "sequence": "VIDEO00008_19700101_002001",
+          "role": "core_positive_mining",
+          "single_frame_f1": 0.87877,
+          "note": "核心攻坚对象；落入地表机身变黑，提供暗刚体正切片与地表高频负切片"
+        },
+        {
+          "sequence": "VIDEO00005_19700101_002959",
+          "role": "core_positive_mining",
+          "single_frame_f1": 0.97008,
+          "note": "近距离大目标，提供大核宽高斯正样本"
+        },
+        {
+          "sequence": "VIDEO00011_19700101_001810",
+          "role": "core_positive_mining",
+          "single_frame_f1": 0.98238,
+          "note": "云层悬停中值吸收漏检，提取时域能量衰减正样本"
+        },
+        {
+          "sequence": "VIDEO00028_19700101_013631",
+          "role": "core_positive_mining",
+          "single_frame_f1": 0.97897,
+          "note": "双翼/机身中心跳变分裂，提供大核宽高斯正样本"
+        },
+        {
+          "sequence": "VIDEO00030_19700101_014144",
+          "role": "negative_mining",
+          "single_frame_f1": 0.96547,
+          "note": "云层及地表持续多帧小目标虚警，提供纯 0 强硬负样本"
+        },
+        {
+          "sequence": "VIDEO00031_19700101_014227",
+          "role": "negative_mining",
+          "single_frame_f1": 0.9646,
+          "note": "云层及地表持续多帧小目标虚警，提供纯 0 强硬负样本"
+        },
+        {
+          "sequence": "VIDEO00002_19700101_001415",
+          "role": "negative_mining",
+          "single_frame_f1": 0.95516,
+          "note": "贴地弱目标与地表噪点，小剂量补充正负切片（严禁过采样）"
+        },
+        {
+          "sequence": "VIDEO00009_19700101_003002",
+          "role": "negative_mining",
+          "single_frame_f1": 0.77815,
+          "note": "真实缺口最严重一条；贴地弱目标与地表噪点，小剂量补充正负切片（严禁过采样）"
+        },
+        {
+          "sequence": "VIDEO00010_19700101_001550",
+          "role": "motion_compensation",
+          "single_frame_f1": 0.96121,
+          "note": "镜头快速位移与云层误检，提供运动模糊正切片与云层负切片"
+        }
+      ]
+    },
+    "ignore": {
+      "description": "7 条：直接排除出训练与常规验证闭环",
+      "sequences": [
+        {
+          "sequence": "VIDEO00032_19700101_014453",
+          "reason": "全段纯黑热与超低信噪比；当前输入通道与检测逻辑以白热为主，不引入全段极端黑热干扰"
+        },
+        {
+          "sequence": "VIDEO00035_19700101_015138",
+          "reason": "极度恶劣复合场景，下落城市且信噪比濒临湮灭，免责处理"
+        },
+        {
+          "sequence": "VIDEO00004_19700101_002438",
+          "reason": "硬件未校准条纹（FPN），强行微调会使卷积核对纵向条纹产生过拟合"
+        },
+        {
+          "sequence": "VIDEO00036_19700101_015740",
+          "reason": "全段纯黑热与超低信噪比"
+        },
+        {
+          "sequence": "VIDEO00003_19700101_002111",
+          "reason": "硬件未校准条纹（FPN）"
+        },
+        {
+          "sequence": "VIDEO00012_19700101_002251",
+          "reason": "域外严重漂移（俯视公路、汽车及近距离人头），不属于防空反无人机常规视场"
+        },
+        {
+          "sequence": "VIDEO00006_19700101_000322",
+          "reason": "硬件未校准条纹（FPN）后段脏数据"
+        }
+      ]
+    }
+  },
+  "baseline_reference": {
+    "note": "2026-10-21 冻结单帧 baseline（口径 --no-pipeline）。official 语义 = 微调前**现行** baseline（与 Anti-UAV 官方集同源）；fpv 语义 = 历史口径（既有 longquanshan_ir_gmc_median 的仿射连乘语义），仅作对照。",
+    "feature_semantics": {
+      "current": "official",
+      "current_note": "official = 逐 lag 直接拟合（Anti-UAV 官方集 uav_gmc_median 同源，已 125/125 逐字节验证）",
+      "legacy": "fpv",
+      "legacy_note": "fpv = 相邻帧仿射连乘（龙泉山历史评测口径）"
+    },
+    "anti_uav_official": {
+      "note": "Anti-UAV 官方大盘，本来就是 official 语义，故换语义后**不变**",
+      "f1": 0.906361237907785,
+      "tp": 21643,
+      "fp": 1004,
+      "frames": 31613,
+      "gt": 25111
+    },
+    "golden_pool_single_frame": {
+      "f1": 0.9884359729262149,
+      "tp": 16283,
+      "fp": 26,
+      "fn": 355,
+      "gt": 16638,
+      "frames": 17187,
+      "recall": 0.9786633008775093,
+      "precision": 0.998405788215096,
+      "far_per_frame": 0.0015127712806190725,
+      "semantics": "official"
+    },
+    "blind_001324_single_frame": {
+      "f1": 0.8373308251032032,
+      "tp": 8012,
+      "fp": 590,
+      "fn": 2523,
+      "gt": 10535,
+      "frames": 11810,
+      "recall": 0.7605125771238728,
+      "precision": 0.9314112996977447,
+      "far_per_frame": 0.04995766299745978,
+      "semantics": "official"
+    },
+    "legacy_fpv_semantics": {
+      "note": "2026-10-20 冻结的 FPV 口径数值，换 official 语义后被上表取代，保留以便追溯",
+      "golden_pool_single_frame": {
+        "f1": 0.9878822850548182,
+        "tp": 16264,
+        "fp": 25,
+        "fn": 374,
+        "gt": 16638,
+        "frames": 17187
+      },
+      "blind_001324_single_frame": {
+        "f1": 0.834788975471994,
+        "tp": 7981,
+        "fp": 605,
+        "fn": 2554,
+        "gt": 10535,
+        "frames": 11810
+      }
+    },
+    "official_semantics_delta_vs_fpv": {
+      "note": "official 相对 FPV 的单帧 F1 变化（pp），全序列**无一下降**",
+      "golden_pool_overall_pp": 0.055,
+      "blind_001324_pp": 0.254,
+      "per_sequence_pp": {
+        "VIDEO00009_19700101_001531": 0.855,
+        "VIDEO00029_19700101_014053": 0.003,
+        "VIDEO00033_19700101_015000": 0.0,
+        "VIDEO00034_19700101_015052": 0.04,
+        "VIDEO00006_19700101_000703": 0.086,
+        "VIDEO00008_19700101_001307": 0.148,
+        "VIDEO00007_19700101_000818": 0.012,
+        "VIDEO00007_19700101_001324": 0.254
+      }
+    }
+  }
+}

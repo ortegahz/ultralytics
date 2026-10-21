@@ -1,0 +1,425 @@
+{
+  "dataset_root": "/mnt/data/siping/datasets/manu/longquanshan_ft_gmc_median_official",
+  "checks": {
+    "data_yaml": {
+      "ok": true,
+      "text": "# 龙泉山业务域微调特征数据集（三轨划分：黄金池守护大盘 + 001324 盲测）\n# 构建于 2026-10-21 10:26:49 | 特征模式 rebuild | GMC 语义 official\n# 通道磁盘序 [I_t, |I_t-W(I_{(t-2})|, (I_t-B_t)^+]；推理时需反转为模型序\npath: /mnt/data/siping/datasets/manu/longquanshan_ft_gmc_median_official\ntrain: images/train\nval: images/val\n\nnames:\n  0: uav\n"
+    },
+    "split": {
+      "train_sequences": [
+        "VIDEO00002_19700101_001415",
+        "VIDEO00005_19700101_002959",
+        "VIDEO00008_19700101_002001",
+        "VIDEO00009_19700101_003002",
+        "VIDEO00010_19700101_001550",
+        "VIDEO00011_19700101_001810",
+        "VIDEO00028_19700101_013631",
+        "VIDEO00030_19700101_014144",
+        "VIDEO00031_19700101_014227"
+      ],
+      "val_sequences": [
+        "VIDEO00006_19700101_000703",
+        "VIDEO00007_19700101_000818",
+        "VIDEO00007_19700101_001324",
+        "VIDEO00008_19700101_001307",
+        "VIDEO00009_19700101_001531",
+        "VIDEO00029_19700101_014053",
+        "VIDEO00033_19700101_015000",
+        "VIDEO00034_19700101_015052"
+      ],
+      "ignore_sequences": [
+        "VIDEO00003_19700101_002111",
+        "VIDEO00004_19700101_002438",
+        "VIDEO00006_19700101_000322",
+        "VIDEO00012_19700101_002251",
+        "VIDEO00032_19700101_014453",
+        "VIDEO00035_19700101_015138",
+        "VIDEO00036_19700101_015740"
+      ],
+      "train_val_overlap": [],
+      "ignore_leaked": [],
+      "configured_total": 24,
+      "covered": 24
+    },
+    "gt_reconciliation": {
+      "golden_pool": {
+        "dataset": 16638,
+        "baseline": 16638,
+        "match": true
+      },
+      "blind_001324": {
+        "dataset": 10535,
+        "baseline": 10535,
+        "match": true
+      }
+    },
+    "feature_health": {
+      "sampled": 80,
+      "all_3ch": true,
+      "distinct_channels": true,
+      "samples": [
+        {
+          "group": "val",
+          "file": "VIDEO00007_19700101_001324__frame_007770.jpg",
+          "shape": [
+            512,
+            640,
+            3
+          ],
+          "mean": [
+            97.001,
+            0.596,
+            0.739
+          ],
+          "nonzero_ratio": [
+            1.0,
+            0.4093,
+            0.3871
+          ],
+          "ch0_vs_ch1_maxdiff": 229.0,
+          "ch0_vs_ch2_maxdiff": 216.0
+        },
+        {
+          "group": "val",
+          "file": "VIDEO00007_19700101_001324__frame_002484.jpg",
+          "shape": [
+            512,
+            640,
+            3
+          ],
+          "mean": [
+            94.071,
+            2.105,
+            11.435
+          ],
+          "nonzero_ratio": [
+            1.0,
+            0.6544,
+            0.7282
+          ],
+          "ch0_vs_ch1_maxdiff": 219.0,
+          "ch0_vs_ch2_maxdiff": 200.0
+        },
+        {
+          "group": "val",
+          "file": "VIDEO00007_19700101_001324__frame_008889.jpg",
+          "shape": [
+            512,
+            640,
+            3
+          ],
+          "mean": [
+            95.574,
+            1.441,
+            12.128
+          ],
+          "nonzero_ratio": [
+            1.0,
+            0.5062,
+            0.8003
+          ],
+          "ch0_vs_ch1_maxdiff": 232.0,
+          "ch0_vs_ch2_maxdiff": 186.0
+        },
+        {
+          "group": "val",
+          "file": "VIDEO00034_19700101_015052__frame_000153.jpg",
+          "shape": [
+            512,
+            640,
+            3
+          ],
+          "mean": [
+            76.117,
+            1.137,
+            3.106
+          ],
+          "nonzero_ratio": [
+            1.0,
+            0.7394,
+            0.7392
+          ],
+          "ch0_vs_ch1_maxdiff": 129.0,
+          "ch0_vs_ch2_maxdiff": 122.0
+        },
+        {
+          "group": "val",
+          "file": "VIDEO00006_19700101_000703__frame_000354.jpg",
+          "shape": [
+            512,
+            640,
+            3
+          ],
+          "mean": [
+            119.288,
+            2.899,
+            16.172
+          ],
+          "nonzero_ratio": [
+            1.0,
+            0.8015,
+            0.6901
+          ],
+          "ch0_vs_ch1_maxdiff": 223.0,
+          "ch0_vs_ch2_maxdiff": 176.0
+        },
+        {
+          "group": "val",
+          "file": "VIDEO00007_19700101_001324__frame_002363.jpg",
+          "shape": [
+            512,
+            640,
+            3
+          ],
+          "mean": [
+            87.089,
+            2.018,
+            1.629
+          ],
+          "nonzero_ratio": [
+            1.0,
+            0.7879,
+            0.5195
+          ],
+          "ch0_vs_ch1_maxdiff": 212.0,
+          "ch0_vs_ch2_maxdiff": 213.0
+        },
+        {
+          "group": "val",
+          "file": "VIDEO00007_19700101_001324__frame_003123.jpg",
+          "shape": [
+            512,
+            640,
+            3
+          ],
+          "mean": [
+            84.878,
+            1.392,
+            2.87
+          ],
+          "nonzero_ratio": [
+            1.0,
+            0.6794,
+            0.7155
+          ],
+          "ch0_vs_ch1_maxdiff": 216.0,
+          "ch0_vs_ch2_maxdiff": 217.0
+        },
+        {
+          "group": "val",
+          "file": "VIDEO00007_19700101_001324__frame_000166.jpg",
+          "shape": [
+            512,
+            640,
+            3
+          ],
+          "mean": [
+            95.907,
+            1.498,
+            4.983
+          ],
+          "nonzero_ratio": [
+            1.0,
+            0.6788,
+            0.787
+          ],
+          "ch0_vs_ch1_maxdiff": 203.0,
+          "ch0_vs_ch2_maxdiff": 206.0
+        },
+        {
+          "group": "val",
+          "file": "VIDEO00007_19700101_001324__frame_010784.jpg",
+          "shape": [
+            512,
+            640,
+            3
+          ],
+          "mean": [
+            105.37,
+            1.015,
+            5.822
+          ],
+          "nonzero_ratio": [
+            1.0,
+            0.5422,
+            0.6895
+          ],
+          "ch0_vs_ch1_maxdiff": 237.0,
+          "ch0_vs_ch2_maxdiff": 188.0
+        },
+        {
+          "group": "val",
+          "file": "VIDEO00007_19700101_001324__frame_010946.jpg",
+          "shape": [
+            512,
+            640,
+            3
+          ],
+          "mean": [
+            100.295,
+            0.734,
+            2.099
+          ],
+          "nonzero_ratio": [
+            1.0,
+            0.4904,
+            0.4671
+          ],
+          "ch0_vs_ch1_maxdiff": 240.0,
+          "ch0_vs_ch2_maxdiff": 235.0
+        }
+      ]
+    },
+    "source_label_parity": {
+      "checked": 40,
+      "mismatch": 0
+    }
+  },
+  "groups": {
+    "val": {
+      "images": 28997,
+      "labels": 28997,
+      "sequences": 8,
+      "gt_rows_deduped": 27173,
+      "gt_rows_raw": 27173,
+      "duplicate_rows_removed": 0,
+      "empty_label_files": 1824,
+      "bad_rows": 0,
+      "class_ids": [
+        0
+      ],
+      "expected_stride": 1,
+      "per_sequence": {
+        "VIDEO00006_19700101_000703": {
+          "frames": 1864,
+          "first": 0,
+          "last": 1863,
+          "gt": 1742
+        },
+        "VIDEO00007_19700101_000818": {
+          "frames": 8263,
+          "first": 0,
+          "last": 8262,
+          "gt": 8263
+        },
+        "VIDEO00007_19700101_001324": {
+          "frames": 11810,
+          "first": 0,
+          "last": 11809,
+          "gt": 10535
+        },
+        "VIDEO00008_19700101_001307": {
+          "frames": 3767,
+          "first": 0,
+          "last": 3766,
+          "gt": 3661
+        },
+        "VIDEO00009_19700101_001531": {
+          "frames": 191,
+          "first": 0,
+          "last": 190,
+          "gt": 115
+        },
+        "VIDEO00029_19700101_014053": {
+          "frames": 722,
+          "first": 0,
+          "last": 721,
+          "gt": 592
+        },
+        "VIDEO00033_19700101_015000": {
+          "frames": 1141,
+          "first": 0,
+          "last": 1140,
+          "gt": 1026
+        },
+        "VIDEO00034_19700101_015052": {
+          "frames": 1239,
+          "first": 0,
+          "last": 1238,
+          "gt": 1239
+        }
+      }
+    },
+    "train": {
+      "images": 13918,
+      "labels": 13918,
+      "sequences": 9,
+      "gt_rows_deduped": 12120,
+      "gt_rows_raw": 12120,
+      "duplicate_rows_removed": 0,
+      "empty_label_files": 1798,
+      "bad_rows": 0,
+      "class_ids": [
+        0
+      ],
+      "expected_stride": 5,
+      "per_sequence": {
+        "VIDEO00002_19700101_001415": {
+          "frames": 2492,
+          "first": 0,
+          "last": 12455,
+          "gt": 1700
+        },
+        "VIDEO00005_19700101_002959": {
+          "frames": 3358,
+          "first": 0,
+          "last": 16785,
+          "gt": 3154
+        },
+        "VIDEO00008_19700101_002001": {
+          "frames": 3603,
+          "first": 0,
+          "last": 18010,
+          "gt": 3231
+        },
+        "VIDEO00009_19700101_003002": {
+          "frames": 133,
+          "first": 0,
+          "last": 660,
+          "gt": 133
+        },
+        "VIDEO00010_19700101_001550": {
+          "frames": 571,
+          "first": 0,
+          "last": 2850,
+          "gt": 433
+        },
+        "VIDEO00011_19700101_001810": {
+          "frames": 1172,
+          "first": 0,
+          "last": 5855,
+          "gt": 1170
+        },
+        "VIDEO00028_19700101_013631": {
+          "frames": 1507,
+          "first": 0,
+          "last": 7530,
+          "gt": 1507
+        },
+        "VIDEO00030_19700101_014144": {
+          "frames": 206,
+          "first": 0,
+          "last": 1025,
+          "gt": 152
+        },
+        "VIDEO00031_19700101_014227": {
+          "frames": 876,
+          "first": 0,
+          "last": 4375,
+          "gt": 640
+        }
+      }
+    }
+  },
+  "failures": [],
+  "warnings": [],
+  "summary": {
+    "status": "PASS",
+    "failure_count": 0,
+    "warning_count": 0,
+    "val_images": 28997,
+    "train_images": 13918,
+    "val_gt_rows": 27173,
+    "train_gt_rows": 12120
+  }
+}
