@@ -1,0 +1,239 @@
+{
+  "dataset_root": "/mnt/data/siping/datasets/manu/longquanshan_ft_gmc_median_official",
+  "source_label_dir": "/mnt/data/siping/datasets/manu/longquanshan_ft_gmc_median_official/labels/train",
+  "orig_labels_root": "/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010",
+  "out_root": "runs/train_fit_diag/labels_train_pos",
+  "sequences": [
+    {
+      "sequence": "VIDEO00002_19700101_001415",
+      "positions": 2492,
+      "frames_with_gt": 1700,
+      "frames_without_gt": 792,
+      "gt_boxes": 1700,
+      "position_to_original_sample": [
+        {
+          "position": 0,
+          "original_frame": 0
+        },
+        {
+          "position": 1,
+          "original_frame": 5
+        },
+        {
+          "position": 2,
+          "original_frame": 10
+        }
+      ],
+      "mismatch_vs_orig_labels": 0,
+      "missing_in_orig_labels": 0,
+      "mismatch_examples": []
+    },
+    {
+      "sequence": "VIDEO00005_19700101_002959",
+      "positions": 3358,
+      "frames_with_gt": 3154,
+      "frames_without_gt": 204,
+      "gt_boxes": 3154,
+      "position_to_original_sample": [
+        {
+          "position": 0,
+          "original_frame": 0
+        },
+        {
+          "position": 1,
+          "original_frame": 5
+        },
+        {
+          "position": 2,
+          "original_frame": 10
+        }
+      ],
+      "mismatch_vs_orig_labels": 0,
+      "missing_in_orig_labels": 0,
+      "mismatch_examples": []
+    },
+    {
+      "sequence": "VIDEO00008_19700101_002001",
+      "positions": 3603,
+      "frames_with_gt": 3231,
+      "frames_without_gt": 372,
+      "gt_boxes": 3231,
+      "position_to_original_sample": [
+        {
+          "position": 0,
+          "original_frame": 0
+        },
+        {
+          "position": 1,
+          "original_frame": 5
+        },
+        {
+          "position": 2,
+          "original_frame": 10
+        }
+      ],
+      "mismatch_vs_orig_labels": 0,
+      "missing_in_orig_labels": 0,
+      "mismatch_examples": []
+    },
+    {
+      "sequence": "VIDEO00009_19700101_003002",
+      "positions": 133,
+      "frames_with_gt": 133,
+      "frames_without_gt": 0,
+      "gt_boxes": 133,
+      "position_to_original_sample": [
+        {
+          "position": 0,
+          "original_frame": 0
+        },
+        {
+          "position": 1,
+          "original_frame": 5
+        },
+        {
+          "position": 2,
+          "original_frame": 10
+        }
+      ],
+      "mismatch_vs_orig_labels": 0,
+      "missing_in_orig_labels": 0,
+      "mismatch_examples": []
+    },
+    {
+      "sequence": "VIDEO00010_19700101_001550",
+      "positions": 571,
+      "frames_with_gt": 433,
+      "frames_without_gt": 138,
+      "gt_boxes": 433,
+      "position_to_original_sample": [
+        {
+          "position": 0,
+          "original_frame": 0
+        },
+        {
+          "position": 1,
+          "original_frame": 5
+        },
+        {
+          "position": 2,
+          "original_frame": 10
+        }
+      ],
+      "mismatch_vs_orig_labels": 0,
+      "missing_in_orig_labels": 0,
+      "mismatch_examples": []
+    },
+    {
+      "sequence": "VIDEO00011_19700101_001810",
+      "positions": 1172,
+      "frames_with_gt": 1170,
+      "frames_without_gt": 2,
+      "gt_boxes": 1170,
+      "position_to_original_sample": [
+        {
+          "position": 0,
+          "original_frame": 0
+        },
+        {
+          "position": 1,
+          "original_frame": 5
+        },
+        {
+          "position": 2,
+          "original_frame": 10
+        }
+      ],
+      "mismatch_vs_orig_labels": 0,
+      "missing_in_orig_labels": 0,
+      "mismatch_examples": []
+    },
+    {
+      "sequence": "VIDEO00028_19700101_013631",
+      "positions": 1507,
+      "frames_with_gt": 1507,
+      "frames_without_gt": 0,
+      "gt_boxes": 1507,
+      "position_to_original_sample": [
+        {
+          "position": 0,
+          "original_frame": 0
+        },
+        {
+          "position": 1,
+          "original_frame": 5
+        },
+        {
+          "position": 2,
+          "original_frame": 10
+        }
+      ],
+      "mismatch_vs_orig_labels": 0,
+      "missing_in_orig_labels": 0,
+      "mismatch_examples": []
+    },
+    {
+      "sequence": "VIDEO00030_19700101_014144",
+      "positions": 206,
+      "frames_with_gt": 152,
+      "frames_without_gt": 54,
+      "gt_boxes": 152,
+      "position_to_original_sample": [
+        {
+          "position": 0,
+          "original_frame": 0
+        },
+        {
+          "position": 1,
+          "original_frame": 5
+        },
+        {
+          "position": 2,
+          "original_frame": 10
+        }
+      ],
+      "mismatch_vs_orig_labels": 0,
+      "missing_in_orig_labels": 0,
+      "mismatch_examples": []
+    },
+    {
+      "sequence": "VIDEO00031_19700101_014227",
+      "positions": 876,
+      "frames_with_gt": 640,
+      "frames_without_gt": 236,
+      "gt_boxes": 640,
+      "position_to_original_sample": [
+        {
+          "position": 0,
+          "original_frame": 0
+        },
+        {
+          "position": 1,
+          "original_frame": 5
+        },
+        {
+          "position": 2,
+          "original_frame": 10
+        }
+      ],
+      "mismatch_vs_orig_labels": 0,
+      "missing_in_orig_labels": 0,
+      "mismatch_examples": []
+    }
+  ],
+  "totals": {
+    "sequences": 9,
+    "positions": 13918,
+    "frames_with_gt": 12120,
+    "frames_without_gt": 1798,
+    "gt_boxes": 12120,
+    "mismatch_vs_orig_labels": 0,
+    "missing_in_orig_labels": 0,
+    "placeholder_rows_dropped": 0
+  },
+  "notes": [
+    "缓存里的 frame_index 是排序位置（multiscale_heatmap_cache.py:403 `frame_index = start + index`），因此标签必须按位置编号，val 因 stride=1 才恰好天然对齐。",
+    "数据集自带 labels/train 的文件名含 `frame_` 段，load_ground_truth 的 digits.isdigit() 会整份跳过，直接使用会得到 TP=0/FN=0 的静默错误结果。",
+    "无真值帧不产出标签文件，与 val 口径（空文件被跳过）保持一致。"
+  ]
+}

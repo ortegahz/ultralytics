@@ -1,0 +1,529 @@
+{
+  "sequence": "VIDEO00002_19700101_001415",
+  "n_frames": 200,
+  "stride": 5,
+  "warmup": 60,
+  "compared_frames": 28,
+  "max_abs_diff_per_channel": [
+    80,
+    39,
+    49
+  ],
+  "mean_abs_diff_per_channel": [
+    6.0618,
+    1.1876,
+    1.3165
+  ],
+  "pixels_over_8_per_channel": [
+    2052125,
+    7974,
+    22962
+  ],
+  "verdict": "SEMANTICS_DIFFER",
+  "rows": [
+    {
+      "position": 60,
+      "max_abs_diff_per_channel": [
+        80,
+        39,
+        44
+      ],
+      "mean_abs_diff_per_channel": [
+        6.0341,
+        1.1596,
+        1.3203
+      ],
+      "pixels_over_8_per_channel": [
+        72543,
+        285,
+        829
+      ]
+    },
+    {
+      "position": 65,
+      "max_abs_diff_per_channel": [
+        63,
+        32,
+        43
+      ],
+      "mean_abs_diff_per_channel": [
+        6.0725,
+        1.2435,
+        1.3001
+      ],
+      "pixels_over_8_per_channel": [
+        73319,
+        318,
+        807
+      ]
+    },
+    {
+      "position": 70,
+      "max_abs_diff_per_channel": [
+        66,
+        28,
+        36
+      ],
+      "mean_abs_diff_per_channel": [
+        6.073,
+        1.2065,
+        1.2858
+      ],
+      "pixels_over_8_per_channel": [
+        73374,
+        234,
+        822
+      ]
+    },
+    {
+      "position": 75,
+      "max_abs_diff_per_channel": [
+        78,
+        31,
+        41
+      ],
+      "mean_abs_diff_per_channel": [
+        6.0764,
+        1.1825,
+        1.2942
+      ],
+      "pixels_over_8_per_channel": [
+        73509,
+        288,
+        747
+      ]
+    },
+    {
+      "position": 80,
+      "max_abs_diff_per_channel": [
+        61,
+        35,
+        38
+      ],
+      "mean_abs_diff_per_channel": [
+        6.0849,
+        1.1761,
+        1.305
+      ],
+      "pixels_over_8_per_channel": [
+        73503,
+        285,
+        820
+      ]
+    },
+    {
+      "position": 85,
+      "max_abs_diff_per_channel": [
+        60,
+        27,
+        41
+      ],
+      "mean_abs_diff_per_channel": [
+        6.1044,
+        1.0768,
+        1.2896
+      ],
+      "pixels_over_8_per_channel": [
+        73757,
+        216,
+        739
+      ]
+    },
+    {
+      "position": 90,
+      "max_abs_diff_per_channel": [
+        64,
+        25,
+        34
+      ],
+      "mean_abs_diff_per_channel": [
+        6.1032,
+        1.1183,
+        1.2505
+      ],
+      "pixels_over_8_per_channel": [
+        73806,
+        236,
+        723
+      ]
+    },
+    {
+      "position": 95,
+      "max_abs_diff_per_channel": [
+        64,
+        28,
+        40
+      ],
+      "mean_abs_diff_per_channel": [
+        6.0872,
+        1.2024,
+        1.2399
+      ],
+      "pixels_over_8_per_channel": [
+        73688,
+        292,
+        762
+      ]
+    },
+    {
+      "position": 100,
+      "max_abs_diff_per_channel": [
+        70,
+        31,
+        44
+      ],
+      "mean_abs_diff_per_channel": [
+        6.0989,
+        1.1985,
+        1.2304
+      ],
+      "pixels_over_8_per_channel": [
+        73727,
+        293,
+        760
+      ]
+    },
+    {
+      "position": 105,
+      "max_abs_diff_per_channel": [
+        66,
+        22,
+        38
+      ],
+      "mean_abs_diff_per_channel": [
+        6.0918,
+        1.1894,
+        1.2429
+      ],
+      "pixels_over_8_per_channel": [
+        73753,
+        261,
+        767
+      ]
+    },
+    {
+      "position": 110,
+      "max_abs_diff_per_channel": [
+        60,
+        33,
+        35
+      ],
+      "mean_abs_diff_per_channel": [
+        6.0975,
+        1.1913,
+        1.2864
+      ],
+      "pixels_over_8_per_channel": [
+        73984,
+        247,
+        750
+      ]
+    },
+    {
+      "position": 115,
+      "max_abs_diff_per_channel": [
+        64,
+        30,
+        36
+      ],
+      "mean_abs_diff_per_channel": [
+        6.1028,
+        1.1268,
+        1.312
+      ],
+      "pixels_over_8_per_channel": [
+        73955,
+        248,
+        819
+      ]
+    },
+    {
+      "position": 120,
+      "max_abs_diff_per_channel": [
+        64,
+        23,
+        36
+      ],
+      "mean_abs_diff_per_channel": [
+        6.1037,
+        1.0827,
+        1.3237
+      ],
+      "pixels_over_8_per_channel": [
+        74337,
+        281,
+        827
+      ]
+    },
+    {
+      "position": 125,
+      "max_abs_diff_per_channel": [
+        62,
+        29,
+        36
+      ],
+      "mean_abs_diff_per_channel": [
+        6.0958,
+        1.2446,
+        1.334
+      ],
+      "pixels_over_8_per_channel": [
+        74137,
+        429,
+        971
+      ]
+    },
+    {
+      "position": 130,
+      "max_abs_diff_per_channel": [
+        61,
+        28,
+        45
+      ],
+      "mean_abs_diff_per_channel": [
+        6.1189,
+        1.2121,
+        1.2647
+      ],
+      "pixels_over_8_per_channel": [
+        74526,
+        334,
+        846
+      ]
+    },
+    {
+      "position": 135,
+      "max_abs_diff_per_channel": [
+        65,
+        29,
+        32
+      ],
+      "mean_abs_diff_per_channel": [
+        6.1261,
+        1.1897,
+        1.2337
+      ],
+      "pixels_over_8_per_channel": [
+        74679,
+        314,
+        692
+      ]
+    },
+    {
+      "position": 140,
+      "max_abs_diff_per_channel": [
+        68,
+        32,
+        44
+      ],
+      "mean_abs_diff_per_channel": [
+        6.107,
+        1.2125,
+        1.2307
+      ],
+      "pixels_over_8_per_channel": [
+        74255,
+        379,
+        776
+      ]
+    },
+    {
+      "position": 145,
+      "max_abs_diff_per_channel": [
+        67,
+        27,
+        47
+      ],
+      "mean_abs_diff_per_channel": [
+        6.1188,
+        1.1419,
+        1.2363
+      ],
+      "pixels_over_8_per_channel": [
+        74376,
+        248,
+        807
+      ]
+    },
+    {
+      "position": 150,
+      "max_abs_diff_per_channel": [
+        70,
+        34,
+        49
+      ],
+      "mean_abs_diff_per_channel": [
+        5.7942,
+        1.4836,
+        1.4668
+      ],
+      "pixels_over_8_per_channel": [
+        68432,
+        480,
+        1219
+      ]
+    },
+    {
+      "position": 155,
+      "max_abs_diff_per_channel": [
+        65,
+        30,
+        37
+      ],
+      "mean_abs_diff_per_channel": [
+        5.8523,
+        1.2076,
+        1.4826
+      ],
+      "pixels_over_8_per_channel": [
+        69471,
+        291,
+        1044
+      ]
+    },
+    {
+      "position": 160,
+      "max_abs_diff_per_channel": [
+        64,
+        28,
+        43
+      ],
+      "mean_abs_diff_per_channel": [
+        5.9219,
+        1.185,
+        1.4571
+      ],
+      "pixels_over_8_per_channel": [
+        70793,
+        249,
+        930
+      ]
+    },
+    {
+      "position": 165,
+      "max_abs_diff_per_channel": [
+        69,
+        28,
+        45
+      ],
+      "mean_abs_diff_per_channel": [
+        5.987,
+        1.1925,
+        1.4103
+      ],
+      "pixels_over_8_per_channel": [
+        71966,
+        251,
+        832
+      ]
+    },
+    {
+      "position": 170,
+      "max_abs_diff_per_channel": [
+        67,
+        33,
+        35
+      ],
+      "mean_abs_diff_per_channel": [
+        6.0328,
+        1.181,
+        1.3651
+      ],
+      "pixels_over_8_per_channel": [
+        72768,
+        243,
+        770
+      ]
+    },
+    {
+      "position": 175,
+      "max_abs_diff_per_channel": [
+        67,
+        27,
+        43
+      ],
+      "mean_abs_diff_per_channel": [
+        6.0615,
+        1.1398,
+        1.327
+      ],
+      "pixels_over_8_per_channel": [
+        73329,
+        229,
+        842
+      ]
+    },
+    {
+      "position": 180,
+      "max_abs_diff_per_channel": [
+        62,
+        22,
+        38
+      ],
+      "mean_abs_diff_per_channel": [
+        6.0584,
+        1.0801,
+        1.3108
+      ],
+      "pixels_over_8_per_channel": [
+        73298,
+        195,
+        702
+      ]
+    },
+    {
+      "position": 185,
+      "max_abs_diff_per_channel": [
+        67,
+        33,
+        40
+      ],
+      "mean_abs_diff_per_channel": [
+        6.0889,
+        1.2207,
+        1.376
+      ],
+      "pixels_over_8_per_channel": [
+        73935,
+        304,
+        799
+      ]
+    },
+    {
+      "position": 190,
+      "max_abs_diff_per_channel": [
+        63,
+        32,
+        37
+      ],
+      "mean_abs_diff_per_channel": [
+        6.1069,
+        1.2012,
+        1.3506
+      ],
+      "pixels_over_8_per_channel": [
+        74320,
+        265,
+        784
+      ]
+    },
+    {
+      "position": 195,
+      "max_abs_diff_per_channel": [
+        67,
+        34,
+        38
+      ],
+      "mean_abs_diff_per_channel": [
+        6.1303,
+        1.2064,
+        1.3342
+      ],
+      "pixels_over_8_per_channel": [
+        74585,
+        279,
+        776
+      ]
+    }
+  ]
+}

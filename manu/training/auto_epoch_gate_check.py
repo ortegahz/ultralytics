@@ -156,6 +156,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-track2-fp", type=int, default=36, help="= 基线 26 + 允许增量 10")
     p.add_argument("--skip-track1", action="store_true")
     p.add_argument("--skip-longquan", action="store_true")
+    # ---- 资源参数（**不影响评测口径**：batch/chunk 只影响速度与显存，推理是确定性的、BN 用 eval）----
+    p.add_argument("--infer-batch", type=int, default=32,
+                   help="Track1 Anti-UAV 推理的 batch（默认 32；显存紧张时调小，不改变数值）")
+    p.add_argument("--cache-batch-size", type=int, default=8,
+                   help="龙泉山 val 热图缓存重建的 batch（默认 8）")
+    p.add_argument("--cache-chunk-size", type=int, default=64,
+                   help="龙泉山 val 热图缓存重建的 chunk（默认 64）")
     p.add_argument(
         "--baseline-cache",
         default="runs/mixed_ft_route_b/baseline/uav_cache_deP0.pkl",
@@ -225,7 +232,7 @@ def main() -> int:
                     "--stride",
                     "2",
                     "--batch",
-                    "32",
+                    str(args.infer_batch),
                     "--device",
                     args.infer_gpu,
                     "--conf-thresh",
@@ -257,7 +264,7 @@ def main() -> int:
                 "--stride",
                 "2",
                 "--batch",
-                "32",
+                str(args.infer_batch),
                 "--device",
                 args.infer_gpu,
                 "--conf-thresh",
@@ -379,9 +386,9 @@ def main() -> int:
                     "--device",
                     str(gpu_ids[i]),
                     "--chunk-size",
-                    "64",
+                    str(args.cache_chunk_size),
                     "--batch-size",
-                    "8",
+                    str(args.cache_batch_size),
                     "--cpu-threads",
                     "1",
                     "--hm-weights",

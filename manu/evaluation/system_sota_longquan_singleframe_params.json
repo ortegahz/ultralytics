@@ -1,0 +1,58 @@
+{
+  "_provenance": {
+    "what": "Frozen single-frame business-domain (Longquanshan) working point, for the --no-pipeline arm.",
+    "source": "runs/logs/eval_nop0_inbox_ext2.json (tag=all, merge_radius=768, inbox, th=0.22), the same configuration the adapter correctness gate reproduces bit for bit (GATE_EXPECTED in manu/evaluation/system_sota_longquan.py:92-101).",
+    "frozen_metrics": {
+      "tp": 110788,
+      "fp": 10435,
+      "fn": 22469,
+      "gt": 133257,
+      "recall": 0.8313859684669473,
+      "precision": 0.9139189757719245,
+      "f1": 0.8707010374096196,
+      "far_per_frame": 0.06315706651011058
+    },
+    "delivery_criteria": {
+      "f1_min": 0.88,
+      "recall_min": 0.85
+    },
+    "usage": "python manu/evaluation/system_sota_longquan.py --params-json <this file> --cache-root <cache> --no-pipeline ...",
+    "note": "This file is the FROZEN single-frame configuration. Do not edit it in place; a new working point gets a new file. The system-level (with-track) working point lives in manu/evaluation/system_sota_longquan_delivery_params.json and is deliberately NOT changed here."
+  },
+  "params": {
+    "th_base": 0.22,
+    "th_salvage": 0.06,
+    "th_ground": 0.35,
+    "sky_ratio": 0.6,
+    "min_hits": 3,
+    "max_age": 3,
+    "match_dist": 12.0,
+    "max_match_dist": 18.0,
+    "instant_conf": 0.25,
+    "min_disp": 2.5,
+    "min_track_score": 0.08,
+    "stitch_gap": 4,
+    "infill_gap": 3,
+    "min_hits_infill": 5,
+    "min_rigid_disp": 2.0,
+    "max_rigid_var": 0.5,
+    "min_hits_prune": 8,
+    "dedup_radius": 768.0,
+    "th_deep": 0.0,
+    "min_hits_deep": 3,
+    "min_rigid_disp_sky": -1.0,
+    "hover_vel": 0.0,
+    "hover_infill_gap": 15,
+    "coast_frames": 0,
+    "min_hits_hover": 8,
+    "hover_sky_only": 1,
+    "stitch_long_gap": 0,
+    "stitch_vel_diff": 4.0,
+    "confirm_consec": 3,
+    "confirm_gap_tol": 0,
+    "confirm_trim_prefix": 1,
+    "persist_min_hits": 0,
+    "persist_window": 0,
+    "persist_tol": 4.0
+  }
+}
