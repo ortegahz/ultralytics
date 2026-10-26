@@ -1135,7 +1135,7 @@ vs 板端全量 @0.30 = 0.8603 ⇒ 采样代表性高，**不是主因**）；(b
 **做了什么**：在 RK3588 上用 C++ 实现「一次前向喂满 640×640、三个尺度塞进同一张画布」的 f16 热图推理。
 拼图装配全部交给 **RGA**（`importbuffer_virtualaddr` + `wrapbuffer_handle` + `improcess` ×3，逐帧零 CPU 图像拷贝）；
 **反投影用 CPU float32**（裁窗口 → INTER_LINEAR → 640×512 → 8 连通域）；**复用板端已有的 official-val BMP 特征**，不重做特征。
-产物：`manu/pipeline/npu/rknn_mosaic_heatmap.cpp`（md5 `a1ef78ff5a7e2c0df49f85848af3a1b8`）。
+产物：`manu/pipeline/npu/rknn_mosaic_heatmap.cpp`（**已重构为薄壳，当前 md5 `c68477c2b8984dafc90bb44bb6ae645d`**；原 md5 `a1ef78ff…`）。
 
 **范围**：龙泉山**两个 val 轨**（no track / 单帧臂）= official val 全量 **28,997 帧**
 （T2 黄金池 7 序列 17,187 + T3 盲测 1 序列 11,810），与 PC f32 multi-scale 对照。
@@ -1159,8 +1159,67 @@ vs 板端全量 @0.30 = 0.8603 ⇒ 采样代表性高，**不是主因**）；(b
 3. **「窗口」≠「紧凑图」**：反投影在 320 宽热图上裁子矩形时必须传正确的 `src_stride`，
    否则**只有小尺度 tile 出错**（tag0 跨满全宽不受影响）⇒ 极易误判成「量化在小尺度有损」。
 
-📌 专题档 `manu/memory/MOSAIC_RK3588_20261026.md`（含六条硬结论 / 口径矩阵 / 11 条踩坑 / 复现命令 / §7 方法论沉淀）；
-报告 `manu/pipeline/npu/MOSAIC_RK3588_REPORT.md`；错误归因与证伪记录 `manu/memory/falsified_archive.md` §三十九。
+📌 专题档 `manu/memory/MOSAIC_RK3588_20261026.md`（含六条硬结论 / 口径矩阵 / 11 条踩坑 / 复现命令 / §7 方法论沉淀 / **§8 库交付 + §9 最终交付数字**）；
+报告 `manu/pipeline/npu/MOSAIC_RK3588_REPORT.md`；错误归因与证伪记录 `manu/memory/falsified_archive.md` §三十九（**§四十 库交付的 `Mat::operator=` 悬垂指针**）。
+
+### 11.7 ⭐ 2026-10-26 续：**端到端库交付**（`libmosaic_pipeline`）+ val3 全量 e2e 精度与速度
+
+**做了什么**：把 §11.6 的「BMP 特征 → 拼图 → f16」整条链路**补上前半段（GMC 特征引擎）并封装成库**，
+交付嵌入式组可直接调用的 `libmosaic_pipeline.a`（**公共纯 C ABI** `mosaic_pipeline.h`）+ 三个可执行体。
+输入从「板端 official BMP 特征」换成「**640×512 原始红外**」，特征由板端 GMC 引擎现算。
+
+**全链路**：原始红外 → GMC（OpenCL fused tail，anchor_step=10）→ RGA 多尺度拼图（640×640 画布）→
+板端 f16 **单次**前向 → CPU f32 反投影 → 8 连通域 → TSV。
+
+| 产物 | 作用 |
+|:--|:--|
+| `manu/pipeline/npu/mosaic_pipeline.h` / `.cpp` | **公共纯 C ABI**（主机+aarch64 纯 C 编译通过）+ 库实现（GMC 线程 + 2×NPU worker，各持独立 RKNN ctx 与 RGA 画布；三段有界队列背压） |
+| `manu/pipeline/npu/mosaic_core.h` | 内部实现头，从 `rknn_mosaic_heatmap.cpp` 匿名 namespace **逐字抽出**（单一真相源） |
+| `manu/pipeline/npu/rknn_mosaic_e2e.cpp` | 端到端 demo，**只调 C ABI**（不碰内部头） |
+| `manu/pipeline/npu/mosaic_api_test.cpp` | **API 契约测试**，42 断言，板端秒级 |
+| `manu/pipeline/npu/build_mosaic_pipeline_arm64.sh` | 交叉编译 + DT_NEEDED 断言（纯 SONAME，链接板卡自己的 librknnrt/librga） |
+
+**val3 全量 11,810 帧精度**（口径 th_base=0.3 / dedup_radius=768，取自 gate 产物 `track3_blind.json`）：
+
+| arm | TP | FP | FN | F1 | Recall | Precision | ΔF1 vs A |
+|:--|--:|--:|--:|--:|--:|--:|--:|
+| **A** PC f32 逐尺度（冻结基准，no track） | 8972 | 482 | 1563 | **0.897694** | 0.8516 | 0.9490 | — |
+| C 板端 f16 拼图（official 特征） | 8733 | 235 | 1802 | 0.895555 | 0.8290 | 0.9738 | −0.002139 |
+| **E e2e 全链路** | **8639** | **203** | **1896** | **0.891676** | 0.8200 | **0.9770** | **−0.006018** |
+
+**损失分解**：拼图打包 −0.002668 ｜ f16+板端 **+0.000529** ｜ **GMC step10 语义 −0.003879**（ΔTP −94 / ΔFP −32）｜ **总账 −0.006018（相对 0.67%）**。
+**E 臂 FP 全表最低、Precision 最高 ⇒ 端到端链路不制造假警，掉分全在召回 ⇒ 可接受。**
+
+**速度（板端 11,810 帧全量，库驱动）**：gmc_fit 60.050 ｜ gmc_total 62.765 ｜ rga 0.924+1.222 ｜ upload 12.782 ｜
+**rknn_run 108.202（瓶颈）** ｜ outputs 0.748 ｜ backproj 10.888 ｜ **total_wall 79.952 ms/帧 ⇒ fps 12.507**（无缓存版 11.855）。
+理论上限 15.1 fps（每 worker 串行 132.6 ms ÷ 2 worker）；**板卡 RKNN 上下文硬上限 2**，加不了 worker。
+`--pyr-cache 1`（**已证端到端逐位等价**：11,810 帧 TSV md5 相同）把 GMC 拟合 71.4→60.1 ms/帧。
+CPU 亲和性 A/B：`4-7`（4×A76）12.833 fps 优于 `0-7`（含 A55）12.405 fps ⇒ 当前配置已最优。
+
+**🔴 本轮定位并修掉 5 个真缺陷**（前两个曾污染已报出的数字）：
+
+1. **OpenCV `Mat::operator=` 是浅拷贝**（`matrix.cpp:484` 只复制数据指针、**不 clone**）
+   ⇒ 把 `std::vector` 的**非拥有视图**喂进引擎 ⇒ 历史帧**悬垂指针** ⇒ 拟合拿已释放内存。
+   参考实现喂 `cv::imread` 的拥有型 Mat 所以没事。修复后 **mats 60/60、特征三通道 60/60 逐位一致**。
+2. **`config_defaults()` 漏初始化 5 字段** ⇒ `MosaicPipelineConfig cfg;`（栈上未初始化）时**门限值是栈垃圾**
+   ⇒ 静默把变换退化成恒等。已做两层防护：逐字段显式初始化 + `create()` 内**越界钳制并告警**。
+3. `slots` 在越界钳制**之前**计算 ⇒ 设备环按荒谬值分配（契约测试抓到 `slots=20001`）。
+4. `push()` 接受**错误尺寸的首帧** ⇒ 静默改写管线几何（现已按期望源尺寸 640×512 校验，首帧也查）。
+5. `push()` 恒返回 0，与头文件「Returns the frame id」矛盾（现已按文档返回 `item.id`）。
+
+**⚠️ 三个已作废的数字**（坏构建 / 小样本，勿引用）：E 臂 **F1 0.824029**（ΔF1 −0.073664）、
+整体 **fps 13.905**（71.92 ms/帧）、**fps 13.885**（300 帧小样本，序列开头帧静止）⇒ 详见 `falsified_archive.md` §四十。
+
+**可复用的两条方法论**：① **MD5 不是等价性判据**（1 bit 翻转与整幅错位不可区分）⇒ 用逐通道 MAE/max|d|/frac(|d|>2)/bit-exact 帧数；
+② **末端产物不等时先分离变量**（本例靠单独导出**变换链 mats** 把问题一分为二：拟合不同 ⇒ 查拟合输入；拟合相同 ⇒ 查 warp/median）。
+
+**两个可直接用的验收手段**：
+- `--feature-md5-golden`（**部署自检，秒级，不需要 GT/不需要 NPU**）：一次覆盖 kernel 目录 / OpenCL ICD / OpenCV 构建 / 输入帧四类事故。
+  **正向 PASS(exit 0) 与反向 FAIL(exit 1) 都验过**（一个永远 PASS 的检查等于没有检查）。
+- `mosaic_api_test`（42 断言）：**「demo 跑通」不等于「库的契约成立」**，契约测试要专门踩错误路径。
+
+📌 专题档 `MOSAIC_RK3588_20261026.md` **§8（库交付 + 三个根因 + API 防御）/ §9（最终交付数字 + 作废清单）**；
+报告 `MOSAIC_RK3588_REPORT.md` §2.1/§2.3/§3.3；证伪档 `falsified_archive.md` **§四十**。
 
 
 ---

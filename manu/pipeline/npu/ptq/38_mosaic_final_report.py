@@ -169,7 +169,9 @@ def write_per_seq(cache_root: Path, seq: str, cache: dict) -> None:
 def parse_timing(path: Path) -> dict:
     """Parse the board's timing.txt.
 
-    The file has four columns: ``segment total_ms avg_ms/frame frames``.
+    The e2e library writes three columns per segment
+    (``segment total_ms avg_ms/frame``); the older BMP-driven binary writes
+    four (``segment total_ms avg_ms/frame frames``).  Both are accepted.
     The per-frame AVERAGE is the primary value; the total is kept under
     ``<segment>_total_ms``.
     """
@@ -177,7 +179,7 @@ def parse_timing(path: Path) -> dict:
     text = path.read_text(encoding="utf-8")
     for line in text.splitlines():
         parts = line.split()
-        if len(parts) >= 4 and not parts[0].startswith("#") and parts[0] != "fps=":
+        if len(parts) >= 3 and not parts[0].startswith("#") and parts[0] != "fps=":
             try:
                 out[parts[0]] = float(parts[2])
                 out[parts[0] + "_total_ms"] = float(parts[1])
@@ -201,6 +203,9 @@ ARM_LABELS = [
     ("B0", "PC f32, mosaic, native only", "37 mosaic TSV filtered to tag 0"),
     ("C", "board f16, mosaic, 1 forward", "rknn_mosaic_heatmap (RGA thumbs)"),
     ("C0", "board f16, mosaic, native only", "board TSV filtered to tag 0"),
+    ("E", "**e2e**: raw IR -> GMC(step10) -> RGA mosaic -> board f16",
+     "rknn_mosaic_e2e (libmosaic_pipeline)"),
+    ("E0", "e2e, native only", "e2e TSV filtered to tag 0"),
 ]
 
 
@@ -250,6 +255,11 @@ def render_markdown(payload: dict) -> str:
         seg("B0", "B", "多尺度增益（拼图口径）")
         seg("A0", "B0", "拼图打包损失（仅 native tile）")
         seg("B0", "C0", "f16 + 板端量化损失（仅 native tile）")
+        if "E" in m:
+            seg("C", "E", "**GMC step10 语义代价**（同为板端 f16 拼图，只换特征语义）")
+            seg("B", "E", "**总代价**（f32 逐尺度 → e2e：打包 + f16 + 板端 + step10 语义）")
+            seg("E0", "E", "多尺度增益（e2e 口径）")
+            seg("B0", "E0", "拼图打包损失（仅 native tile，e2e 口径）")
         out.append("")
         out.append("### 表 D：各 arm 的按 tag 检测数\n")
         out.append("| arm | tag0 native | tag1 thumb160 | tag2 thumb80 | 三尺度合计 | tag255 融合行（不参与评测） |")
@@ -280,8 +290,41 @@ def render_markdown(payload: dict) -> str:
         out.append("")
 
     t = payload.get("board_timing_ms") or {}
+    e = payload.get("e2e_timing_ms") or {}
+    if e:
+        out.append("## 表 C：板端每帧耗时分解 —— **e2e 库驱动**（原始 IR → GMC → RGA → f16 → 反投影）\n")
+        seg_map = [
+            ("gmc_fit", "GMC 拟合（Shi-Tomasi + LK + RANSAC + 锚点链合成）"),
+            ("gmc_total", "GMC 引擎合计（含 OpenCL fused tail 的 warp/median，计时在 GPU 侧）"),
+            ("rga_import", "RGA importbuffer_virtualaddr"),
+            ("rga_improcess", "RGA improcess ×3（多尺度拼图装配）"),
+            ("upload", "uint8→fp16 + rknn_inputs_set（上传 NPU）"),
+            ("rknn_run", "**rknn_run（单次拼图前向，NPU 瓶颈）**"),
+            ("outputs_get", "rknn_outputs_get + dequant"),
+            ("backproject_cc", "CPU float32 反投影 + 8 连通域"),
+        ]
+        out.append("| 段 | ms/帧 | 说明 |")
+        out.append("|:--|--:|:--|")
+        for key, desc in seg_map:
+            if key in e:
+                out.append(f"| {key} | {e[key]:.3f} | {desc} |")
+        if "total_wall" in e:
+            out.append(f"| **total_wall** | **{e['total_wall']:.3f}** | 墙钟合计 |")
+        if "fps" in e:
+            out.append(f"| **fps** | **{e['fps']:.3f}** | **整体帧率** |")
+        out.append("")
+        if "rknn_run" in e and "npu_workers" in e:
+            w = e.get("npu_workers", 2)
+            out.append(f"> **瓶颈**：NPU 前向 {e['rknn_run']:.2f} ms/帧；{int(w)} 个 worker 并行 ⇒ "
+                       f"理论下限 {e['rknn_run']/max(1.0, float(w)):.2f} ms/帧 ≈ "
+                       f"{1000.0*max(1.0, float(w))/max(e['rknn_run'], 1e-9):.1f} fps；"
+                       f"实际 {e.get('fps', 0):.2f} fps，差额来自每个 worker 串行的 "
+                       f"upload+run+backproj。板卡 RKNN 上下文硬上限为 2，无法再加 worker。\n")
+        out.append("> 拼图装配（RGA）只占 ~1 ms，相对一次 NPU 前向可忽略 ⇒ **「拼图一次前向」与「单尺度一次前向」的 NPU 代价相同**，"
+                   "差异全部来自输出侧的反投影与连通域。\n")
+
     if t:
-        out.append("## 表 C：板端每帧耗时分解（单次拼图前向）\n")
+        out.append("## 表 C2：板端每帧耗时分解 —— **C 臂**（BMP 特征 → 拼图 → f16 → 反投影，不含 GMC）\n")
         seg_map = [
             ("decode", "BMP 解码（含 NFS 读 983 KB/帧）"),
             ("rga_import", "RGA importbuffer_virtualaddr"),
@@ -302,8 +345,6 @@ def render_markdown(payload: dict) -> str:
         if "fps" in t:
             out.append(f"| **fps** | **{t['fps']:.3f}** | |")
         out.append("")
-        out.append("> 拼图装配（RGA）只占 ~1 ms，相对一次 NPU 前向可忽略 ⇒ **「拼图一次前向」与「单尺度一次前向」的 NPU 代价相同**，"
-                   "差异全部来自输出侧的反投影与连通域。\n")
 
     out.append("## 口径声明（必读）\n")
     out.append("1. **打分器唯一**：`manu/evaluation/system_sota_longquan.py --no-pipeline`（**no track / 单帧臂**），"
@@ -335,12 +376,19 @@ def main() -> None:
     ap.add_argument("--group", action="append", default=[], required=True,
                     help="NAME=SEQ1,SEQ2,... (repeatable)")
     ap.add_argument("--board-tsv-dir", required=True, help="dir with <SEQ>_mosaic.tsv")
+    ap.add_argument("--e2e-tsv-dir", default="",
+                    help="dir with <SEQ>_mosaic.tsv produced by the END-TO-END demo "
+                         "(rknn_mosaic_e2e: raw infrared -> GMC/OpenCL step10 -> RGA mosaic -> "
+                         "board f16 -> back-projection).  Enables the arm 'E'.")
     ap.add_argument("--pc-area-tsv-dir", default="", help="dir with <SEQ>_pc_mosaic.tsv (INTER_AREA)")
     ap.add_argument("--pc-linear-tsv-dir", default="", help="dir with <SEQ>_pc_mosaic.tsv (INTER_LINEAR)")
     ap.add_argument("--gate-cache", default=str(GATE_DIR / "ms_cache"))
     ap.add_argument("--gate-dir", default=str(GATE_DIR))
     ap.add_argument("--out", required=True)
     ap.add_argument("--board-timing", default="", help="a board timing.txt (for the timing table)")
+    ap.add_argument("--e2e-timing", default="",
+                    help="the e2e demo's timing.txt (library-driven: 10-segment breakdown). "
+                         "This is the timing table the deliverable reports.")
     ap.add_argument("--board-timing-dir", default="", help="dir with <SEQ>/timing.txt (per-sequence)")
     args = ap.parse_args()
 
@@ -352,7 +400,8 @@ def main() -> None:
         groups_spec.append((name.strip(), [s.strip() for s in csv.split(",") if s.strip()]))
 
     gate_cache = Path(args.gate_cache)
-    payload = {"generated": time.strftime("%Y-%m-%d %H:%M:%S"), "groups": [], "board_timing_ms": {}}
+    payload = {"generated": time.strftime("%Y-%m-%d %H:%M:%S"), "groups": [], "board_timing_ms": {},
+               "e2e_timing_ms": {}}
 
     for name, sequences in groups_spec:
         print(f"\n===== group {name}: {len(sequences)} sequences =====", flush=True)
@@ -450,6 +499,28 @@ def main() -> None:
         print(f"[{name}] C  = {arms['C']['metrics']['f1']:.6f}  "
               f"C0 = {arms['C0']['metrics']['f1']:.6f}", flush=True)
 
+        # ---- E / E0 : the END-TO-END demo (raw infrared -> GMC -> mosaic -> NPU) ----
+        if args.e2e_tsv_dir:
+            root_e = out_root / f"cache_{name}_E"
+            root_e0 = out_root / f"cache_{name}_E0"
+            for seq in sequences:
+                tsv = Path(args.e2e_tsv_dir) / f"{seq}_mosaic.tsv"
+                cache = build_cache(parse_mosaic_tsv(tsv), meta_for("e2e_gmc_step10_board_f16", seq))
+                write_per_seq(root_e, seq, cache)
+                write_per_seq(root_e0, seq, filter_tags(cache, {0}))
+            res = score_group(root_e, sequences, params_json, "E")
+            arms["E"] = {"metrics": res["overall"], "per_sequence": res["per_sequence"]}
+            tags["E"] = {}
+            for seq in sequences:
+                tags["E"].update(per_tag(pickle.loads((root_e / f"{seq}.pkl").read_bytes())))
+            res = score_group(root_e0, sequences, params_json, "E0")
+            arms["E0"] = {"metrics": res["overall"], "per_sequence": res["per_sequence"]}
+            tags["E0"] = {}
+            for seq in sequences:
+                tags["E0"].update(per_tag(pickle.loads((root_e0 / f"{seq}.pkl").read_bytes())))
+            print(f"[{name}] E  = {arms['E']['metrics']['f1']:.6f}  "
+                  f"E0 = {arms['E0']['metrics']['f1']:.6f}", flush=True)
+
         for key in arms:
             arms[key]["tags"] = tags[key]
 
@@ -459,6 +530,8 @@ def main() -> None:
             "params": params, "params_source": str(params_src), "arms": arms,
         })
 
+    if args.e2e_timing:
+        payload["e2e_timing_ms"] = parse_timing(Path(args.e2e_timing))
     if args.board_timing:
         payload["board_timing_ms"] = parse_timing(Path(args.board_timing))
     if args.board_timing_dir:
