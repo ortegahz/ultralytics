@@ -449,6 +449,11 @@ def main() -> None:
                 "main_threshold": args.main_threshold,
                 "fusion_dilate": args.fusion_dilate,
                 "min_area": args.min_area,
+                # Feature identity: ``source`` only says "features" vs "raw_frames", so two feature
+                # sets with different GMC semantics (FPV chained-affine vs official per-lag fit)
+                # are indistinguishable on disk. That is exactly how a cache gets silently mixed
+                # with another arm's cache, so the concrete directory is recorded as well.
+                "features_root": str(args.features_root) if args.features_root else "",
                 # Model identity: without these two a P0 and a no-P0 cache are indistinguishable on disk,
                 # which is exactly how a later A/B silently compares one arm against the other.
                 "hm_weights": str(args.hm_weights),

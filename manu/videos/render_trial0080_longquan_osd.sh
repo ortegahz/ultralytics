@@ -31,8 +31,12 @@ JOBS="${JOBS:-12}"
 CODEC="${CODEC:-mp4v}"
 
 TRIAL_DIR="runs/optuna_mix_ratio/trials/trial_0080"
-PREDS_DIR="$TRIAL_DIR/lq_eval/preds_track"
-SEARCH_JSON="$TRIAL_DIR/lq_eval/track_all.json"
+# 可用环境变量覆盖，以便同一个包装脚本渲染不同工作点的 OSD（例如过线的 th_base=0.45 档）：
+#   PREDS_DIR=runs/.../preds_track_th045
+#   SEARCH_JSON=runs/.../track_all_th045.json
+#   OUT_DIR=/mnt/data/.../osd_sys_sota_trial0080_th045_20261022
+PREDS_DIR="${PREDS_DIR:-$TRIAL_DIR/lq_eval/preds_track}"
+SEARCH_JSON="${SEARCH_JSON:-$TRIAL_DIR/lq_eval/track_all.json}"
 D="/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010"
 F="/mnt/data/siping/datasets/manu/龙泉山/frames_ir_jpg"
 

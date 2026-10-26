@@ -220,6 +220,8 @@ int main(int argc, char** argv) {
     int f16_in = 0;
     int f16_div255 = 0;
     int f32_in = 0;
+    int io_mem = 0;        // zero-copy input (rknn_set_io_mem): no rknn_inputs_set
+    int io_mem_f16 = 0;    // ... and the letterbox stage pre-widens to fp16
     int f32_div255 = 0;
     int f32_passthrough = 1;
     int npu_core0 = 0;   // 0 = runtime default (RKNN_NPU_CORE_AUTO); 1/2/4 = NPU core 0/1/2
@@ -258,6 +260,8 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(a, "--f16-in"))   f16_in = 1;
         else if (!std::strcmp(a, "--f16-div255")) f16_div255 = 1;
         else if (!std::strcmp(a, "--f32-in"))   f32_in = 1;
+        else if (!std::strcmp(a, "--io-mem"))   io_mem = 1;
+        else if (!std::strcmp(a, "--io-mem-f16")) io_mem_f16 = 1;
         else if (!std::strcmp(a, "--f32-div255")) f32_div255 = 1;
         else if (!std::strcmp(a, "--f32-no-passthrough")) f32_passthrough = 0;
         else if (!std::strcmp(a, "--npu-core0")) npu_core0 = (int)std::strtol(need(argc, argv, i, a), nullptr, 0);
@@ -269,6 +273,8 @@ int main(int argc, char** argv) {
                         "            [--f16-in] [--f16-div255]   (REJECTED by runtime: needs 4 B/px)\n"
             "            [--f32-in] [--f32-div255]   (float32 upload, pass_through=1)\n"
             "            [--f32-no-passthrough]       (same buffer, type=FLOAT32 instead)\n"
+            "            [--io-mem]        zero-copy input: rknn_set_io_mem, no rknn_inputs_set\n"
+            "            [--io-mem-f16]    ... and the letterbox stage writes fp16 directly\n"
             "            [--npu-core0 MASK] [--npu-core1 MASK]   1/2/4 = NPU core 0/1/2, 0=auto\n"
             "            [--no-feat]         skip feature image dump (~25 GB over 24 sequences)\n",
                         argv[0]);
@@ -310,6 +316,7 @@ int main(int argc, char** argv) {
         ips[k].stride = stride;
         ips[k].top_k = top_k;
         ips[k].tag = sequence;
+        ips[k].use_io_mem = (io_mem != 0);
         if (!no_det) {
             char p[512];
             if (det_out_override.empty())
@@ -391,6 +398,13 @@ int main(int argc, char** argv) {
                 // thread that has budget to spare. NEON, 16 px per iteration.
                 e2ecore::letterbox_feature_f32(it.rgb.data(), it.w, it.h, &it.boxed_f32,
                                               &ms, f32_div255);
+            } else if (io_mem && io_mem_f16) {
+                // Fused: the canvas is written straight out as fp16 on THIS
+                // thread, so the NPU worker's critical path only carries a
+                // 2.4 MB memcpy into the bound tensor instead of the
+                // conversion. Bit-identical to letterbox()+u8->f16.
+                e2ecore::letterbox_feature_f16(it.rgb.data(), it.w, it.h, &it.boxed_f16,
+                                              &ms, false);
             } else if (f16_in) {
                 // Negative control. The runtime rejects a 2-byte-per-element
                 // upload outright:
@@ -429,7 +443,9 @@ int main(int argc, char** argv) {
             Item it;
             while (queue2.pop(&it)) {
                 e2ecore::InferTiming t;
-                const bool ok = f32_in
+                const bool ok = (io_mem && io_mem_f16)
+                    ? e2ecore::infer_preboxed_f16_io(e, it.boxed_f16, it.name.c_str(), nullptr, &t)
+                    : f32_in
                     ? e2ecore::infer_preboxed_f32(e, it.boxed_f32, it.name.c_str(), nullptr, &t,
                                                  f32_passthrough != 0)
                     : f16_in

@@ -1,0 +1,260 @@
+########################################################################################################################
+# 1. BOARD -- every arm, th = 0.30 / 0.45
+########################################################################################################################
+manifest            arm                                        th       F1        P        R     TP     FP     FN    det
+tier1_sensitive     PT float (base weights, PC)              0.30   0.7817   0.8851   0.7000     77     10     23     87
+tier1_sensitive     PT float (base weights, PC)              0.45   0.8539   0.9870   0.7525     76      1     24     77
+tier1_sensitive     A2 QAT weights + LSQ-learned clip        0.30   0.7547   0.8333   0.6897     80     16     20     96
+tier1_sensitive     A2 QAT weights + LSQ-learned clip        0.45   0.8000   0.9157   0.7103     76      7     24     83
+tier1_sensitive     A1 QAT weights + max-calibrated clip     0.30   0.7751   0.8526   0.7105     81     14     19     95
+tier1_sensitive     A1 QAT weights + max-calibrated clip     0.45   0.8000   0.9157   0.7103     76      7     24     83
+tier1_sensitive     A0 QAT weights, no Q/DQ (fp16)           0.30   0.5139   0.5425   0.4882     83     70     17    153
+tier1_sensitive     A0 QAT weights, no Q/DQ (fp16)           0.45   0.5816   0.6212   0.5467     82     50     18    132
+tier1_sensitive     A1b BASE weights + max-calibrated clip   0.30   0.6133   0.9583   0.4510     46      2     54     48
+tier1_sensitive     A1b BASE weights + max-calibrated clip   0.45   0.1132   1.0000   0.0600      6      0     94      6
+tier1_sensitive     PT float (base weights, PC)              0.30   0.7817   0.8851   0.7000     77     10     23     87
+tier1_sensitive     PT float (base weights, PC)              0.45   0.8539   0.9870   0.7525     76      1     24     77
+tier1_sensitive     PTQ int8 (toolkit-quantised, baseline)   0.30   0.7156   0.7959   0.6500     78     20     22     98
+tier1_sensitive     PTQ int8 (toolkit-quantised, baseline)   0.45   0.8261   0.9500   0.7308     76      4     24     80
+tier1_sensitive     fp16 (toolkit, baseline)                 0.30   0.7739   0.8750   0.6937     77     11     23     88
+tier1_sensitive     fp16 (toolkit, baseline)                 0.45   0.8539   0.9870   0.7525     76      1     24     77
+001324_sub2000      PT float (base weights, PC)              0.30   0.7484   0.8823   0.6498   1282    171    520   1453
+001324_sub2000      PT float (base weights, PC)              0.45   0.7337   0.9721   0.5892   1080     31    722   1111
+001324_sub2000      A2 QAT weights + LSQ-learned clip        0.30   0.6552   0.7292   0.5949   1376    511    426   1887
+001324_sub2000      A2 QAT weights + LSQ-learned clip        0.45   0.6863   0.8253   0.5875   1209    256    593   1465
+001324_sub2000      A1 QAT weights + max-calibrated clip     0.30   0.6518   0.7252   0.5919   1375    521    427   1896
+001324_sub2000      A1 QAT weights + max-calibrated clip     0.45   0.6737   0.8042   0.5796   1216    296    586   1512
+001324_sub2000      A0 QAT weights, no Q/DQ (fp16)           0.30   0.3595   0.3695   0.3500   1566   2672    236   4238
+001324_sub2000      A0 QAT weights, no Q/DQ (fp16)           0.45   0.4948   0.5170   0.4745   1536   1435    266   2971
+001324_sub2000      A1b BASE weights + max-calibrated clip   0.30   0.3857   0.9446   0.2423    443     26   1359    469
+001324_sub2000      A1b BASE weights + max-calibrated clip   0.45   0.1238   0.9917   0.0660    119      1   1683    120
+001324_sub2000      PT float (base weights, PC)              0.30   0.7484   0.8823   0.6498   1282    171    520   1453
+001324_sub2000      PT float (base weights, PC)              0.45   0.7337   0.9721   0.5892   1080     31    722   1111
+001324_sub2000      PTQ int8 (toolkit-quantised, baseline)   0.30   0.6448   0.7206   0.5835   1359    527    443   1886
+001324_sub2000      PTQ int8 (toolkit-quantised, baseline)   0.45   0.7090   0.8591   0.6035   1207    198    595   1405
+001324_sub2000      fp16 (toolkit, baseline)                 0.30   0.7395   0.8737   0.6410   1273    184    529   1457
+001324_sub2000      fp16 (toolkit, baseline)                 0.45   0.7218   0.9621   0.5775   1065     42    737   1107
+golden_pool_sub1200 PT float (base weights, PC)              0.30   0.9955   0.9973   0.9937   1110      3      4   1113
+golden_pool_sub1200 PT float (base weights, PC)              0.45   0.9955   0.9973   0.9937   1110      3      4   1113
+golden_pool_sub1200 A2 QAT weights + LSQ-learned clip        0.30   0.9509   0.9513   0.9505   1113     57      1   1170
+golden_pool_sub1200 A2 QAT weights + LSQ-learned clip        0.45   0.9509   0.9513   0.9505   1113     57      1   1170
+golden_pool_sub1200 A1 QAT weights + max-calibrated clip     0.30   0.9468   0.9472   0.9464   1113     62      1   1175
+golden_pool_sub1200 A1 QAT weights + max-calibrated clip     0.45   0.9468   0.9472   0.9464   1113     62      1   1175
+golden_pool_sub1200 A0 QAT weights, no Q/DQ (fp16)           0.30   0.8987   0.8990   0.8983   1113    125      1   1238
+golden_pool_sub1200 A0 QAT weights, no Q/DQ (fp16)           0.45   0.9205   0.9213   0.9198   1112     95      2   1207
+golden_pool_sub1200 A1b BASE weights + max-calibrated clip   0.30   0.7271   0.9819   0.5773    650     12    464    662
+golden_pool_sub1200 A1b BASE weights + max-calibrated clip   0.45   0.0941   1.0000   0.0494     55      0   1059     55
+golden_pool_sub1200 PT float (base weights, PC)              0.30   0.9955   0.9973   0.9937   1110      3      4   1113
+golden_pool_sub1200 PT float (base weights, PC)              0.45   0.9955   0.9973   0.9937   1110      3      4   1113
+golden_pool_sub1200 PTQ int8 (toolkit-quantised, baseline)   0.30   0.9420   0.9424   0.9416   1113     68      1   1181
+golden_pool_sub1200 PTQ int8 (toolkit-quantised, baseline)   0.45   0.9428   0.9432   0.9424   1113     67      1   1180
+golden_pool_sub1200 fp16 (toolkit, baseline)                 0.30   0.9849   0.9867   0.9832   1110     15      4   1125
+golden_pool_sub1200 fp16 (toolkit, baseline)                 0.45   0.9849   0.9867   0.9832   1110     15      4   1125
+
+########################################################################################################################
+# 2. CONTROLLED COMPARISON -- the quantisation loss against the PT float arm
+#    loss = F1(PT float) - F1(arm);  the baseline row is the toolkit's int8 PTQ model
+########################################################################################################################
+manifest            arm                                        th       F1  loss vs PT float
+tier1_sensitive     A2 QAT weights + LSQ-learned clip        0.30   0.7547            0.0270
+tier1_sensitive     A2 QAT weights + LSQ-learned clip        0.45   0.8000            0.0539
+tier1_sensitive     A1 QAT weights + max-calibrated clip     0.30   0.7751            0.0066
+tier1_sensitive     A1 QAT weights + max-calibrated clip     0.45   0.8000            0.0539
+tier1_sensitive     A0 QAT weights, no Q/DQ (fp16)           0.30   0.5139            0.2678
+tier1_sensitive     A0 QAT weights, no Q/DQ (fp16)           0.45   0.5816            0.2724
+tier1_sensitive     A1b BASE weights + max-calibrated clip   0.30   0.6133            0.1684
+tier1_sensitive     A1b BASE weights + max-calibrated clip   0.45   0.1132            0.7407
+tier1_sensitive     PTQ int8 (toolkit-quantised, baseline)   0.30   0.7156            0.0661
+tier1_sensitive     PTQ int8 (toolkit-quantised, baseline)   0.45   0.8261            0.0278
+tier1_sensitive     fp16 (toolkit, baseline)                 0.30   0.7739            0.0079
+tier1_sensitive     fp16 (toolkit, baseline)                 0.45   0.8539            0.0000
+001324_sub2000      A2 QAT weights + LSQ-learned clip        0.30   0.6552            0.0932
+001324_sub2000      A2 QAT weights + LSQ-learned clip        0.45   0.6863            0.0473
+001324_sub2000      A1 QAT weights + max-calibrated clip     0.30   0.6518            0.0966
+001324_sub2000      A1 QAT weights + max-calibrated clip     0.45   0.6737            0.0600
+001324_sub2000      A0 QAT weights, no Q/DQ (fp16)           0.30   0.3595            0.3889
+001324_sub2000      A0 QAT weights, no Q/DQ (fp16)           0.45   0.4948            0.2389
+001324_sub2000      A1b BASE weights + max-calibrated clip   0.30   0.3857            0.3627
+001324_sub2000      A1b BASE weights + max-calibrated clip   0.45   0.1238            0.6099
+001324_sub2000      PTQ int8 (toolkit-quantised, baseline)   0.30   0.6448            0.1036
+001324_sub2000      PTQ int8 (toolkit-quantised, baseline)   0.45   0.7090            0.0247
+001324_sub2000      fp16 (toolkit, baseline)                 0.30   0.7395            0.0089
+001324_sub2000      fp16 (toolkit, baseline)                 0.45   0.7218            0.0119
+golden_pool_sub1200 A2 QAT weights + LSQ-learned clip        0.30   0.9509            0.0446
+golden_pool_sub1200 A2 QAT weights + LSQ-learned clip        0.45   0.9509            0.0446
+golden_pool_sub1200 A1 QAT weights + max-calibrated clip     0.30   0.9468            0.0487
+golden_pool_sub1200 A1 QAT weights + max-calibrated clip     0.45   0.9468            0.0487
+golden_pool_sub1200 A0 QAT weights, no Q/DQ (fp16)           0.30   0.8987            0.0968
+golden_pool_sub1200 A0 QAT weights, no Q/DQ (fp16)           0.45   0.9205            0.0750
+golden_pool_sub1200 A1b BASE weights + max-calibrated clip   0.30   0.7271            0.2684
+golden_pool_sub1200 A1b BASE weights + max-calibrated clip   0.45   0.0941            0.9014
+golden_pool_sub1200 PTQ int8 (toolkit-quantised, baseline)   0.30   0.9420            0.0535
+golden_pool_sub1200 PTQ int8 (toolkit-quantised, baseline)   0.45   0.9428            0.0527
+golden_pool_sub1200 fp16 (toolkit, baseline)                 0.30   0.9849            0.0106
+golden_pool_sub1200 fp16 (toolkit, baseline)                 0.45   0.9849            0.0106
+
+########################################################################################################################
+# 3. PC SIMULATOR (rknn-toolkit2 simulator, CPU emulation of the NPU)
+########################################################################################################################
+manifest            arm                                        th       F1        P        R     TP     FP     FN    det
+tier1_sensitive     a0_qat_float (pcsim)                     0.30   0.5076   0.5355   0.4826     83     72     17    155
+tier1_sensitive     a0_qat_float (pcsim)                     0.45   0.5816   0.6212   0.5467     82     50     18    132
+tier1_sensitive     a0_qat_float (pcsim)                     0.50   0.6074   0.6508   0.5694     82     44     18    126
+tier1_sensitive     a0_qat_float (pcsim)                     0.55   0.6308   0.6777   0.5899     82     39     18    121
+tier1_sensitive     a0_qat_float (pcsim)                     0.60   0.6506   0.7043   0.6045     81     34     19    115
+tier1_sensitive     a0_qat_float (pcsim)                     0.70   0.7273   0.8000   0.6667     80     20     20    100
+tier1_sensitive     a1_qat_maxclip (pcsim)                   0.30   0.7477   0.8247   0.6838     80     17     20     97
+tier1_sensitive     a1_qat_maxclip (pcsim)                   0.45   0.7917   0.9048   0.7037     76      8     24     84
+tier1_sensitive     a1_qat_maxclip (pcsim)                   0.50   0.7917   0.9048   0.7037     76      8     24     84
+tier1_sensitive     a1_qat_maxclip (pcsim)                   0.55   0.8000   0.9157   0.7103     76      7     24     83
+tier1_sensitive     a1_qat_maxclip (pcsim)                   0.60   0.8085   0.9268   0.7170     76      6     24     82
+tier1_sensitive     a1_qat_maxclip (pcsim)                   0.70   0.8172   0.9383   0.7238     76      5     24     81
+tier1_sensitive     a1b_base_maxclip (pcsim)                 0.30   0.6133   0.9583   0.4510     46      2     54     48
+tier1_sensitive     a1b_base_maxclip (pcsim)                 0.45   0.1308   1.0000   0.0700      7      0     93      7
+tier1_sensitive     a1b_base_maxclip (pcsim)                 0.50   0.0583   1.0000   0.0300      3      0     97      3
+tier1_sensitive     a1b_base_maxclip (pcsim)                 0.55   0.0000   0.0000   0.0000      0      0    100      0
+tier1_sensitive     a1b_base_maxclip (pcsim)                 0.60   0.0000   0.0000   0.0000      0      0    100      0
+tier1_sensitive     a1b_base_maxclip (pcsim)                 0.70   0.0000   0.0000   0.0000      0      0    100      0
+tier1_sensitive     a2_qat_learned (pcsim)                   0.30   0.7339   0.8081   0.6723     80     19     20     99
+tier1_sensitive     a2_qat_learned (pcsim)                   0.45   0.7835   0.8941   0.6972     76      9     24     85
+tier1_sensitive     a2_qat_learned (pcsim)                   0.50   0.7835   0.8941   0.6972     76      9     24     85
+tier1_sensitive     a2_qat_learned (pcsim)                   0.55   0.8000   0.9157   0.7103     76      7     24     83
+tier1_sensitive     a2_qat_learned (pcsim)                   0.60   0.8000   0.9157   0.7103     76      7     24     83
+tier1_sensitive     a2_qat_learned (pcsim)                   0.70   0.8172   0.9383   0.7238     76      5     24     81
+golden_pool_sub1200 a0_qat_float (pcsim)                     0.30   0.8922   0.8925   0.8918   1113    134      1   1247
+golden_pool_sub1200 a0_qat_float (pcsim)                     0.45   0.9145   0.9152   0.9137   1112    103      2   1215
+golden_pool_sub1200 a0_qat_float (pcsim)                     0.50   0.9205   0.9213   0.9198   1112     95      2   1207
+golden_pool_sub1200 a0_qat_float (pcsim)                     0.55   0.9236   0.9244   0.9228   1112     91      2   1203
+golden_pool_sub1200 a0_qat_float (pcsim)                     0.60   0.9244   0.9251   0.9236   1112     90      2   1202
+golden_pool_sub1200 a0_qat_float (pcsim)                     0.70   0.9267   0.9274   0.9259   1112     87      2   1199
+golden_pool_sub1200 a1_qat_maxclip (pcsim)                   0.30   0.9373   0.9377   0.9369   1113     74      1   1187
+golden_pool_sub1200 a1_qat_maxclip (pcsim)                   0.45   0.9373   0.9377   0.9369   1113     74      1   1187
+golden_pool_sub1200 a1_qat_maxclip (pcsim)                   0.50   0.9373   0.9377   0.9369   1113     74      1   1187
+golden_pool_sub1200 a1_qat_maxclip (pcsim)                   0.55   0.9373   0.9377   0.9369   1113     74      1   1187
+golden_pool_sub1200 a1_qat_maxclip (pcsim)                   0.60   0.9373   0.9377   0.9369   1113     74      1   1187
+golden_pool_sub1200 a1_qat_maxclip (pcsim)                   0.70   0.9364   0.9376   0.9352   1111     74      3   1185
+golden_pool_sub1200 a1b_base_maxclip (pcsim)                 0.30   0.7394   0.9700   0.5974    678     21    436    699
+golden_pool_sub1200 a1b_base_maxclip (pcsim)                 0.45   0.1103   1.0000   0.0583     65      0   1049     65
+golden_pool_sub1200 a1b_base_maxclip (pcsim)                 0.50   0.0301   1.0000   0.0153     17      0   1097     17
+golden_pool_sub1200 a1b_base_maxclip (pcsim)                 0.55   0.0089   1.0000   0.0045      5      0   1109      5
+golden_pool_sub1200 a1b_base_maxclip (pcsim)                 0.60   0.0018   1.0000   0.0009      1      0   1113      1
+golden_pool_sub1200 a1b_base_maxclip (pcsim)                 0.70   0.0000   0.0000   0.0000      0      0   1114      0
+golden_pool_sub1200 a2_qat_learned (pcsim)                   0.30   0.9444   0.9448   0.9440   1113     65      1   1178
+golden_pool_sub1200 a2_qat_learned (pcsim)                   0.45   0.9444   0.9448   0.9440   1113     65      1   1178
+golden_pool_sub1200 a2_qat_learned (pcsim)                   0.50   0.9444   0.9448   0.9440   1113     65      1   1178
+golden_pool_sub1200 a2_qat_learned (pcsim)                   0.55   0.9444   0.9448   0.9440   1113     65      1   1178
+golden_pool_sub1200 a2_qat_learned (pcsim)                   0.60   0.9444   0.9448   0.9440   1113     65      1   1178
+golden_pool_sub1200 a2_qat_learned (pcsim)                   0.70   0.9435   0.9447   0.9423   1111     65      3   1176
+
+########################################################################################################################
+# 4. BOARD IO ATTRIBUTES -- the out[N] zp/scale the board actually reports
+########################################################################################################################
+tier1_sensitive     board_a2f_qatw_toolkit_int8
+                      input dims=[1,640,640,3] fmt=NHWC type=INT8
+                      out[0] dims=[1,1,320,320] fmt=NCHW type=INT8 zp=-128 scale=0.00391324
+                      out[1] dims=[1,2,320,320] fmt=NCHW type=INT8 zp=-103 scale=0.01846548
+tier1_sensitive     board_p0_off_A_normal
+                      input dims=[1,640,640,3] fmt=NHWC type=INT8
+                      out[0] dims=[1,1,320,320] fmt=NCHW type=INT8 zp=-128 scale=0.00378871
+                      out[1] dims=[1,2,320,320] fmt=NCHW type=INT8 zp=-79 scale=0.02120848
+tier1_sensitive     board_p0_off_A_none
+                      input dims=[1,640,640,3] fmt=NHWC type=FLOAT16
+                      out[0] dims=[1,1,320,320] fmt=NCHW type=FLOAT16 zp=0 scale=1.00000000
+                      out[1] dims=[1,2,320,320] fmt=NCHW type=FLOAT16 zp=0 scale=1.00000000
+tier1_sensitive     board_a2_qat_learned
+                      input dims=[1,640,640,3] fmt=NHWC type=FLOAT16
+                      out[0] dims=[1,1,320,320] fmt=NCHW type=INT8 zp=-128 scale=0.00392157
+                      out[1] dims=[1,2,320,320] fmt=NCHW type=FLOAT16 zp=0 scale=1.00000000
+tier1_sensitive     board_a1_qat_maxclip
+                      input dims=[1,640,640,3] fmt=NHWC type=FLOAT16
+                      out[0] dims=[1,1,320,320] fmt=NCHW type=INT8 zp=-128 scale=0.00392157
+                      out[1] dims=[1,2,320,320] fmt=NCHW type=FLOAT16 zp=0 scale=1.00000000
+tier1_sensitive     board_a0_qat_float
+                      input dims=[1,640,640,3] fmt=NHWC type=FLOAT16
+                      out[0] dims=[1,1,320,320] fmt=NCHW type=FLOAT16 zp=0 scale=1.00000000
+                      out[1] dims=[1,2,320,320] fmt=NCHW type=FLOAT16 zp=0 scale=1.00000000
+tier1_sensitive     board_a1b_base_maxclip
+                      input dims=[1,640,640,3] fmt=NHWC type=FLOAT16
+                      out[0] dims=[1,1,320,320] fmt=NCHW type=INT8 zp=-128 scale=0.00392157
+                      out[1] dims=[1,2,320,320] fmt=NCHW type=FLOAT16 zp=0 scale=1.00000000
+001324_sub2000      board_a2f_qatw_toolkit_int8
+                      input dims=[1,640,640,3] fmt=NHWC type=INT8
+                      out[0] dims=[1,1,320,320] fmt=NCHW type=INT8 zp=-128 scale=0.00391324
+                      out[1] dims=[1,2,320,320] fmt=NCHW type=INT8 zp=-103 scale=0.01846548
+001324_sub2000      board_p0_off_A_normal
+                      input dims=[1,640,640,3] fmt=NHWC type=INT8
+                      out[0] dims=[1,1,320,320] fmt=NCHW type=INT8 zp=-128 scale=0.00378871
+                      out[1] dims=[1,2,320,320] fmt=NCHW type=INT8 zp=-79 scale=0.02120848
+001324_sub2000      board_p0_off_A_none
+                      input dims=[1,640,640,3] fmt=NHWC type=FLOAT16
+                      out[0] dims=[1,1,320,320] fmt=NCHW type=FLOAT16 zp=0 scale=1.00000000
+                      out[1] dims=[1,2,320,320] fmt=NCHW type=FLOAT16 zp=0 scale=1.00000000
+001324_sub2000      board_a2_qat_learned
+                      input dims=[1,640,640,3] fmt=NHWC type=FLOAT16
+                      out[0] dims=[1,1,320,320] fmt=NCHW type=INT8 zp=-128 scale=0.00392157
+                      out[1] dims=[1,2,320,320] fmt=NCHW type=FLOAT16 zp=0 scale=1.00000000
+001324_sub2000      board_a1_qat_maxclip
+                      input dims=[1,640,640,3] fmt=NHWC type=FLOAT16
+                      out[0] dims=[1,1,320,320] fmt=NCHW type=INT8 zp=-128 scale=0.00392157
+                      out[1] dims=[1,2,320,320] fmt=NCHW type=FLOAT16 zp=0 scale=1.00000000
+001324_sub2000      board_a0_qat_float
+                      input dims=[1,640,640,3] fmt=NHWC type=FLOAT16
+                      out[0] dims=[1,1,320,320] fmt=NCHW type=FLOAT16 zp=0 scale=1.00000000
+                      out[1] dims=[1,2,320,320] fmt=NCHW type=FLOAT16 zp=0 scale=1.00000000
+001324_sub2000      board_a1b_base_maxclip
+                      input dims=[1,640,640,3] fmt=NHWC type=FLOAT16
+                      out[0] dims=[1,1,320,320] fmt=NCHW type=INT8 zp=-128 scale=0.00392157
+                      out[1] dims=[1,2,320,320] fmt=NCHW type=FLOAT16 zp=0 scale=1.00000000
+golden_pool_sub1200 board_a2f_qatw_toolkit_int8
+                      input dims=[1,640,640,3] fmt=NHWC type=INT8
+                      out[0] dims=[1,1,320,320] fmt=NCHW type=INT8 zp=-128 scale=0.00391324
+                      out[1] dims=[1,2,320,320] fmt=NCHW type=INT8 zp=-103 scale=0.01846548
+golden_pool_sub1200 board_p0_off_A_normal
+                      input dims=[1,640,640,3] fmt=NHWC type=INT8
+                      out[0] dims=[1,1,320,320] fmt=NCHW type=INT8 zp=-128 scale=0.00378871
+                      out[1] dims=[1,2,320,320] fmt=NCHW type=INT8 zp=-79 scale=0.02120848
+golden_pool_sub1200 board_p0_off_A_none
+                      input dims=[1,640,640,3] fmt=NHWC type=FLOAT16
+                      out[0] dims=[1,1,320,320] fmt=NCHW type=FLOAT16 zp=0 scale=1.00000000
+                      out[1] dims=[1,2,320,320] fmt=NCHW type=FLOAT16 zp=0 scale=1.00000000
+golden_pool_sub1200 board_a2_qat_learned
+                      input dims=[1,640,640,3] fmt=NHWC type=FLOAT16
+                      out[0] dims=[1,1,320,320] fmt=NCHW type=INT8 zp=-128 scale=0.00392157
+                      out[1] dims=[1,2,320,320] fmt=NCHW type=FLOAT16 zp=0 scale=1.00000000
+golden_pool_sub1200 board_a1_qat_maxclip
+                      input dims=[1,640,640,3] fmt=NHWC type=FLOAT16
+                      out[0] dims=[1,1,320,320] fmt=NCHW type=INT8 zp=-128 scale=0.00392157
+                      out[1] dims=[1,2,320,320] fmt=NCHW type=FLOAT16 zp=0 scale=1.00000000
+golden_pool_sub1200 board_a0_qat_float
+                      input dims=[1,640,640,3] fmt=NHWC type=FLOAT16
+                      out[0] dims=[1,1,320,320] fmt=NCHW type=FLOAT16 zp=0 scale=1.00000000
+                      out[1] dims=[1,2,320,320] fmt=NCHW type=FLOAT16 zp=0 scale=1.00000000
+golden_pool_sub1200 board_a1b_base_maxclip
+                      input dims=[1,640,640,3] fmt=NHWC type=FLOAT16
+                      out[0] dims=[1,1,320,320] fmt=NCHW type=INT8 zp=-128 scale=0.00392157
+                      out[1] dims=[1,2,320,320] fmt=NCHW type=FLOAT16 zp=0 scale=1.00000000
+
+########################################################################################################################
+# 5. MODEL IDENTITY -- the md5 of the model that produced each board row
+########################################################################################################################
+tier1_sensitive     board_a2f_qatw_toolkit_int8   md5=6141f3f9eb5b824e05d71df7d7a0badb
+tier1_sensitive     board_p0_off_A_normal         md5=cedaeb74d066a64ba2c82003993defb1
+tier1_sensitive     board_p0_off_A_none           md5=1a3faf2f9459cad8a389ffa81810234c
+tier1_sensitive     board_a2_qat_learned          md5=655fc4409e5d92cb24942aeaab2e31c4
+tier1_sensitive     board_a1_qat_maxclip          md5=3e2574faafde3d5b635d1c6916b115db
+tier1_sensitive     board_a0_qat_float            md5=d83cde6e9c74123e438d41040e640a7c
+tier1_sensitive     board_a1b_base_maxclip        md5=0bd5df79ccdb8cc331e8c97d07cf6c39
+001324_sub2000      board_a2f_qatw_toolkit_int8   md5=6141f3f9eb5b824e05d71df7d7a0badb
+001324_sub2000      board_p0_off_A_normal         md5=cedaeb74d066a64ba2c82003993defb1
+001324_sub2000      board_p0_off_A_none           md5=1a3faf2f9459cad8a389ffa81810234c
+001324_sub2000      board_a2_qat_learned          md5=655fc4409e5d92cb24942aeaab2e31c4
+001324_sub2000      board_a1_qat_maxclip          md5=3e2574faafde3d5b635d1c6916b115db
+001324_sub2000      board_a0_qat_float            md5=d83cde6e9c74123e438d41040e640a7c
+001324_sub2000      board_a1b_base_maxclip        md5=0bd5df79ccdb8cc331e8c97d07cf6c39
+golden_pool_sub1200 board_a2f_qatw_toolkit_int8   md5=6141f3f9eb5b824e05d71df7d7a0badb
+golden_pool_sub1200 board_p0_off_A_normal         md5=cedaeb74d066a64ba2c82003993defb1
+golden_pool_sub1200 board_p0_off_A_none           md5=1a3faf2f9459cad8a389ffa81810234c
+golden_pool_sub1200 board_a2_qat_learned          md5=655fc4409e5d92cb24942aeaab2e31c4
+golden_pool_sub1200 board_a1_qat_maxclip          md5=3e2574faafde3d5b635d1c6916b115db
+golden_pool_sub1200 board_a0_qat_float            md5=d83cde6e9c74123e438d41040e640a7c
+golden_pool_sub1200 board_a1b_base_maxclip        md5=0bd5df79ccdb8cc331e8c97d07cf6c39

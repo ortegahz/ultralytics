@@ -92,6 +92,16 @@ struct InferParams {
     // be split into "NPU compute" vs "tensor upload/readback". Inflates the run,
     // so it is a DIAGNOSTIC mode and must not be used for headline FPS.
     bool rknn_perf = false;
+    // Zero-copy input: bind the model's input tensor to host memory with
+    // rknn_set_io_mem and never call rknn_inputs_set. On an fp16 graph the
+    // runtime otherwise widens all 640*640*3 elements on the calling thread
+    // (measured 33.6 ms/frame on the board, 11.1 ms pinned to an A76).
+    bool use_io_mem = false;
+    // Value written into the input tensor = host byte / conv_div. Measured on
+    // the board: the fp16 graph's input tensor has scale=1.0, so it holds the
+    // RAW 0..255 integers and conv_div must stay 1.0 (255 gives zero
+    // detections -- the division happens inside the graph).
+    float conv_div = 1.0f;
 };
 
 struct InferResult {
@@ -255,10 +265,22 @@ bool infer_preboxed(InferEngine* e, const std::vector<uint8_t>& boxed, const cha
 // So the caller has to hand over values already in model space. This flag
 // exists so the semantics can be settled by measurement instead of by reading
 // the SDK header, and so a future re-test costs one build instead of two.
+// FUSED letterbox -> fp16: writes the padded canvas straight out as fp16,
+// bit-identical to letterbox() followed by the u8->f16 conversion (the
+// no-resize path is vectorised; the resize path keeps letterbox()'s exact
+// rounding and converts afterwards). div255 selects the value space: false =
+// raw 0..255 integers (what the board's fp16 graph wants, scale=1.0), true =
+// already divided by 255.
 bool letterbox_feature_f16(const uint8_t* rgb, int w, int h, std::vector<uint16_t>* dst,
                            double* ms = nullptr, bool div255 = false);
 bool infer_preboxed_f16(InferEngine* e, const std::vector<uint16_t>& boxed_f16, const char* name,
                         long* n_det_out = nullptr, InferTiming* t = nullptr);
+
+// Zero-copy variant: the pre-widened fp16 box is copied straight into the
+// bound input tensor and the NPU is run without rknn_inputs_set. The copy is
+// 2.4 MB of plain memcpy on the worker's own thread.
+bool infer_preboxed_f16_io(InferEngine* e, const std::vector<uint16_t>& boxed_f16, const char* name,
+                          long* n_det_out = nullptr, InferTiming* t = nullptr);
 
 // -------------------------------------------------------------------------
 // Pre-widened input path, FLOAT32 edition -- the one the runtime accepts.

@@ -38,6 +38,7 @@
 #include <cstdio>
 #include <fstream>
 #include <cstdlib>
+#include <sched.h>
 #include <cstring>
 #include <cstdint>
 #include <cmath>
@@ -108,6 +109,232 @@ const char* tensor_fmt_name(rknn_tensor_format f) {
     case RKNN_TENSOR_NHWC: return "NHWC";
     default:               return "OTHER";
   }
+}
+
+// ---------------------------------------------------------------------------
+// fp16 bit helpers + NEON uint8->fp16 conversion.
+//
+// Why this exists: an fp16 graph's input tensor is FLOAT16 (2 B/px), so
+// rknn_inputs_set has to widen all 640*640*3 elements in userspace -- measured
+// at 45.4 ms/frame on an A55 (37 ns/element, a scalar loop) and 14.8 ms on an
+// A76. That is the single biggest non-NPU cost of the fp16 arm.
+//
+// With rknn_set_io_mem the host owns the input tensor's storage, so the
+// conversion can be done HERE, once, with NEON, instead of inside librknnrt.
+// fp16 represents every integer in [0, 255] exactly (11-bit mantissa, exact
+// up to 2048), so u8 -> f16 is lossless and the only question is the SCALE
+// convention: whether the tensor holds raw 0..255 or the normalised 0..1
+// (the graph's std_values=[[255,255,255]]). --conv-div selects it and the
+// detections are the judge.
+// ---------------------------------------------------------------------------
+#if defined(__aarch64__) || defined(__ARM_NEON)
+#include <arm_neon.h>
+#define HM_HAVE_NEON 1
+#endif
+
+// float -> fp16 bits, round-to-nearest-even (portable fallback path).
+static uint16_t f32_to_f16_bits(float f) {
+  uint32_t x;
+  memcpy(&x, &f, 4);
+  uint32_t sign = (x >> 16) & 0x8000u;
+  int32_t exp = (int32_t)((x >> 23) & 0xFF) - 127 + 15;
+  uint32_t man = x & 0x7FFFFFu;
+  if (((x >> 23) & 0xFF) == 0xFF) {  // inf / nan
+    return (uint16_t)(sign | 0x7C00u | (man ? (0x200u | (man >> 13)) : 0u));
+  }
+  if (exp >= 0x1F) return (uint16_t)(sign | 0x7C00u);  // overflow -> inf
+  if (exp <= 0) {                                    // subnormal / zero
+    if (exp < -10) return (uint16_t)sign;
+    man |= 0x800000u;
+    uint32_t shift = (uint32_t)(14 - exp);
+    uint32_t half = man >> shift;
+    if ((man >> (shift - 1)) & 1u) {
+      if ((man & ((1u << (shift - 1)) - 1u)) || (half & 1u)) half++;
+    }
+    return (uint16_t)(sign | half);
+  }
+  uint32_t half = (uint32_t)(exp << 10) | (man >> 13);
+  if ((man >> 12) & 1u) {  // round to nearest even
+    if ((man & 0xFFFu) || (half & 1u)) half++;
+  }
+  return (uint16_t)(sign | half);
+}
+
+// value -> fp16 bits, for an integer input value (exact, no rounding).
+#ifdef HM_HAVE_NEON
+static inline uint32x4_t fp16_bits_from_u32(uint32x4_t v, uint32x4_t bias, uint32x4_t zero) {
+  uint32x4_t f = vreinterpretq_u32_f32(vcvtq_f32_u32(v));
+  uint32x4_t h = vsubq_u32(vshrq_n_u32(f, 13), bias);
+  uint32x4_t isz = vceqq_u32(v, zero);
+  return vbicq_u32(h, isz);
+}
+#endif
+
+// FAST PATH for the integer case (div == 1, i.e. the tensor holds the raw byte
+// values -- which is what the baseline rknn_inputs_set path feeds the model).
+//
+// Every integer 0..255 is exactly representable in fp16, and its bit pattern
+// has a closed form:
+//
+//     fp16(n) = (f32_bits(n) >> 13) - 0x1C000     for n > 0
+//     fp16(0) = 0
+//
+// because f32_bits(n) = (E<<23) | ((n - 2^e) << (23-e)) with E = 127+e, so
+// (bits>>13) already holds (E<<10) | ((n - 2^e) << (10-e)) and only the
+// exponent bias (127-15=112 -> 112<<10 = 0x1C000) has to come off. The low 13
+// bits of the f32 mantissa are zero for integers with e <= 7, so no rounding
+// is needed: the result is exact.
+//
+// That turns the conversion into ~7 integer NEON ops per 4 elements instead
+// of the full float round-trip, and it needs no FP16 ISA (the A55 cores of
+// the RK3588 do not implement FP16 -- only the A76 does).
+static void u8_to_f16_int(const uint8_t* src, uint16_t* dst, size_t n) {
+#ifdef HM_HAVE_NEON
+  const uint32x4_t bias = vdupq_n_u32(0x1C000u);
+  const uint32x4_t zero = vdupq_n_u32(0);
+  size_t i = 0;
+  for (; i + 16 <= n; i += 16) {
+    uint8x16_t b = vld1q_u8(src + i);
+    uint16x8_t h = vmovl_u8(vget_low_u8(b));
+    uint16x8_t h2 = vmovl_u8(vget_high_u8(b));
+    uint32x4_t v0 = vmovl_u16(vget_low_u16(h));
+    uint32x4_t v1 = vmovl_u16(vget_high_u16(h));
+    uint32x4_t v2 = vmovl_u16(vget_low_u16(h2));
+    uint32x4_t v3 = vmovl_u16(vget_high_u16(h2));
+    uint32x4_t o0 = fp16_bits_from_u32(v0, bias, zero);
+    uint32x4_t o1 = fp16_bits_from_u32(v1, bias, zero);
+    uint32x4_t o2 = fp16_bits_from_u32(v2, bias, zero);
+    uint32x4_t o3 = fp16_bits_from_u32(v3, bias, zero);
+    vst1_u16(dst + i, vmovn_u32(o0));
+    vst1_u16(dst + i + 4, vmovn_u32(o1));
+    vst1_u16(dst + i + 8, vmovn_u32(o2));
+    vst1_u16(dst + i + 12, vmovn_u32(o3));
+  }
+  for (; i < n; i++) {
+    float f = (float)src[i];
+    uint32_t b;
+    memcpy(&b, &f, 4);
+    uint32_t o = src[i] == 0 ? 0u : ((b >> 13) - 0x1C000u);
+    dst[i] = (uint16_t)o;
+  }
+#else
+  for (size_t i = 0; i < n; i++) {
+    float f = (float)src[i];
+    uint32_t b;
+    memcpy(&b, &f, 4);
+    dst[i] = (uint16_t)(src[i] == 0 ? 0u : ((b >> 13) - 0x1C000u));
+  }
+#endif
+}
+
+// fp16 bit patterns of the 256 byte values, computed once. The fused letterbox
+// needs a value->bits lookup for the pixels it computes one at a time (the
+// bilinear path), and a table turns that into a single L1 load.
+struct Fp16Lut {
+  uint16_t v[256];
+  Fp16Lut() {
+    for (int i = 0; i < 256; i++) {
+      float f = (float)i;
+      uint32_t b;
+      memcpy(&b, &f, 4);
+      // fp16(n) = (f32_bits(n) >> 13) - 0x1C000, exact for n <= 255.
+      // n = 0 has to be special-cased: 0 - 0x1C000 underflows the unsigned
+      // subtraction and would come out as 0x4000 (which is fp16 for 2.0).
+      v[i] = (i == 0) ? (uint16_t)0 : (uint16_t)((b >> 13) - 0x1C000u);
+    }
+  }
+};
+static const Fp16Lut g_fp16_lut;
+
+// uint8 NHWC -> NCHW (planar). Scalar reference; the point of the
+// --upload-nchw arm is to find out whether the driver's own transpose is a
+// measurable part of rknn_inputs_set.
+static void nhwc_to_nchw_u8(const uint8_t* src, uint8_t* dst, int hw, int c) {
+  for (int ch = 0; ch < c; ch++)
+    for (int y = 0; y < hw; y++)
+      for (int x = 0; x < hw; x++)
+        dst[(size_t)ch * hw * hw + (size_t)y * hw + x] = src[((size_t)y * hw + x) * c + ch];
+}
+
+// Transpose an NHWC canvas (H*W*3, interleaved) into NCHW (3*H*W, planar).
+// Scalar reference implementation -- used to TEST whether the bound input
+// tensor wants NCHW (the ONNX input is NCHW) or NHWC (what
+// RKNN_QUERY_INPUT_ATTR reports).
+static void nhwc_to_nchw_f16(const uint16_t* src, uint16_t* dst, int hw, int c) {
+  for (int ch = 0; ch < c; ch++)
+    for (int y = 0; y < hw; y++)
+      for (int x = 0; x < hw; x++)
+        dst[(size_t)ch * hw * hw + (size_t)y * hw + x] = src[((size_t)y * hw + x) * c + ch];
+}
+
+// value = u8 / div, written as fp16. div == 1 -> raw 0..255.
+//
+// NOTE ON THE ISA: the obvious intrinsic (vcvtq_f16_f32) needs the optional
+// FP16 extension, which the RK3588's Cortex-A55 does NOT implement (only the
+// A76 does) -- a binary that used it would SIGILL on a small core. So the
+// f32->f16 step here is done with INTEGER NEON (bit manipulation), which runs
+// on every core. Only the normal fp16 range is handled (our values are
+// x/255 in [0,1] or raw x in [0,255]); zero is special-cased.
+static void u8_to_f16(const uint8_t* src, uint16_t* dst, size_t n, float div) {
+  if (div == 1.0f) { u8_to_f16_int(src, dst, n); return; }
+#ifdef HM_HAVE_NEON
+  const float inv = 1.0f / div;
+  size_t i = 0;
+  for (; i + 8 <= n; i += 8) {
+    uint16x8_t u16 = vmovl_u8(vld1_u8(src + i));
+    uint32x4_t u32lo = vmovl_u16(vget_low_u16(u16));
+    uint32x4_t u32hi = vmovl_u16(vget_high_u16(u16));
+    float32x4_t flo = vmulq_n_f32(vcvtq_f32_u32(u32lo), inv);
+    float32x4_t fhi = vmulq_n_f32(vcvtq_f32_u32(u32hi), inv);
+    // f32 -> f16 (round to nearest even), integer NEON
+    uint32x4_t xlo = vreinterpretq_u32_f32(flo);
+    uint32x4_t xhi = vreinterpretq_u32_f32(fhi);
+    uint32x4_t signlo = vshlq_n_u32(vandq_u32(xlo, vdupq_n_u32(0x80000000u)), 16);
+    uint32x4_t signhi = vshlq_n_u32(vandq_u32(xhi, vdupq_n_u32(0x80000000u)), 16);
+    // The exponent has to come from x itself: mag (the mantissa field) has the
+    // exponent bits masked OFF, so mag>>23 is always 0.
+    uint32x4_t elo = vsubq_u32(vshrq_n_u32(xlo, 23), vdupq_n_u32(112));
+    uint32x4_t ehi = vsubq_u32(vshrq_n_u32(xhi, 23), vdupq_n_u32(112));
+    uint32x4_t mlo = vorrq_u32(vandq_u32(xlo, vdupq_n_u32(0x7FFFFFu)), vdupq_n_u32(0x800000u));
+    uint32x4_t mhi = vorrq_u32(vandq_u32(xhi, vdupq_n_u32(0x7FFFFFu)), vdupq_n_u32(0x800000u));
+    // m>>13 keeps the implicit leading 1; the fp16 mantissa field is the low
+    // 10 bits of that, and the 13 dropped bits decide the rounding.
+    uint32x4_t mslo = vandq_u32(vshrq_n_u32(mlo, 13), vdupq_n_u32(0x3FFu));
+    uint32x4_t mshi = vandq_u32(vshrq_n_u32(mhi, 13), vdupq_n_u32(0x3FFu));
+    uint32x4_t remlo = vandq_u32(mlo, vdupq_n_u32(0x1FFFu));
+    uint32x4_t remhi = vandq_u32(mhi, vdupq_n_u32(0x1FFFu));
+    // Round to nearest, ties to even:
+    //   rem > 0x1000  -> always up
+    //   rem == 0x1000 -> up only when the kept mantissa is odd
+    //   rem <  0x1000 -> down
+    uint32x4_t gtlo = vcgtq_u32(remlo, vdupq_n_u32(0x1000u));
+    uint32x4_t gthi = vcgtq_u32(remhi, vdupq_n_u32(0x1000u));
+    uint32x4_t eqlo = vceqq_u32(remlo, vdupq_n_u32(0x1000u));
+    uint32x4_t eqhi = vceqq_u32(remhi, vdupq_n_u32(0x1000u));
+    // NOTE: the comparisons return ALL-ONES masks, not 0/1 -- the final AND
+    // with 1 is what turns them into an increment.
+    uint32x4_t inclo = vandq_u32(vorrq_u32(gtlo, vandq_u32(eqlo, vandq_u32(mslo, vdupq_n_u32(1u)))),
+                                  vdupq_n_u32(1u));
+    uint32x4_t inchi = vandq_u32(vorrq_u32(gthi, vandq_u32(eqhi, vandq_u32(mshi, vdupq_n_u32(1u)))),
+                                  vdupq_n_u32(1u));
+    uint32x4_t hlo = vaddq_u32(vshlq_n_u32(elo, 10), vaddq_u32(mslo, inclo));
+    uint32x4_t hhi = vaddq_u32(vshlq_n_u32(ehi, 10), vaddq_u32(mshi, inchi));
+    uint32x4_t zlo = vceqq_u32(xlo, vdupq_n_u32(0));
+    uint32x4_t zhi = vceqq_u32(xhi, vdupq_n_u32(0));
+    uint32x4_t rlo = vorrq_u32(signlo, vbicq_u32(hlo, zlo));
+    uint32x4_t rhi = vorrq_u32(signhi, vbicq_u32(hhi, zhi));
+    // The 4 fp16 values live in the LOW 16 bits of the 4 u32 lanes, so the
+    // lanes have to be NARROWED (movn) before storing: reinterpreting a
+    // uint32x4_t as uint16x8_t would interleave the high halves as separate
+    // elements.
+    vst1_u16(dst + i, vmovn_u32(rlo));
+    vst1_u16(dst + i + 4, vmovn_u32(rhi));
+  }
+  for (; i < n; i++) dst[i] = f32_to_f16_bits((float)src[i] * (1.0f / div));
+#else
+  const float inv = 1.0f / div;
+  for (size_t i = 0; i < n; i++) dst[i] = f32_to_f16_bits((float)src[i] * inv);
+#endif
 }
 
 float fp16_to_f32(uint16_t h) {
@@ -233,8 +460,71 @@ void letterbox(const uint8_t* src, int sw, int sh, int size, std::vector<uint8_t
 }
 
 // ---------------------------------------------------------------------------
-// Peak extraction -- 1:1 with manu/evaluation/heatmap_evaluate.py::extract_peaks
+// Fused letterbox -> fp16.
+//
+// Same geometry and same rounding as letterbox() (the uint8 buffer) followed by
+// the u8->f16 conversion, but the intermediate 1.2 MB uint8 buffer never
+// exists: the padded canvas is written straight out as fp16.
+//
+// Bit-exactness is a REQUIREMENT, not a hope: the bilinear path rounds to
+// uint8 exactly like letterbox() does (same lroundf on the same float), and
+// then converts that integer with the same closed form, so the fp16 bytes are
+// identical to "letterbox() then u8->f16". The no-resize path uses the same
+// NEON converter. --selftest-lb checks that on the board.
 // ---------------------------------------------------------------------------
+void letterbox_to_f16(const uint8_t* src, int sw, int sh, int size, uint16_t* dst) {
+  const uint16_t* lut = g_fp16_lut.v;
+  const uint16_t pad = lut[kPadValue];
+  double r = std::min((double)size / (double)sh, (double)size / (double)sw);
+  int nw = (int)lround(sw * r), nh = (int)lround(sh * r);
+  int dw = (size - nw) / 2, dh = (size - nh) / 2;
+  int left = (int)lround(dw - 0.1), top = (int)lround(dh - 0.1);
+  const size_t total = (size_t)size * size * 3;
+
+  if (nw == sw && nh == sh) {
+    // No resize: the content is a row-for-row copy, so the conversion is the
+    // vectorised one and only the padding bands have to be materialised.
+    // (Filling the whole canvas with the pad value scalar-wise was 1.4 ms of
+    // the 1.66 ms this function used to cost.)
+#ifdef HM_HAVE_NEON
+    const uint16x8_t padv = vdupq_n_u16(pad);
+    auto fill_pad = [&](size_t from, size_t n) {
+      size_t i = from;
+      const size_t stop = from + n;
+      for (; i + 8 <= stop; i += 8) vst1q_u16(dst + i, padv);
+      for (; i < stop; i++) dst[i] = pad;
+    };
+    // Only the padding BANDS, not the whole canvas: for a 640x512 source the
+    // padding is 20% of the canvas, and filling all of it scalar-wise was
+    // costing more than the conversion itself.
+    fill_pad(0, (size_t)top * size * 3);
+    fill_pad((size_t)(top + nh) * size * 3, (size_t)(size - top - nh) * size * 3);
+    for (int y = 0; y < nh; y++) {
+      size_t row = (size_t)(y + top) * size * 3;
+      fill_pad(row, (size_t)left * 3);
+      fill_pad(row + (size_t)(left + nw) * 3, (size_t)(size - left - nw) * 3);
+    }
+#else
+    for (size_t i = 0; i < total; i++) dst[i] = pad;
+#endif
+    for (int y = 0; y < sh; y++) {
+      uint16_t* drow = dst + (size_t)(y + top) * size * 3 + left * 3;
+      u8_to_f16_int(src + (size_t)y * sw * 3, drow, (size_t)sw * 3);
+    }
+    return;
+  }
+
+  // Resize path: the bilinear loop is scalar and its rounding has to match
+  // letterbox() exactly, so the canvas is built in uint8 first and then
+  // converted with the vectorised routine. Same bytes, no scalar LUT lookup
+  // per pixel.
+  static thread_local std::vector<uint8_t> tmp;
+  tmp.resize(total);
+  letterbox(src, sw, sh, size, &tmp);
+  u8_to_f16_int(tmp.data(), dst, total);
+}
+
+
 struct Det {
   float x, y, score;  // x, y = centre in 640x640 letterbox-canvas pixels
 };
@@ -290,7 +580,23 @@ struct Ctx {
   // 640*640*3 elements inside rknn_inputs_set, and for this graph that measured
   // 45.4 ms/frame -- 29% of a 162 ms fp16 frame. A caller that already holds the
   // widened buffer can hand it over and skip the work entirely.
+  // Zero-copy input buffer (rknn_set_io_mem). When set, the input path never
+  // calls rknn_inputs_set: the host fills this tensor itself.
+  rknn_tensor_mem* io_mem = nullptr;
+  // Upload layout for the rknn_inputs_set path. The SDK header says the NPU's
+  // internal input format is NCHW by default and that "entering NCHW data can
+  // avoid the format conversion in the driver" -- so the transpose can be
+  // moved to the host (or skipped, if the driver was doing NHWC natively).
+  bool upload_nchw = false;
   bool input_is_f16 = false;
+  // True when the graph's input tensor is FLOAT32 (a float32 build). Kept
+  // apart from input_is_f16 because the zero-copy fill path needs to know
+  // which conversion to apply.
+  bool input_is_f32 = false;
+  // True when the graph's input tensor is INT8 (quantized codes). The
+  // zero-point decides how a host byte maps to a code.
+  bool input_is_int8 = false;
+  int input_zp = 0;
   // NPU core mask requested for this context. 0 == leave the runtime's default
   // (RKNN_NPU_CORE_AUTO), which is what every run used until the core-0/core-1
   // split was made explicit -- recorded because "two workers" and "one worker per
@@ -370,7 +676,7 @@ bool run_once(const Ctx& c, const std::vector<uint8_t>& input, std::vector<float
     in.buf = const_cast<uint16_t*>(in_f16);
   } else {
     in.pass_through = 0;
-    in.fmt = RKNN_TENSOR_NHWC;
+    in.fmt = c.upload_nchw ? RKNN_TENSOR_NCHW : RKNN_TENSOR_NHWC;
     in.type = RKNN_TENSOR_UINT8;
     in.size = (uint32_t)input.size();
     in.buf = const_cast<uint8_t*>(input.data());
@@ -401,17 +707,156 @@ bool run_once(const Ctx& c, const std::vector<uint8_t>& input, std::vector<float
   return true;
 }
 
+// Upload a host fp16 buffer as RKNN_TENSOR_FLOAT16 (pass_through = 0).
+//
+// This is the combination the 2026-10-16 experiment never tried: it measured
+// a FLOAT32 typed upload (47 ms, no gain) and a FLOAT16 pass_through upload
+// (rejected / SIGSEGV), but never FLOAT16 *typed*. If the runtime's
+// float16->float16 step is a copy, this is the way to hand the runtime the
+// buffer our own NEON code produced (0.78 ms) and still get its efficient
+// staging into NPU memory.
+bool run_once_f16(const Ctx& c, const uint16_t* f16, size_t n, std::vector<float>* hm,
+                  std::vector<float>* off, std::vector<rknn_output>* out, double* t_stage) {
+  rknn_input in{};
+  in.index = 0;
+  in.pass_through = 0;
+  in.fmt = RKNN_TENSOR_NHWC;
+  in.type = RKNN_TENSOR_FLOAT16;
+  in.size = (uint32_t)(n * sizeof(uint16_t));
+  in.buf = const_cast<uint16_t*>(f16);
+
+  out->assign(c.n_out, rknn_output{});
+  for (uint32_t i = 0; i < c.n_out; i++) {
+    (*out)[i].index = i;
+    (*out)[i].want_float = 0;
+  }
+  double a0 = now_ms();
+  if (rknn_inputs_set(c.ctx, 1, &in) != 0) { fprintf(stderr, "inputs_set failed\n"); return false; }
+  double a1 = now_ms();
+  if (rknn_run(c.ctx, NULL) != 0)           { fprintf(stderr, "rknn_run failed\n"); return false; }
+  double a2 = now_ms();
+  if (rknn_outputs_get(c.ctx, c.n_out, out->data(), NULL) != 0) {
+    fprintf(stderr, "outputs_get failed\n");
+    return false;
+  }
+  double a3 = now_ms();
+  if (t_stage) { t_stage[0] = a1 - a0; t_stage[1] = a2 - a1; t_stage[2] = a3 - a2; t_stage[3] = 0; }
+  double d0 = now_ms();
+  if (hm) { if (!dequant((*out)[0], c.out_attr[0], hm)) return false; }
+  if (off) { if (!dequant((*out)[1], c.out_attr[1], off)) return false; }
+  if (t_stage) { t_stage[3] = now_ms() - d0; }
+  return true;
+}
+
 void release(Ctx& c, std::vector<rknn_output>* out) {
   if (!out->empty() && (*out)[0].buf) rknn_outputs_release(c.ctx, c.n_out, out->data());
 }
 
+// ---------------------------------------------------------------------------
+// Zero-copy input path -- the host owns the input tensor's storage.
+//
+// rknn_set_io_mem binds an rknn_tensor_mem to the model's input node, so
+// rknn_inputs_set is NEVER called: no driver-side type conversion, no
+// driver-side copy. The host fills the tensor itself, and the only cost left
+// is the conversion we do on purpose.
+//
+// This is the only way to bypass librknnrt's per-element widening on an fp16
+// graph. pass_through=1 does not work here: the driver checks the upload size
+// against float32 (4 B/px = 4,915,200 B) while RKNN_QUERY_INPUT_ATTR reports
+// FLOAT16 (2 B/px = 2,457,600 B) -- handing over 2 B/px is rejected
+// ("param input size(2457600) < model input size(4915200)") and handing over
+// 4 B/px segfaults inside librknnrt's memcpy. rknn_set_io_mem has no such
+// check: the mem comes from the attr's own size.
+//
+// t_stage receives {fill_ms, run_ms, outputs_get_ms, dequant_ms}; there is no
+// inputs_set stage because that call does not exist on this path.
+// ---------------------------------------------------------------------------
+// Fill the bound input tensor from a uint8 buffer, in the model's own dtype.
+void io_mem_fill_u8(const Ctx& c, const uint8_t* src, size_t n, float conv_div, bool nchw = false) {
+  uint8_t* dst = (uint8_t*)c.io_mem->virt_addr;
+  if (c.input_is_f16 && nchw) {
+    // Fill in the model's INTERNAL layout (NCHW, as the ONNX declares) instead
+    // of the layout the runtime asks the host for (NHWC). If the runtime
+    // transposes internally at run time, doing it here moves that cost off
+    // rknn_run.
+    static thread_local std::vector<uint16_t> tmp;
+    tmp.resize(n);
+    u8_to_f16(src, tmp.data(), n, conv_div);
+    const int hw = (int)std::lround(std::sqrt((double)n / 3.0));   // canvas edge
+    nhwc_to_nchw_f16(tmp.data(), (uint16_t*)dst, hw, 3);
+  } else if (c.input_is_f16) {
+    u8_to_f16(src, (uint16_t*)dst, n, conv_div);
+  } else if (c.input_is_f32) {
+    float* fdst = (float*)dst;
+    for (size_t i = 0; i < n; i++) fdst[i] = (float)src[i] / conv_div;
+  } else if (c.input_is_int8) {
+    // An INT8 input tensor holds CODES, not values: with scale=1/255 and
+    // zp=-128 the code of a host byte x is x + zp (= x - 128). The driver does
+    // exactly this reinterpretation, which is why the int8 arm's
+    // rknn_inputs_set is only 0.34 ms (a byte-level pass, no arithmetic).
+    // Copying the bytes verbatim is WRONG: 0x80 would decode as -128
+    // instead of 0, and the detections change (measured: TSV md5 differs).
+    int8_t* d8 = (int8_t*)dst;
+    const int zp = c.input_zp;
+#ifdef HM_HAVE_NEON
+    size_t i = 0;
+    const int8x16_t zpv = vdupq_n_s8((int8_t)zp);
+    for (; i + 16 <= n; i += 16) {
+      int8x16_t v = vreinterpretq_s8_u8(vld1q_u8(src + i));
+      vst1q_s8(d8 + i, vaddq_s8(v, zpv));
+    }
+    for (; i < n; i++) d8[i] = (int8_t)((int)src[i] + zp);
+#else
+    for (size_t i = 0; i < n; i++) d8[i] = (int8_t)((int)src[i] + zp);
+#endif
+  } else {
+    // UINT8: same width and same codes, plain copy.
+    memcpy(dst, src, n);
+  }
+}
+
+// Run with the bound input tensor ALREADY filled (fused letterbox path).
+// t_stage = {fill(0), run_ms, outputs_get_ms, dequant_ms}.
+bool run_once_io_mem_filled(const Ctx& c, std::vector<float>* hm, std::vector<float>* off,
+                            std::vector<rknn_output>* out, double* t_stage) {
+  out->assign(c.n_out, rknn_output{});
+  for (uint32_t i = 0; i < c.n_out; i++) {
+    (*out)[i].index = i;
+    (*out)[i].want_float = 0;
+  }
+  double a0 = now_ms();
+  if (rknn_run(c.ctx, NULL) != 0) { fprintf(stderr, "rknn_run failed\n"); return false; }
+  double a2 = now_ms();
+  if (rknn_outputs_get(c.ctx, c.n_out, out->data(), NULL) != 0) {
+    fprintf(stderr, "outputs_get failed\n");
+    return false;
+  }
+  double a3 = now_ms();
+  if (t_stage) { t_stage[0] = 0.0; t_stage[1] = a2 - a0; t_stage[2] = a3 - a2; t_stage[3] = 0; }
+  double d0 = now_ms();
+  if (hm) { if (!dequant((*out)[0], c.out_attr[0], hm)) return false; }
+  if (off) { if (!dequant((*out)[1], c.out_attr[1], off)) return false; }
+  if (t_stage) { t_stage[3] = now_ms() - d0; }
+  return true;
+}
+
+// Fill the bound input tensor from a uint8 buffer, then run.
+// t_stage = {fill_ms, run_ms, outputs_get_ms, dequant_ms}.
+bool run_once_io_mem(const Ctx& c, const uint8_t* input, size_t n, float conv_div,
+                     std::vector<float>* hm, std::vector<float>* off,
+                     std::vector<rknn_output>* out, double* t_stage, bool nchw = false) {
+  double a0 = now_ms();
+  io_mem_fill_u8(c, input, n, conv_div, nchw);
+  double a1 = now_ms();
+  const double fill_ms = a1 - a0;
+  if (!run_once_io_mem_filled(c, hm, off, out, t_stage)) return false;
+  if (t_stage) t_stage[0] = fill_ms;   // the filled variant zeroes it; keep ours
+  return true;
+}
+
+
 }  // namespace
 
-// ---------------------------------------------------------------------------
-// Reuse hook. Defining RKNN_HEATMAP_SMOKE_NO_MAIN lets e2e_core.cpp #include
-// this file and call the very same letterbox / run_once / dequant /
-// extract_peaks on the very same Ctx. The main() body below is NOT touched, so
-// the e2e demo and this binary produce identical heatmaps by construction.
 // ---------------------------------------------------------------------------
 #ifndef RKNN_HEATMAP_SMOKE_NO_MAIN
 int main(int argc, char** argv) {
@@ -419,7 +864,10 @@ int main(int argc, char** argv) {
     printf("Usage: %s <model.rknn> <feature.jpg> [--th F] [--stride N] [--topk N]\n"
            "          [--loops N] [--warmup N] [--perf] [--dump DIR] [--tag NAME]\n"
            "          [--dump-input DIR]   save the exact uint8 NHWC NPU input\n"
-           "       %s <model.rknn> --batch <list.txt> [--th F] [--dump DIR]\n",
+           "       %s <model.rknn> --batch <list.txt> [--th F] [--dump DIR]\n"
+           "       [--io-mem]           zero-copy input (rknn_set_io_mem); no rknn_inputs_set\n"
+           "       [--conv-div K]       value written into the input tensor = u8 / K (default 1)\n"
+           "       [--cpu-affinity L]   pin this process to CPU list, e.g. 6 or 4-7\n",
            argv[0], argv[0]);
     return 2;
   }
@@ -437,6 +885,17 @@ int main(int argc, char** argv) {
   // unless the raw tensors are dumped -- and dumping 1.2 GB over NFS runs at
   // ~2 frames/minute. This flag writes one line per frame instead.
   const char* det_out = nullptr;
+  // ---- zero-copy input experiment (opt-in; default path untouched) ---------
+  int use_io_mem = 0;          // rknn_set_io_mem: never call rknn_inputs_set
+  float conv_div = 1.0f;       // value written into the tensor = u8 / conv_div
+  const char* cpu_affinity = nullptr;  // e.g. "6" or "4-7"
+  int selftest_conv = 0;       // check the NEON u8->f16 against the portable one
+  int bench_fill = 0;          // micro-benchmark: conversion vs device-memory write
+  int fused_lb = 0;            // letterbox straight into the io-mem (no uint8 buffer)
+  int io_mem_nchw = 0;         // write the bound tensor in NCHW order (transpose)
+  int up_nchw = 0;             // upload the uint8 canvas as NCHW (skip the driver's transpose)
+  int up_f16 = 0;              // upload our NEON fp16 buffer as FLOAT16 (typed, not pass-through)
+  int selftest_lb = 0;         // check the fused letterbox against letterbox()+u8->f16
 
   for (int i = 2; i < argc; i++) {
     if (!strcmp(argv[i], "--batch") && i + 1 < argc)        batch_list = argv[++i];
@@ -450,10 +909,115 @@ int main(int argc, char** argv) {
     else if (!strcmp(argv[i], "--dump-input") && i + 1 < argc) input_dump = argv[++i];
     else if (!strcmp(argv[i], "--tag") && i + 1 < argc)     tag = argv[++i];
     else if (!strcmp(argv[i], "--detections-out") && i + 1 < argc) det_out = argv[++i];
+    else if (!strcmp(argv[i], "--io-mem"))                  use_io_mem = 1;
+    else if (!strcmp(argv[i], "--selftest-conv"))          selftest_conv = 1;
+    else if (!strcmp(argv[i], "--bench-fill"))             bench_fill = 1;
+    else if (!strcmp(argv[i], "--io-mem-fused"))           fused_lb = 1;
+    else if (!strcmp(argv[i], "--io-mem-nchw"))           io_mem_nchw = 1;
+    else if (!strcmp(argv[i], "--upload-nchw"))           up_nchw = 1;
+    else if (!strcmp(argv[i], "--upload-f16"))            up_f16 = 1;
+    else if (!strcmp(argv[i], "--selftest-lb"))            selftest_lb = 1;
+    else if (!strcmp(argv[i], "--conv-div") && i + 1 < argc) conv_div = (float)atof(argv[++i]);
+    else if (!strcmp(argv[i], "--cpu-affinity") && i + 1 < argc) cpu_affinity = argv[++i];
     else if (!image_path && argv[i][0] != '-')              image_path = argv[i];
     else { printf("unknown option: %s\n", argv[i]); return 2; }
   }
-  if (!image_path && !batch_list) { printf("need an image or --batch list\n"); return 2; }
+
+  // The NEON u8->f16 conversion is hand-written bit manipulation, so it gets
+  // its own self-test: every one of the 256 possible byte values, at every
+  // div we might use, against the portable reference implementation.
+  if (selftest_conv) {
+    int bad = 0;
+    for (int trial = 0; trial < 2; trial++) {
+      float dv = trial == 0 ? 1.0f : 255.0f;
+      uint8_t src[256];
+      uint16_t a[256], b[256];
+      for (int i = 0; i < 256; i++) src[i] = (uint8_t)i;
+      u8_to_f16(src, a, 256, dv);
+      for (int i = 0; i < 256; i++) b[i] = f32_to_f16_bits((float)src[i] * (1.0f / dv));
+      for (int i = 0; i < 256; i++) {
+        if (a[i] != b[i]) {
+          if (bad < 10)
+            printf("[selftest] div=%g u8=%3d neon=%04x ref=%04x (%.8f vs %.8f)\n", dv, i, a[i], b[i],
+                   fp16_to_f32(a[i]), fp16_to_f32(b[i]));
+          bad++;
+        }
+      }
+      // also check the exactness claim: raw bytes are exact in fp16
+      if (dv == 1.0f) {
+        for (int i = 0; i < 256; i++) {
+          if (fp16_to_f32(a[i]) != (float)i) {
+            printf("[selftest] div=1 u8=%d not exact (%.8f)\n", i, fp16_to_f32(a[i]));
+            bad++;
+          }
+        }
+      }
+    }
+    printf("[selftest] u8->f16: %s (%d mismatches)\n", bad == 0 ? "PASS" : "FAIL", bad);
+    return bad == 0 ? 0 : 1;
+  }
+
+  // The fused letterbox must be BIT-EXACT with letterbox() + u8->f16, or the
+  // zero-copy path is a different model, not a faster one.
+  if (selftest_lb) {
+    int bad = 0;
+    for (int trial = 0; trial < 3; trial++) {
+      int sw = (trial == 0) ? 512 : (trial == 1) ? 640 : 501;
+      int sh = (trial == 0) ? 512 : (trial == 1) ? 512 : 377;
+      std::vector<uint8_t> src((size_t)sw * sh * 3);
+      for (size_t i = 0; i < src.size(); i++) src[i] = (uint8_t)(i * 31 + (i >> 7));
+      std::vector<uint8_t> boxed;
+      letterbox(src.data(), sw, sh, kDefaultSize, &boxed);
+      std::vector<uint16_t> fused((size_t)kDefaultSize * kDefaultSize * 3);
+      letterbox_to_f16(src.data(), sw, sh, kDefaultSize, fused.data());
+      std::vector<uint16_t> sep(boxed.size());
+      u8_to_f16_int(boxed.data(), sep.data(), boxed.size());
+      int bad_trial = 0;
+      for (size_t i = 0; i < fused.size(); i++) {
+        if (fused[i] != sep[i]) {
+          bad_trial++;
+          if (bad < 6) {
+            // decode the fp16 back to the byte it represents (exact for 0..255)
+            float fv = fp16_to_f32(fused[i]);
+            float sv = fp16_to_f32(sep[i]);
+            printf("[selftest-lb] %dx%d idx %zu (px %zu ch %zu): fused=%04x(%.1f) sep=%04x(%.1f) "
+                   "u8=%d\n",
+                   sw, sh, i, i / 3, i % 3, fused[i], fv, sep[i], sv, (int)boxed[i]);
+          }
+          bad++;
+        }
+      }
+      printf("[selftest-lb] %dx%d: %s\n", sw, sh, bad_trial ? "DIFF" : "identical");
+    }
+    printf("[selftest-lb] fused letterbox: %s (%d mismatches)\n", bad == 0 ? "PASS" : "FAIL", bad);
+    return bad == 0 ? 0 : 1;
+  }
+
+
+
+  // CPU affinity: rknn_inputs_set's widening is a single-threaded scalar
+  // loop, so WHICH core it runs on is worth 3x (45.4 ms on an A55 vs 14.8 ms
+  // on an A76). Applied to the whole process, because the driver call happens
+  // on the calling thread.
+  if (cpu_affinity) {
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    const char* p = cpu_affinity;
+    while (*p) {
+      int a = 0, b = 0;
+      char* e = nullptr;
+      a = (int)strtol(p, &e, 10);
+      if (e == p) { p++; continue; }
+      b = a;
+      if (*e == '-') { p = e + 1; b = (int)strtol(p, &e, 10); }
+      for (int c = a; c <= b && c < CPU_SETSIZE; c++) CPU_SET(c, &set);
+      p = e;
+    }
+    if (sched_setaffinity(0, sizeof(set), &set) != 0)
+      fprintf(stderr, "[WARN] sched_setaffinity(%s) failed\n", cpu_affinity);
+    else
+      printf("[0] cpu affinity pinned to %s\n", cpu_affinity);
+  }
 
   printf("=====================================================================\n");
   printf(" RK3588 NPU -- Trial-0474 heatmap detector\n");
@@ -500,6 +1064,14 @@ int main(int argc, char** argv) {
   printf("    input dims=[");
   for (uint32_t d = 0; d < in_attr.n_dims; d++) printf("%u%s", in_attr.dims[d], d + 1 < in_attr.n_dims ? "," : "");
   printf("] fmt=%s type=%s\n", tensor_fmt_name(in_attr.fmt), tensor_type_name(in_attr.type));
+  printf("    input attr extra: zp=%d scale=%.10f size=%u size_with_stride=%u w_stride=%u\n",
+         in_attr.zp, (double)in_attr.scale, in_attr.size, in_attr.size_with_stride,
+         in_attr.w_stride);
+  c.upload_nchw = (up_nchw != 0);
+  c.input_is_f16 = (in_attr.type == RKNN_TENSOR_FLOAT16);
+  c.input_is_f32 = (in_attr.type == RKNN_TENSOR_FLOAT32);
+  c.input_is_int8 = (in_attr.type == RKNN_TENSOR_INT8);
+  c.input_zp = in_attr.zp;
   if (in_attr.fmt == RKNN_TENSOR_NCHW) {
     c.in_c = (int)in_attr.dims[1]; c.in_h = (int)in_attr.dims[2]; c.in_w = (int)in_attr.dims[3];
   } else {
@@ -508,6 +1080,52 @@ int main(int argc, char** argv) {
   if (c.in_h != kDefaultSize || c.in_w != kDefaultSize || c.in_c != 3) {
     fprintf(stderr, "[FATAL] model input is %dx%dx%d, expected 640x640x3\n", c.in_h, c.in_w, c.in_c);
     return 1;
+  }
+
+  // ---- zero-copy input buffer ---------------------------------------------
+  rknn_tensor_mem* in_mem = nullptr;
+  if (use_io_mem) {
+    uint32_t mem_sz = in_attr.size_with_stride ? in_attr.size_with_stride : in_attr.size;
+    in_mem = rknn_create_mem(c.ctx, mem_sz);
+    if (!in_mem) { fprintf(stderr, "[FATAL] rknn_create_mem(%u) failed\n", mem_sz); return 1; }
+    int rc = rknn_set_io_mem(c.ctx, in_mem, &in_attr);
+    if (rc != 0) {
+      fprintf(stderr, "[FATAL] rknn_set_io_mem failed rc=%d\n", rc);
+      return 1;
+    }
+    c.io_mem = in_mem;
+    printf("    [io-mem] zero-copy input: mem=%p size=%u (attr size=%u) conv_div=%.3f\n",
+           (void*)in_mem->virt_addr, mem_sz, in_attr.size, conv_div);
+  }
+
+  // Where does the zero-copy fill time actually go? The conversion itself is
+  // pure compute, but the io-mem is DEVICE memory (uncached), so the stores
+  // are memory-mapped writes, not cache writes. This separates the two.
+  if (bench_fill) {
+    const size_t N = 640 * 640 * 3;
+    std::vector<uint8_t> src(N);
+    for (size_t i = 0; i < N; i++) src[i] = (uint8_t)(i * 7 + (i >> 5));
+    std::vector<uint16_t> heap(N);           // cached, ordinary memory
+    const int iters = 20;
+    double t0 = now_ms();
+    for (int k = 0; k < iters; k++) u8_to_f16(src.data(), heap.data(), N, 1.0f);
+    double t_heap = (now_ms() - t0) / iters;
+    double t0b = now_ms();
+    for (int k = 0; k < iters; k++) memcpy(heap.data(), src.data(), N);
+    double t_memcpy = (now_ms() - t0b) / iters;
+    printf("[bench-fill] u8->f16 into CACHED heap : %.3f ms/frame\n", t_heap);
+    printf("[bench-fill] memcpy 1.2 MB into heap   : %.3f ms/frame\n", t_memcpy);
+    if (use_io_mem) {
+      double t1 = now_ms();
+      for (int k = 0; k < iters; k++) u8_to_f16(src.data(), (uint16_t*)in_mem->virt_addr, N, 1.0f);
+      double t_dev = (now_ms() - t1) / iters;
+      printf("[bench-fill] u8->f16 into DEVICE mem  : %.3f ms/frame\n", t_dev);
+      double t2 = now_ms();
+      for (int k = 0; k < iters; k++) memcpy(in_mem->virt_addr, src.data(), N);
+      double t_devcopy = (now_ms() - t2) / iters;
+      printf("[bench-fill] memcpy 1.2 MB into device: %.3f ms/frame\n", t_devcopy);
+    }
+    return 0;
   }
 
   c.n_out = io.n_output;
@@ -547,6 +1165,8 @@ int main(int argc, char** argv) {
            c.in_h / c.hm_h);
   }
 
+  if (!image_path && !batch_list) { printf("need an image or --batch list\n"); return 2; }
+
   // --- frames ---------------------------------------------------------------
   std::vector<std::string> frames;
   if (batch_list) {
@@ -568,6 +1188,36 @@ int main(int argc, char** argv) {
   std::vector<float> hm, off;
   std::vector<rknn_output> out;
   std::vector<Det> dets;
+
+  // One dispatch point for both input paths so the control/determinism logic
+  // and the timing bookkeeping stay identical.
+  auto run_frame = [&](const std::vector<uint8_t>& in, std::vector<float>* h,
+                       std::vector<float>* o, std::vector<rknn_output>* outp,
+                       double* ts) -> bool {
+    if (up_f16) {
+      // Our NEON conversion (0.78 ms) + a typed FLOAT16 upload: the runtime
+      // then stages the buffer into NPU memory the same way it does for the
+      // uint8 path, and only the type conversion is skipped.
+      static thread_local std::vector<uint16_t> f16buf;
+      f16buf.resize(in.size());
+      u8_to_f16(in.data(), f16buf.data(), in.size(), conv_div);
+      return run_once_f16(c, f16buf.data(), f16buf.size(), h, o, outp, ts);
+    }
+    if (up_nchw) {
+      // Feed the driver the canvas in the NPU's internal layout, so it does
+      // not have to transpose it. The transpose moves to the host.
+      static thread_local std::vector<uint8_t> tr;
+      tr.resize(in.size());
+      const int hw = (int)std::lround(std::sqrt((double)in.size() / 3.0));
+      nhwc_to_nchw_u8(in.data(), tr.data(), hw, 3);
+      return run_once(c, tr, h, o, outp, ts);
+    }
+    if (use_io_mem) {
+      if (fused_lb) return run_once_io_mem_filled(c, h, o, outp, ts);
+      return run_once_io_mem(c, in.data(), in.size(), conv_div, h, o, outp, ts, io_mem_nchw != 0);
+    }
+    return run_once(c, in, h, o, outp, ts);
+  };
 
   double sum_total = 0;
   double sum_stage[4] = {0, 0, 0, 0};
@@ -592,15 +1242,32 @@ int main(int argc, char** argv) {
     uint8_t* src = stbi_load(path.c_str(), &sw, &sh, &sc, 3);
     if (!src) { fprintf(stderr, "stbi_load failed: %s\n", path.c_str()); return 1; }
     double t_load = now_ms() - t_ld0;
+    const bool fused = (fused_lb && use_io_mem);
+    std::vector<uint8_t> src_copy;          // only used by the fused null control
     double t_lb0 = now_ms();
-    letterbox(src, sw, sh, kDefaultSize, &input);
+    if (fused) {
+      // Fused: the padded canvas goes straight into the bound input tensor as
+      // fp16. No 1.2 MB uint8 buffer is materialised, and the bytes are
+      // bit-identical to letterbox() + u8->f16 (--selftest-lb proves it).
+      letterbox_to_f16(src, sw, sh, kDefaultSize, (uint16_t*)c.io_mem->virt_addr);
+      src_copy.assign(src, src + (size_t)sw * sh * 3);
+    } else {
+      letterbox(src, sw, sh, kDefaultSize, &input);
+    }
     double t_lb = now_ms() - t_lb0;
     free(src);
 
     // blank-input refusal (rules 4.2d: non-zero output != usable model)
     double t_sc0 = now_ms();
     int mn = 255, mx = 0;
-    for (uint8_t v : input) { mn = std::min(mn, (int)v); mx = std::max(mx, (int)v); }
+    if (fused) {
+      const uint16_t* p16 = (const uint16_t*)c.io_mem->virt_addr;
+      const size_t n16 = (size_t)kDefaultSize * kDefaultSize * 3;
+      for (size_t i = 0; i < n16; i++)
+        if (p16[i] != 0) { mx = 1; break; }
+    } else {
+      for (uint8_t v : input) { mn = std::min(mn, (int)v); mx = std::max(mx, (int)v); }
+    }
     double t_scan = now_ms() - t_sc0;
     // Guard on the MAX, not the min: a real infrared frame is full of zero
     // background, so testing `mn == 0` rejects every legitimate image and tests
@@ -614,7 +1281,13 @@ int main(int argc, char** argv) {
     // and resizes with float bilinear while the host uses cv2's fixed-point
     // INTER_LINEAR -- neither is bit-identical, so "the NPU saw exactly what
     // PyTorch saw" has to be measured rather than assumed.
-    if (input_dump) {
+    if (input_dump && fused) {
+      static bool warned = false;
+      if (!warned) {
+        warned = true;
+        fprintf(stderr, "[WARN] --dump-input skipped: the fused path has no uint8 buffer\n");
+      }
+    } else if (input_dump) {
       const char* slash = strrchr(path.c_str(), '/');
       std::string stem_name = slash ? slash + 1 : path;
       for (auto& ch : stem_name)
@@ -636,17 +1309,32 @@ int main(int argc, char** argv) {
              sw, sh, kDefaultSize, kDefaultSize, t_lb, fnv1a(input.data(), input.size()), mn, mx);
 
       // null control + determinism, once, on the first frame
-      if (!run_once(c, input, &hm, &off, &out, nullptr)) return 1;
+      if (!run_frame(input, &hm, &off, &out, nullptr)) return 1;
       uint32_t h1 = fnv1a(out[0].buf, out[0].size);
       uint32_t h1b = fnv1a(out[1].buf, out[1].size);
       release(c, &out);
 
-      std::vector<uint8_t> inv = input;
-      for (auto& v : inv) v = (uint8_t)(255 - v);
-      if (!run_once(c, inv, nullptr, nullptr, &out, nullptr)) return 1;
+      std::vector<uint8_t> inv;
+      if (fused) {
+        // The fused path has no uint8 buffer to invert; invert the SOURCE
+        // instead and letterbox that. It is still a different input, which is
+        // all this control has to prove.
+        inv = src_copy;
+        for (auto& v : inv) v = (uint8_t)(255 - v);
+        letterbox_to_f16(inv.data(), sw, sh, kDefaultSize, (uint16_t*)c.io_mem->virt_addr);
+      } else {
+        inv = input;
+        for (auto& v : inv) v = (uint8_t)(255 - v);
+      }
+      if (!run_frame(inv, nullptr, nullptr, &out, nullptr)) return 1;
       uint32_t hc = fnv1a(out[0].buf, out[0].size);
       uint32_t hcb = fnv1a(out[1].buf, out[1].size);
       release(c, &out);
+      if (fused) {
+        // The control just left the INVERTED canvas in the bound tensor; put
+        // the real frame back before anything is detected from it.
+        letterbox_to_f16(src_copy.data(), sw, sh, kDefaultSize, (uint16_t*)c.io_mem->virt_addr);
+      }
       printf("[5] null control (inverted input): heatmap %08x -> %08x %s, offset %08x -> %08x %s\n",
              h1, hc, hc != h1 ? "CHANGED" : "IDENTICAL(BAD)", h1b, hcb, hcb != h1b ? "CHANGED" : "IDENTICAL(BAD)");
       if (hc == h1 || hcb == h1b) {
@@ -654,7 +1342,7 @@ int main(int argc, char** argv) {
         return 1;
       }
 
-      if (!run_once(c, input, &hm, &off, &out, nullptr)) return 1;
+      if (!run_frame(input, &hm, &off, &out, nullptr)) return 1;
       uint32_t h2 = fnv1a(out[0].buf, out[0].size);
       printf("[5] determinism: run#1=%08x run#2=%08x -> %s\n", h1, h2, h1 == h2 ? "IDENTICAL" : "DIFFER");
       release(c, &out);
@@ -665,7 +1353,7 @@ int main(int argc, char** argv) {
       // report quoted the cost of only one. The repeat is discarded (hm/off are
       // nullptr), so dropping it cannot change any detection.
       double ts[4] = {0, 0, 0, 0};
-      if (!run_once(c, input, &hm, &off, &out, ts)) return 1;
+      if (!run_frame(input, &hm, &off, &out, ts)) return 1;
       for (int s = 0; s < 4; s++) sum_stage[s] += ts[s];
       sum_total += ts[0] + ts[1] + ts[2] + ts[3];
       n_timed++;
@@ -729,11 +1417,11 @@ int main(int argc, char** argv) {
     // repeating it here would re-introduce the duplicate rknn_run per frame.
     if (batch_list) continue;
     int w = warmup;
-    for (int k = 0; k < w; k++) { run_once(c, input, nullptr, nullptr, &out, nullptr); release(c, &out); }
+    for (int k = 0; k < w; k++) { run_frame(input, nullptr, nullptr, &out, nullptr); release(c, &out); }
     int n = std::max(1, loops);
     for (int k = 0; k < n; k++) {
       double ts[4] = {0, 0, 0, 0};
-      if (!run_once(c, input, nullptr, nullptr, &out, ts)) return 1;
+      if (!run_frame(input, nullptr, nullptr, &out, ts)) return 1;
       release(c, &out);
       sum_total += ts[0] + ts[1] + ts[2];
       sum_stage[0] += ts[0];
@@ -750,7 +1438,11 @@ int main(int argc, char** argv) {
     double host = h_load + h_lb + h_scan + h_peaks + h_write;
     printf("\n[7] latency over %d timed runs (full per-frame cost)\n", n_timed);
     printf("    --- NPU stage ---\n");
-    printf("    inputs_set   avg %7.3f ms\n", sum_stage[0] / n_timed);
+    if (use_io_mem)
+      printf("    input fill   avg %7.3f ms  (host fill into the io-mem; no inputs_set)\n",
+             sum_stage[0] / n_timed);
+    else
+      printf("    inputs_set   avg %7.3f ms\n", sum_stage[0] / n_timed);
     printf("    rknn_run     avg %7.3f ms  (%.1f%%)\n", sum_stage[1] / n_timed,
            100.0 * sum_stage[1] / sum_total);
     printf("    outputs_get  avg %7.3f ms  (%.1f%%)   [1.2 MB of float32 tensors]\n",

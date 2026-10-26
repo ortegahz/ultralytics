@@ -48,9 +48,15 @@ from manu.evaluation.eval_multiscale_cache_th import load_ground_truth  # noqa: 
 
 SEARCH_SPACE = {
     # G1 thresholds
-    "th_base": [0.14, 0.18, 0.22, 0.26, 0.30, 0.34, 0.40],
+    # The th_base / th_ground grids were extended on 2026-10-22 (trial_0080 delivery work, §55.8/§55.9 of
+    # manu/memory/archive/06_领域迁移复评_§五十四~§五十五.md).  The previous grids stopped at th_base=0.40
+    # and had no th_ground=0.26 at all, so a blind run could never reach the delivered working point
+    # (th_base=0.42 / th_ground=0.26 / confirm_consec=7) -- and the coordinate-descent step *skips a whole
+    # group* when the current value is not in the candidate list ("if best_params[key] not in values: continue").
+    # All previous values are kept, so the frozen trial_0474 workflow is unaffected.
+    "th_base": [0.14, 0.18, 0.22, 0.26, 0.30, 0.34, 0.40, 0.42, 0.45, 0.48, 0.52],
     "th_salvage": [0.03, 0.06, 0.09, 0.12],
-    "th_ground": [0.22, 0.28, 0.35, 0.42, 0.50],
+    "th_ground": [0.18, 0.22, 0.26, 0.28, 0.35, 0.42, 0.50],
     "sky_ratio": [0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 1.00],
     # G2 tracking
     "min_hits": [2, 3, 4],
@@ -84,7 +90,11 @@ SEARCH_SPACE = {
     "th_deep": [0.0, 0.035, 0.05],
     "min_hits_deep": [3, 4],
     # G7 continuity
-    "confirm_consec": [1, 2, 3, 4, 5, 6],
+    # confirm_consec gained 7 and 8 on 2026-10-22: the 54-candidate grid of §55.8 showed it is a real
+    # lever (5/6/7 -> 7/18, 11/18, 13/18 of the candidates pass the delivery triple), and the delivered
+    # working point uses 7, which the old grid could not even reach (the group is skipped when the
+    # current value is missing from the list).
+    "confirm_consec": [1, 2, 3, 4, 5, 6, 7, 8],
     "confirm_gap_tol": [0, 1, 2],
     "confirm_trim_prefix": [0, 1],
     "persist_min_hits": [0, 2, 3, 4],
@@ -651,7 +661,13 @@ def main() -> None:
     _STORE = store
     params = dict(DEFAULT_PARAMS)
     if args.base_params:
-        overrides = json.loads(Path(args.base_params).read_text())
+        overrides = json.loads(Path(args.base_params).read_text(encoding="utf-8"))
+        # A delivery parameter file stores the actual values under "params" (with a "_provenance"
+        # block beside them); a flat file is accepted as well.  Without this unwrapping the
+        # overrides would be applied under the keys "_provenance"/"params" and the run would
+        # *silently* start from DEFAULT_PARAMS instead of the given working point.
+        if isinstance(overrides, dict) and isinstance(overrides.get("params"), dict):
+            overrides = overrides["params"]
         params.update(overrides)
         print(f"[BASE] 基准参数覆盖 {len(overrides)} 项: {overrides}", flush=True)
 

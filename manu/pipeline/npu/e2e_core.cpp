@@ -100,6 +100,8 @@ struct InferEngine {
     std::vector<Det> dets;
     long frames = 0, detections = 0;
     bool want_hash = false;
+    bool use_io_mem = false;
+    float conv_div = 1.0f;
     uint32_t hash = 2166136261u;   // FNV-1a offset basis
     InferTiming acc;               // cumulative sub-stage totals
 };
@@ -336,6 +338,32 @@ InferEngine* infer_open(const InferParams& p) {
     // rknn_inputs_set a pre-widened buffer legal; on an INT8 graph the runtime
     // quantises whatever it is given and the uint8 path stays the right one.
     e->c.input_is_f16 = (in_attr.type == RKNN_TENSOR_FLOAT16);
+    e->c.input_is_int8 = (in_attr.type == RKNN_TENSOR_INT8);
+    e->c.input_zp = in_attr.zp;
+    e->use_io_mem = p.use_io_mem;
+    e->conv_div = p.conv_div;
+    if (e->use_io_mem) {
+        // Zero-copy input: the host owns the input tensor's storage and
+        // rknn_inputs_set is never called. rknn_set_io_mem has no driver-side
+        // size check, which is exactly what pass_through lacks here (the
+        // driver wants 4 B/px while this graph declares 2 B/px).
+        const uint32_t mem_sz = in_attr.size_with_stride ? in_attr.size_with_stride : in_attr.size;
+        e->c.io_mem = rknn_create_mem(e->c.ctx, mem_sz);
+        if (!e->c.io_mem) {
+            std::fprintf(stderr, "[FATAL] rknn_create_mem(%u) failed\n", mem_sz);
+            rknn_destroy(e->c.ctx);
+            delete e;
+            return nullptr;
+        }
+        if (rknn_set_io_mem(e->c.ctx, e->c.io_mem, &in_attr) != 0) {
+            std::fprintf(stderr, "[FATAL] rknn_set_io_mem failed\n");
+            rknn_destroy(e->c.ctx);
+            delete e;
+            return nullptr;
+        }
+        std::printf("[2] io-mem: zero-copy input bound (%u B, type=%d zp=%d conv_div=%.3f)\n",
+                    mem_sz, (int)in_attr.type, in_attr.zp, e->conv_div);
+    }
     if (e->c.input_is_f16)
         std::printf("[2] model input type = FLOAT16 -> pre-widened input path available\n");
     // The declared size is printed because it is the only way to settle a
@@ -431,10 +459,25 @@ static bool infer_frame(InferEngine* e, const uint8_t* rgb, int sw, int sh,
     }
 
     double ts[4] = {0, 0, 0, 0};
-    if (!run_once(e->c, e->input, &e->hm, &e->off, &e->out, ts,
-                  preboxed_f16, preboxed_f16 ? e->input.size() : 0,
-                  preboxed_f32, preboxed_f32 ? e->input.size() : 0,
-                  f32_passthrough)) return false;
+    bool ok;
+    if (e->c.io_mem) {
+        // Zero-copy: fill the bound tensor ourselves and run. No
+        // rknn_inputs_set, so the driver's per-element widening never happens.
+        if (preboxed_f16) {
+            std::memcpy(e->c.io_mem->virt_addr, preboxed_f16,
+                        e->input.size() * sizeof(uint16_t));
+            ok = run_once_io_mem_filled(e->c, &e->hm, &e->off, &e->out, ts);
+        } else {
+            ok = run_once_io_mem(e->c, e->input.data(), e->input.size(), e->conv_div,
+                                 &e->hm, &e->off, &e->out, ts);
+        }
+    } else {
+        ok = run_once(e->c, e->input, &e->hm, &e->off, &e->out, ts,
+                      preboxed_f16, preboxed_f16 ? e->input.size() : 0,
+                      preboxed_f32, preboxed_f32 ? e->input.size() : 0,
+                      f32_passthrough);
+    }
+    if (!ok) return false;
     if (t) {
         // ts = {inputs_set, rknn_run, outputs_get, dequant}
         t->inputs_set_ms = ts[0];
@@ -606,17 +649,21 @@ static inline uint16_t f32_to_f16_bits(float f) {
 bool letterbox_feature_f16(const uint8_t* rgb, int w, int h, std::vector<uint16_t>* dst,
                            double* ms, bool div255) {
     const double t0 = now_ms();
-    std::vector<uint8_t> boxed;
-    letterbox(rgb, w, h, kDefaultSize, &boxed);   // identical call, identical bytes
-    dst->resize(boxed.size());
+    dst->resize((size_t)kDefaultSize * kDefaultSize * 3);
     if (div255) {
         // Model space: the runtime no longer applies std_values once we declare
         // FLOAT16, so the 0..255 integers have to be divided here.
+        std::vector<uint8_t> boxed;
+        letterbox(rgb, w, h, kDefaultSize, &boxed);
         for (size_t i = 0; i < boxed.size(); ++i)
             (*dst)[i] = f32_to_f16_bits((float)boxed[i] * (1.0f / 255.0f));
     } else {
-        // uint8 0..255 is exactly representable in binary16 (10 mantissa bits).
-        for (size_t i = 0; i < boxed.size(); ++i) (*dst)[i] = (uint16_t)boxed[i];
+        // Raw 0..255 integers, which is what this graph's input tensor wants
+        // (scale = 1.0 -- the division lives inside the model). FUSED: the
+        // canvas is written straight out as fp16, bit-identical to
+        // letterbox() + u8->f16. (The previous version here wrote the raw
+        // byte as if it were an fp16 bit pattern, which is simply wrong.)
+        letterbox_to_f16(rgb, w, h, kDefaultSize, dst->data());
     }
     if (ms) *ms = now_ms() - t0;
     return true;
@@ -693,6 +740,22 @@ bool letterbox_feature_f32(const uint8_t* rgb, int w, int h, F32Boxed* dst,
     u8_to_f32(dst->u8.data(), dst->f32.data(), dst->u8.size(), div255);
     if (ms) *ms = now_ms() - t0;
     return true;
+}
+
+bool infer_preboxed_f16_io(InferEngine* e, const std::vector<uint16_t>& boxed_f16, const char* name,
+                          long* n_det_out, InferTiming* t) {
+    if (!e->c.io_mem) {
+        std::fprintf(stderr, "[FATAL] infer_preboxed_f16_io without a bound io-mem\n");
+        return false;
+    }
+    if (!e->c.input_is_f16) {
+        std::fprintf(stderr, "[FATAL] infer_preboxed_f16_io on a non-FLOAT16 model graph\n");
+        return false;
+    }
+    // e->input still has to be filled: the all-zero guard reads it.
+    e->input.resize(boxed_f16.size());
+    for (size_t i = 0; i < boxed_f16.size(); ++i) e->input[i] = (uint8_t)boxed_f16[i];
+    return infer_frame(e, nullptr, 0, 0, nullptr, name, n_det_out, t, boxed_f16.data());
 }
 
 bool infer_preboxed_f32(InferEngine* e, const F32Boxed& b, const char* name,
