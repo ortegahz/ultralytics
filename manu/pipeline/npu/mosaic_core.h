@@ -34,6 +34,7 @@
 #include <vector>
 
 #include <fcntl.h>
+#include <pthread.h>
 #include <sched.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -220,6 +221,47 @@ void u8_to_f16_int(const uint8_t* src, uint16_t* dst, size_t n) {
     uint32_t b;
     memcpy(&b, &f, 4);
     dst[i] = (uint16_t)(src[i] == 0 ? 0u : ((b >> 13) - 0x1C000u));
+  }
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// Three plane-major 8-bit planes -> ONE interleaved 3-channel buffer, in the
+// model order [residual, diff, I_t] = [c2, c1, c0].
+//
+// WHY THIS EXISTS (measured, not guessed): the scalar version of this loop
+// wrote 983,040 bytes with a stride-3 store in a byte-at-a-time loop.  On the
+// board that cost ~15 ms of CPU per frame INSIDE the GMC service -- and the
+// GMC service was the stage that could not keep up with a 25 fps camera, so
+// this was not a cosmetic cost: it pushed the feature stage below 25 fps and
+// the camera queue overflowed (which breaks the GMC registration chain).
+//
+// The NEON path does the same 16 pixels at a time with vst3q_u8, which is the
+// hardware interleaving store.  THE BYTES ARE IDENTICAL -- this is a pure
+// speed change and the bit-exactness contract is re-verified on the full
+// sequence after it (the detection TSV md5 must stay 0bf598a1d890040bcfa8d157dc69c032).
+// ---------------------------------------------------------------------------
+inline void Interleave3Planes(const uint8_t* c0, const uint8_t* c1, const uint8_t* c2,
+                               size_t plane, uint8_t* dst) {
+#ifdef MOSAIC_HAVE_NEON
+  size_t i = 0;
+  for (; i + 16 <= plane; i += 16) {
+    uint8x16x3_t v;
+    v.val[0] = vld1q_u8(c2 + i);  // R = residual
+    v.val[1] = vld1q_u8(c1 + i);  // G = diff
+    v.val[2] = vld1q_u8(c0 + i);  // B = I_t
+    vst3q_u8(dst + i * 3, v);
+  }
+  for (; i < plane; ++i) {
+    dst[i * 3 + 0] = c2[i];
+    dst[i * 3 + 1] = c1[i];
+    dst[i * 3 + 2] = c0[i];
+  }
+#else
+  for (size_t i = 0; i < plane; ++i) {
+    dst[i * 3 + 0] = c2[i];
+    dst[i * 3 + 1] = c1[i];
+    dst[i * 3 + 2] = c0[i];
   }
 #endif
 }
@@ -660,11 +702,19 @@ struct NpuCtx {
   bool input_is_f16 = false;
   bool input_is_f32 = false;
   bool input_is_int8 = false;
+  bool input_nchw = false;   // the model's input tensor layout
   int input_zp = 0;
   rknn_tensor_mem* io_mem = nullptr;
 };
 
-enum class InputMode { kSet, kIoMemNchw, kIoMemNhwc };
+enum class InputMode {
+  kSet,       // uint8 NHWC upload; the runtime does the uint8->fp16 widening
+  kSetF16,    // WE do the uint8->fp16 widening (integer NEON) and hand the
+              // runtime a FLOAT16 buffer, so the runtime only COPIES instead
+              // of widening.  Same numbers, a fraction of the host time.
+  kIoMemNchw,
+  kIoMemNhwc
+};
 enum class CanvasMode { kMosaic, kSingle };
 
 // ---------------------------------------------------------------------------
@@ -757,6 +807,59 @@ bool ApplyCpuAffinity(const std::string& spec) {
 }
 
 // ---------------------------------------------------------------------------
+// PER-SERVICE CPU AFFINITY.
+//
+// The process-wide affinity above is applied with sched_setaffinity(0), which
+// only narrows the CALLING thread; the worker threads inherit the mask when
+// they are created, so they all end up on the SAME set of cores.
+//
+// That is not good enough for a pipeline whose stages have very different
+// profiles: a GMC fit is a 60 ms CPU burst that MUST NOT be preempted (a
+// preempted fit does not just take longer, it makes the whole camera queue
+// overflow), while an NPU service spends most of its time blocked on the NPU
+// hardware.  Measured on the board: with everything on cores 4-7 the two GMC
+// engine threads each got only ~0.85 of a core and the feature stage ran at
+// 23.3 fps -- BELOW the 25 fps the camera delivers.
+//
+// So each service gets its own core list.  The thread pins ITSELF with
+// pthread_setaffinity_np, which is the only way to place an individual
+// thread.
+// ---------------------------------------------------------------------------
+
+// "4" -> {4};  "4,5" -> {4,5};  "4-7" -> {4,5,6,7};  "" -> {} (empty = no list).
+inline bool ParseCpuList(const std::string& spec, std::vector<int>* out) {
+  out->clear();
+  const char* p = spec.c_str();
+  while (*p) {
+    int a = 0, b = 0;
+    char* e = nullptr;
+    a = (int)strtol(p, &e, 10);
+    if (e == p) { p++; continue; }
+    b = a;
+    if (*e == '-') { p = e + 1; b = (int)strtol(p, &e, 10); }
+    for (int c = a; c <= b && c < CPU_SETSIZE; c++) out->push_back(c);
+    p = e;
+    if (*p == ',') p++;
+  }
+  return !out->empty();
+}
+
+// Pin the CALLING thread to exactly one core.  Returns false (with a warning)
+// if the kernel refuses -- for example a core id that is not in the process's
+// inherited mask.
+inline bool PinCurrentThreadToCpu(int cpu) {
+  if (cpu < 0 || cpu >= CPU_SETSIZE) return false;
+  cpu_set_t set;
+  CPU_ZERO(&set);
+  CPU_SET(cpu, &set);
+  if (pthread_setaffinity_np(pthread_self(), sizeof(set), &set) != 0) {
+    fprintf(stderr, "[WARN] pthread_setaffinity_np(core %d) failed: %s\n", cpu, strerror(errno));
+    return false;
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // Sequence name: the directory the BMPs live in (the board driver writes one
 // list per sequence, e.g. list_VIDEO00007_19700101_001324.txt).  Falls back
 // to the list file's own stem.
@@ -826,6 +929,26 @@ void EnsureDir(const std::string& dir) {
 // their canvases are independent buffers and no frame can be overwritten
 // while another one is still being uploaded.
 // ---------------------------------------------------------------------------
+// Scratch for the back-projection stage.
+//
+// It belongs to whoever RUNS that stage, not to the Session: the stage may
+// run on a different thread than the NPU that produced the heatmap, and two
+// Sessions must never share it.  The library gives the post-processing
+// service its own workspace per worker thread.
+struct PostWorkspace {
+  std::vector<float> native_map;
+  CcWorkspace cc;
+  std::vector<Comp> comps;
+};
+
+// Size the back-projection scratch.  The Session gets one of these from
+// InitSession; a service that runs the stage on its own thread needs its own
+// (the scratch belongs to the stage, not to the session).
+inline void InitPostWorkspace(PostWorkspace* ws) {
+  if (!ws) return;
+  ws->native_map.assign((size_t)kSrcW * kSrcH, 0.0f);
+}
+
 struct Session {
   Options opt;
   std::vector<Tile> tiles;
@@ -845,10 +968,9 @@ struct Session {
 
   std::vector<float> hm;
   std::vector<rknn_output> outs;
-  std::vector<float> native_map;
-  std::vector<Comp> comps;
-  CcWorkspace cc;
+  PostWorkspace post;
   std::vector<uint16_t> f16_tmp;
+  std::vector<uint16_t> f16_nchw;   // transpose scratch for the NCHW upload
 };
 
 // ---------------------------------------------------------------------------
@@ -928,6 +1050,7 @@ bool InitSession(Session* s, const std::string& model_path, CanvasMode mode,
   s->npu.input_is_f16 = (in_attr.type == RKNN_TENSOR_FLOAT16);
   s->npu.input_is_f32 = (in_attr.type == RKNN_TENSOR_FLOAT32);
   s->npu.input_is_int8 = (in_attr.type == RKNN_TENSOR_INT8);
+  s->npu.input_nchw = (in_attr.fmt == RKNN_TENSOR_NCHW);
   s->npu.input_zp = in_attr.zp;
   fprintf(stderr, "[i] input %dx%dx%d fmt=%s type=%s zp=%d scale=%.8f\n", s->npu.in_h, s->npu.in_w,
           s->npu.in_c, tensor_fmt_name(in_attr.fmt), tensor_type_name(in_attr.type), in_attr.zp,
@@ -969,7 +1092,10 @@ bool InitSession(Session* s, const std::string& model_path, CanvasMode mode,
   }
 
   // ---- zero-copy input buffer (optional) ----------------------------------
-  if (im != InputMode::kSet) {
+  // Only the two io-mem modes bind the input tensor to host memory.
+  // kSetF16 is NOT an io-mem mode: it still goes through rknn_inputs_set,
+  // we just hand it a FLOAT16 buffer instead of a uint8 one.
+  if (im == InputMode::kIoMemNchw || im == InputMode::kIoMemNhwc) {
     const uint32_t mem_sz = in_attr.size_with_stride ? in_attr.size_with_stride : in_attr.size;
     s->npu.io_mem = rknn_create_mem(s->npu.ctx, mem_sz);
     if (!s->npu.io_mem) {
@@ -998,7 +1124,7 @@ bool InitSession(Session* s, const std::string& model_path, CanvasMode mode,
   // supports RGBA, so the RGB_888 canvas is filled with memset.
   memset(s->canvas.data, kPad, s->canvas.size);
 
-  s->native_map.assign((size_t)kSrcW * kSrcH, 0.0f);
+  s->post.native_map.assign((size_t)kSrcW * kSrcH, 0.0f);
   return true;
 }
 
@@ -1039,8 +1165,28 @@ struct FrameOut {
 // model_order_bmp() == cv2.imread(bmp)[..., ::-1], i.e. the model's channel
 // order [residual, diff, I_t].  No flip here.
 // ---------------------------------------------------------------------------
-bool ProcessFrame(Session* s, const uint8_t* rgb, int w, int h, FrameOut* out) {
-  out->comps.clear();
+// ---------------------------------------------------------------------------
+// The three pipeline STAGES.
+//
+// The frame path is deliberately split into three services so that each one can
+// be scheduled -- and measured -- on its own:
+//
+//   PrepareFrame   RGA compose into the canvas + upload into the ctx input
+//   RunFrame       rknn_run + outputs_get + dequant   (the NPU service)
+//   BackProject    bilinear back-projection + 8-connected components
+//
+// ProcessFrame below is the three of them back to back, which is what the
+// BMP-driven binary needs; the library drives the stages separately so the
+// post-processing can run while the NPU is already busy with the next frame.
+//
+// The scratch the back-projection needs (the native-resolution map and the
+// connected-component workspace) belongs to the STAGE, not to the Session:
+// the stage may run on a different thread than the NPU that produced the
+// heatmap, and two Sessions must never share it.
+// ---------------------------------------------------------------------------
+
+// ---- stage 1: RGA compose + upload ----------------------------------------
+bool PrepareFrame(Session* s, const uint8_t* rgb, int w, int h, FrameOut* out) {
   if (w != kSrcW || h != kSrcH) {
     fprintf(stderr, "[FATAL] expected %dx%d, got %dx%d\n", kSrcW, kSrcH, w, h);
     return false;
@@ -1128,7 +1274,39 @@ bool ProcessFrame(Session* s, const uint8_t* rgb, int w, int h, FrameOut* out) {
   // ---- 2. upload ----------------------------------------------------------
   const size_t canvas_elems = s->canvas.size;
   const double u0 = now_ms();
-  if (s->opt.input_mode == InputMode::kSet) {
+  if (s->opt.input_mode == InputMode::kSetF16) {
+    // WE widen uint8 -> fp16 ourselves (integer NEON, ~0.8 ms for 1.2 M
+    // elements) and hand the runtime a FLOAT16 buffer.  The runtime then
+    // only COPIES 1.92 MB, where the `set` path made it WIDEN 960 KB from
+    // uint8 -- that scalar widening measured 12.78 ms/frame on the board,
+    // the single largest HOST cost of the fp16 arm, and it sat on the NPU's
+    // critical path.
+    //
+    // The numbers are identical: every integer 0..255 is exactly
+    // representable in fp16, so u8_to_f16_int is the closed form -- there is
+    // no rounding to disagree about.  The LAYOUT must be the model's own
+    // (RKNN_QUERY_INPUT_ATTR); the NCHW case goes through the same transpose
+    // the io-mem path uses.
+    s->f16_tmp.resize(canvas_elems);
+    if (npu.input_nchw) {
+      s->f16_nchw.resize(canvas_elems);
+      u8_to_f16(s->canvas.data, s->f16_nchw.data(), canvas_elems, 1.0f);
+      nhwc_to_nchw_f16(s->f16_nchw.data(), s->f16_tmp.data(), kCanvas, kSrcC);
+    } else {
+      u8_to_f16(s->canvas.data, s->f16_tmp.data(), canvas_elems, 1.0f);
+    }
+    rknn_input in{};
+    in.index = 0;
+    in.pass_through = 0;
+    in.fmt = npu.input_nchw ? RKNN_TENSOR_NCHW : RKNN_TENSOR_NHWC;
+    in.type = RKNN_TENSOR_FLOAT16;
+    in.size = (uint32_t)(canvas_elems * sizeof(uint16_t));
+    in.buf = s->f16_tmp.data();
+    if (rknn_inputs_set(npu.ctx, 1, &in) != 0) {
+      fprintf(stderr, "[FATAL] rknn_inputs_set failed\n");
+      return false;
+    }
+  } else if (s->opt.input_mode == InputMode::kSet) {
     // The default path: a plain uint8 NHWC upload, structurally identical
     // to the certified single-scale board arm (the runtime does the
     // uint8 -> fp16 widening itself).
@@ -1196,7 +1374,12 @@ bool ProcessFrame(Session* s, const uint8_t* rgb, int w, int h, FrameOut* out) {
   //   rknn_run, so the saving can be a net LOSS.  Do not read the io-mem
   //   numbers as "the upload is free".
 
-  // ---- 3. run + outputs ---------------------------------------------------
+  return true;
+}
+
+// ---- stage 2: run + outputs -------------------------------------------------
+bool RunFrame(Session* s, std::vector<float>* hm, FrameOut* out) {
+  NpuCtx& npu = s->npu;
   s->outs.assign(npu.n_out, rknn_output{});
   for (uint32_t i = 0; i < npu.n_out; i++) {
     s->outs[i].index = i;
@@ -1215,7 +1398,7 @@ bool ProcessFrame(Session* s, const uint8_t* rgb, int w, int h, FrameOut* out) {
   // Only the heatmap is dequantised: the offset output is not used by the
   // connected-component detector (the PC side's detect_components does not
   // use it either).
-  if (!dequant(s->outs[0], npu.out_attr[0], &s->hm)) {
+  if (!dequant(s->outs[0], npu.out_attr[0], hm)) {
     fprintf(stderr, "[FATAL] dequant of the heatmap output failed\n");
     rknn_outputs_release(npu.ctx, npu.n_out, s->outs.data());
     return false;
@@ -1226,10 +1409,15 @@ bool ProcessFrame(Session* s, const uint8_t* rgb, int w, int h, FrameOut* out) {
   out->outputs = now_ms() - r1;
   rknn_outputs_release(npu.ctx, npu.n_out, s->outs.data());
   out->run = r1 - r0;
+  return true;
+}
 
-  // ---- 4. back-projection + connected components --------------------------
+// ---- stage 3: back-projection + connected components -----------------------
+void BackProjectFrame(Session* s, const std::vector<float>& hm, PostWorkspace* ws,
+                      std::vector<Comp>* out, double* backproj_ms) {
+  const NpuCtx& npu = s->npu;
   const double b0 = now_ms();
-  out->comps.clear();
+  out->clear();
   for (const Tile& t : s->tiles) {
     if (!t.enabled) continue;
     int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
@@ -1239,17 +1427,29 @@ bool ProcessFrame(Session* s, const uint8_t* rgb, int w, int h, FrameOut* out) {
     // The tile's heatmap sub-rectangle, enlarged back onto the native grid.
     // The source rows are still npu.hm_w floats apart -- the sub-rectangle
     // is a WINDOW of the heatmap, not a packed image.
-    ResizeBilinearF32(s->hm.data() + (size_t)y0 * npu.hm_w + x0, npu.hm_w, sw, sh,
-                      s->native_map.data(), kSrcW, kSrcH);
-    DetectComponents(&s->cc, s->native_map.data(), kSrcW, kSrcH, s->region_threshold, s->min_area,
-                     s->max_detections, &s->comps);
-    for (const Comp& c : s->comps) {
+    ResizeBilinearF32(hm.data() + (size_t)y0 * npu.hm_w + x0, npu.hm_w, sw, sh,
+                      ws->native_map.data(), kSrcW, kSrcH);
+    DetectComponents(&ws->cc, ws->native_map.data(), kSrcW, kSrcH, s->region_threshold,
+                     s->min_area, s->max_detections, &ws->comps);
+    for (const Comp& c : ws->comps) {
       Comp tagged = c;
       tagged.tag = t.tag;
-      out->comps.push_back(tagged);
+      out->push_back(tagged);
     }
   }
-  out->backproj = now_ms() - b0;
+  if (backproj_ms) *backproj_ms = now_ms() - b0;
+}
+
+// ---------------------------------------------------------------------------
+// ProcessFrame: the three stages back to back.  This is the whole frame path
+// in one call, which is what the BMP-driven binary wants; the library calls
+// the stages separately so the back-projection can overlap the NPU.
+// ---------------------------------------------------------------------------
+bool ProcessFrame(Session* s, const uint8_t* rgb, int w, int h, FrameOut* out) {
+  out->comps.clear();
+  if (!PrepareFrame(s, rgb, w, h, out)) return false;
+  if (!RunFrame(s, &s->hm, out)) return false;
+  BackProjectFrame(s, s->hm, &s->post, &out->comps, &out->backproj);
   return true;
 }
 

@@ -97,21 +97,28 @@
 #include "../opencl/host/ocl_host.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
+#include <cerrno>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <map>
 #include <memory>
 #include <array>
+#include <mutex>
 #include <set>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
 #include <dirent.h>
+#include <pthread.h>
 #include <sched.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -324,41 +331,108 @@ public:
     long cache_hits() const { return n_hits_; }
     long cache_lookups() const { return n_lookups_; }
 
-    Matx23f compute_affine(long prev_abs, long curr_abs, const Mat& prev_gray,
-                           const Mat& curr_gray) const {
-        const int h = curr_gray.rows;
-        const int w = curr_gray.cols;
-        const int ds = downscale_;
-        Matx23f H = kIdentity;
+    // ---------------------------------------------------------------------
+    // THE SPLIT FIT: an LK stage and a RANSAC stage.
+    //
+    // WHY THE SPLIT EXISTS
+    //   The reference fit is ONE call: LK, then RANSAC.  RANSAC consumes
+    //   OpenCV's global RNG (theRNG()), so the ORDER of the fits is part of
+    //   the output: five anchors fitted back to back draw five RNG blocks in a
+    //   fixed order, and a fit that draws a different block can land on the
+    //   other of two equally plausible solutions and shift a whole warped edge.
+    //   That is why the FITS may not be run concurrently.
+    //
+    //   But the LK stage consumes NO RNG and is a pure function of (prev
+    //   image, curr image, corners).  So the fit can be split:
+    //     * the LK stage of every anchor runs CONCURRENTLY -- each anchor
+    //       still runs the very same single-threaded OpenCV code on the very
+    //       same bytes, so every output bit is the bit it was before; and
+    //     * the RANSAC stages run SEQUENTIALLY, in the anchor order, in the
+    //       thread that ran them before -- so the global RNG is drawn from in
+    //       exactly the same order as before, and the output is bit-identical.
+    //
+    //   Nothing else changes: the OpenCV call signatures, the thresholds, the
+    //   gate and the order of the surrounding bookkeeping are all untouched.
+    //
+    // THE CACHE IS SHARED MUTABLE STATE
+    //   The per-frame cache (resize / corners / pyramid) is written by whoever
+    //   fills it, so it is touched ONLY by prepare_fit(), which runs SERIALLY
+    //   before any LK starts.  The LK stage then reads a snapshot of it and
+    //   writes nothing at all -- no counters, no tags, no buffers -- so five
+    //   anchors can run it at once without a data race.
+    // ---------------------------------------------------------------------
 
-        Mat prev_small, curr_small;
+    // The inputs of one anchor's LK stage: a READ-ONLY snapshot of the
+    // per-frame cache, taken while nothing else is running.
+    struct LkPlan {
+        Mat prev_small, curr_small;             // headers onto the cached pixels
+        std::vector<cv::Point2f> prev_corners;  // the source corners
+        std::vector<Mat> prev_pyr, curr_pyr;    // the pyramids (when prebuilt)
+        bool prebuilt_pyr = false;              // the reference's call shape
+        bool enough_corners = false;            // >= 6 corners, else IDENTITY
+    };
+
+    // The LK stage's output: the status-filtered point pairs the RANSAC stage
+    // consumes.  `ok == false` reproduces the reference's early return: the
+    // fit is IDENTITY and NO RANSAC runs, so no RNG is drawn at all.
+    struct LkPairs {
+        std::vector<cv::Point2f> p0, p1;
+        bool ok = false;
+    };
+
+    // SERIAL.  Fills `plan` with everything the LK stage needs, touching the
+    // cache in exactly the order -- and with exactly the early exits -- the
+    // reference's compute_affine() touched it.  The order matters for the
+    // cache telemetry (builds / hits) and for the pyramid: the reference
+    // returns BEFORE building the pyramid when there are fewer than 6
+    // corners, and so does this.
+    void prepare_fit(long prev_abs, long curr_abs, const Mat& prev_gray,
+                     const Mat& curr_gray, LkPlan* plan) const {
         if (!cache_) {
+            // The reference's no-cache branch: plain resize, fresh corners,
+            // and the LK builds its own pyramid internally.
+            //
+            // The resize target size comes from the CURRENT frame -- exactly
+            // as the reference's compute_affine() took it (it sized BOTH
+            // resizes from curr_gray).  plain_small() would size each resize
+            // from its own image, which is the same thing while the frames
+            // share a shape (the pipeline rejects a shape change) but is not
+            // the same code, so it is spelled out here.
+            const int ds = downscale_;
             if (ds > 1) {
-                const cv::Size small(w / ds, h / ds);
-                cv::resize(prev_gray, prev_small, small, 0, 0, cv::INTER_LINEAR);
-                cv::resize(curr_gray, curr_small, small, 0, 0, cv::INTER_LINEAR);
+                const cv::Size small(curr_gray.cols / ds, curr_gray.rows / ds);
+                cv::resize(prev_gray, plan->prev_small, small, 0, 0, cv::INTER_LINEAR);
+                cv::resize(curr_gray, plan->curr_small, small, 0, 0, cv::INTER_LINEAR);
             } else {
-                prev_small = prev_gray;
-                curr_small = curr_gray;
+                plan->prev_small = prev_gray;
+                plan->curr_small = curr_gray;
             }
-        } else {
-            small_of(prev_abs, prev_gray, prev_small);
-            small_of(curr_abs, curr_gray, curr_small);
-        }
-
-        // goodFeaturesToTrack: maxCorners=600, qualityLevel=0.01, minDistance=4, blockSize=3
-        std::vector<cv::Point2f> pts_prev;
-        if (!cache_) {
-            detect(prev_small, pts_prev);
+            detect(plan->prev_small, plan->prev_corners);
             ++n_corner_builds_;
-        } else {
-            corners_of(prev_abs, prev_small, pts_prev);
+            plan->prebuilt_pyr = false;
+            plan->enough_corners = plan->prev_corners.size() >= 6;
+            return;
         }
-        if (pts_prev.size() < 6) return H;
+        small_of(prev_abs, prev_gray, plan->prev_small);
+        small_of(curr_abs, curr_gray, plan->curr_small);
+        // goodFeaturesToTrack: maxCorners=600, qualityLevel=0.01, minDistance=4, blockSize=3
+        corners_of(prev_abs, plan->prev_small, plan->prev_corners);
+        plan->enough_corners = plan->prev_corners.size() >= 6;
+        if (!plan->enough_corners) return;   // the reference returns here
+        pyr_of(prev_abs, plan->prev_small, plan->prev_pyr);
+        pyr_of(curr_abs, plan->curr_small, plan->curr_pyr);
+        plan->prebuilt_pyr = true;
+    }
 
+    // The LK stage.  Reads the snapshot, touches NO shared state and NO RNG,
+    // so it may run on several anchors at once.  Every OpenCV argument is
+    // the reference's, in the reference's call shape.
+    LkPairs run_lk(const LkPlan& plan) const {
+        LkPairs out;
+        if (!plan.enough_corners) return out;
         // Wrap as (N,1) CV_32FC2 -- the same layout cv2 hands over from the Python side.
-        const Mat pts_prev_mat(static_cast<int>(pts_prev.size()), 1, CV_32FC2,
-                               const_cast<cv::Point2f*>(pts_prev.data()));
+        const Mat pts_prev_mat(static_cast<int>(plan.prev_corners.size()), 1, CV_32FC2,
+                               const_cast<cv::Point2f*>(plan.prev_corners.data()));
         std::vector<cv::Point2f> pts_curr;
         std::vector<unsigned char> status;
         std::vector<float> err;
@@ -367,50 +441,65 @@ public:
             // Only pay for a non-default criterion when it was actually asked for;
             // the default path below keeps the exact shipped call signature.
             cv::TermCriteria crit(cv::TermCriteria::COUNT + cv::TermCriteria::EPS, iters_, 0.03);
-            if (!cache_) {
-                cv::calcOpticalFlowPyrLK(prev_small, curr_small, pts_prev_mat, pts_curr, status,
-                                          err, cv::Size(win_, win_), max_level_, crit);
+            if (!plan.prebuilt_pyr) {
+                cv::calcOpticalFlowPyrLK(plan.prev_small, plan.curr_small, pts_prev_mat, pts_curr,
+                                          status, err, cv::Size(win_, win_), max_level_, crit);
             } else {
-                pyr_of(prev_abs, prev_small, pyr_prev_);
-                pyr_of(curr_abs, curr_small, pyr_curr_);
-                cv::calcOpticalFlowPyrLK(pyr_prev_, pyr_curr_, pts_prev_mat, pts_curr, status,
-                                          err, cv::Size(win_, win_), max_level_, crit);
+                cv::calcOpticalFlowPyrLK(plan.prev_pyr, plan.curr_pyr, pts_prev_mat, pts_curr,
+                                          status, err, cv::Size(win_, win_), max_level_, crit);
             }
-        } else if (!cache_) {
-            cv::calcOpticalFlowPyrLK(prev_small, curr_small, pts_prev_mat, pts_curr, status, err,
-                                      cv::Size(win_, win_), max_level_);
+        } else if (!plan.prebuilt_pyr) {
+            cv::calcOpticalFlowPyrLK(plan.prev_small, plan.curr_small, pts_prev_mat, pts_curr, status,
+                                      err, cv::Size(win_, win_), max_level_);
         } else {
-            pyr_of(prev_abs, prev_small, pyr_prev_);
-            pyr_of(curr_abs, curr_small, pyr_curr_);
-            cv::calcOpticalFlowPyrLK(pyr_prev_, pyr_curr_, pts_prev_mat, pts_curr, status, err,
+            cv::calcOpticalFlowPyrLK(plan.prev_pyr, plan.curr_pyr, pts_prev_mat, pts_curr, status, err,
                                       cv::Size(win_, win_), max_level_);
         }
 
-        std::vector<cv::Point2f> p0, p1;
-        p0.reserve(pts_prev.size());
-        p1.reserve(pts_prev.size());
-        for (size_t i = 0; i < pts_prev.size(); ++i) {
+        out.p0.reserve(plan.prev_corners.size());
+        out.p1.reserve(plan.prev_corners.size());
+        for (size_t i = 0; i < plan.prev_corners.size(); ++i) {
             if (i < status.size() && status[i] == 1) {
-                p0.push_back(pts_prev[i]);
-                p1.push_back(pts_curr[i]);
+                out.p0.push_back(plan.prev_corners[i]);
+                out.p1.push_back(pts_curr[i]);
             }
         }
-        if (p0.size() < 6) return H;
+        if (out.p0.size() < 6) return LkPairs();   // the reference returns IDENTITY here
+        out.ok = true;
+        return out;
+    }
 
+    // The RANSAC stage.  This is the ONLY part of a fit that draws from
+    // OpenCV's global RNG, so it must run in the anchor order and in ONE
+    // thread -- which is exactly what the caller does.
+    Matx23f ransac_stage(const LkPairs& lk) const {
+        if (!lk.ok) return kIdentity;
         Mat inliers;
-        const Mat M = cv::estimateAffinePartial2D(p0, p1, inliers, cv::RANSAC, 3.0);
-        if (M.empty()) return H;
+        const Mat M = (ransac_max_iters_ > 0)
+                          ? cv::estimateAffinePartial2D(lk.p0, lk.p1, inliers, cv::RANSAC, 3.0,
+                                                        ransac_max_iters_)
+                          : cv::estimateAffinePartial2D(lk.p0, lk.p1, inliers, cv::RANSAC, 3.0);
+        if (M.empty()) return kIdentity;
 
         double v[6];
         for (int i = 0; i < 6; ++i) v[i] = M.at<double>(i / 3, i % 3);
-        H = Matx23f(static_cast<float>(v[0]), static_cast<float>(v[1]), static_cast<float>(v[2]),
-                    static_cast<float>(v[3]), static_cast<float>(v[4]), static_cast<float>(v[5]));
-        if (ds > 1) {
+        Matx23f H(static_cast<float>(v[0]), static_cast<float>(v[1]), static_cast<float>(v[2]),
+                  static_cast<float>(v[3]), static_cast<float>(v[4]), static_cast<float>(v[5]));
+        if (downscale_ > 1) {
             // float32 * float32(ds): matches numpy's weak-scalar semantics exactly.
-            H(0, 2) = H(0, 2) * static_cast<float>(ds);
-            H(1, 2) = H(1, 2) * static_cast<float>(ds);
+            H(0, 2) = H(0, 2) * static_cast<float>(downscale_);
+            H(1, 2) = H(1, 2) * static_cast<float>(downscale_);
         }
         return H;
+    }
+
+    // The reference fit, unchanged: prepare -> LK -> RANSAC.  The serial
+    // anchor path and the one-step fits both go through here.
+    Matx23f compute_affine(long prev_abs, long curr_abs, const Mat& prev_gray,
+                           const Mat& curr_gray) const {
+        LkPlan plan;
+        prepare_fit(prev_abs, curr_abs, prev_gray, curr_gray, &plan);
+        return ransac_stage(run_lk(plan));
     }
 
     Mat warp(const Mat& img, const Matx23f& H) const {
@@ -568,7 +657,6 @@ private:
     mutable std::vector<std::vector<Mat>> pyr_;
     mutable std::vector<long> tag_small_, tag_corners_, tag_pyr_;
     mutable std::vector<const void*> src_small_;
-    mutable std::vector<Mat> pyr_prev_, pyr_curr_;  // scratch aliases for the LK call
     mutable long n_resize_builds_ = 0, n_corner_builds_ = 0, n_pyr_builds_ = 0;
     mutable long n_hits_ = 0, n_lookups_ = 0;
     // Corner-budget triggers. Frames whose detected corner count exceeded the
@@ -594,6 +682,18 @@ public:
     double corner_mean() const {
         return n_corner_det_ ? (double)n_corner_pts_ / (double)n_corner_det_ : 0.0;
     }
+
+    // RANSAC sampling cap for the affine solve.  0 = OFF: the reference call
+    // is made with its own default arguments, which is what the bit-exactness
+    // contract requires.  A positive value caps the sampling iterations, so a
+    // pathological frame cannot spin; the fit then returns the best transform
+    // found so far.  ENABLING IT CHANGES THE NUMBERS, so it is off by default
+    // and must be reported as a deviation when used.
+    void set_ransac_max_iters(int n) { ransac_max_iters_ = n > 0 ? n : 0; }
+    int ransac_max_iters() const { return ransac_max_iters_; }
+
+private:
+    int ransac_max_iters_ = 0;   // 0 == the reference's own default
 };
 
 Matx33d to33(const Matx23f& m) {
@@ -1275,10 +1375,140 @@ static StageStats summarize(std::vector<double> v) {
     return s;
 }
 
+// ---------------------------------------------------------------------------
+// A tiny fixed-size worker pool.
+//
+// WHY IT EXISTS
+//   The anchor LK stage of one frame is split across a few workers.  The pool
+//   is PERMANENT (created with the pipeline, destroyed with it): a per-frame
+//   thread spawn would cost tens of microseconds per thread per frame -- small
+//   against a 30 ms fit, but pointless, because the helpers have nothing to
+//   do between frames but wait.
+//
+// THE CALLING THREAD PARTICIPATES
+//   It takes work from the same counter as the helpers, so the split is
+//   balanced by construction and does not depend on how many anchors there
+//   are.  With 5 anchors and 5 workers every worker gets exactly one.
+//
+// THE WORK IS THE LK STAGE ONLY
+//   Nothing here draws from OpenCV's global RNG, and nothing here writes
+//   shared state -- that is what makes the pool safe for the bit-exactness
+//   contract.  The RANSAC stage runs afterwards, in the caller, in the anchor
+//   order.
+// ---------------------------------------------------------------------------
+class AnchorPool {
+public:
+    // `helpers` is the number of EXTRA threads; the calling thread is one of
+    // the workers.  `cpus` is the core list the workers are spread over:
+    // helper i takes cpus[(i+1) % cpus.size()], because cpus[0] belongs to
+    // the calling thread.
+    AnchorPool(int helpers, const std::vector<int>& cpus)
+        : cpus_(cpus), helpers_(helpers < 0 ? 0 : helpers) {
+        threads_.reserve(static_cast<size_t>(helpers_));
+        for (int i = 0; i < helpers_; ++i)
+            threads_.emplace_back([this, i] { helper_loop(i); });
+    }
+    ~AnchorPool() {
+        {
+            std::lock_guard<std::mutex> lk(m_);
+            stop_ = true;
+            ++epoch_;
+        }
+        cv_.notify_all();
+        for (std::thread& t : threads_)
+            if (t.joinable()) t.join();
+    }
+    AnchorPool(const AnchorPool&) = delete;
+    AnchorPool& operator=(const AnchorPool&) = delete;
+
+    int helpers() const { return helpers_; }
+
+    // Runs fn(i) for every i in [0, n).  Returns when all of them are done.
+    void run(int n, const std::function<void(int)>& fn) {
+        if (helpers_ <= 0 || n <= 1) {
+            for (int i = 0; i < n; ++i) fn(i);
+            return;
+        }
+        {
+            std::lock_guard<std::mutex> lk(m_);
+            fn_ = &fn;
+            n_ = n;
+            next_.store(0, std::memory_order_relaxed);
+            done_ = 0;
+            ++epoch_;
+        }
+        cv_.notify_all();
+        drain(&fn, n);
+        std::unique_lock<std::mutex> lk(m_);
+        cvd_.wait(lk, [this] { return done_ == helpers_; });
+    }
+
+private:
+    void drain(const std::function<void(int)>* fn, int n) {
+        for (;;) {
+            const int i = next_.fetch_add(1, std::memory_order_relaxed);
+            if (i >= n) break;
+            (*fn)(i);
+        }
+    }
+
+    void helper_loop(int tid) {
+        if (!cpus_.empty()) {
+            const int cpu = cpus_[static_cast<size_t>(tid + 1) % cpus_.size()];
+            cpu_set_t set;
+            CPU_ZERO(&set);
+            CPU_SET(cpu, &set);
+            if (pthread_setaffinity_np(pthread_self(), sizeof(set), &set) != 0)
+                std::fprintf(stderr,
+                             "[WARN] anchor worker %d could not be pinned to core %d: %s\n", tid,
+                             cpu, std::strerror(errno));
+        }
+        uint64_t seen = 0;
+        for (;;) {
+            const std::function<void(int)>* fn = nullptr;
+            int n = 0;
+            {
+                std::unique_lock<std::mutex> lk(m_);
+                cv_.wait(lk, [&] { return epoch_ != seen; });
+                seen = epoch_;
+                if (stop_) return;
+                fn = fn_;
+                n = n_;
+            }
+            drain(fn, n);
+            {
+                std::lock_guard<std::mutex> lk(m_);
+                ++done_;
+            }
+            cvd_.notify_all();
+        }
+    }
+
+    std::mutex m_;
+    std::condition_variable cv_, cvd_;
+    std::vector<std::thread> threads_;
+    std::vector<int> cpus_;
+    int helpers_ = 0;
+    bool stop_ = false;
+    uint64_t epoch_ = 0;
+    const std::function<void(int)>* fn_ = nullptr;
+    int n_ = 0;
+    int done_ = 0;
+    std::atomic<int> next_{0};
+};
+
+// The sentinel of the history ring's companion array (ring_id_): "this slot
+// holds no frame".  -1 is safe: no frame index is ever negative.
+static constexpr long kNoRingIndex = -1;
+
 class OnlineFeaturePipeline {
 public:
     struct Stats {
         double t_fit = 0, t_warp = 0, t_median = 0, t_total = 0;
+        // The cost of COPYING the history window into the private snapshot.
+        // It is a real per-frame cost, so it is measured instead of being
+        // hidden inside the fit's residual.
+        double t_snapshot = 0;
         long n_push = 0, n_fit = 0, n_warp = 0, n_compose = 0;
         // Fit-gate telemetry. A rejected fit is a real event: it is the difference
         // between "this frame got W(.) = IDENTITY" and "this frame blew the device
@@ -1297,14 +1527,15 @@ public:
     OnlineFeaturePipeline(int window, int stride_step, int anchor_step, int downscale,
                           bool rng_seed_per_fit, bool nogmc, FusedGpu* gpu, Backend backend,
                           bool pyr_cache, int max_corners, int fit_win, int fit_level,
-                          int fit_iters, int cache_parts, int threads)
+                          int fit_iters, int cache_parts, int threads, int ring_slack = 0)
         : gpu_(gpu),
           backend_(backend),
           window_(window),
           stride_step_(stride_step),
           max_lag_(window * stride_step),
           rng_seed_per_fit_(rng_seed_per_fit),
-          nogmc_(nogmc) {
+          nogmc_(nogmc),
+          ring_slack_(ring_slack < 0 ? 0 : ring_slack) {
         // 1 thread is the bit-exactness contract; >1 trades reproducibility for
         // throughput. RANSAC and the LK inner loop are not bit-reproducible
         // under a thread pool (see the floating-point contract in the header),
@@ -1325,14 +1556,75 @@ public:
         // deepest anchor lag, and the same for the one-step fits.
         est_.reset(new FastGMCEstimator(downscale, pyr_cache, max_lag_ + 1, max_corners,
                                         fit_win, fit_level, fit_iters, cache_parts));
-        ring_.assign(static_cast<size_t>(max_lag_ + 1), Mat());
+        // The history ring is max_lag + 1 deep by default: that is exactly the
+        // set of frames ONE push can reference, so the single-engine path
+        // never needs a lookahead.
+        //
+        // `ring_slack` deepens it for the multi-engine case.  WHY: when several
+        // engines share the history and each computes a DIFFERENT frame, the
+        // producer of the history may run ahead of the engines.  Seeding frame
+        // S overwrites the slot that held frame S - ring_depth, and the engine
+        // that is about to compute frame J still needs frames J-42..J.  With
+        // ring_depth == max_lag+1 the producer may not run ahead AT ALL; with
+        // `ring_slack` extra slots it may run `ring_slack` frames ahead of the
+        // oldest frame any engine still owes.  Without the slack the fit would
+        // silently use OVERWRITTEN pixels -- wrong numbers, no crash.
+        ring_.assign(static_cast<size_t>(max_lag_ + 1 + ring_slack_), Mat());
+        // The companion array: WHICH frame index each ring slot currently
+        // holds.  In the physical anchoring mode this is what turns a MISSING
+        // frame into a DETECTED event instead of a silently wrong history
+        // frame (see frame_at_lag).  It is maintained in BOTH modes -- one
+        // store per seeded frame -- and only READ in the physical mode.
+        ring_id_.assign(ring_.size(), kNoRingIndex);
         // max_lag + 1 keys can be live at once, plus the clamped first-frame key.
         gpu_slots_ = max_lag_ + 3;
+        // The computation snapshot: one REFERENCE to every history frame a
+        // SINGLE computation reads.  Slot 0 is the frame being computed (lag
+        // 0); slot k is the frame at lag lags_[k-1].  ZERO COPY -- the slots
+        // hold shallow Mats, so nothing is allocated or duplicated here; they
+        // only pin the pixels for the duration of the computation.
+        snap_.resize(lags_.size() + 1);
+        snap_ok_.assign(snap_.size(), 0);
     }
 
     const std::vector<int>& anchors() const { return anchors_; }
     const std::vector<int>& lags() const { return lags_; }
-    long ring_depth() const { return max_lag_ + 1; }
+    long ring_depth() const { return max_lag_ + 1 + ring_slack_; }
+
+    // ---------------------------------------------------------------------
+    // THE ANCHOR LK STAGE'S PARALLELISM.
+    //
+    // `threads` counts the WORKERS of the anchor LK stage, the calling
+    // (engine) thread INCLUDED: 1 == the reference's serial anchor loop,
+    // 5 == one worker per anchor.  The RANSAC stage is NOT affected: it
+    // always runs afterwards, in this thread, in the anchor order, so the
+    // global RNG is drawn from exactly as before and the output stays
+    // bit-identical.
+    //
+    // `cpus` is the core list the workers are spread over.  Helper i takes
+    // cpus[(i+1) % cpus.size()], because cpus[0] belongs to the calling
+    // thread.  When the list is EMPTY the workers inherit the engine's
+    // affinity -- and if the engine is pinned to ONE core, they all share
+    // it and there is NO speedup.  That is not a bug, it is the whole
+    // reason the caller must be given a GROUP of cores.
+    // ---------------------------------------------------------------------
+    void set_anchor_threads(int threads, const std::vector<int>& cpus) {
+        anchor_threads_ = threads > 0 ? threads : 1;
+        anchor_cpus_ = cpus;
+        pool_.reset();
+        if (anchor_threads_ > 1) {
+            pool_.reset(new AnchorPool(anchor_threads_ - 1, anchor_cpus_));
+            if (anchor_cpus_.empty()) {
+                std::fprintf(stderr,
+                             "[WARN] the anchor LK stage wants %d workers but no core list was "
+                             "given: they inherit the engine's affinity, so a single-core engine "
+                             "gets NO speedup from them\n",
+                             anchor_threads_);
+            }
+        }
+    }
+    int anchor_threads() const { return anchor_threads_; }
+    int anchor_workers() const { return pool_ ? anchor_threads_ : 1; }
     // Cache telemetry, so a timing claim can be checked against how much work
     // was actually avoided rather than assumed.
     long est_resize_builds() const { return est_->resize_builds(); }
@@ -1370,6 +1662,60 @@ public:
     long corner_cap_frames() const { return n_corner_cap_frames_; }
     long corner_dets() const { return est_ ? est_->corner_dets() : 0; }
     double corner_mean() const { return est_ ? est_->corner_mean() : 0.0; }
+    // RANSAC iteration cap.  0 = OFF: the reference call is made with its
+    // own default arguments, which is what the bit-exactness contract
+    // requires.  A positive value caps the sampling iterations, so a
+    // pathological frame (a scene full of wild features) cannot spin: the
+    // fit then returns the best transform found so far.  ENABLING IT CHANGES
+    // THE NUMBERS, so it is off by default and must be reported as a
+    // deviation when used.
+    //
+    // The solve itself lives in FastGMCEstimator, so the value is FORWARDED
+    // to it: keeping a copy here without forwarding it would leave the knob
+    // silently inert.
+    void set_ransac_max_iters(int n) {
+        ransac_max_iters_ = n > 0 ? n : 0;
+        if (est_) est_->set_ransac_max_iters(ransac_max_iters_);
+    }
+    int ransac_max_iters() const { return ransac_max_iters_; }
+
+    // ---------------------------------------------------------------------
+    // THE PHYSICAL-FRAME-NUMBER ANCHOR (opt-in, OFF by default).
+    //
+    // WHAT IT CHANGES: the index the engine anchors its history on.  With it
+    // OFF (the default) the index is the CONSUMPTION counter -- one per frame
+    // the engine ingested -- which is what this engine has always used.  With
+    // it ON the index is the camera's PHYSICAL frame number, the id the
+    // producer assigned to the frame, so "lag 2" means "two PHYSICAL frames
+    // back" and a frame that never arrived is a DETECTABLE hole instead of a
+    // silently shifted window.
+    //
+    // WHY IT IS OFF BY DEFAULT: with no frame ever missing, the two
+    // indexings are the same sequence shifted by a constant, so they select
+    // the same pixels; but the switch exists so the new behaviour can be
+    // validated on the board before it becomes the default.
+    // ---------------------------------------------------------------------
+    void set_phys_anchor(bool on) { phys_anchor_ = on; }
+    bool phys_anchor() const { return phys_anchor_; }
+    // A MISSING physical history frame, counted per LOOKUP (one frame can
+    // miss several lags) and per FRAME (the number of frames whose history
+    // had at least one hole).  Both stay 0 in the consumption-counter mode:
+    // there the index sequence is dense by construction, so there is no hole
+    // to detect -- which is exactly why the hole used to be silent.
+    long n_history_gap() const { return n_history_gap_; }
+    long n_history_gap_frames() const { return n_history_gap_frames_; }
+    // Did the frame that was computed LAST have a hole in its history?
+    bool history_gap() const { return gap_this_frame_; }
+    // The history reads that were NOT served from the computation snapshot.
+    //
+    // WHY it is a first-class number: the snapshot is a SAFETY NET, not the
+    // correctness argument.  A read that misses the snapshot falls back to the
+    // ring's own path, so the numbers stay right even if the snapshot is
+    // incomplete -- but then the snapshot is not doing its job, and the run
+    // must say so instead of looking clean.  On a zero-drop sequence this
+    // counter is 0; anything else means the snapshot's coverage is wrong.
+    long n_snapshot_miss() const { return n_snapshot_miss_; }
+
     void set_fit_deadline(double ms, bool hold) {
         fit_deadline_ms_ = ms;
         fit_deadline_hold_ = hold;
@@ -1404,11 +1750,36 @@ public:
         for (const Mat& f : ring_)
             if (!f.empty()) n += static_cast<size_t>(f.total() * f.elemSize());
         n += steps_.size() * sizeof(Matx23f);
+        // The computation snapshot: one private copy of every history frame
+        // the current computation reads.  It is part of the engine's memory,
+        // so it is part of the engine's memory REPORT.
+        for (const Mat& f : snap_)
+            if (!f.empty()) n += static_cast<size_t>(f.total() * f.elemSize());
+        if (!snap_first_.empty())
+            n += static_cast<size_t>(snap_first_.total() * snap_first_.elemSize());
         return n;
     }
 
-    // Consume one grayscale frame; returns a 3 x (H*W) CV_8UC1 plane-major view of (3,H,W).
-    Mat push(const Mat& frame, std::vector<Matx23f>* dump_mats) {
+    // ---------------------------------------------------------------------
+    // Two-step frame API.
+    //
+    //   seed_frame(abs, frame)   store the frame in the history ring
+    //   process_frame(abs, ...)  compute the feature for the frame at `abs`
+    //
+    // WHY: the per-frame computation depends ONLY on pixels.  The anchor fits
+    // compare the frame at `abs` against the frame at `abs-lag`; the other
+    // lags are composed from those fits INSIDE the same frame; the GPU tail
+    // consumes the same `mats` map.  Nothing reads another frame's COMPUTED
+    // result.  So several engines can be fed the SAME frames and each of them
+    // can compute a DIFFERENT frame -- that is how the feature stage runs on
+    // more than one core without touching the maths or the bit-exactness
+    // contract (each engine still runs OpenCV single-threaded, so every fit is
+    // the same computation the single-engine path performs).
+    //
+    // push() below is the original single-step API expressed as the two steps,
+    // so the PC reference keeps its exact behaviour.
+    // ---------------------------------------------------------------------
+    void seed_frame(long abs, const Mat& frame) {
         if (frame.type() != CV_8UC1) {
             std::fprintf(stderr, "[FATAL] frames must be uint8 grayscale\n");
             std::exit(2);
@@ -1422,12 +1793,59 @@ public:
         shape_w_ = frame.cols;
         shape_known_ = true;
 
-        const auto mark_entry = std::chrono::steady_clock::now();
-        if (first_.empty()) first_ = frame;
-        ++t_;
-        ring_[static_cast<size_t>(((t_ % ring_depth()) + ring_depth()) % ring_depth())] = frame;
+        if (first_.empty()) {
+            first_ = frame;
+            // The index of the FIRST frame that was seeded: the cold-start
+            // clamp, i.e. the frame the history falls back to when a lag
+            // reaches past the start of the stream.
+            first_idx_ = abs;
+        }
+        // NOTE: `t_` is NOT touched here.  `t_` is the frame the engine is
+        // COMPUTING, and only the computing thread may change it: the
+        // producer of the history may run ahead (multi-engine), and a write
+        // here would move the history window under the running fit -- wrong
+        // pixels, wrong transforms, no error.
+        const size_t slot = static_cast<size_t>(((abs % ring_depth()) + ring_depth()) % ring_depth());
+        ring_[slot] = frame;
+        // WHICH frame this slot holds.  The companion array is what makes a
+        // missing frame detectable: a lag looks its frame up by the index it
+        // asks for, and if the slot's index is not that one, the frame is not
+        // in the ring -- it never arrived.
+        ring_id_[slot] = abs;
+    }
 
+    // Compute the feature for the frame at absolute index `abs`.
+    // `mark_entry` is when the frame entered the stage: the ledger measures
+    // from there, so the caller decides whether the queue wait counts.
+    Mat process_frame(long abs, std::vector<Matx23f>* dump_mats,
+                      std::chrono::steady_clock::time_point mark_entry) {
+        // Every helper below (frame_at_lag, abs_at_lag, step) is relative to
+        // the frame being computed, not to the newest frame that was seeded.
+        t_ = abs;
+        // The per-frame hole flag: the history of THIS frame starts clean.
+        gap_this_frame_ = false;
+
+        // The frame's own work starts HERE, so the snapshot copy below is
+        // part of the frame's measured cost and not of the queue wait.
         const auto mark0 = std::chrono::steady_clock::now();
+
+        // THE SNAPSHOT, BEFORE ANY FIT.  From here on this computation reads
+        // its history from a private copy, so the producer of the ring cannot
+        // change the pixels under it -- not by a tuned amount of lookahead,
+        // but structurally.
+        //
+        // It is timed on its own because it is a REAL per-frame cost (one
+        // memcpy of the whole history window) and a claim about the frame's
+        // cost that left it out would be wrong.
+        const auto mark_snap = std::chrono::steady_clock::now();
+        build_snapshot();
+        stats_.t_snapshot += std::chrono::duration<double, std::milli>(
+                                 std::chrono::steady_clock::now() - mark_snap).count();
+
+        // The frame being computed IS the newest one in the ring (it was
+        // seeded at `abs`), so it is the lag-0 frame.  Same pixels, same
+        // Mat header as the `frame` argument the old push() took.
+        const Mat& frame = frame_at_lag(0);
 
         // Open this frame's ledger row here, before any stage work, so the GPU tail
         // can fill its own stages into the SAME record (it is a separate function
@@ -1451,15 +1869,64 @@ public:
         // whole frame degrades at once -- a half-fitted frame would leave
         // anchor_below() dangling and silently mix fresh and stale transforms.
         bool blown = false;
-        for (int lag : anchors_) {
-            if (fit_deadline_ms_ > 0.0) {
-                const double spent = std::chrono::duration<double, std::milli>(
-                                         std::chrono::steady_clock::now() - mark_anchor)
-                                         .count();
-                if (spent > fit_deadline_ms_) { blown = true; break; }
+        if (pool_ && anchors_.size() > 1) {
+            // -----------------------------------------------------------------
+            // THE PARALLEL ANCHOR PATH: LK concurrent, RANSAC sequential.
+            //
+            // Phase 1 (serial): the cache work.  prepare_fit() is the only
+            //   writer of the shared cache, and it walks the anchors in the
+            //   reference's order, so the cache ends up in exactly the state
+            //   the reference's loop left it in.
+            // Phase 2 (parallel): the LK stage only.  It reads the snapshot
+            //   and writes nothing -- no RNG, no counters, no buffers -- so
+            //   the anchors may run it at once.
+            // Phase 3 (serial, anchor order): the RANSAC stage and the gate.
+            //   This is the only consumer of the global RNG, and it consumes
+            //   it in the reference's order, so the draws -- and therefore
+            //   the fits -- are the reference's.
+            //
+            // The deadline is checked in phase 3, before each RANSAC.  It can
+            // no longer be checked BETWEEN the anchors' LKs (they run
+            // concurrently), so a frame that used to blow after its second
+            // anchor now blows after the whole LK phase.  The OUTCOME is the
+            // same -- the whole frame degrades -- but WHICH frames blow
+            // depends on the wall clock, as it always did.
+            // -----------------------------------------------------------------
+            if (plans_.size() != anchors_.size()) plans_.resize(anchors_.size());
+            for (size_t i = 0; i < anchors_.size(); ++i) {
+                const int lag = anchors_[i];
+                est_->prepare_fit(abs_at_lag(lag), t_, frame_at_lag(lag), frame, &plans_[i]);
             }
-            mats[lag] = fit_similarity(abs_at_lag(lag), t_, frame_at_lag(lag), frame);
-            stats_.n_fit += 1;
+            lks_.resize(anchors_.size());
+            const std::function<void(int)> lk_job = [this](int i) {
+                const size_t k = static_cast<size_t>(i);
+                lks_[k] = est_->run_lk(plans_[k]);
+            };
+            pool_->run(static_cast<int>(anchors_.size()), lk_job);
+            for (size_t i = 0; i < anchors_.size(); ++i) {
+                if (fit_deadline_ms_ > 0.0) {
+                    const double spent = std::chrono::duration<double, std::milli>(
+                                             std::chrono::steady_clock::now() - mark_anchor)
+                                             .count();
+                    if (spent > fit_deadline_ms_) { blown = true; break; }
+                }
+                const int lag = anchors_[i];
+                if (rng_seed_per_fit_) cv::theRNG().state = 0xFFFFFFFFu;
+                mats[lag] = finish_fit(est_->ransac_stage(lks_[i]));
+                stats_.n_fit += 1;
+            }
+        } else {
+            // The reference's serial anchor loop, untouched.
+            for (int lag : anchors_) {
+                if (fit_deadline_ms_ > 0.0) {
+                    const double spent = std::chrono::duration<double, std::milli>(
+                                             std::chrono::steady_clock::now() - mark_anchor)
+                                             .count();
+                    if (spent > fit_deadline_ms_) { blown = true; break; }
+                }
+                mats[lag] = fit_similarity(abs_at_lag(lag), t_, frame_at_lag(lag), frame);
+                stats_.n_fit += 1;
+            }
         }
         if (blown) {
             ++n_fit_deadline_;
@@ -1605,7 +2072,21 @@ public:
             if (it->first < t_ - max_lag_) it = steps_.erase(it);
             else ++it;
         }
+        // The frame-level hole count: a frame whose history had at least one
+        // missing physical frame.  Counted separately from the per-lookup
+        // count, because "21 missing history frames" and "21 frames with a
+        // hole in the history" are different questions.
+        if (gap_this_frame_) ++n_history_gap_frames_;
         return out;
+    }
+
+    // Consume one grayscale frame; returns a 3 x (H*W) CV_8UC1 plane-major view of (3,H,W).
+    // The original single-step API: seed the ring, then compute that frame.
+    Mat push(const Mat& frame, std::vector<Matx23f>* dump_mats) {
+        const auto mark_entry = std::chrono::steady_clock::now();
+        const long abs = t_ + 1;
+        seed_frame(abs, frame);
+        return process_frame(abs, dump_mats, mark_entry);
     }
 
 private:
@@ -1715,7 +2196,7 @@ private:
         slots.reserve(lags_.size());
         for (size_t k = 0; k < lags_.size(); ++k) {
             const long idx = t_ - lags_[k];
-            const long key = (idx <= 0) ? kFirstKey : idx;
+            const long key = (idx <= clamp_lo()) ? kFirstKey : idx;
             slots.push_back(gpu_->slot(gpu_->put(key, frame_at_lag(lags_[k]))));
         }
         const size_t cur_slot = gpu_->put(t_, frame);
@@ -1764,16 +2245,176 @@ private:
         ++dframes_;
     }
 
+    // ---------------------------------------------------------------------
+    // THE COMPUTATION SNAPSHOT -- THE TWO-LEVEL CACHE.
+    //
+    // WHY it exists: the fit reads the history WHILE it runs, and the
+    // producer of the ring runs in ANOTHER thread.  Without a snapshot the
+    // pixels a fit sees depend on WHEN it looks: the producer may overwrite
+    // the slot between two reads of the SAME computation.  That is why the
+    // ring is deepened by `ring_slack` -- a TUNED guarantee that the producer
+    // stays `ring_slack` frames ahead of the oldest owed frame, which happens
+    // to be just enough.  The snapshot makes the same guarantee STRUCTURAL:
+    // the frames this computation will read are copied OUT of the ring
+    // BEFORE the first fit, so what the producer does afterwards cannot reach
+    // this computation at all.
+    //
+    // The set of frames is MEASURED, not guessed.  An instrumented run over a
+    // 60-frame sequence (anchor-step 2 and 10, the CPU tail and the GPU tail,
+    // with and without the physical anchor) showed that ONE computation reads
+    // exactly
+    //     {t} U {t-2, t-4, ..., t-42}
+    // -- the frame being computed plus every lag of the median window -- and
+    // nothing else.  The composed one-step fits stay inside that set: they ask
+    // for the lags `lag_abs` and `lag_abs - stride_step`, and both are always
+    // lags of the window.  The largest depth ever read is 42 (= max_lag_); a
+    // 44 was never observed.
+    //
+    // The snapshot is PER INSTANCE and is written ONLY by the thread that is
+    // computing (process_frame).  seed_frame -- the producer's -- never
+    // touches it, so the two levels cannot race over it.
+    // ---------------------------------------------------------------------
+
+    // Take REFERENCES to the frames THIS computation will read out of the
+    // ring.  Called once per frame, at the very top of process_frame(), before
+    // any fit.  ZERO COPY: nothing is duplicated, the pixels stay where they
+    // are and only the read right is pinned (see hold_snapshot_slot).
+    void build_snapshot() {
+        hold_snapshot_slot(0, t_);
+        for (size_t i = 0; i < lags_.size(); ++i)
+            hold_snapshot_slot(i + 1, t_ - lags_[i]);
+        // THE COLD-START CLAMP TARGET.  When the deepest lag reaches past the
+        // start of the stream, the read is served by the FIRST frame.  It is a
+        // member of its own -- written once, with the first seeded frame, and
+        // never changed again -- so a reference to it is taken on first use and
+        // NEVER refreshed.  The snapshot's content is then EXACTLY the set of
+        // physical frames this computation reads: the window's lags, the frame
+        // being computed, and the clamp target.
+        if (t_ - max_lag_ <= clamp_lo() && !snap_first_ok_ && !first_.empty()) {
+            // ZERO COPY, like the slots above: a reference to the first
+            // frame's pixels, which are written once and never changed.
+            snap_first_ = first_;
+            snap_first_ok_ = 1;
+        }
+    }
+
+    void hold_snapshot_slot(size_t slot, long idx) {
+        // A slot that is not filled keeps whatever it held: the validity lives
+        // in a separate flag, not in the Mat.
+        snap_ok_[slot] = 0;
+        if (idx <= clamp_lo()) {
+            // The cold-start clamp: the read is served by the clamp target,
+            // which the snapshot holds separately (snap_first_).
+            return;
+        }
+        const size_t s = static_cast<size_t>(((idx % ring_depth()) + ring_depth()) % ring_depth());
+        if (phys_anchor_ && ring_id_[s] != idx) {
+            // A HOLE IN THE HISTORY: the frame is not in the ring at all.
+            // The slot is left INVALID on purpose, so the read takes the
+            // ring's own path, which detects the hole, counts it and falls
+            // back to the nearest older frame -- exactly as it did before
+            // the snapshot existed.
+            return;
+        }
+        const Mat& src = ring_[s];
+        if (src.empty()) return;   // never seeded: the read falls back too
+        // ZERO COPY: the snapshot takes a REFERENCE to the ring's pixels.
+        //
+        // OpenCV's Mat::operator= is a SHALLOW copy -- it bumps the refcount
+        // and copies the data POINTER; there is no clone() (the pipeline does
+        // the same thing at mosaic_pipeline.cpp:77-85, and relies on it).  A
+        // shallow copy is exactly what is needed, because the thing that must
+        // not change is the PIXELS the fit reads, and the producer never
+        // writes into a buffer it has handed over: it replaces the ring SLOT
+        // with another frame (ring_[s] = frame), which only rebinds the
+        // pointer.  A reference taken here therefore keeps the pixels of THIS
+        // frame alive and unchanged for the whole computation, while the
+        // producer stays free to move the ring on.
+        //
+        // A DEEP copy (copyTo) was the wrong tool twice over.  It moved ~7 MB
+        // per frame through the CPU for nothing, and -- because it copies
+        // whatever the slot holds AT THAT MOMENT -- it would silently freeze a
+        // WRONG frame into the snapshot whenever the slot had already been
+        // replaced, hiding the very event the snapshot is meant to expose.
+        snap_[slot] = src;
+        snap_ok_[slot] = 1;
+    }
+
+    // The snapshot slot of a lag, or -1 when the lag is not on the window's
+    // grid.  The grid is exact -- the window's lags are stride_step apart --
+    // so the slot is the lag divided by the stride, not a search.
+    int snapshot_slot(int lag) const {
+        if (lag < 0 || lag % stride_step_ != 0) return -1;
+        const int s = lag / stride_step_;
+        if (s >= static_cast<int>(snap_.size())) return -1;
+        return s;
+    }
+
     // Indexed by ABSOLUTE frame index modulo depth. Shifting a ring by one slot per push
     // would index by *one-frame* lag while lag lookups stride by stride_step, silently
     // fetching every history frame at half the intended lag.
-    const Mat& frame_at_lag(int lag) const {
+    //
+    // NOT const any more: in the physical anchoring mode this DETECTS a hole
+    // in the history (the frame the lag asks for is not in the ring) and
+    // counts it.  In the consumption-counter mode the body is the original
+    // one, statement for statement.
+    //
+    // THE SNAPSHOT comes FIRST: a frame whose read right was PINNED out of
+    // the ring before the first fit is served from that pinned reference, so
+    // the producer cannot change the pixels under this computation.  A MISS
+    // falls back to the ring's own path -- the hole detection and the
+    // nearest-older fallback below -- and is COUNTED, so an incomplete
+    // snapshot is visible instead of silently degrading the run.
+    const Mat& frame_at_lag(int lag) {
         const long idx = static_cast<long>(t_) - lag;
-        if (idx <= 0) return first_;
-        const Mat& f =
-            ring_[static_cast<size_t>(((idx % ring_depth()) + ring_depth()) % ring_depth())];
+        if (idx <= clamp_lo()) {
+            // The cold-start clamp: the read is served by the FIRST frame,
+            // which the snapshot holds a reference to (see build_snapshot).
+            // That reference is taken once and never refreshed, because
+            // `first_` itself is written once and never changed.
+            if (snap_first_ok_) return snap_first_;
+            return first_;
+        }
+        const int slot = snapshot_slot(lag);
+        if (slot >= 0 && snap_ok_[slot]) return snap_[slot];
+        ++n_snapshot_miss_;
+        const size_t s = static_cast<size_t>(((idx % ring_depth()) + ring_depth()) % ring_depth());
+        if (phys_anchor_ && ring_id_[s] != idx) {
+            // A HOLE IN THE PHYSICAL HISTORY.  The frame at `idx` was never
+            // delivered (the camera queue dropped it), so this slot holds a
+            // DIFFERENT frame -- using it would register against the wrong
+            // pixels, silently.  So: count it, flag the frame, and fall back
+            // to the nearest AVAILABLE older frame.
+            ++n_history_gap_;
+            gap_this_frame_ = true;
+            return nearest_older(idx);
+        }
+        const Mat& f = ring_[s];
         return f.empty() ? first_ : f;
     }
+
+    // The nearest AVAILABLE older frame, used when the frame a lag asks for is
+    // missing.  The search is bounded by the window THIS frame owns
+    // ([t-max_lag, t]): the ingest may not write those slots (the window
+    // guard keeps it ring_slack frames ahead of the oldest owed frame), so
+    // reading them is safe -- and a frame older than that may already have
+    // been overwritten.
+    const Mat& nearest_older(long idx) {
+        const long lo = std::max(first_idx_, static_cast<long>(t_) - max_lag_);
+        for (long j = idx; j >= lo; --j) {
+            const size_t s = static_cast<size_t>(((j % ring_depth()) + ring_depth()) % ring_depth());
+            if (ring_id_[s] != j) continue;   // this slot holds another frame
+            if (ring_[s].empty()) continue;
+            return ring_[s];
+        }
+        return first_;
+    }
+
+    // The index the history falls back to when a lag reaches past the start of
+    // the stream.  The consumption-counter mode keeps the original rule (0);
+    // the physical mode clamps to the FIRST frame's index, so the frame that
+    // is actually read and the index that names it agree.
+    long clamp_lo() const { return phys_anchor_ ? first_idx_ : 0; }
 
     // H_{abs_index -> abs_index + stride_step}, cached by absolute index.
     Matx23f step(int abs_index) {
@@ -1786,8 +2427,8 @@ private:
         // order. Swapping the two tags silently feeds the cache the wrong frame
         // (the anchors stay correct, only the composed lags move), so the order
         // here is load-bearing, not cosmetic.
-        const Matx23f m = fit_similarity(clamp_abs(abs_index),
-                                         clamp_abs(abs_index + stride_step_),
+        const Matx23f m = fit_similarity(clamp_idx(abs_index),
+                                         clamp_idx(abs_index + stride_step_),
                                          frame_at_lag(t_ - abs_index),
                                          frame_at_lag(t_ - abs_index - stride_step_));
         stats_.t_fit += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
@@ -1798,9 +2439,11 @@ private:
         return m;
     }
 
-    Matx23f fit_similarity(long prev_abs, long curr_abs, const Mat& prev, const Mat& curr) {
-        if (rng_seed_per_fit_) cv::theRNG().state = 0xFFFFFFFFu;
-        const Matx23f m = est_->compute_affine(prev_abs, curr_abs, prev, curr);
+    // The gate half of a fit: the finiteness check, the plausibility gate and
+    // the rejection counters.  Split out of fit_similarity() so the parallel
+    // anchor path can run the RANSAC stage on its own and still apply
+    // exactly the same gate, in the same order, with the same counters.
+    Matx23f finish_fit(const Matx23f& m) {
         if (!all_finite(m)) {
             stats_.n_fit_rejected += 1;
             return kIdentity;
@@ -1820,14 +2463,28 @@ private:
         return m;
     }
 
+    Matx23f fit_similarity(long prev_abs, long curr_abs, const Mat& prev, const Mat& curr) {
+        if (rng_seed_per_fit_) cv::theRNG().state = 0xFFFFFFFFu;
+        const Matx23f m = est_->compute_affine(prev_abs, curr_abs, prev, curr);
+        return finish_fit(m);
+    }
+
     // Absolute index of the frame frame_at_lag(lag) returns. t_ is 0-based (the
     // first pushed frame is absolute index 0, and first_ IS that frame), and
     // frame_at_lag clamps anything deeper onto it, so the cache tag must be
     // clamped to 0 as well. Clamping to 1 instead silently labels the clamped
     // frame with the NEXT frame's index; the very next push then hits that
     // mislabelled slot and is served the wrong pixels.
-    long abs_at_lag(int lag) const { return clamp_abs(t_ - lag); }
+    long abs_at_lag(int lag) const { return clamp_idx(t_ - lag); }
     static long clamp_abs(long abs) { return abs > 0 ? abs : 0; }
+    // The clamp, in the anchoring mode in force.  The consumption-counter mode
+    // keeps the original rule (0); the physical mode clamps to the FIRST
+    // frame's index, so the cache tag always names the frame that is
+    // actually read.
+    long clamp_idx(long idx) const {
+        if (!phys_anchor_) return clamp_abs(idx);
+        return idx > first_idx_ ? idx : first_idx_;
+    }
 
     // np.median(stack(history), axis=0).astype(float32) -> clip(curr - bg, 0, 255).astype(uint8)
     void median_residual(const Mat& curr, const std::vector<Mat>& history, Mat& out) const {
@@ -1900,6 +2557,11 @@ private:
     long dframes_ = 0;
 
     int window_, stride_step_, max_lag_;
+    // Extra history-ring slots, so a producer of the history may run ahead of
+    // the engine that consumes it (multi-engine, different frames).  0 keeps
+    // the original single-engine behaviour exactly.
+    int ring_slack_ = 0;
+    int ransac_max_iters_ = 0;   // 0 == the reference's own default
     bool rng_seed_per_fit_;
     bool nogmc_;
     bool shape_known_ = false;
@@ -1908,10 +2570,49 @@ private:
     std::set<int> anchor_set_;
     std::map<int, int> anchor_below_;
     std::unique_ptr<FastGMCEstimator> est_;
+    // ---- the anchor LK stage's parallelism ----
+    // pool_ is NULL when the anchor loop is the reference's serial one.
+    // plans_ / lks_ are the per-anchor scratch: they are REUSED across frames
+    // so the parallel path does not allocate per frame.
+    std::unique_ptr<AnchorPool> pool_;
+    int anchor_threads_ = 1;
+    std::vector<int> anchor_cpus_;
+    std::vector<FastGMCEstimator::LkPlan> plans_;
+    std::vector<FastGMCEstimator::LkPairs> lks_;
     std::vector<Mat> ring_;
+    // WHICH frame index each ring slot holds (see frame_at_lag).
+    std::vector<long> ring_id_;
+    // ---- the computation snapshot (the two-level cache) ----
+    // REFERENCES to the history frames the CURRENT computation reads.  ZERO
+    // COPY: each slot holds a shallow Mat (a data pointer plus a refcount), so
+    // the pixels are neither moved nor duplicated -- the snapshot only PINS
+    // the read right for the duration of this computation.
+    // Written only by the computing thread (process_frame); seed_frame never
+    // touches it.
+    std::vector<Mat> snap_;
+    // Which snapshot slots hold a valid reference.  A flag and not an empty
+    // Mat, so a slot that is not filled keeps what it had.
+    std::vector<unsigned char> snap_ok_;
+    // The cold-start clamp target: a reference to the FIRST frame, which the
+    // snapshot holds so that EVERY history read is served from the pinned
+    // set.  Filled once and never refreshed.
+    Mat snap_first_;
+    bool snap_first_ok_ = false;
+    // The history reads that were not served from the snapshot (see
+    // n_snapshot_miss).
+    long n_snapshot_miss_ = 0;
     std::unordered_map<int, Matx23f> steps_;
     Mat first_;
+    // The index of the first frame that was seeded: the cold-start clamp.
+    long first_idx_ = 0;
     long t_ = -1;
+    // THE PHYSICAL ANCHOR (opt-in) and the hole counter it needs.  OFF by
+    // default: the engine anchors on the consumption counter, as it always
+    // has, and the counters stay 0 because that index sequence is dense.
+    bool phys_anchor_ = false;
+    long n_history_gap_ = 0;
+    long n_history_gap_frames_ = 0;
+    bool gap_this_frame_ = false;
     Stats stats_;
     bool profiling_ = false;
     int seq_id_ = 0;
@@ -2019,6 +2720,19 @@ void usage() {
         "  --threads N            OpenCV worker threads (default 1). N>1 is NOT\n"
         "                         bit-reproducible: always quote a transform deviation\n"
         "                         alongside any speed claim made with it.\n"
+        "  --anchor-threads N     the anchor LK stage's workers, THIS thread included\n"
+        "                         (default 1 = the reference's serial anchor loop).\n"
+        "                         The 5 anchor LK stages then run CONCURRENTLY; the\n"
+        "                         RANSAC stages still run SEQUENTIALLY, in the anchor\n"
+        "                         order, in this thread -- so the global RNG is drawn\n"
+        "                         from exactly as before and the OUTPUT IS\n"
+        "                         BIT-IDENTICAL.  This is NOT --threads: OpenCV's own\n"
+        "                         internal threading is untouched (still 1).\n"
+        "  --anchor-cpus LIST     the cores the anchor workers are spread over\n"
+        "                         ('a76', 'a55', 'all', 'none', or '4,5,6,7').  Without\n"
+        "                         it they inherit this thread's affinity -- so a\n"
+        "                         single-core engine shares its core with them and\n"
+        "                         gains NOTHING from the parallelism.\n"
         "  --affinity LIST        pin this thread: 'a76' (=4-7, big), 'a55' (=0-3, little),\n"
         "                         'all', 'none', or an explicit list like '4,5,6,7'.\n"
         "                         RK3588: CPU0-3 = Cortex-A55 ~1.8GHz, CPU4-7 = A76 ~2.4GHz\n"
@@ -2054,6 +2768,10 @@ void usage() {
         "  --fit-level N          LK pyramid depth (frozen = 2). Lower = cheaper, less\n"
         "                         capture range for fast motion.\n"
         "  --fit-iters N          LK max iterations (frozen = 20, epsilon 0.03)\n"
+        "  --fit-ransac-iters N   RANSAC sampling cap for the affine solve (0 = the\n"
+        "                         reference's own default).  A positive value caps the\n"
+        "                         sampling iterations: ENABLING IT CHANGES THE NUMBERS,\n"
+        "                         so it must be reported as a deviation with the results.\n"
         "  --out-dir PATH         write [Ch0,Ch1,Ch2] stacked HxWx3 JPGs (builder layout)\n"
         "  --out-ext jpg|png|bmp  codec for --out-dir (default jpg, the historical behaviour).\n"
         "                         LOSSLESS CODEC REQUIRED for any accuracy reconciliation.\n"
@@ -2239,11 +2957,22 @@ int main(int argc, char** argv) {
     double gate_min = kDefaultMinScale, gate_max = kDefaultMaxScale;
     bool pyr_cache = false;
     int threads = 1;
+    // The anchor LK stage's workers (the calling thread INCLUDED).  1 == the
+    // reference's serial anchor loop.  The RANSAC stage is NOT affected: it
+    // always runs afterwards, in this thread, in the anchor order, so the
+    // global RNG is drawn from exactly as before and the output stays
+    // bit-identical.  It is SEPARATE from --threads, which is OpenCV's own
+    // internal threading (and >1 there breaks bit-reproducibility).
+    int anchor_threads = 1;
+    std::string anchor_cpus;
     std::string affinity = "none";
     int cache_parts = 7;  // resize | corners | pyramid
     // Fit knobs. Defaults are the frozen values, so omitting every flag
     // reproduces the shipped baseline exactly (same MD5).
     int fit_corners = 600, fit_win = 15, fit_level = 2, fit_iters = 20;
+    // RANSAC sampling cap.  0 = OFF: the reference call keeps its own default
+    // arguments, so omitting the flag reproduces the shipped baseline exactly.
+    int fit_ransac_iters = 0;
     // ---- 40 ms guarantee: the two deterministic handles, plus one opt-in ----
     //
     // prealloc_cap: create the device images once, sized for this much padding,
@@ -2279,6 +3008,8 @@ int main(int argc, char** argv) {
         else if (a == "--downscale") downscale = std::atoi(next("--downscale").c_str());
         else if (a == "--pyr-cache") pyr_cache = true;
         else if (a == "--threads") threads = std::atoi(next("--threads").c_str());
+        else if (a == "--anchor-threads") anchor_threads = std::atoi(next("--anchor-threads").c_str());
+        else if (a == "--anchor-cpus") anchor_cpus = next("--anchor-cpus");
         else if (a == "--affinity") affinity = next("--affinity");
         else if (a == "--cache-parts") cache_parts = std::atoi(next("--cache-parts").c_str());
         else if (a == "--fit-corners") fit_corners = std::atoi(next("--fit-corners").c_str());
@@ -2290,6 +3021,8 @@ int main(int argc, char** argv) {
         else if (a == "--fit-win") fit_win = std::atoi(next("--fit-win").c_str());
         else if (a == "--fit-level") fit_level = std::atoi(next("--fit-level").c_str());
         else if (a == "--fit-iters") fit_iters = std::atoi(next("--fit-iters").c_str());
+        else if (a == "--fit-ransac-iters")
+            fit_ransac_iters = std::atoi(next("--fit-ransac-iters").c_str());
         else if (a == "--out-dir") out_dir = next("--out-dir");
         else if (a == "--out-ext") out_ext = next("--out-ext");
         else if (a == "--dump-dir") dump_dir = next("--dump-dir");
@@ -2387,6 +3120,18 @@ int main(int argc, char** argv) {
                                     fit_win, fit_level, fit_iters, cache_parts, threads);
         pipe.set_profiling(!profile_csv.empty());
         pipe.set_seq_id(seq_counter);
+        // The anchor LK stage's workers.  The RANSAC stage stays serial in the
+        // anchor order, so the output is bit-identical either way.
+        if (anchor_threads > 1) {
+            std::vector<int> cpus;
+            if (!anchor_cpus.empty() && anchor_cpus != "none")
+                cpus = parse_cpu_list(anchor_cpus);
+            pipe.set_anchor_threads(anchor_threads, cpus);
+            std::printf("[ANCHOR-THREADS] %d workers on the anchor LK stage "
+                        "(RANSAC stays serial in the anchor order: the output is "
+                        "bit-identical)\n",
+                        anchor_threads);
+        }
         if (gate_shift > 0.0)
             pipe.set_fit_gate(gate_shift, gate_min, gate_max);
         else
@@ -2399,6 +3144,11 @@ int main(int argc, char** argv) {
         pipe.gpu_pin_pad(pin_pad);
         pipe.set_corner_probe(corner_probe != 0);
         pipe.set_fit_deadline(fit_deadline, fit_degrade == "hold");
+        pipe.set_ransac_max_iters(fit_ransac_iters);
+        if (fit_ransac_iters > 0)
+            std::printf("[RANSAC-ITERS] maxIters=%d -- ENABLING IT CHANGES THE NUMBERS; "
+                        "report it with the results\n",
+                        fit_ransac_iters);
         if (prealloc_cap > 0)
             std::printf("[PREALLOC]  device images reserved once for pad<=%d "
                         "(no runtime reallocation)\n",
@@ -2574,16 +3324,23 @@ int main(int argc, char** argv) {
         if (gpu) { gpu_pad_max = std::max(gpu_pad_max, gpu->pad()); gpu_bytes = gpu->device_bytes();
                    if (!W0) { W0 = pipe.width(); H0 = pipe.height(); } }
         std::printf("[SEQ] %-32s frames=%-6zu md5=%s  fits/frm=%.2f warps/frm=%.2f "
-                    "compose/frm=%.2f  state=%.2f MiB  devpad=%d  devallocpad=%d  "
-                    "devrealloc=%ld",
+                    "compose/frm=%.2f snapms/frm=%.2f snapmiss=%ld  state=%.2f MiB  devpad=%d  "
+                    "devallocpad=%d  devrealloc=%ld",
                     seq.c_str(), names.size(), seq_md5.hex().c_str(),
                     static_cast<double>(s.n_fit) / n, static_cast<double>(s.n_warp) / n,
-                    static_cast<double>(s.n_compose) / n, pipe.state_bytes() / 1048576.0,
+                    static_cast<double>(s.n_compose) / n, s.t_snapshot / n,
+                    pipe.n_snapshot_miss(),
+                    pipe.state_bytes() / 1048576.0,
                     pipe.gpu_pad(), pipe.gpu_alloc_pad(), pipe.gpu_reconfigures());
         // ---- special-handle trigger census ---------------------------------
         // Every fallback path that changed a frame's output is counted here, in
         // one block, so "how often did the pipeline fall back and why" is a
         // number you can read instead of a claim.
+        //
+        // The block's FORMAT is frozen: guarantee_report.py parses it with a
+        // strict regex, and a silently non-matching regex would print a table
+        // of zeros -- i.e. certify a guarantee it never observed.  So the
+        // snapshot's counters live in the [SEQ] segment instead.
         std::printf(" | [HANDLE] cornercap=%ldf/%ldcalls(%ldpts) fitgate=%ld chain=%ld "
                     "fitdeadline=%ld | corners mean=%.1f over %ld dets (budget %d)",
                     pipe.corner_cap_frames(), pipe.corner_capped(), pipe.corner_dropped(),

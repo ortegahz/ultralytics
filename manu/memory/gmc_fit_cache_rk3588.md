@@ -362,3 +362,180 @@ x86 同步验证：seq1 median 39.0 → 7.5 ms，seq2 median 51.7 → 9.1 ms。
    （还是对同一批 21 个值做选择）。**这是 CPU 臂剩下的最大一块。**
 2. 仍未验证 Python 侧多线程对账（同 §D），动铁律前必须补。
 3. 仍是 2 条序列。
+
+# 追加（2026-10-27）：交付库的缓存**默认已开** —— 「再开一次缓存」被板端证伪 + 迁移警告
+
+## K. 一句话结论
+
+**交付库的三级 GMC 缓存（resize | 角点 | LK 金字塔，即 `cache_parts=7`）本来就是默认开着的。**
+⇒ **不存在「再开一次缓存」的额外收益**；板端实测的 **60 ms 拟合已经包含缓存收益**。
+
+## L. 代码依据（可 grep 复核）
+
+| 项 | 位置 | 值 |
+| :--- | :--- | :--- |
+| 默认开启 | `manu/pipeline/npu/mosaic_pipeline.cpp` 的 `config_defaults()` | `cfg->gmc_pyr_cache = 1` |
+| 传给流水线 | 同文件构造 `OnlineFeaturePipeline` 时 | `/*pyr_cache=*/safe_cfg->gmc_pyr_cache != 0`、**`/*cache_parts=*/7`** |
+| 缓存层级掩码 | 同上（库内常量，不走 ABI） | **7 = resize(1) + corners(2) + pyramid(4)** |
+| 板端审计 | 新构建 `timing.txt` 头部 | 打印 `gmc_pyr_cache=1` / `gmc_cache_parts=7`（读的是 `mosaic_pipeline_effective_config()` 的**实际生效值**） |
+
+⇒ **「缓存还没开，所以还能拿 40 ms」这条推断被证伪**：缓存收益**已经在**那 60 ms 里了。
+
+## M. 🔴 迁移警告：缓存收益**强依赖纹理**（按本文 §6 的规矩）
+
+§6 已经定过规矩：**「任何『每帧纯函数可缓存』的优化，其收益都等于『该阶段在总时间中的占比 × 缓存命中率』。
+引用任何此类加速比前，必须先报该序列的点数 / 纹理水平，否则不可迁移。」**
+
+| 序列 | 角点 / 拟合 | 基线 fit | 缓存后 | 缓存加速 | 纹理档 |
+| :--- | ---: | ---: | ---: | ---: | :--- |
+| 文档 seq1 `01_4485_1167-2666` | **15.7** | 16.91 ms | 3.93 ms | **4.30×** | 贫瘠 |
+| 文档 seq2 `02_1610_0001_1500` | **291.9** | 48.93 ms | 35.68 ms | **1.37×** | 中等 |
+| **本交付序列 001324**（svc_J/K/L/M） | **416.9**（**3958/11810 帧撞 600 上限**） | — | — | **落在下限** | **最密** |
+
+⇒ 本交付序列的角点均值 **416.9** 属**纹理最密**那一档 ⇒ **缓存收益落在下限** ⇒
+**不可引用 4.68×（或任何 4× 级加速比）作为本交付的性能预期**。
+缓存消除的是 gFTT / 金字塔构建 / resize，**消除不了 LK 的逐点迭代**，而后者正比于角点数。
+
+## N. 本节相关的板端数字（2026-10-27，25 fps 定速相机全量）
+
+| arm | fit ms/帧（GMC 拟合帧归一） | 角点均值 / 撞 600 上限 | fps |
+| :--- | ---: | :--- | ---: |
+| svc_J | 60.088 | 416.9 / 3883 帧 | 14.688 |
+| svc_K | 60.162 | 418.0 / 3958 帧 | 15.217 |
+| svc_L（Exp-C） | 60.133 | 417.0 / 3885 帧 | 14.628 |
+| svc_M（Exp-D） | 60.467 | 419.9 / 4069 帧 | 14.612 |
+
+产物目录（板端 `root@192.168.0.64`）：`/mnt/manu/mosaic_out/svc/<arm>/timing.txt`
+（= 本机 `/run/media/manu/SSD960-LOCAL/nfs/mosaic_out/svc/<arm>/timing.txt`）。
+
+```bash
+ssh -p 22 root@192.168.0.64 'cat /mnt/manu/mosaic_out/svc/svc_L_expC_probe/timing.txt'
+```
+
+⇒ **25 fps 的瓶颈不在缓存**（真根因是 ingest 被历史窗口护栏限流的自我维持死锁，
+详见 `manu/memory/MOSAIC_RK3588_20261026.md` §10.9 与 `manu/memory/falsified_archive.md` §四十二）。
+
+---
+
+# 追加（2026-10-28 第六轮）：二级快照改 **0 拷贝**（浅引用 pin 住读槽）+ snap2 修掉一个 TOCTOU 竞态
+
+## O. 一句话结论
+
+**二级快照（`snap_[]`）不需要深拷贝，浅引用即可**：producer 从不写已交出的 buffer，只换 ring 槽位指针
+⇒ 浅拷贝（OpenCV `Mat::operator=` = refcount + 指针）就足以把帧「pin 住」到本次计算结束。
+copy cost 从 **0.92~1.86 ms/帧**（占帧预算 1.4~2.7%）降到 **0.01 ms/帧**。
+
+**而且深拷贝不只是慢 —— 它有害**：深拷贝复制的是「该时刻槽位里装着什么」，
+槽位若已被换帧，会把**错帧冻结进快照**，**掩盖**了快照本该暴露的问题。
+
+## P. 改法（代码级）
+
+| 项 | 旧（深拷贝） | 新（0 拷贝） |
+|:--|:--|:--|
+| 函数名 | `copy_snapshot_slot()` | **`hold_snapshot_slot()`**（`gmc_stream_ocl.cpp:2301`） |
+| 槽位写入 | `src.copyTo(snap_[slot])` | **`snap_[slot] = src`**（浅拷贝：refcount + 指针） |
+| 首帧钳位目标 | `first_.copyTo(snap_first_)` | **`snap_first_ = first_`** |
+| 调用点 | —— | `build_snapshot()`（`:2282`）逐槽 `hold_snapshot_slot(slot, idx)` |
+| 实测 copy cost | **0.92~1.86 ms/帧**（帧预算 1.4~2.7%） | **0.01 ms/帧** |
+
+**依据（写在代码注释里，勿删）**：producer 不写已交出的 buffer，只做 `ring_[s] = frame`（换指针），
+⇒ 浅引用能保证本次计算读到的像素**全程不变**，同时 producer 可以继续推进环。
+
+**读槽 Pin 的两个失效分支仍然保留**（0 拷贝不改变它们）：
+- 冷启钳位（`idx <= clamp_lo()`）⇒ 由 `snap_first_` 单独持有；
+- 历史有洞（`phys_anchor_` 且 `ring_id_[s] != idx`）⇒ **槽位故意置无效**，走 ring 自己的路径，
+  计数 `gmc_history_gaps` 并回退到 `nearest_older`。
+
+## Q. 关键代码行号索引（2026-10-28 复核）
+
+`manu/pipeline/cpp/gmc_stream_ocl.cpp`：
+
+| 位置 | 行号 | 内容 |
+|:--|--:|:--|
+| `anchor_grid` | 820 | 锚点栅格构造 |
+| `GpuHist::put` | 1092 | GPU 历史写入 |
+| `lags_` 构造 | 1548 | 21 个 lag = {2,4,…,42}（step2） |
+| `ring_.assign` | 1572 | 环深 = `max_lag+1+ring_slack` |
+| `ring_id_.assign` | 1578 | 物理帧号索引（洞检测用） |
+| `gpu_slots_` | 1580 | = `max_lag+3` |
+| `snap_.resize` | 1586 | 快照槽位 = `lags_.size()+1` |
+| `build_snapshot` | 2282 | 取读槽引用（0 拷贝入口） |
+| **`hold_snapshot_slot`** | **2301** | **浅拷贝 pin：`snap_[slot] = src`** |
+| `snapshot_slot` | 2346 | lag → 槽位映射（lag/stride_step） |
+| `frame_at_lag` | 2368 | 历史帧读取（含洞检测与回退） |
+
+## R. snap2 vs sweep4 实测对照（**snap2 修掉一个 TOCTOU 竞态**）
+
+**600 帧双臂**（25 fps + FIFO64 + slack1 + phys_anchor1）：
+
+| 项 | snap2（0 拷贝） | base / sweep4（深拷贝） |
+|:--|--:|--:|
+| `gmc_history_gaps` | **2680** | **2692** |
+| both complete 帧 | **211 / 211 逐位相同**，**0 差异** | 同 |
+| both holed 帧（135） | 90 同 / 45 不同 | 同 |
+
+⇒ **snap2 的 gaps 少 12** ⇒ **snap2 修掉一个 TOCTOU 竞态**（深拷贝把「已被换帧的槽位」冻结进快照 ⇒ 误判成洞）。
+
+**全量 cadence=1 双臂**：
+
+| 臂 | dropped | features_dropped | gmc_history_gaps |
+|:--|--:|--:|--:|
+| **snap2** | **7709** | **665** | **80116** |
+| base | 7701 | 720 | 77686 |
+
+**全量分层比对（snap2 vs base，cadence=1）**：both complete 1161 帧中 **1160 逐位相同 / 1 不同**；
+唯一例外帧 **230**（两臂历史都完整，邻居 228/229 相同 ⇒ **孤立竞态帧**），
+且 **snap2 更正确**：base 误判为洞并用 `nearest_older` 代餐。
+
+**服务器 @S 存活帧口径（cadence=1 全量臂）**：
+CANON_snap2 arm@S TP=2844 FP=43 FN=342 ⇒ R=89.266% P=98.511% **F1=0.936605**
+（ref@S 0.923848，**ΔF1=+0.012757**）；CANON_base arm@S F1=0.938333（ref@S 0.926978，ΔF1=+0.011355）；
+ref@fullGT (P1b) F1=0.891871。
+
+## S. 产物与二进制
+
+| 项 | 值 |
+|:--|:--|
+| 板卡二进制 | `/root/rknn_mosaic_e2e_snap2` md5 **`833ae181c939b32a013486cf9f974732`** |
+| 板卡臂输出 | `/root/psearch/results/CANON_snap2/`、`/root/psearch/results/CANON_base/` |
+| 服务器打分 | `/mnt/data/siping/ptq_work/surviving_frames/{CANON_snap2,CANON_base}.{json,md}` |
+| 分层比对工具 | `manu/pipeline/npu/ptq/cmp_frames_by_id.py`（7569 bytes，本轮新建） |
+
+```bash
+# 板卡（root@192.168.0.64:22）：snap2 vs base 双臂
+ssh -p 22 root@192.168.0.64 'export LD_LIBRARY_PATH=/root/psearch/fixlibs; \
+ /root/rknn_mosaic_e2e_snap2 --raw-root /mnt/srv2/lq_ir_bmp --sequence VIDEO00007_19700101_001324 \
+ --model /root/psearch/models/p0_off_A_none.rknn --out /root/psearch/results/CANON_snap2 \
+ --kernel-dir /root/psearch/kernels --limit 600 --pace-ms 40 --input-queue 64 --gmc-ring-slack 1 \
+ --gmc-phys-anchor 1 --gmc-workers 1 --gmc-affinity-group 4-7 --gmc-anchor-threads 4 \
+ --npu-workers 2 --post-workers 1 --cpu-affinity 4-7'
+
+# 本地：按物理帧号 + 历史完整性分层比对
+python3 manu/pipeline/npu/ptq/cmp_frames_by_id.py \
+  --arm ref=/path/base/feature_md5.txt --arm new=/path/snap2/feature_md5.txt \
+  --lag-step 2 --window 21 --out /tmp/snap2_cmp.md
+```
+
+## T. 与主线的衔接（事实指针，非 SOP）
+
+- **canonical 双缓存（0 拷贝）** 是本轮主交付之一：**step2 锚点 + 物理帧号锚定 + 双缓存（0 拷贝）+ cadence**。
+- **用户硬约束**：相机侧 FIFO ≤ 64 帧；**深 FIFO（1024/4096/8192）不是解决方案，禁止使用**；
+  canonical 环深 = **44 帧（slack=1）≈ 14.4 MB**。
+- **cadence 的历史完整性依据**：ingest 对**每一帧**都 `seed_frame`（`manu/pipeline/npu/mosaic_pipeline.cpp:441`），
+  只有成组帧才 push job ⇒ 组帧的 21 帧历史窗口（f−2 … f−42）**完整** ⇒ 零洞。
+- 完整本轮事实见专题档 `manu/memory/MOSAIC_RK3588_20261026.md` **§16**；
+  证伪见 `manu/memory/falsified_archive.md` **§五十二**（含「深拷贝才安全」的反向证伪）。
+
+---
+
+## §P ⭐ 2026-10-28：CANON7（cadence=4）下双缓存 0 拷贝的最终状态
+
+- **CANON7 实时零丢帧零洞臂**（cadence 4 @ 真 25 fps）跑批 **exit=0**，`timing.txt` 报
+  `snapshot copy cost 0.01 ms/frame`；run.log 的 `[SNAPSHOT] engine 0: history reads not served from the private snapshot = 0`
+  ⇒ **私有快照在零洞工况下 100% 命中，结构性保证成立**（对照：CANON4 有洞工况下同一行报 **10302** 次回退）。
+- ⇒ **0 拷贝（浅引用 pin）在真实工况下不只是「更快」，还是「正确性前提」**：
+  有洞时快照缺帧 ⇒ 回退到环 ⇒ 命中 MISSING ⇒ 报洞；深拷贝则会把「槽位已被换帧」的错帧状态**冻结**进快照，把问题掩盖掉。
+- 单组耗时 **74.0695 ms/组**，组产能 **13.50 组/s**；cadence=4 ⇒ 帧覆盖上限 **54.0 fps**（相机 25 fps，余量 116%）⇒ 掉帧 0。
+- 完整事实见 `manu/memory/MOSAIC_RK3588_20261026.md` **§17**；证伪见 `manu/memory/falsified_archive.md` **§五十三**。
+
+> 📌 主档 `manu/memory/memory.md` **§20**；专题档 `manu/memory/MOSAIC_RK3588_20261026.md` **§17**。

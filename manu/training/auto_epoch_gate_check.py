@@ -154,6 +154,24 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--min-track1-f1", type=float, default=BASE["track1_uav"]["f1"])
     p.add_argument("--min-track2-f1", type=float, default=0.985)
     p.add_argument("--max-track2-fp", type=int, default=36, help="= 基线 26 + 允许增量 10")
+    # ---- 参照系注入（**默认 = 现有 GMC 冻结基线 ⇒ 不传任何新参数时行为逐位不变**）----
+    # 换特征语义（例如 no-GMC）时，基线数字与特征根目录必须一起换，
+    # 否则会拿 GMC 语义的基线去判 no-GMC 模型 ⇒ 结构性误判。
+    p.add_argument("--uav-data", default=UAV_DATA,
+                   help="Track1 Anti-UAV 特征集 data.yaml（默认 = 冻结 GMC 集）")
+    p.add_argument("--ft-root", default=FT_ROOT,
+                   help="龙泉山特征集根目录（需含 images/val；默认 = 冻结 GMC 集）")
+    p.add_argument("--base-track1-f1", type=float, default=BASE["track1_uav"]["f1"])
+    p.add_argument("--base-track1-tp", type=int, default=BASE["track1_uav"]["tp"])
+    p.add_argument("--base-track1-fp", type=int, default=BASE["track1_uav"]["fp"])
+    p.add_argument("--base-track2-f1", type=float, default=BASE["track2_golden"]["f1"])
+    p.add_argument("--base-track2-tp", type=int, default=BASE["track2_golden"]["tp"])
+    p.add_argument("--base-track2-fp", type=int, default=BASE["track2_golden"]["fp"])
+    p.add_argument("--base-track2-fn", type=int, default=BASE["track2_golden"]["fn"])
+    p.add_argument("--base-track3-f1", type=float, default=BASE["track3_blind"]["f1"])
+    p.add_argument("--base-track3-tp", type=int, default=BASE["track3_blind"]["tp"])
+    p.add_argument("--base-track3-fp", type=int, default=BASE["track3_blind"]["fp"])
+    p.add_argument("--base-track3-fn", type=int, default=BASE["track3_blind"]["fn"])
     p.add_argument("--skip-track1", action="store_true")
     p.add_argument("--skip-longquan", action="store_true")
     # ---- 资源参数（**不影响评测口径**：batch/chunk 只影响速度与显存，推理是确定性的、BN 用 eval）----
@@ -187,8 +205,30 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
+def effective_base(args: argparse.Namespace) -> dict:
+    """按 CLI 覆盖构造**生效基线**。
+
+    默认（不传任何 ``--base-*``）⇒ 与模块常量 ``BASE`` **逐位相等**（旧行为不变）。
+    换特征语义（no-GMC 等）时用 CLI 覆盖，避免拿 GMC 语义的基线判新语义模型。
+    """
+    #      （变量名刻意叫 base_eff：下面 track2/track3 循环里已有一个 `base` 局部变量）
+    #      先整份复制 BASE（含 track1_uav_withp0 等信息项），再逐条局部覆盖。
+    base_eff = {k: dict(v) for k, v in BASE.items()}
+    base_eff["track1_uav"].update(
+        {"f1": args.base_track1_f1, "tp": args.base_track1_tp, "fp": args.base_track1_fp}
+    )
+    base_eff["track2_golden"].update(
+        {"f1": args.base_track2_f1, "tp": args.base_track2_tp, "fp": args.base_track2_fp, "fn": args.base_track2_fn}
+    )
+    base_eff["track3_blind"].update(
+        {"f1": args.base_track3_f1, "tp": args.base_track3_tp, "fp": args.base_track3_fp, "fn": args.base_track3_fn}
+    )
+    return base_eff
+
+
 def main() -> int:
     args = parse_args()
+    base_eff = effective_base(args)
     # ---- GPU 分配：'auto' 解析为当前空闲卡（训练进程占用的卡必须避开）----
     free_gpus = pick_free_gpus()
     if args.infer_gpu.strip() == "auto":
@@ -202,7 +242,7 @@ def main() -> int:
     report: dict = {
         "weights": args.weights,
         "out_dir": str(out),
-        "baselines": BASE,
+        "baselines": base_eff,
         "tracks": {},
         "gates": {},
     }
@@ -224,7 +264,7 @@ def main() -> int:
                     "--weights",
                     args.baseline_weights,
                     "--data",
-                    UAV_DATA,
+                    args.uav_data,
                     "--output",
                     str(base_cache),
                     "--imgsz",
@@ -256,7 +296,7 @@ def main() -> int:
                 "--weights",
                 args.weights,
                 "--data",
-                UAV_DATA,
+                args.uav_data,
                 "--output",
                 str(cache),
                 "--imgsz",
@@ -299,11 +339,11 @@ def main() -> int:
                     "--tol",
                     "8.0",
                     "--expect-f1",
-                    str(BASE["track1_uav"]["f1"]),
+                    str(base_eff["track1_uav"]["f1"]),
                     "--expect-tp",
-                    str(BASE["track1_uav"]["tp"]),
+                    str(base_eff["track1_uav"]["tp"]),
                     "--expect-fp",
-                    str(BASE["track1_uav"]["fp"]),
+                    str(base_eff["track1_uav"]["fp"]),
                     "--out-json",
                     str(ab_json),
                 ],
@@ -368,7 +408,7 @@ def main() -> int:
                     sys.executable,
                     "manu/data/multiscale_heatmap_cache.py",
                     "--features-root",
-                    f"{FT_ROOT}/images/val",
+                    f"{args.ft_root}/images/val",
                     "--cache-root",
                     str(cache_root),
                     "--shard",
@@ -413,8 +453,8 @@ def main() -> int:
         print(f"[CACHE] 龙泉山 val 缓存 {n_pkl} 个 pkl（{time.time()-t_cache:.1f}s）", flush=True)
 
         for track, seq_arg, seq_list, key, base in (
-            ("track2_golden", "--seqs", GOLDEN, "track2_golden", BASE["track2_golden"]),
-            ("track3_blind", "--seq", BLIND, "track3_blind", BASE["track3_blind"]),
+            ("track2_golden", "--seqs", GOLDEN, "track2_golden", base_eff["track2_golden"]),
+            ("track3_blind", "--seq", BLIND, "track3_blind", base_eff["track3_blind"]),
         ):
             js = out / f"{track}.json"
             cmd = [

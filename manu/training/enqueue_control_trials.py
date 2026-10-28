@@ -92,8 +92,16 @@ def main() -> int:
     ap.add_argument("--from-trial", default="",
                     help="复制某个已有 trial 的**精确超参**入队（用于对胜出配置做多种子确认重跑）。"
                          "例：--from-trial trial_0080")
+    ap.add_argument("--summary-csv", default="runs/optuna_mix_ratio/optuna_summary.csv",
+                    help="--from-trial 模式下从哪个汇总 CSV 取超参（默认=GMC 侧，旧行为不变；"
+                         "no-GMC 侧传 runs/optuna_nogmc/optuna_summary.csv）")
     ap.add_argument("--count", type=int, default=1,
                     help="--from-trial 模式下的重复次数（每个副本换不同 trial 编号 ⇒ 不同随机种子）")
+    ap.add_argument("--role-tag", default="",
+                    help="覆盖入队 trial 的 role 标签（默认 = CONFIRM_<from_trial>）。"
+                         "例：--role-tag RC2_RECIPE_TRANSPLANT —— 用于「配方移植」这类语义不同的情况")
+    ap.add_argument("--role-note", default="",
+                    help="覆盖入队 trial 的 note 文本（默认 = 确认重跑说明）")
     args = ap.parse_args()
 
     route_b = literal_assignment(SEARCH_MODULE, "ROUTE_B_DEFAULTS")
@@ -127,7 +135,7 @@ def main() -> int:
         # ---- 确认重跑：复制已有 trial 的精确超参（换 trial 编号 ⇒ 换随机种子）----
         import csv
         import io
-        summary = Path("runs/optuna_mix_ratio/optuna_summary.csv")
+        summary = Path(args.summary_csv)
         if not summary.is_file():
             print(f"[FATAL] 找不到 {summary}")
             return 1
@@ -157,8 +165,8 @@ def main() -> int:
         print(f"[SRC] 复制 {args.from_trial} 的超参：{json.dumps(p, ensure_ascii=False)}")
         for _ in range(max(1, args.count)):
             ua = {
-                "role": f"CONFIRM_{args.from_trial}",
-                "note": f"确认重跑：复制 {args.from_trial} 的精确超参，换随机种子",
+                "role": args.role_tag or f"CONFIRM_{args.from_trial}",
+                "note": args.role_note or f"确认重跑：复制 {args.from_trial} 的精确超参，换随机种子",
                 "enqueued_by": "enqueue_control_trials.py",
                 "src_trial": args.from_trial,
             }

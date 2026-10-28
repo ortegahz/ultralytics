@@ -133,7 +133,14 @@ def main() -> int:
             print(f"[WARN] {name} 在 study 里找不到 params，跳过")
             continue
         status = classify(res)
-        dur = 0.0
+        # 2026-10-27 修：原来写死 0.0 ⇒ 补写行的 duration_min 全是 0，
+        # 会把汇总里的「单 trial 耗时」中位数/最短/最长拉成 0.00（误导）。
+        # `trial_result.json` 的 `elapsed_s` 是 worker 的**全程墙钟**（训练 + 门禁），
+        # 与调度器自己算的 dur（(now-start_time)/60）同口径、只差零点几分钟 ⇒ 直接换算。
+        try:
+            dur = float(res.get("elapsed_s") or 0.0) / 60.0
+        except (TypeError, ValueError):
+            dur = 0.0
         to_write.append((name, params, res, status, dur))
         print(
             f"  + {name}  status={status}  mix={params.get('mix_spec')}  "

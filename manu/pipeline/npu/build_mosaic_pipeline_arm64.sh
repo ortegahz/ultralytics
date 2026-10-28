@@ -153,5 +153,53 @@ check_needed "$OUT/rknn_mosaic_heatmap"
 
 echo
 echo "== deploy to the board =="
-echo "  scp -P 22 $OUT/libmosaic_pipeline.a $OUT/rknn_mosaic_e2e $OUT/mosaic_api_test root@192.168.0.64:/root/"
-echo "  scp -P 22 $OUT/rknn_mosaic_heatmap           root@192.168.0.64:/root/"
+# ACTUALLY deploy.  This block used to only ECHO the scp lines, so a "build +
+# deploy" run silently left the OLD binaries on the board -- which is how a
+# stale, flaky contract test kept being reported as "42 passed, 0 failed".
+# The deploy is best-effort: a board that is unreachable must not destroy a
+# successful build, so failures warn instead of aborting.
+BOARD="${MOSAIC_BOARD:-root@192.168.0.64}"
+BOARD_PORT="${MOSAIC_BOARD_PORT:-22}"
+if [ "${MOSAIC_NO_DEPLOY:-0}" = "1" ]; then
+  echo "  [skip] MOSAIC_NO_DEPLOY=1"
+else
+  if scp -P "$BOARD_PORT" "$OUT/libmosaic_pipeline.a" "$OUT/rknn_mosaic_e2e" \
+             "$OUT/mosaic_api_test" "$BOARD:/root/" && \
+     scp -P "$BOARD_PORT" "$OUT/rknn_mosaic_heatmap" "$BOARD:/root/"; then
+    echo "  [ok] deployed to $BOARD:/root/"
+    echo "  board md5:"
+    ssh -p "$BOARD_PORT" "$BOARD" 'md5sum /root/libmosaic_pipeline.a /root/rknn_mosaic_e2e /root/mosaic_api_test /root/rknn_mosaic_heatmap' | sed 's/^/    /'
+  else
+    echo "  [WARN] deploy failed (board unreachable?); the build itself is fine" >&2
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# 4. the GMC GPU PROBE (standalone measurement binary)
+# ---------------------------------------------------------------------------
+# APPENDED, 2026-10-27.  This section adds ONE new target and changes NOTHING
+# above it: libmosaic_pipeline.a / rknn_mosaic_e2e / mosaic_api_test /
+# rknn_mosaic_heatmap keep their exact compile flags and their exact
+# artifacts.
+#
+# gmc_gpu_probe is a PROBE, not a pipeline component:
+#   * it links NOBODY from libmosaic_pipeline.a (it is self-contained),
+#   * it is not called by the pipeline, it does not touch the e2e TSV,
+#   * it exists to measure "GMC feature prep on Mali-G610: speed and accuracy
+#     cost" -- see manu/pipeline/npu/gmc_gpu_probe.cpp.
+#
+# The probe needs OpenCV (the CPU reference arm: goodFeaturesToTrack /
+# calcOpticalFlowPyrLK / estimateAffinePartial2D) and OpenCL (the GPU arm).
+# Same $FP_FLAGS discipline as the library: -ffp-contract=off, no fast-math.
+echo
+echo "== building gmc_gpu_probe (standalone GMC feature-prep GPU probe) =="
+"$CXX" $LIB_CXXFLAGS "$HERE/gmc_gpu_probe.cpp" -o "$OUT/gmc_gpu_probe" \
+  -L"$LIBDIR" -L"$INSTALL/lib" -L"$TP_LIB" $OPENCV_LIBS -lOpenCL -lpthread -ldl -lm
+echo "[ok] $OUT/gmc_gpu_probe"
+file "$OUT/gmc_gpu_probe" | cut -d, -f1-3
+echo "    md5: $(md5sum "$OUT/gmc_gpu_probe" | cut -d' ' -f1)"
+# The probe is NOT auto-deployed: the deploy block above belongs to the
+# certified artifacts and must stay byte-identical in behaviour.  Deploy it
+# explicitly when measuring:
+#   scp -P 22 $OUT/gmc_gpu_probe root@192.168.0.64:/root/
+#   scp -P 22 ../opencl/kernels/gmc_feature_gpu.cl root@192.168.0.64:/root/kernels/

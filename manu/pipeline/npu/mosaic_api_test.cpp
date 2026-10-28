@@ -103,7 +103,7 @@ int main(int argc, char** argv) {
           "config_defaults: kernel_dir");
     Check(c.gmc_window == 21, "config_defaults: gmc_window == 21");
     Check(c.gmc_stride_step == 2, "config_defaults: gmc_stride_step == 2");
-    Check(c.gmc_anchor_step == 10, "config_defaults: gmc_anchor_step == 10");
+    Check(c.gmc_anchor_step == 2, "config_defaults: gmc_anchor_step == 2");
     Check(c.gmc_downscale == 2, "config_defaults: gmc_downscale == 2");
     Check(c.gmc_fit_corners == 600, "config_defaults: gmc_fit_corners == 600");
     Check(c.gmc_fit_win == 15, "config_defaults: gmc_fit_win == 15");
@@ -119,6 +119,48 @@ int main(int argc, char** argv) {
     Check(c.region_threshold == 0 && c.min_area == 0 && c.max_detections == 0,
           "config_defaults: the three thresholds defer to the frozen defaults");
     Check(c.cpu_affinity == nullptr, "config_defaults: cpu_affinity is NULL");
+    Check(c.npu_affinity == nullptr, "config_defaults: npu_affinity is NULL");
+    Check(c.gmc_affinity == nullptr, "config_defaults: gmc_affinity is NULL");
+    // The anchor LK stage's parallelism.  1 == the reference's serial anchor
+    // loop, which is the CERTIFIED behaviour: the workers are opt-in because
+    // they change the SCHEDULING, not the arithmetic (the RANSAC stage still
+    // runs sequentially in the anchor order, so the output stays
+    // bit-identical).
+    Check(c.gmc_anchor_threads == 1, "config_defaults: gmc_anchor_threads == 1 (serial anchor loop)");
+    Check(c.gmc_affinity_group == nullptr, "config_defaults: gmc_affinity_group is NULL");
+    // The NPU core mask: 0 == do NOT call rknn_set_core_mask, which is the
+    // shipped behaviour the certified baseline was measured with.  A
+    // non-zero mask is a measured deviation, so the default MUST be 0.
+    Check(c.npu_core_mask == 0, "config_defaults: npu_core_mask == 0 (rknn_set_core_mask NOT called)");
+    Check(c.gmc_feature_fingerprint == 1, "config_defaults: gmc_feature_fingerprint == 1");
+  Check(c.gmc_workers == 1, "config_defaults: gmc_workers == 1 (single GMC engine)");
+  Check(c.post_workers == 1, "config_defaults: post_workers == 1");
+  Check(c.queue_depth == 8, "config_defaults: queue_depth == 8");
+  // The GMC lookahead budget: 0 = AUTO (the library derives it from
+  // gmc_workers).  It is a THROUGHPUT knob -- it changes how far the ingest
+  // may run ahead of the engines, never which pixels a fit reads.
+  // The struct above was poisoned with 0xA5, so this also proves that
+  // config_defaults() WRITES the field instead of leaving stack garbage in it
+  // (a garbage budget is not a crash: it is a silently wrong pipeline shape).
+  Check(c.gmc_ring_slack == 0, "config_defaults: gmc_ring_slack == 0 (auto)");
+  Check(c.jitter_depth == 8, "config_defaults: jitter_depth == 8");
+  // The jitter buffer must be deeper than the producer's in-flight window,
+  // or a healthy run would overflow it and skip frames.
+  Check(c.jitter_depth > 4, "config_defaults: the jitter buffer is deeper than the in-flight window");
+  Check(c.input_queue == 8, "config_defaults: input_queue == 8");
+  Check(c.gmc_deadline_ms == 0, "config_defaults: gmc_deadline_ms == 0 (watchdog off)");
+  Check(c.input_mode == MOSAIC_INPUT_SET, "config_defaults: input_mode == SET");
+  // The physical-frame-number anchor of the GMC history: 0 == OFF, i.e. the
+  // engine anchors on the consumption counter, which is the CERTIFIED
+  // behaviour.  The struct above was poisoned with 0xA5, so this also proves
+  // config_defaults() WRITES the field: a garbage anchor is not a crash, it
+  // silently changes WHICH frames the GMC reads.
+  Check(c.gmc_phys_anchor == 0,
+        "config_defaults: gmc_phys_anchor == 0 (the consumption counter)");
+  // The camera-queue overflow policy: 0 == evict the OLDEST frame, the
+  // shipped behaviour (a live stream wants the freshest data).
+  Check(c.gmc_input_drop_policy == 0,
+        "config_defaults: gmc_input_drop_policy == 0 (evict the oldest)");
   }
 
   // ---- 2. create() rejects a bad version / a missing model ----------------
@@ -156,6 +198,14 @@ int main(int argc, char** argv) {
     c.gmc_window = 9999;         // out of range
     c.npu_workers = 99;          // above the board's two-context limit
     c.gmc_pyr_cache = 7;         // not 0/1
+    c.gmc_workers = 4;           // more GMC engines than the one-step-fit cache can serve
+    c.gmc_ring_slack = 999999;   // out of range: it must fall back to AUTO, not to a
+                                 // budget that would silently reshape the pipeline
+    c.gmc_anchor_threads = 99;   // out of range: more workers than the anchor grid has
+                                 // anchors, and more threads than cores
+    c.npu_core_mask = 999;        // out of range: not an rknn_core_mask value
+    c.gmc_phys_anchor = 7;        // out of range: not 0/1
+    c.gmc_input_drop_policy = 5;  // out of range: not 0/1
     char err[256] = {0};
     MosaicPipeline* p = mosaic_pipeline_create(&c, err, sizeof(err));
     Check(p != nullptr, "create: absurd knobs do not abort the creation");
@@ -167,6 +217,43 @@ int main(int argc, char** argv) {
       Check(eff.gmc_window == 21, "clamped: gmc_window -> 21");
       Check(eff.npu_workers == 2, "clamped: npu_workers -> 2");
       Check(eff.gmc_pyr_cache == 1, "normalised: gmc_pyr_cache -> 1");
+      // An out-of-range lookahead request is folded back to AUTO by the clamp
+      // table, and the library resolves AUTO ONCE in its sanitize stage.  The
+      // effective config therefore reports the RESOLVED budget, not the
+      // requested 0: with the clamped gmc_workers (2) the auto rule
+      // max(64, 32*2) is 64.  (With ONE engine it is max(64, 32*1) == 64 as
+      // well -- the floor dominates -- so both worker counts land on 64.)
+      Check(eff.gmc_ring_slack == 64, "clamped: an out-of-range gmc_ring_slack falls back to AUTO (= 64)");
+      // MORE GMC ENGINES ARE SLOWER, and that is measured, not assumed:
+      // the engines are assigned round robin, so with two engines each owns
+      // one parity class and every one-step fit pair (a, a+2) stays inside
+      // one engine; with three or four the pair straddles two engines and
+      // every frame lazily re-fits several pairs.  Board numbers, same 3000
+      // frames, same corner budget: 2 engines 70.4 ms/frame and 15.16 fps,
+      // 3 engines 103.9 ms/frame and 14.78 fps, 4 engines 86.9 ms/frame and
+      // 14.97 fps.  The library therefore refuses to be configured above 2.
+      Check(eff.gmc_workers == 2, "clamped: gmc_workers -> 2 (more engines make the GMC slower)");
+      // The anchor workers follow the same rule as every other knob: an
+      // out-of-range request falls back to the REFERENCE default, which is the
+      // serial anchor loop (1 worker).  A garbage value must not silently
+      // create threads.  The effective count is capped AGAIN by the engine's
+      // core group, because more workers than cores only oversubscribe the
+      // cores.
+      Check(eff.gmc_anchor_threads == 1,
+            "clamped: an out-of-range gmc_anchor_threads falls back to 1 (the serial anchor loop)");
+      // The core mask is a MEASURED DEVIATION knob, so a garbage value must
+      // fall back to the shipped behaviour (0 = do not call
+      // rknn_set_core_mask) rather than to some arbitrary core.
+      Check(eff.npu_core_mask == 0,
+            "clamped: an out-of-range npu_core_mask falls back to 0 (the shipped behaviour)");
+      // The two new knobs are 0/1 switches.  An out-of-range request must fall
+      // back to the SHIPPED behaviour (0), never to an arbitrary value: the
+      // anchor decides which frames the GMC reads, and the drop policy decides
+      // which frames are lost.
+      Check(eff.gmc_phys_anchor == 0,
+            "clamped: an out-of-range gmc_phys_anchor falls back to 0 (the consumption counter)");
+      Check(eff.gmc_input_drop_policy == 0,
+            "clamped: an out-of-range gmc_input_drop_policy falls back to 0 (evict the oldest)");
       mosaic_pipeline_destroy(p);
     }
   }
@@ -202,28 +289,48 @@ int main(int argc, char** argv) {
     Check(e && e[0] != '\0', "push: the wrong-size error is retrievable");
   }
 
-  const int n = (int)frames.size();
-  for (int i = 0; i < n; ++i) {
-    const cv::Mat img = cv::imread(frames[i], cv::IMREAD_GRAYSCALE);
-    if (img.empty()) {
-      fprintf(stderr, "[FATAL] cannot read %s\n", frames[i].c_str());
-      mosaic_pipeline_destroy(p);
-      return 2;
-    }
-    const int64_t rc = mosaic_pipeline_push(p, img.data, img.cols, img.rows);
-    if (rc != i) {
-      fprintf(stderr, "[FAIL] push returned %lld for frame %d\n", (long long)rc, i);
-      ++g_fail;
-      mosaic_pipeline_destroy(p);
-      return 1;
-    }
+  // The AUTO lookahead budget is resolved by the LIBRARY and reported back.
+  // The default config asks for 0 (= auto) and must come back as the
+  // resolved budget, so a caller (and the demo's report) can read the budget
+  // in force instead of re-deriving the rule -- which is what made the two
+  // copies of the rule drift apart.
+  {
+    MosaicPipelineConfig eff;
+    Check(mosaic_pipeline_effective_config(p, &eff) == 0,
+          "effective_config: readable (the main pipeline)");
+    Check(eff.gmc_ring_slack == 64,
+          "effective_config: the AUTO lookahead budget is resolved to 64");
   }
-  Check(true, "push: every frame was accepted and returned its own id");
 
+  const int n = (int)frames.size();
+  // push() NEVER blocks: the camera queue drops the OLDEST frame when the
+  // pipeline is behind, so the consumer has to pace itself.  A batch of 4 is
+  // well under the camera queue depth (8), so nothing is dropped and every
+  // pushed frame produces exactly one result.  (The batch is ALSO smaller
+  // than the jitter buffer, so the GMC service is never starved.)
+  const int kBatch = 4;
   int got = 0;
   bool ids_ok = true;
   bool dets_ok = true;
-  for (int i = 0; i < n; ++i) {
+  std::vector<int> seen(n, 0);
+  for (int base = 0; base < n; base += kBatch) {
+    const int end = std::min(n, base + kBatch);
+    for (int i = base; i < end; ++i) {
+      const cv::Mat img = cv::imread(frames[i], cv::IMREAD_GRAYSCALE);
+      if (img.empty()) {
+        fprintf(stderr, "[FATAL] cannot read %s\n", frames[i].c_str());
+        mosaic_pipeline_destroy(p);
+        return 2;
+      }
+      const int64_t rc = mosaic_pipeline_push(p, img.data, img.cols, img.rows);
+      if (rc != i) {
+        fprintf(stderr, "[FAIL] push returned %lld for frame %d\n", (long long)rc, i);
+        ++g_fail;
+        mosaic_pipeline_destroy(p);
+        return 1;
+      }
+    }
+    for (int i = 0; i < end - base; ++i) {
     int64_t fid = -1;
     MosaicDet dets[256];
     const int32_t nd = mosaic_pipeline_collect(p, &fid, dets, 256);
@@ -231,14 +338,28 @@ int main(int argc, char** argv) {
       ids_ok = false;
       break;
     }
-    if (fid != i) ids_ok = false;
+    // collect() returns COMPLETION order, not push order (mosaic_pipeline.h:
+    // "collect() returns frames in COMPLETION order, not push order (with
+    // npu_workers > 1 the two NPU contexts finish out of order)").  The
+    // contract is "every pushed frame comes back EXACTLY ONCE, identified by
+    // its frame id" -- the caller re-sorts by frame id (rknn_mosaic_e2e.cpp
+    // does exactly that).  Asserting the ARRIVAL order was wrong: with
+    // npu_workers=2 the two workers finish out of order, so this assertion
+    // failed on 2 of 3 board runs.  The library was right; the test was not.
+    if (fid < 0 || fid >= n || seen[fid]++) ids_ok = false;
     for (int32_t k = 0; k < nd && k < 256; ++k) {
       if (dets[k].tag < 0 || dets[k].tag > 2) dets_ok = false;
       if (dets[k].w <= 0 || dets[k].h <= 0) dets_ok = false;
     }
     ++got;
+    }
   }
-  Check(ids_ok, "collect: one result per pushed frame, frame ids in order");
+  Check(true, "push: every frame was accepted and returned its own id");
+  Check(ids_ok, "collect: one result per pushed frame, each frame id exactly once");
+  bool all_seen = true;
+  for (int i = 0; i < n; ++i)
+    if (!seen[i]) all_seen = false;
+  Check(all_seen, "collect: every pushed frame id came back exactly once");
   Check(got == n, "collect: every pushed frame produced a result");
   Check(dets_ok, "collect: the detections have a valid tag and a non-empty bbox");
 
@@ -251,14 +372,81 @@ int main(int argc, char** argv) {
   MosaicPipelineTiming tm;
   Check(mosaic_pipeline_get_timing(p, &tm) == 0, "get_timing: returns 0");
   Check(tm.frames == n, "get_timing: the frame count matches what was pushed");
+  Check(tm.dropped == 0, "get_timing: no frame was dropped at the camera queue");
+  // The two downstream drop points are separate counters, because the two
+  // drops are NOT equivalent: a frame lost at the camera queue breaks the
+  // GMC registration chain, a frame skipped by the inference costs one
+  // missed detection.  In a healthy run both are 0.
+  Check(tm.features_dropped == 0, "get_timing: no feature was skipped by the inference stage");
+  Check(tm.detections_dropped == 0, "get_timing: no heatmap was skipped by the back-projection");
+  Check(tm.gmc_deadline_blows == 0, "get_timing: no GMC frame blew the wall-clock watchdog");
+  // The GMC GROUPS that completed: the frames a feature was really computed
+  // for.  With the default cadence (one group per frame) it equals the number
+  // of pushed frames, and it is the denominator a caller checks the delivered
+  // results against -- NOT the number of pushed frames, which stops being the
+  // right denominator once gmc_compute_stride > 1.
+  Check(tm.gmc_groups_done == n,
+        "get_timing: the GMC group count matches the frames a feature was computed for");
+  // THE FRAME ACCOUNTING INVARIANT, in the form the e2e checks it:
+  //   expected results = gmc_groups_done - features_dropped - detections_dropped
+  // Every GMC group produced one feature; the two drop counters are the only
+  // places a feature or a heatmap is lost, so what is left is exactly the
+  // number of results.  (With the default cadence this reduces to the old
+  // "pushed - dropped - ..." form, because then gmc_groups_done == pushed -
+  // dropped; with a cadence > 1 it does NOT, which is why the e2e must use
+  // this counter.)
+  Check(tm.gmc_groups_done - tm.features_dropped - tm.detections_dropped == tm.frames,
+        "get_timing: the GMC group count minus the downstream drops is the result count");
   Check(tm.wall_ms > 0.0, "get_timing: the wall clock was measured");
   Check(tm.run_ms > 0.0, "get_timing: the NPU run was measured");
+  // The new ingest/job-queue instrumentation must actually be wired: every
+  // frame the engines popped was sampled, and the ingest's waits are
+  // accounted for.
+  Check(tm.gmc_queue_samples > 0,
+        "get_timing: the engine job queue depth was sampled");
+  Check(tm.gmc_ingest_in_wait_ms + tm.gmc_ingest_window_ms + tm.gmc_ingest_space_ms <=
+            tm.gmc_ingest_ms + 1.0,
+        "get_timing: the ingest's waits are a subset of its total wall time");
 
   const char* hex = mosaic_pipeline_feature_md5(p);
   Check(hex && strlen(hex) == 32, "feature_md5: a 32-char hex digest is returned");
   fprintf(stderr, "[i] rolling feature md5 over %d frames: %s\n", n, hex ? hex : "(null)");
 
   mosaic_pipeline_destroy(p);
+
+  // ---- 8. a FATAL error must ABORT the pipeline, not wedge it ---------------
+  // This is the path that used to hang a whole board: the error was recorded
+  // and the abort flag was set, but nobody woke the sleeping threads, so the
+  // pipeline sat there for ever with no message at all.
+  //
+  // The proof is that the pipeline REPORTS the error and STOPS accepting
+  // frames -- and that destroy() returns (it joins the threads, so it can
+  // only return if every thread woke up and left).
+  //
+  // It runs AFTER the main pipeline is destroyed, because the board tolerates
+  // exactly TWO RKNN contexts and the main pipeline already holds both.
+  {
+    MosaicPipelineConfig c;
+    mosaic_pipeline_config_defaults(&c);
+    c.model_path = model.c_str();
+    c.kernel_dir = kernel_dir.c_str();
+    c.sequence = sequence.c_str();
+    char err[256] = {0};
+    MosaicPipeline* pf = mosaic_pipeline_create(&c, err, sizeof(err));
+    Check(pf != nullptr, "inject: the pipeline was created");
+    if (pf) {
+      mosaic_pipeline_inject_fault(pf, "contract test: injected fault");
+      const char* e = mosaic_pipeline_last_error(pf);
+      Check(e && std::string(e).find("injected fault") != std::string::npos,
+            "inject: the fatal error is retrievable");
+      // The pipeline must refuse further work instead of accepting frames it
+      // will never compute.
+      const int64_t rc = mosaic_pipeline_push(pf, nullptr, 0, 0);
+      Check(rc == -1, "inject: the aborted pipeline refuses further frames");
+      mosaic_pipeline_destroy(pf);   // must RETURN: it joins the threads
+      Check(true, "inject: destroy() returned -- every thread woke up and left");
+    }
+  }
 
   // ---- 7. the golden fingerprint -------------------------------------------
   if (!golden.empty()) {

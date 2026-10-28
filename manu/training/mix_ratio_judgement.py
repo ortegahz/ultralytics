@@ -545,6 +545,7 @@ def compare_models(
     beta: float = DEFAULT_BETA,
     gamma: float = DEFAULT_GAMMA,
     allow_relaxed: bool = DEFAULT_RELAXED_GATE_ENABLED,
+    gate_config: dict | None = None,
     label_a: str = "A",
     label_b: str = "B",
 ) -> dict:
@@ -556,10 +557,17 @@ def compare_models(
         ``pareto``：二级明细
         ``utility_a`` / ``utility_b``：三级效用分（相对**冻结基线**，与 objective 同尺度）
         ``utility_a_vs_b`` / ``utility_b_vs_a``：互比效用分（仅在互有攻守时用于裁决）
+
+    ``gate_config``（**纯增量**，默认 ``None`` ⇒ 逐位等价旧行为）：一级红线阈值覆盖，
+    键名与 ``hard_gate`` 同名。参照系注入时必须透传，否则门禁会用**模块常量**旧阈值。
     """
     frozen = frozen_baseline or FROZEN_BASELINE
-    gate_a = hard_gate(a, frozen, allow_relaxed=allow_relaxed)
-    gate_b = hard_gate(b, frozen, allow_relaxed=allow_relaxed)
+    gate_kw: dict = {}
+    for _k in ("track2_f1_min", "track2_fp_max_increment", "track1_min_delta"):
+        if gate_config and gate_config.get(_k) is not None:
+            gate_kw[_k] = gate_config[_k]
+    gate_a = hard_gate(a, frozen, allow_relaxed=allow_relaxed, **gate_kw)
+    gate_b = hard_gate(b, frozen, allow_relaxed=allow_relaxed, **gate_kw)
     pdet = pareto_detail(a, b, dims)
     u_a, _ = utility(a, frozen, alpha=alpha, beta=beta, gamma=gamma)
     u_b, _ = utility(b, frozen, alpha=alpha, beta=beta, gamma=gamma)
@@ -614,11 +622,18 @@ def select_best(
     beta: float = DEFAULT_BETA,
     gamma: float = DEFAULT_GAMMA,
     allow_relaxed: bool = DEFAULT_RELAXED_GATE_ENABLED,
+    gate_config: dict | None = None,
 ) -> dict:
     """在一组候选里选最优（漏斗顺序），并给出可审计的判决链。
 
     ``candidates`` 每项须含 ``metrics``（四元组 + FP）与可选 ``name`` / ``weights`` / ``trial``。
     ``reference`` 为**现任擂主**（默认 RC1/Ep3），会一并参与判决。
+
+    ``gate_config``（**纯增量**，默认 ``None`` ⇒ 行为与旧版逐位相同）：
+    一级红线的阈值覆盖，键名与 ``hard_gate`` 同名（``track2_f1_min`` /
+    ``track2_fp_max_increment`` / ``track1_min_delta``）。
+    参照系注入场景（no-GMC 语义）必须把它透传给 ``hard_gate``，
+    否则漏斗会用**模块常量**的旧阈值判，与参照系包里的最终阈值不一致。
     """
     frozen = frozen_baseline or FROZEN_BASELINE
     items = [dict(c) for c in candidates]
@@ -627,10 +642,16 @@ def select_best(
     if not items:
         return {"winner": None, "reason": "没有候选"}
 
+    # ★ 阈值透传（纯增量：不传 ⇒ 与 hard_gate 的默认值逐位相同）
+    gate_kw: dict = {}
+    for _k in ("track2_f1_min", "track2_fp_max_increment", "track1_min_delta"):
+        if gate_config and gate_config.get(_k) is not None:
+            gate_kw[_k] = gate_config[_k]
+
     # 一级：先剔除触红线的
     passed, rejected = [], []
     for it in items:
-        ok, reason, det = hard_gate(it["metrics"], frozen, allow_relaxed=allow_relaxed)
+        ok, reason, det = hard_gate(it["metrics"], frozen, allow_relaxed=allow_relaxed, **gate_kw)
         it["gate_ok"], it["gate_reason"], it["gate_detail"] = ok, reason, det
         (passed if ok else rejected).append(it)
 
@@ -647,6 +668,8 @@ def select_best(
     if not passed:
         report["winner"] = None
         report["reason"] = "全部候选都未过一级红线"
+        # ★ 兜底：早退路径也要给出帕累托计数，否则调用方按固定键取值会 KeyError
+        report["n_pareto_maximal"] = 0
         return report
 
     # 三级效用分（相对冻结基线，与 objective 同尺度）
@@ -695,6 +718,7 @@ def select_best(
             alpha=alpha,
             beta=beta,
             gamma=gamma,
+            gate_config=gate_config,
             label_a=report["winner"].get("name", "winner"),
             label_b="RC1_EPOCH3",
         )

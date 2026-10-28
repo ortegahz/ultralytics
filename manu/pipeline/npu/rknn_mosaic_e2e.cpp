@@ -17,18 +17,25 @@
 //
 // Usage:
 //   rknn_mosaic_e2e --raw-root DIR --sequence NAME --model M.rknn --out DIR
-//                   [--kernel-dir /root/kernels] [--anchor-step 10]
+//                   [--kernel-dir /root/kernels] [--anchor-step 2]
 //                   [--npu-workers 2] [--limit N] [--start N]
 //                   [--cpu-affinity 4-7] [--threads 1] [--timing FILE]
+//                   [--gmc-ring-slack N]   the GMC lookahead budget (0 = auto)
 // ===========================================================================
 #include <opencv2/imgcodecs.hpp>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <mutex>
+#include <numeric>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <dirent.h>
@@ -39,6 +46,60 @@
 
 namespace {
 
+// The streaming consumer state.
+//
+// push() NEVER blocks -- the camera must not be stalled by a pipeline that
+// cannot keep up -- so the consumer has to pace itself.  The results come
+// back through the CALLBACK (in completion order); the consumer keeps at
+// most kInFlight frames outstanding (pushed but not yet delivered) and waits
+// on the condition variable otherwise.  That wait IS the pipeline's own
+// pace, so the wall clock the library measures contains no demo overhead
+// beyond the pipeline's.
+struct Consumer {
+  std::mutex m;
+  std::condition_variable cv;
+  std::map<int64_t, std::vector<MosaicDet>> rows;
+  // ATOMIC on purpose: the watchdog has to be able to read the progress
+  // WITHOUT taking the lock, because it is called from inside the wait
+  // (which holds the lock).
+  std::atomic<int64_t> delivered{0};
+  // THE END-TO-END LATENCY: the time from the camera's push of a frame to the
+  // delivery of THAT frame's result.  This is the number a closed loop cares
+  // about: it is how old the target is when the detection arrives.
+  //
+  // WHY IT IS MEASURED HERE AND NOT IN THE LIBRARY: the clock starts where
+  // the camera hands the frame over (the only place the camera's own time is
+  // known) and stops where the result is handed back.  The library's own
+  // segments (ingest waits, gmc_fit, rknn_run) are already in the timing
+  // file; this adds the ONE number that cannot be derived from them: the
+  // latency the pipeline actually imposed on a live stream.
+  std::map<int64_t, std::chrono::steady_clock::time_point> push_at;
+  std::vector<double> lat_ms;
+};
+
+constexpr int kInFlight = 4;  // frames pushed but not yet delivered
+
+void OnResult(void* user, int64_t frame_id, const MosaicDet* dets, int32_t n) {
+  Consumer* c = (Consumer*)user;
+  {
+    std::lock_guard<std::mutex> lk(c->m);
+    c->rows[frame_id].assign(dets, dets + n);
+    c->delivered.fetch_add(1);
+    // Stop the latency clock for THIS frame.  A frame with no entry was
+    // delivered before the producer could record its push (impossible in
+    // practice -- the pipeline needs ~100 ms to answer a push) and is
+    // simply not counted.
+    auto it = c->push_at.find(frame_id);
+    if (it != c->push_at.end()) {
+      c->lat_ms.push_back(std::chrono::duration<double, std::milli>(
+                              std::chrono::steady_clock::now() - it->second)
+                              .count());
+      c->push_at.erase(it);
+    }
+  }
+  c->cv.notify_all();
+}
+
 struct Options {
   std::string raw_root;
   std::string sequence;
@@ -47,24 +108,141 @@ struct Options {
   std::string kernel_dir = "/root/kernels";
   std::string timing;
   std::string cpu_affinity;
+  std::string gmc_affinity;
+  std::string npu_affinity;
+  // The GMC engines' core GROUPS: ';'-separated, one group per engine
+  // ("4-5;6-7").  A group is the set of cores an engine's thread AND its
+  // anchor workers are spread over.
+  std::string gmc_affinity_group;
   std::string feature_dump;
   std::string mats_dump;
   std::string md5_golden;
-  int anchor_step = 10;
+  int anchor_step = 2;
   int npu_workers = 2;
+  // The service sizes.  -1 = "not specified": the library's own default.
+  int gmc_workers = -1;
+  int post_workers = -1;
+  int queue_depth = -1;
+  int input_queue = -1;
+  int jitter_depth = -1;
+  // The GMC service's LOOKAHEAD BUDGET, in frames.  0 = the library's own
+  // default (AUTO = max(64, 32*gmc_workers)).  It is a THROUGHPUT knob: it
+  // changes how far the ingest may run ahead of the engines, never which
+  // pixels a fit reads, so the detection numbers do not change.
+  int gmc_ring_slack = 0;
+  int gmc_deadline_ms = -1;
+  // The Shi-Tomasi corner budget.  -1 = "not specified": the library's own
+  // default (600) applies.  LOWERING IT CHANGES THE NUMBERS (different
+  // corners -> different transforms -> different features -> different
+  // detections), so it is a measured DEVIATION, not a free speed knob.
+  int gmc_fit_corners = -1;
+  // The GMC FIT knobs.  -1 = "not specified": the library's own default
+  // applies (win 15 / level 2 / iters 20 / downscale 2, set by
+  // mosaic_pipeline_config_defaults()).  These CHANGE THE NUMBERS (a
+  // different LK window / pyramid level / iteration count / fit resolution
+  // gives different transforms, hence different features and detections), so
+  // they are measured DEVIATIONS, not free speed knobs.  They exist here so a
+  // parameter sweep can drive them through the REAL service pipeline instead
+  // of the offline reference.
+  int gmc_fit_win = -1;      // -> cfg.gmc_fit_win
+  int gmc_fit_level = -1;    // -> cfg.gmc_fit_level
+  int gmc_fit_iters = -1;    // -> cfg.gmc_fit_iters
+  int gmc_downscale = -1;    // -> cfg.gmc_downscale
+  // The RANSAC sampling cap for the affine solve.  0 = OFF: the library's own
+  // default (the reference call's default arguments) applies.  A positive value
+  // caps the sampling iterations: ENABLING IT CHANGES THE NUMBERS, so it is a
+  // measured DEVIATION and must be reported with the results.
+  int gmc_ransac_max_iters = 0;   // -> cfg.gmc_ransac_max_iters
+  // THE PHYSICAL-FRAME-NUMBER ANCHOR of the GMC history.  -1 = "not
+  // specified": the library's own default (0 = the consumption counter, i.e.
+  // the certified behaviour) applies.  1 = the engine anchors on the camera's
+  // physical frame number, so a frame lost at the camera queue becomes a
+  // DETECTED hole (reported per frame and counted in the timing file) instead
+  // of a silently stretched history window.
+  int gmc_phys_anchor = -1;       // -> cfg.gmc_phys_anchor
+  // How many camera frames make ONE GMC group.  1 = every frame gets its own
+  // group (the certified behaviour).  2 = one group per two frames, which lets
+  // the GMC service cover 30.6 camera frames per second against a 25 fps
+  // camera, so the camera queue never overflows and the physical history has
+  // no holes.  It changes WHICH frames get a feature, never what a feature is
+  // computed from.
+  int gmc_compute_stride = -1;     // -> cfg.gmc_compute_stride
+  // WHAT THE CAMERA QUEUE DOES ON OVERFLOW.  -1 = "not specified": the
+  // library's own default (0 = evict the OLDEST, i.e. keep the freshest
+  // data) applies.  1 = reject the NEWEST (keep the queued frames).
+  int gmc_input_drop_policy = -1; // -> cfg.gmc_input_drop_policy
+  int gmc_feature_fingerprint = -1;
+  // The anchor LK stage's worker count per GMC engine, the engine's own
+  // thread INCLUDED.  -1 = "not specified": the library's default (1 == the
+  // reference's serial anchor loop) applies.  5 = one worker per anchor.
+  int gmc_anchor_threads = -1;
   // -1 = "not specified": the library's own default (1) applies.
   //  0 = off (the reference implementation's default), 1 = on.
   int pyr_cache = -1;
   int prealloc_pad = 0;
   int limit = 0;
   int start = 0;
+  // Simulate a camera with a FIXED frame rate: push one frame every
+  // --pace-ms milliseconds, regardless of whether the pipeline keeps up.
+  // 0 = off (the default: the producer is paced by the in-flight window, so
+  // the camera queue never overflows and the measured wall clock IS the
+  // pipeline's own throughput).  40 = a 25 fps camera.
+  int pace_ms = 0;
+  // The WATCHDOG: how long the demo waits for the pipeline to make PROGRESS
+  // before it gives up, prints the counters and exits non-zero.  0 = off.
+  // The default is 30 s: a healthy run delivers a result every ~70 ms, so
+  // 30 s of silence is a wedged pipeline, not a slow one.
+  int watchdog_ms = 30000;
+  // The NPU core mask (rknn_core_mask) for every NPU context.
+  //  -1 = "not specified": the library's default (0 = do NOT call
+  //       rknn_set_core_mask) applies.
+  //   1 = CORE_0, 2 = CORE_1, 4 = CORE_2, 3 = CORE_0_1, 6 = CORE_1_2,
+  //   5 = CORE_0_2, 7 = CORE_0_1_2.
+  // A non-zero mask is a MEASURED DEVIATION: it may change the throughput
+  // and the numerics (a different core is a different execution path).
+  int npu_core_mask = -1;
+  // FAULT INJECTION (default OFF): after this many frames, make the pipeline
+  // fail on purpose (the library's own set_error path).  It proves that a
+  // FATAL error ABORTS the pipeline and that the demo REPORTS it and exits
+  // non-zero, instead of wedging silently.  -1 = off.
+  int fault_inject_at = -1;
+  // The UPLOAD path.  -1 = "not specified": the library's default (set) applies.
+  //   set        uint8 NHWC through rknn_inputs_set; the runtime does the
+  //              uint8->fp16 widening (12.8 ms/frame on the board).  THE
+  //              CERTIFIED PATH -- the baseline was measured this way.
+  //   setf16     WE widen with integer NEON and hand the runtime a FLOAT16
+  //              buffer.  Same values, but the runtime then copies 2.45 MB
+  //              instead of 0.98 MB, which MEASURED SLOWER (41 vs 12.8 ms).
+  //   iomem_nhwc the input tensor is bound to host memory and WE write it:
+  //              the widening is ~0.8 ms and the runtime's staging happens
+  //              inside rknn_run, off the CPU's critical path.
+  //   iomem_nchw  as above but NCHW.  KNOWN BROKEN for this model (the NCHW
+  //              padding path is wrong): do not use it.
+  std::string input_mode;
 };
 
 void PrintUsage(const char* argv0) {
   fprintf(stderr,
           "usage: %s --raw-root DIR --sequence NAME --model M.rknn --out DIR\n"
-          "          [--kernel-dir /root/kernels] [--anchor-step 10] [--npu-workers 2]\n"
+          "          [--kernel-dir /root/kernels] [--anchor-step 2] [--npu-workers 2]\n"
           "          [--limit N] [--start N] [--cpu-affinity 4-7] [--timing FILE]\n"
+          "          [--gmc-affinity 4,5]   pin the GMC engines to these cores (one per\n"
+          "                                engine); keeps a 60 ms fit from being preempted\n"
+          "          [--gmc-affinity-group 4-5;6-7]\n"
+          "                                pin the GMC engines to these core GROUPS (one per\n"
+          "                                engine).  A group is the set of cores an engine's\n"
+          "                                thread AND its anchor workers are spread over --\n"
+          "                                needed for --gmc-anchor-threads to buy anything,\n"
+          "                                because a single-core engine shares that core with\n"
+          "                                its own workers.\n"
+          "          [--gmc-anchor-threads N]\n"
+          "                                the anchor LK stage's workers per GMC engine, the\n"
+          "                                engine's own thread INCLUDED (default 1 == the\n"
+          "                                reference's serial anchor loop; 5 == one worker\n"
+          "                                per anchor).  The RANSAC stage still runs\n"
+          "                                sequentially in the anchor order, so the numbers\n"
+          "                                stay BIT-IDENTICAL; only the scheduling changes.\n"
+          "          [--npu-affinity 6,7]   pin the NPU/POST services to these cores\n"
           "          [--pyr-cache 0|1]      reuse the GMC pyramid/corners across fits\n"
           "                                (bit-identical; default = the library's 1)\n"
           "          [--prealloc-pad N]     reserve the OpenCL device images once\n"
@@ -75,8 +253,75 @@ void PrintUsage(const char* argv0) {
           "          [--feature-md5-golden F]  compare the produced per-frame feature\n"
           "                                fingerprints against a frozen golden file\n"
           "                                and exit 1 on any mismatch (self-check)\n"
+          "          [--gmc-fit-corners N]   Shi-Tomasi corner budget (default 600).\n"
+          "                                LOWERING IT CHANGES THE NUMBERS: it is a\n"
+          "                                measured deviation, not a free speed knob.\n"
+          "          [--gmc-fit-win N]       the LK fit window (default 15).\n"
+          "          [--gmc-fit-level N]     the LK pyramid level (default 2).\n"
+          "          [--gmc-fit-iters N]     the LK iteration count (default 20).\n"
+          "          [--gmc-downscale N]     the GMC fit resolution divisor\n"
+          "                                (default 2; the library accepts 1..4).\n"
+          "                                These four CHANGE THE NUMBERS (different\n"
+          "                                transforms -> different features -> different\n"
+          "                                detections), so they are measured deviations,\n"
+          "                                not free speed knobs.  Without them the\n"
+          "                                library's own defaults apply.\n"
+          "          [--gmc-ransac-max-iters N]  cap the RANSAC sampling iterations of\n"
+          "                                the affine solve (default 0 = the library's own\n"
+          "                                default).  ENABLING IT CHANGES THE NUMBERS, so\n"
+          "                                it must be reported as a deviation with the\n"
+          "                                results.\n"
+          "          [--gmc-feature-fingerprint 0|1]  per-frame feature MD5;\n"
+          "                                0 saves ~6 ms of CPU per frame (audit only)\n"
+          "          [--gmc-phys-anchor 0|1]  anchor the GMC history on the camera's\n"
+          "                                PHYSICAL frame number (1) instead of the\n"
+          "                                consumption counter (0, the default =\n"
+          "                                the certified behaviour).  With 1 a frame\n"
+          "                                lost at the camera queue becomes a\n"
+          "                                DETECTED hole (counted in\n"
+          "                                gmc_history_gaps, printed per frame) and\n"
+          "                                not a silently stretched history window.\n"
+          "          [--gmc-input-drop-policy 0|1]  what the camera queue does when it\n"
+          "                                overflows: 0 = evict the OLDEST (the\n"
+          "                                default: keep the freshest data), 1 =\n"
+          "                                reject the NEWEST (keep the queued\n"
+          "                                frames, at the price of an unbounded\n"
+          "                                latency under a sustained overload).\n"
+          "          [--pace-ms N]          push one frame every N ms, i.e. simulate a\n"
+          "                                camera of 1000/N fps that does NOT wait for\n"
+          "                                the pipeline (40 = the 25 fps source)\n"
+          "          [--watchdog-ms N]      give up if the pipeline makes NO progress for\n"
+          "                                N ms (default 30000; 0 = off).  On a timeout\n"
+          "                                the counters are printed and the run exits\n"
+          "                                non-zero: a wedged pipeline must be REPORTED,\n"
+          "                                not waited on for ever.\n"
+          "          [--npu-core-mask M]     the NPU core mask for every RKNN context:\n"
+          "                                1=CORE_0 2=CORE_1 4=CORE_2 3=CORE_0_1\n"
+          "                                6=CORE_1_2 5=CORE_0_2 7=CORE_0_1_2.\n"
+          "                                DEFAULT 0 = do NOT call rknn_set_core_mask\n"
+          "                                (the shipped behaviour).  A non-zero mask is\n"
+          "                                a MEASURED DEVIATION: it can change the\n"
+          "                                throughput and the numerics.\n"
+          "          [--fault-inject-at N]  fail the pipeline on purpose after N frames\n"
+          "                                (TEST HOOK).  It proves that a FATAL error\n"
+          "                                ABORTS the pipeline and that the demo\n"
+          "                                reports it and exits non-zero, instead of\n"
+          "                                wedging silently.  Default: off.\n"
+          "          [--input-mode M]       the upload path: set (default, certified),\n"
+          "                                setf16, iomem_nhwc, iomem_nchw (the last one\n"
+          "                                is KNOWN BROKEN for this model).\n"
+          "          [--gmc-ring-slack N]    the GMC service's LOOKAHEAD BUDGET, in\n"
+          "                                frames (default 0 = AUTO = the library's\n"
+          "                                max(64, 32*gmc_workers)).  THROUGHPUT\n"
+          "                                ONLY: it changes how far the ingest may\n"
+          "                                run ahead of the engines, never which\n"
+          "                                pixels a fit reads, so the detections do\n"
+          "                                not change.  A budget that is too small\n"
+          "                                lets the engines starve and the camera\n"
+          "                                queue overflow (which breaks the GMC\n"
+          "                                registration chain).\n"
           "\n"
-          "  raw-root   DIR   directory holding <sequence>/frame_%06d.jpg\n"
+          "  raw-root   DIR   directory holding <sequence>/frame_%%06d.jpg\n"
           "  sequence   NAME  sequence to run\n"
           "  out        DIR   output root (<seq>_mosaic.tsv is written here)\n"
           "  model      PATH  .rknn heatmap detector\n",
@@ -164,12 +409,42 @@ int main(int argc, char** argv) {
     else if (a == "--mats-dump" && i + 1 < argc) opt.mats_dump = argv[++i];
     else if (a == "--feature-md5-golden" && i + 1 < argc) opt.md5_golden = argv[++i];
     else if (a == "--cpu-affinity" && i + 1 < argc) opt.cpu_affinity = argv[++i];
+    else if (a == "--gmc-affinity" && i + 1 < argc) opt.gmc_affinity = argv[++i];
+    else if (a == "--gmc-affinity-group" && i + 1 < argc) opt.gmc_affinity_group = argv[++i];
+    else if (a == "--npu-affinity" && i + 1 < argc) opt.npu_affinity = argv[++i];
     else if (a == "--anchor-step" && i + 1 < argc) opt.anchor_step = atoi(argv[++i]);
     else if (a == "--npu-workers" && i + 1 < argc) opt.npu_workers = atoi(argv[++i]);
+    else if (a == "--gmc-workers" && i + 1 < argc) opt.gmc_workers = atoi(argv[++i]);
+    else if (a == "--post-workers" && i + 1 < argc) opt.post_workers = atoi(argv[++i]);
+    else if (a == "--queue-depth" && i + 1 < argc) opt.queue_depth = atoi(argv[++i]);
+    else if (a == "--input-queue" && i + 1 < argc) opt.input_queue = atoi(argv[++i]);
+    else if (a == "--jitter-depth" && i + 1 < argc) opt.jitter_depth = atoi(argv[++i]);
+    else if (a == "--gmc-ring-slack" && i + 1 < argc) opt.gmc_ring_slack = atoi(argv[++i]);
+    else if (a == "--gmc-deadline-ms" && i + 1 < argc) opt.gmc_deadline_ms = atoi(argv[++i]);
+    else if (a == "--gmc-fit-corners" && i + 1 < argc) opt.gmc_fit_corners = atoi(argv[++i]);
+    else if (a == "--gmc-fit-win" && i + 1 < argc) opt.gmc_fit_win = atoi(argv[++i]);
+    else if (a == "--gmc-fit-level" && i + 1 < argc) opt.gmc_fit_level = atoi(argv[++i]);
+    else if (a == "--gmc-fit-iters" && i + 1 < argc) opt.gmc_fit_iters = atoi(argv[++i]);
+    else if (a == "--gmc-ransac-max-iters" && i + 1 < argc)
+      opt.gmc_ransac_max_iters = atoi(argv[++i]);
+    else if (a == "--gmc-phys-anchor" && i + 1 < argc) opt.gmc_phys_anchor = atoi(argv[++i]);
+    else if (a == "--gmc-compute-stride" && i + 1 < argc) opt.gmc_compute_stride = atoi(argv[++i]);
+    else if (a == "--gmc-input-drop-policy" && i + 1 < argc)
+      opt.gmc_input_drop_policy = atoi(argv[++i]);
+    else if (a == "--gmc-downscale" && i + 1 < argc) opt.gmc_downscale = atoi(argv[++i]);
+    else if (a == "--gmc-anchor-threads" && i + 1 < argc)
+      opt.gmc_anchor_threads = atoi(argv[++i]);
+    else if (a == "--gmc-feature-fingerprint" && i + 1 < argc)
+      opt.gmc_feature_fingerprint = atoi(argv[++i]);
     else if (a == "--pyr-cache" && i + 1 < argc) opt.pyr_cache = atoi(argv[++i]);
     else if (a == "--prealloc-pad" && i + 1 < argc) opt.prealloc_pad = atoi(argv[++i]);
     else if (a == "--limit" && i + 1 < argc) opt.limit = atoi(argv[++i]);
     else if (a == "--start" && i + 1 < argc) opt.start = atoi(argv[++i]);
+    else if (a == "--pace-ms" && i + 1 < argc) opt.pace_ms = atoi(argv[++i]);
+    else if (a == "--watchdog-ms" && i + 1 < argc) opt.watchdog_ms = atoi(argv[++i]);
+    else if (a == "--npu-core-mask" && i + 1 < argc) opt.npu_core_mask = atoi(argv[++i]);
+    else if (a == "--fault-inject-at" && i + 1 < argc) opt.fault_inject_at = atoi(argv[++i]);
+    else if (a == "--input-mode" && i + 1 < argc) opt.input_mode = argv[++i];
     else {
       fprintf(stderr, "[FATAL] unknown option: %s\n", argv[i]);
       PrintUsage(argv[0]);
@@ -217,9 +492,58 @@ int main(int argc, char** argv) {
   cfg.sequence = opt.sequence.c_str();
   cfg.gmc_anchor_step = opt.anchor_step;
   cfg.npu_workers = opt.npu_workers;
+  if (opt.gmc_workers >= 0) cfg.gmc_workers = opt.gmc_workers;
+  if (opt.post_workers >= 0) cfg.post_workers = opt.post_workers;
+  if (opt.queue_depth >= 0) cfg.queue_depth = opt.queue_depth;
+  if (opt.input_queue >= 0) cfg.input_queue = opt.input_queue;
+  if (opt.jitter_depth >= 0) cfg.jitter_depth = opt.jitter_depth;
+  // 0 = AUTO: the library derives the lookahead budget from gmc_workers.
+  cfg.gmc_ring_slack = opt.gmc_ring_slack;
+  if (opt.gmc_deadline_ms >= 0) cfg.gmc_deadline_ms = opt.gmc_deadline_ms;
+  if (opt.gmc_fit_corners >= 0) cfg.gmc_fit_corners = opt.gmc_fit_corners;
+  // The GMC fit knobs.  -1 = "not specified": leave the library's own default
+  // (15 / 2 / 20 / 2) in place, so the DEFAULT run is byte-identical to the
+  // certified build.
+  if (opt.gmc_fit_win >= 0) cfg.gmc_fit_win = opt.gmc_fit_win;
+  if (opt.gmc_fit_level >= 0) cfg.gmc_fit_level = opt.gmc_fit_level;
+  if (opt.gmc_fit_iters >= 0) cfg.gmc_fit_iters = opt.gmc_fit_iters;
+  if (opt.gmc_downscale >= 0) cfg.gmc_downscale = opt.gmc_downscale;
+  // The RANSAC sampling cap.  0 = the library's own default (the reference
+  // call's default arguments), so the DEFAULT run stays byte-identical to the
+  // certified build.
+  cfg.gmc_ransac_max_iters = opt.gmc_ransac_max_iters;
+  // The physical-frame-number anchor and the camera-queue overflow policy.
+  // -1 = "not specified": the library's own defaults apply (0 = the
+  // consumption counter, i.e. the CERTIFIED behaviour, and evicting the
+  // oldest frame on overflow).
+  if (opt.gmc_phys_anchor >= 0) cfg.gmc_phys_anchor = opt.gmc_phys_anchor;
+  if (opt.gmc_compute_stride >= 0) cfg.gmc_compute_stride = opt.gmc_compute_stride;
+  if (opt.gmc_input_drop_policy >= 0)
+    cfg.gmc_input_drop_policy = opt.gmc_input_drop_policy;
+  if (opt.gmc_anchor_threads >= 0) cfg.gmc_anchor_threads = opt.gmc_anchor_threads;
+  if (opt.npu_core_mask >= 0) cfg.npu_core_mask = opt.npu_core_mask;
+  // The upload path.  The DEFAULT (no flag) stays `set`: that is the
+  // certified path the baseline md5 was measured with.
+  if (!opt.input_mode.empty()) {
+    if (opt.input_mode == "set") cfg.input_mode = MOSAIC_INPUT_SET;
+    else if (opt.input_mode == "setf16") cfg.input_mode = MOSAIC_INPUT_SET_F16;
+    else if (opt.input_mode == "iomem_nchw") cfg.input_mode = MOSAIC_INPUT_IO_MEM_NCHW;
+    else if (opt.input_mode == "iomem_nhwc") cfg.input_mode = MOSAIC_INPUT_IO_MEM_NHWC;
+    else {
+      fprintf(stderr, "[FATAL] unknown --input-mode '%s' (set|setf16|iomem_nchw|iomem_nhwc)\n",
+              opt.input_mode.c_str());
+      return 2;
+    }
+  }
+  if (opt.gmc_feature_fingerprint >= 0)
+    cfg.gmc_feature_fingerprint = opt.gmc_feature_fingerprint;
   if (opt.pyr_cache >= 0) cfg.gmc_pyr_cache = opt.pyr_cache;  // else: library default
   cfg.gmc_prealloc_pad = opt.prealloc_pad;
   cfg.cpu_affinity = opt.cpu_affinity.empty() ? nullptr : opt.cpu_affinity.c_str();
+  cfg.gmc_affinity = opt.gmc_affinity.empty() ? nullptr : opt.gmc_affinity.c_str();
+  cfg.gmc_affinity_group =
+      opt.gmc_affinity_group.empty() ? nullptr : opt.gmc_affinity_group.c_str();
+  cfg.npu_affinity = opt.npu_affinity.empty() ? nullptr : opt.npu_affinity.c_str();
 
   // The output root must exist before the TSV is written (the library never
   // touches the filesystem outside the two optional dumps).
@@ -245,36 +569,215 @@ int main(int argc, char** argv) {
     fprintf(stderr, "[i] mats dump -> %s\n", opt.mats_dump.c_str());
   }
 
-  // ---- push every frame --------------------------------------------------
+  // ---- the streaming consumer ---------------------------------------------
+  Consumer consumer;
+  mosaic_pipeline_set_result_callback(pipe, OnResult, &consumer);
+
   // The frames are pushed IN ORDER: the GMC engine is causal.
-  const double t_push0 = 0.0;  // timing comes from the library
-  (void)t_push0;
+  //
+  // TWO producer modes:
+  //
+  //  * default (--pace-ms 0): the producer waits for the pipeline.  At most
+  //    kInFlight frames are outstanding, so the camera queue never overflows
+  //    and the wall clock the library measures IS the pipeline's own pace.
+  //
+  //  * --pace-ms N: the producer behaves like a REAL camera of 1000/N fps: it
+  //    pushes on a fixed schedule and does NOT wait for the pipeline.  This is
+  //    the only way to observe what the camera queue does when the pipeline is
+  //    slower than the source (the library drops the OLDEST frame and counts
+  //    it in timing.dropped).
+  const bool paced = opt.pace_ms > 0;
+  const int64_t pace_ns = (int64_t)opt.pace_ms * 1000000LL;
+  int64_t t_next = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                       std::chrono::steady_clock::now().time_since_epoch())
+                       .count();
+  int64_t pushed = 0;
+
+  // ---------------------------------------------------------------------
+  // THE WATCHDOG.
+  //
+  // The demo must NEVER hang silently.  A pipeline that wedges -- an NPU
+  // submit that the driver refuses leaves every service thread asleep on a
+  // condition variable, and the caller waits for a result that will never
+  // come -- has to be REPORTED and ENDED, not waited on for ever.  (That
+  // wedge cost a board: the run sat at frame 155 for ever and the only
+  // evidence was a single "rknn_run failed" line in the log.)
+  //
+  // Two conditions end the run:
+  //   * the pipeline reports an error  -> [FATAL] <err>, exit non-zero
+  //   * no result arrives for --watchdog-ms -> the counters are printed and
+  //     the run exits non-zero
+  //
+  // The progress signal is the number of DELIVERED results.  It is read
+  // without the consumer's lock (it is atomic), so the watchdog can be
+  // called from inside a wait that holds that lock.
+  // ---------------------------------------------------------------------
+  int64_t last_progress = std::chrono::duration_cast<std::chrono::milliseconds>(
+                              std::chrono::steady_clock::now().time_since_epoch())
+                              .count();
+  int64_t last_delivered = -1;
+  auto now_ms = []() -> int64_t {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+  };
+  // Returns false when the run must end.  `where` says what the demo was
+  // doing, so the message says where it died.
+  auto pipeline_faulted = [&](const char* where) -> bool {
+    const char* err = mosaic_pipeline_last_error(pipe);
+    if (err && err[0]) {
+      fprintf(stderr, "[FATAL] the pipeline reported an error while %s: %s\n", where, err);
+      return true;
+    }
+    const int64_t delivered = consumer.delivered.load();
+    const int64_t now = now_ms();
+    if (delivered != last_delivered) {
+      last_delivered = delivered;
+      last_progress = now;
+      return false;
+    }
+    if (opt.watchdog_ms > 0 && now - last_progress > opt.watchdog_ms) {
+      MosaicPipelineTiming t;
+      mosaic_pipeline_get_timing(pipe, &t);
+      fprintf(stderr,
+              "[FATAL] no pipeline progress for %d ms while %s: pushed=%lld delivered=%lld "
+              "frames=%lld dropped=%lld features_dropped=%lld detections_dropped=%lld "
+              "gmc_fit=%.1f ms gmc_total=%.1f ms wall=%.1f ms\n",
+              opt.watchdog_ms, where, (long long)pushed, (long long)delivered,
+              (long long)t.frames, (long long)t.dropped, (long long)t.features_dropped,
+              (long long)t.detections_dropped, t.gmc_fit_ms, t.gmc_total_ms, t.wall_ms);
+      return true;
+    }
+    return false;
+  };
+
   for (size_t i = 0; i < frames.size(); i++) {
+    if (paced) {
+      std::this_thread::sleep_until(
+          std::chrono::steady_clock::time_point(std::chrono::nanoseconds(t_next)));
+      t_next += pace_ns;
+    } else {
+      // Keep at most kInFlight frames outstanding.  This is the pacing the
+      // non-blocking push() requires: the camera queue would otherwise drop
+      // the OLDEST frame, and a dropped frame is a frame with no result.
+      //
+      // The wait is TIMED, so a wedged pipeline is caught here instead of
+      // hanging for ever.
+      std::unique_lock<std::mutex> lk(consumer.m);
+      while ((pushed - consumer.delivered.load()) >= kInFlight) {
+        if (consumer.cv.wait_for(lk, std::chrono::milliseconds(200), [&] {
+              return (pushed - consumer.delivered.load()) < kInFlight;
+            }))
+          break;
+        if (pipeline_faulted("pushing frames")) {
+          mosaic_pipeline_destroy(pipe);
+          return 1;
+        }
+      }
+    }
     const cv::Mat img = cv::imread(frames[i], cv::IMREAD_GRAYSCALE);
     if (img.empty()) {
       fprintf(stderr, "[FATAL] cannot read %s\n", frames[i].c_str());
       mosaic_pipeline_destroy(pipe);
       return 1;
     }
-    if (mosaic_pipeline_push(pipe, img.data, img.cols, img.rows) < 0) {
+    const int64_t fid = mosaic_pipeline_push(pipe, img.data, img.cols, img.rows);
+    if (fid < 0) {
       fprintf(stderr, "[FATAL] push failed at frame %zu: %s\n", i, mosaic_pipeline_last_error(pipe));
       mosaic_pipeline_destroy(pipe);
       return 1;
     }
+    ++pushed;
+    // The latency clock starts the moment the frame is IN the pipeline.  It
+    // is taken right after the push so that the measurement includes
+    // everything the pipeline does with the frame, and it excludes the
+    // camera's own imread (which is the source's cost, not the pipeline's).
+    {
+      std::lock_guard<std::mutex> lk(consumer.m);
+      consumer.push_at[fid] = std::chrono::steady_clock::now();
+    }
+    // The FAULT INJECTION: the library's own FATAL-error path.  Everything
+    // after this point must unwind -- the pipeline must abort, the demo must
+    // report the error and exit non-zero, and NOTHING may hang.
+    if (opt.fault_inject_at >= 0 && pushed == opt.fault_inject_at) {
+      fprintf(stderr, "[i] FAULT INJECTION: failing the pipeline on purpose after %lld frames\n",
+              (long long)pushed);
+      mosaic_pipeline_inject_fault(pipe, "injected fault (test hook)");
+    }
   }
   mosaic_pipeline_flush(pipe);
 
-  // ---- collect every result ----------------------------------------------
+  // flush() joins every worker AND the dispatcher, so no further result can
+  // arrive after it returns.  The number of results is the number of GMC
+  // GROUPS that completed, minus the two downstream drop counters:
+  //   * gmc_groups_done    -- the frames the GMC service really computed a
+  //                           feature for.  NOT the number of pushed frames:
+  //                           with gmc_compute_stride > 1 only every Nth frame
+  //                           becomes a group, the others are seeded as
+  //                           history and produce nothing, and the frames the
+  //                           camera queue dropped never reach the GMC service
+  //                           at all.
+  //   * features_dropped   -- the GMC computed it but the NPU services skipped it
+  //   * detections_dropped -- the NPU ran but the back-projection skipped it
+  // A frame dropped at the camera never reaches the GMC, and a frame dropped
+  // after the GMC never produces a result, so waiting for `pushed` results
+  // would hang forever in a paced run.
+  //
+  // WHY THE COUNTER AND NOT `pushed`: the old formula assumed one result per
+  // pushed frame, which is only true at stride 1.  At stride > 1 rows.size()
+  // is a fraction of `pushed`, so the check below fired and killed the run
+  // BEFORE the TSV and the timing file were written.
+  MosaicPipelineTiming tm_probe;
+  mosaic_pipeline_get_timing(pipe, &tm_probe);
+  const int64_t expect = tm_probe.gmc_groups_done - tm_probe.features_dropped -
+                         tm_probe.detections_dropped;
+  // The last results are delivered by the callback after the flush.
+  // The wait is TIMED for the same reason as the producer's: a pipeline that
+  // never delivers the last results must not hang the demo.
+  {
+    std::unique_lock<std::mutex> lk(consumer.m);
+    while (consumer.delivered.load() < expect) {
+      if (consumer.cv.wait_for(lk, std::chrono::milliseconds(200), [&] {
+            return consumer.delivered.load() >= expect;
+          }))
+        break;
+      if (pipeline_faulted("waiting for the last results")) {
+        mosaic_pipeline_destroy(pipe);
+        return 1;
+      }
+    }
+  }
   // The workers finish out of order, so the rows are keyed by frame id and
   // written back in frame order.
   std::map<int64_t, std::vector<MosaicDet>> rows;
-  std::vector<MosaicDet> buf(256);
-  for (;;) {
-    int64_t fid = -1;
-    const int32_t n = mosaic_pipeline_collect(pipe, &fid, buf.data(), (int32_t)buf.size());
-    if (n < 0) break;
-    std::vector<MosaicDet> dets(buf.begin(), buf.begin() + n);
-    rows[fid] = std::move(dets);
+  {
+    std::lock_guard<std::mutex> lk(consumer.m);
+    rows = std::move(consumer.rows);
+  }
+  if ((int64_t)rows.size() != expect) {
+    fprintf(stderr, "[FATAL] %lld frames pushed, %lld GMC groups computed, "
+                    "%lld features and %lld detections dropped downstream, "
+                    "but %zu results delivered (expected %lld)\n",
+            (long long)pushed, (long long)tm_probe.gmc_groups_done,
+            (long long)tm_probe.features_dropped, (long long)tm_probe.detections_dropped,
+            rows.size(), (long long)expect);
+    mosaic_pipeline_destroy(pipe);
+    return 1;
+  }
+  if (paced && tm_probe.dropped > 0) {
+    fprintf(stderr,
+            "[i] the camera ran at %.1f fps and the CAMERA queue overflowed: %lld of %lld "
+            "frames never reached the GMC service.  That breaks the GMC registration "
+            "chain -- the GMC service is not keeping up with the source\n",
+            1000.0 / opt.pace_ms, (long long)tm_probe.dropped, (long long)pushed);
+  } else if (paced) {
+    fprintf(stderr,
+            "[i] the camera ran at %.1f fps: the GMC service produced %lld feature(s) "
+            "(camera-queue drops %lld); the inference stage skipped %lld feature(s) "
+            "and %lld detection(s) because it could not keep up -- by design\n",
+            1000.0 / opt.pace_ms, (long long)tm_probe.gmc_groups_done,
+            (long long)tm_probe.dropped,
+            (long long)tm_probe.features_dropped, (long long)tm_probe.detections_dropped);
   }
 
   // ---- write the TSV ------------------------------------------------------
@@ -349,7 +852,26 @@ int main(int argc, char** argv) {
   // ---- timing report ------------------------------------------------------
   MosaicPipelineTiming tm;
   mosaic_pipeline_get_timing(pipe, &tm);
-  const double nf = tm.frames > 0 ? (double)tm.frames : 1.0;
+  // TWO DENOMINATORS, AND THEY ARE NOT THE SAME NUMBER.
+  //
+  // The GMC-side counters are accumulated per frame the GMC service actually
+  // FITTED (gmc_fit_samples), while the NPU/POST-side counters are accumulated
+  // per frame that came out of the back-projection (frames).  In a paced run
+  // the inference stage skips frames, so frames < gmc_fit_samples: dividing
+  // the GMC counters by frames inflated every GMC average by the ratio
+  // (measured on the board: 11011 fitted vs 6948 detected = 1.58x).  Each
+  // side is now divided by its OWN denominator, and both denominators are
+  // printed in the header so the table can be read without guessing.
+  const double det_frames = tm.frames > 0 ? (double)tm.frames : 1.0;
+  const double gmc_frames = tm.gmc_fit_samples > 0 ? (double)tm.gmc_fit_samples : 1.0;
+  // The lookahead budget the library ACTUALLY applied.  The library resolves
+  // AUTO in its sanitize stage and reports the RESOLVED value through
+  // mosaic_pipeline_effective_config(), so there is deliberately NO second
+  // copy of the rule here: one rule, one place, and the report cannot drift
+  // away from the pipeline.
+  MosaicPipelineConfig eff_cfg;
+  mosaic_pipeline_effective_config(pipe, &eff_cfg);
+  const int ring_slack_eff = eff_cfg.gmc_ring_slack;
   const char* timing_path = opt.timing.empty() ? nullptr : opt.timing.c_str();
   char tbuf[1024];
   if (!timing_path) {
@@ -361,30 +883,200 @@ int main(int argc, char** argv) {
     fprintf(tf, "seq=%s\n", opt.sequence.c_str());
     fprintf(tf, "anchor_step=%d\n", opt.anchor_step);
     fprintf(tf, "npu_workers=%d\n", opt.npu_workers);
+    fprintf(tf, "gmc_workers=%d\n", cfg.gmc_workers);
+    fprintf(tf, "post_workers=%d\n", cfg.post_workers);
+    fprintf(tf, "jitter_depth=%d\n", cfg.jitter_depth);
+    fprintf(tf, "input_queue=%d\n", cfg.input_queue);
+    fprintf(tf, "input_mode=%d\n", cfg.input_mode);
+    fprintf(tf, "gmc_fit_corners=%d\n", cfg.gmc_fit_corners);
+    // The GMC FIT knobs that were IN FORCE, so a sweep arm can be reproduced
+    // from the timing file alone.  These are read back with
+    // mosaic_pipeline_effective_config(), i.e. they are the values the library
+    // ACTUALLY applied after its out-of-range clamping -- not the requested
+    // ones.
+    fprintf(tf, "gmc_fit_win=%d\n", eff_cfg.gmc_fit_win);
+    fprintf(tf, "gmc_fit_level=%d\n", eff_cfg.gmc_fit_level);
+    fprintf(tf, "gmc_fit_iters=%d\n", eff_cfg.gmc_fit_iters);
+    fprintf(tf, "gmc_downscale=%d\n", eff_cfg.gmc_downscale);
+    // The RANSAC sampling cap that was IN FORCE, so a sweep arm is
+    // reproducible from the timing file alone (the applied value, not the
+    // requested one).
+    fprintf(tf, "gmc_ransac_max_iters=%d\n", eff_cfg.gmc_ransac_max_iters);
+    // THE THREE-LEVEL GMC CACHE (resize | corners | LK pyramid), which is ON
+    // by default.  The cache only removes RECOMPUTATION: the cached and the
+    // uncached path produce byte-identical features (md5
+    // 0bf598a1d890040bcfa8d157dc69c032 over the 11,810-frame val3 track), so
+    // turning it on costs nothing in accuracy.  It is printed here so the
+    // board artefact carries the evidence for the "the cache is on" claim.
+    // This is the value the library ACTUALLY applied (read back with
+    // mosaic_pipeline_effective_config), not the requested one.
+    fprintf(tf, "gmc_pyr_cache=%d\n", eff_cfg.gmc_pyr_cache);
+    // The cache's own level mask: 7 = resize (1) | corners (2) | pyramid (4).
+    // It is a constant of the library's engine construction
+    // (mosaic_pipeline.cpp: /*cache_parts=*/7), not configurable through the
+    // ABI, so it is printed as the literal it is -- verifiable by grep.
+    fprintf(tf, "gmc_cache_parts=%d\n", 7);
+    fprintf(tf, "pace_ms=%d\n", opt.pace_ms);
+    fprintf(tf, "pushed=%lld\n", (long long)pushed);
     fprintf(tf, "frames=%lld\n", (long long)tm.frames);
+    // The TWO denominators of the table below.
+    //   gmc_frames  -- frames the GMC service fitted; the denominator of
+    //                  every GMC-side segment.
+    //   det_frames  -- frames that finished the whole path; the denominator of
+    //                  every NPU/POST-side segment.
+    fprintf(tf, "gmc_frames=%lld\n", (long long)tm.gmc_fit_samples);
+    fprintf(tf, "det_frames=%lld\n", (long long)tm.frames);
     fprintf(tf, "%-18s %14s %14s\n", "segment", "total_ms", "avg_ms/frame");
-    const struct { const char* name; double v; } segs[] = {
-        {"gmc_fit", tm.gmc_fit_ms},        {"gmc_warp", tm.gmc_warp_ms},
-        {"gmc_median", tm.gmc_median_ms}, {"gmc_total", tm.gmc_total_ms},
-        {"rga_import", tm.rga_import_ms},  {"rga_improcess", tm.rga_improcess_ms},
-        {"upload", tm.upload_ms},          {"rknn_run", tm.run_ms},
-        {"outputs_get", tm.outputs_ms},    {"backproject_cc", tm.backproj_ms},
+    const struct { const char* name; double v; double den; } segs[] = {
+        // GMC side: per frame the GMC service fitted.
+        {"gmc_fit", tm.gmc_fit_ms, gmc_frames},
+        {"gmc_warp", tm.gmc_warp_ms, gmc_frames},
+        {"gmc_median", tm.gmc_median_ms, gmc_frames},
+        {"gmc_total", tm.gmc_total_ms, gmc_frames},
+        {"gmc_post", tm.gmc_post_ms, gmc_frames},
+        {"gmc_ingest", tm.gmc_ingest_ms, gmc_frames},
+        // The ingest's wait breakdown: where gmc_ingest_ms went.
+        {"gmc_ingest_in", tm.gmc_ingest_in_wait_ms, gmc_frames},
+        {"gmc_ingest_window", tm.gmc_ingest_window_ms, gmc_frames},
+        {"gmc_ingest_space", tm.gmc_ingest_space_ms, gmc_frames},
+        {"gmc_wait", tm.gmc_wait_ms, gmc_frames},
+        // NPU/POST side: per frame that finished the whole path.
+        {"rga_import", tm.rga_import_ms, det_frames},
+        {"rga_improcess", tm.rga_improcess_ms, det_frames},
+        {"upload", tm.upload_ms, det_frames},
+        {"rknn_run", tm.run_ms, det_frames},
+        {"outputs_get", tm.outputs_ms, det_frames},
+        {"backproject_cc", tm.backproj_ms, det_frames},
+        {"npu_wait", tm.npu_wait_ms, det_frames},
+        {"post_wait", tm.post_wait_ms, det_frames},
     };
     for (const auto& s : segs)
-      fprintf(tf, "%-18s %14.3f %14.4f\n", s.name, s.v, s.v / nf);
-    fprintf(tf, "%-18s %14.3f %14.4f\n", "total_wall", tm.wall_ms, tm.wall_ms / nf);
+      fprintf(tf, "%-18s %14.3f %14.4f\n", s.name, s.v, s.v / s.den);
+    fprintf(tf, "%-18s %14.3f %14.4f\n", "total_wall", tm.wall_ms, tm.wall_ms / det_frames);
+    // THE END-TO-END LATENCY: camera push -> result delivered.  This is the
+    // number a closed loop cares about, and it is the one that would expose a
+    // batching design (a buffer that has to fill up before the first frame
+    // can be computed) as the ~1.7 s of dead time it would really cost.
+    {
+      std::vector<double> lat;
+      {
+        std::lock_guard<std::mutex> lk(consumer.m);
+        lat = consumer.lat_ms;
+      }
+      std::sort(lat.begin(), lat.end());
+      const size_t n = lat.size();
+      auto pct = [&lat, n](double q) -> double {
+        if (n == 0) return 0.0;
+        size_t i = (size_t)std::ceil(q * (double)n);
+        if (i == 0) i = 1;
+        if (i > n) i = n;
+        return lat[i - 1];
+      };
+      fprintf(tf, "e2e_latency_samples=%zu\n", n);
+      fprintf(tf, "e2e_latency_mean=%.3f\n", n ? std::accumulate(lat.begin(), lat.end(), 0.0) / (double)n : 0.0);
+      fprintf(tf, "e2e_latency_p50=%.3f\n", pct(0.50));
+      fprintf(tf, "e2e_latency_p95=%.3f\n", pct(0.95));
+      fprintf(tf, "e2e_latency_p99=%.3f\n", pct(0.99));
+      fprintf(tf, "e2e_latency_max=%.3f\n", n ? lat[n - 1] : 0.0);
+      fprintf(stderr,
+              "[timing] END-TO-END latency (camera push -> result delivered, n=%zu): "
+              "mean %.1f  p50 %.1f  p95 %.1f  p99 %.1f  max %.1f ms\n",
+              n, n ? std::accumulate(lat.begin(), lat.end(), 0.0) / (double)n : 0.0,
+              pct(0.50), pct(0.95), pct(0.99), n ? lat[n - 1] : 0.0);
+    }
+    fprintf(tf, "gmc_fit_max=%.3f\n", tm.gmc_fit_max_ms);
+    // The fit DISTRIBUTION, nearest rank.  A mean alone hides the tail, and
+    // the tail is what the jitter buffer absorbs and what the watchdog bounds.
+    fprintf(tf, "gmc_fit_p50=%.3f\n", tm.gmc_fit_p50_ms);
+    fprintf(tf, "gmc_fit_p95=%.3f\n", tm.gmc_fit_p95_ms);
+    fprintf(tf, "gmc_fit_p99=%.3f\n", tm.gmc_fit_p99_ms);
+    fprintf(tf, "gmc_fit_samples=%lld\n", (long long)tm.gmc_fit_samples);
+    // The SAME distribution for the single rknn_run: the NPU is the pipeline's
+    // critical path, and the core-mask experiment is judged on this one.
+    fprintf(tf, "rknn_run_max=%.3f\n", tm.rknn_run_max_ms);
+    fprintf(tf, "rknn_run_p50=%.3f\n", tm.rknn_run_p50_ms);
+    fprintf(tf, "rknn_run_p95=%.3f\n", tm.rknn_run_p95_ms);
+    fprintf(tf, "rknn_run_p99=%.3f\n", tm.rknn_run_p99_ms);
+    fprintf(tf, "rknn_run_samples=%lld\n", (long long)tm.rknn_run_samples);
+    // The knobs that were in force, so a report can be reproduced from the
+    // timing file alone.
+    fprintf(tf, "npu_core_mask=%d\n", cfg.npu_core_mask);
+    fprintf(tf, "input_mode=%d\n", cfg.input_mode);
+    // WHY the fit costs what it costs: the corner budget and how often it
+    // saturated.  The GMC cost is content-driven, not a constant.
+    fprintf(tf, "gmc_corner_mean=%.1f\n", tm.gmc_corner_mean);
+    fprintf(tf, "gmc_corner_capped=%lld\n", (long long)tm.gmc_corner_capped);
+    fprintf(tf, "dropped=%lld\n", (long long)tm.dropped);
+    fprintf(tf, "features_dropped=%lld\n", (long long)tm.features_dropped);
+    fprintf(tf, "detections_dropped=%lld\n", (long long)tm.detections_dropped);
+    // The GMC GROUPS that completed: the frames a feature was really computed
+    // for.  With gmc_compute_stride > 1 this is a fraction of `pushed` (only
+    // every Nth frame becomes a group), and it is the denominator the result
+    // count is checked against.
+    fprintf(tf, "gmc_groups_done=%lld\n", (long long)tm.gmc_groups_done);
+    fprintf(tf, "deadline_blows=%lld\n", (long long)tm.gmc_deadline_blows);
+    // The MISSING physical history frames.  0 unless gmc_phys_anchor=1: with
+    // the consumption-counter anchor the engine cannot see a lost camera
+    // frame, so the loss was silent.  This is the number that makes it
+    // visible.
+    fprintf(tf, "gmc_history_gaps=%lld\n", (long long)tm.gmc_history_gaps);
+    // The two knobs that decide HOW the GMC history is anchored and WHAT the
+    // camera queue does on overflow, as they were IN FORCE (read back with
+    // mosaic_pipeline_effective_config).
+    fprintf(tf, "gmc_phys_anchor=%d\n", eff_cfg.gmc_phys_anchor);
+    fprintf(tf, "gmc_input_drop_policy=%d\n", eff_cfg.gmc_input_drop_policy);
+    // The ingest's wait breakdown, in TOTAL ms (not per frame): the three
+    // waits plus the ingest's own work are gmc_ingest_ms.
+    fprintf(tf, "gmc_ingest_in_ms=%.3f\n", tm.gmc_ingest_in_wait_ms);
+    fprintf(tf, "gmc_ingest_window_ms=%.3f\n", tm.gmc_ingest_window_ms);
+    fprintf(tf, "gmc_ingest_space_ms=%.3f\n", tm.gmc_ingest_space_ms);
+    // The depth of the engine job queue at the moment an engine popped a job:
+    // ~1 means the engines were STARVING (they picked the job off an empty
+    // queue), well above 1 means they always had a backlog.
+    fprintf(tf, "gmc_queue_depth_mean=%.3f\n",
+            tm.gmc_queue_samples > 0 ? tm.gmc_queue_depth_sum / (double)tm.gmc_queue_samples : 0.0);
+    fprintf(tf, "gmc_queue_samples=%lld\n", (long long)tm.gmc_queue_samples);
+    // The lookahead budget in force (0 = the library's AUTO rule).
+    fprintf(tf, "gmc_ring_slack=%d\n", ring_slack_eff);
+  fprintf(tf, "gmc_window_blocks=%lld\n", (long long)tm.gmc_window_blocks);
+  fprintf(tf, "gmc_space_blocks=%lld\n", (long long)tm.gmc_space_blocks);
     fprintf(tf, "fps=%.3f\n", tm.wall_ms > 0 ? 1000.0 * (double)tm.frames / tm.wall_ms : 0.0);
     fclose(tf);
   }
   fprintf(stderr,
           "[timing] %lld frames, wall %.1f ms (%.3f ms/frame), %.3f fps\n"
           "[timing] gmc_fit %.3f  gmc_total %.3f  rga %.3f  upload %.3f  run %.3f  "
-          "outputs %.3f  backproj %.3f  (ms/frame)\n",
+          "outputs %.3f  backproj %.3f  (ms/frame)\n"
+          "[timing] services[gmc=%d npu=%d post=%d] jitter=%d  "
+          "starvation[gmc=%.3f npu=%.3f post=%.3f] ms/frame  "
+          "gmc_fit_max=%.3f ms  dropped=%lld  features_dropped=%lld  "
+          "detections_dropped=%lld  deadline_blows=%lld  gmc_history_gaps=%lld\n"
+          "[timing] GMC fit distribution (n=%lld): p50 %.3f  p95 %.3f  p99 %.3f  max %.3f ms  |  "
+          "corners mean %.1f, %lld frames saturated the corner budget\n"
+          "[timing] ingest breakdown (ms/frame over %lld fitted frames): "
+          "in %.3f  window %.3f  space %.3f  |  lookahead budget %d frames, "
+          "engine job queue depth at pop %.2f (n=%lld)  window_blocks %lld  "
+          "space_blocks %lld\n",
           (long long)tm.frames, tm.wall_ms, tm.wall_ms / (tm.frames > 0 ? tm.frames : 1),
           tm.wall_ms > 0 ? 1000.0 * (double)tm.frames / tm.wall_ms : 0.0,
-          tm.gmc_fit_ms / nf, tm.gmc_total_ms / nf,
-          (tm.rga_import_ms + tm.rga_improcess_ms) / nf, tm.upload_ms / nf, tm.run_ms / nf,
-          tm.outputs_ms / nf, tm.backproj_ms / nf);
+          tm.gmc_fit_ms / gmc_frames, tm.gmc_total_ms / gmc_frames,
+          (tm.rga_import_ms + tm.rga_improcess_ms) / det_frames, tm.upload_ms / det_frames,
+          tm.run_ms / det_frames,
+          tm.outputs_ms / det_frames, tm.backproj_ms / det_frames,
+          cfg.gmc_workers, cfg.npu_workers, cfg.post_workers, cfg.jitter_depth,
+          tm.gmc_wait_ms / gmc_frames, tm.npu_wait_ms / det_frames, tm.post_wait_ms / det_frames,
+          tm.gmc_fit_max_ms,
+          (long long)tm.dropped, (long long)tm.features_dropped,
+          (long long)tm.detections_dropped, (long long)tm.gmc_deadline_blows,
+          (long long)tm.gmc_history_gaps,
+          (long long)tm.gmc_fit_samples, tm.gmc_fit_p50_ms, tm.gmc_fit_p95_ms, tm.gmc_fit_p99_ms,
+          tm.gmc_fit_max_ms, tm.gmc_corner_mean, (long long)tm.gmc_corner_capped,
+          (long long)tm.gmc_fit_samples, tm.gmc_ingest_in_wait_ms / gmc_frames,
+          tm.gmc_ingest_window_ms / gmc_frames, tm.gmc_ingest_space_ms / gmc_frames,
+          ring_slack_eff,
+          tm.gmc_queue_samples > 0 ? tm.gmc_queue_depth_sum / (double)tm.gmc_queue_samples : 0.0,
+          (long long)tm.gmc_queue_samples, (long long)tm.gmc_window_blocks,
+          (long long)tm.gmc_space_blocks);
 
   mosaic_pipeline_destroy(pipe);
   // A golden-fingerprint mismatch is a hard failure: the process must NOT

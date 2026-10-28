@@ -237,6 +237,63 @@ def read_runtime_config(out_root: Path) -> dict:
 # ==============================================================================
 # 3. Worker：训练 + 门禁
 # ==============================================================================
+def load_reference_frame(path: str | None) -> dict:
+    """加载「参照系包」JSON（可选）。
+
+    为什么需要它
+    ------------
+    判定链路的基线数字（``FROZEN_BASELINE`` / ``RC1_EPOCH3``）与门禁基线
+    （``auto_epoch_gate_check.py`` 的 ``BASE``）都是**在 GMC 语义特征上实测**的。
+    一旦换特征语义（no-GMC），这些数字全部失效 ⇒ 必须成组替换，
+    否则会拿 GMC 基线判 no-GMC 模型（结构性误判）。
+
+    包结构（缺项 = 用模块常量，不影响其余部分）::
+
+        {
+          "frozen_baseline": {"track1_f1":..,"track1_fp":..,"track2_f1":..,"track2_fp":..,
+                              "track3_f1":..,"track3_fp":..},
+          "rc1":             {同上},                      # 新擂主（U 的比较对象）
+          "gate":            {"track2_f1_min":..,"track2_fp_max_increment":..,
+                              "track1_min_delta":..},
+          "gate_base":       {"track1_f1":..,"track1_tp":..,"track1_fp":.., ... }  # 传给门禁脚本
+        }
+    """
+    if not path:
+        return {}
+    p = Path(path)
+    if not p.is_file():
+        raise FileNotFoundError(f"[REF-FRAME] 参照系文件不存在：{p}")
+    data = json.loads(p.read_text(encoding="utf-8"))
+    print(f"[REF-FRAME] 已加载参照系：{p}（键：{sorted(data.keys())}）", flush=True)
+    return data
+
+
+def resolve_reference(ref: dict) -> dict:
+    """由参照系包解析出**全部生效参数**。
+
+    不传参照系（``ref == {}``）⇒ 每一项都与模块常量**逐位相等**（旧行为不变）：
+    ``gate_track2_fp_abs_max == 36``、``gate_track1_f1_abs_min == 0.900736245785252``。
+    """
+    frozen_baseline = {**FROZEN_BASELINE, **(ref.get("frozen_baseline") or {})}
+    rc1_ref = {**RC1_EPOCH3, **(ref.get("rc1") or {})}
+    gate_cfg = {
+        "track2_f1_min": GATE_TRACK2_F1_MIN,
+        "track2_fp_max_increment": GATE_TRACK2_FP_MAX_INCREMENT,
+        "track1_min_delta": GATE_TRACK1_MIN_DELTA,
+        **(ref.get("gate") or {}),
+    }
+    gate_base = ref.get("gate_base") or {}
+    # 绝对阈值随参照系换算（与模块常量同语义：FP 绝对上限 = 基线 FP + 允许增量）
+    return {
+        "frozen_baseline": frozen_baseline,
+        "rc1": rc1_ref,
+        "gate": gate_cfg,
+        "gate_base": gate_base,
+        "gate_track2_fp_abs_max": frozen_baseline["track2_fp"] + gate_cfg["track2_fp_max_increment"],
+        "gate_track1_f1_abs_min": frozen_baseline["track1_f1"] + gate_cfg["track1_min_delta"],
+    }
+
+
 def run_worker() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--worker", action="store_true")
@@ -280,7 +337,25 @@ def run_worker() -> int:
              "但 lr 的退火曲线按 --sched-epochs 的全长走 ⇒ trial 的末 epoch 权重"
              "与 RC1/Ep3（路线 B 5 epoch 实验的第 3 个 epoch）**同 lr 轨迹**，可直接比较。",
     )
+    ap.add_argument(
+        "--reference-frame",
+        type=str,
+        default="",
+        help="参照系包 JSON（可选）。换特征语义（如 no-GMC）时用："
+             "里面给出 frozen_baseline / rc1 / gate 阈值 / gate_base，"
+             "以免拿 GMC 语义的基线去判新语义模型。**不传 ⇒ 全部用模块常量，行为与旧版逐位一致**。",
+    )
     args = ap.parse_args()
+
+    # ---- 参照系（不传 = 现有 GMC 语义常量，逐位等价旧行为）----
+    ref = load_reference_frame(args.reference_frame)
+    R = resolve_reference(ref)
+    frozen_baseline = R["frozen_baseline"]
+    rc1_ref = R["rc1"]
+    gate_cfg = R["gate"]
+    gate_base = R["gate_base"]
+    gate_track2_fp_abs_max = R["gate_track2_fp_abs_max"]
+    gate_track1_f1_abs_min = R["gate_track1_f1_abs_min"]
 
     trial_name = f"trial_{args.trial_number:04d}"
     save_dir = Path(args.output_root) / "trials" / trial_name
@@ -345,6 +420,27 @@ def run_worker() -> int:
             f"Anti-UAV {n_uav} (期望 {UAV_EXPECT}) —— 立即中止"
         )
     print(f"[DATA-GATE] PASS 满额 {n_lq:,} + {n_uav:,} = {n_lq + n_uav:,}", flush=True)
+
+    # ---- LQ 样本判定（**不能硬编码目录名**）-------------------------------------
+    # 历史 bug（2026-10-27 抓到）：这里曾硬编码 "longquanshan_ft_gmc_median_official"，
+    # 换特征语义后（no-GMC 的目录名是 longquanshan_ft_gmc_median_nogmc）**永远匹配不上**
+    # ⇒ n_lq_batch 恒为 0 ⇒ 日志"mix LQ/UAV 0/32" + measured_ratio 变成 ~56926 的垃圾值。
+    #
+    # ⚠️ **采样本身是对的**：WeightedRandomSampler 的权重是用**样本数**（n_lq/n_uav）构造的，
+    # 不看路径 ⇒ LQ 样本确实按 P(LQ)=1/(1+r) 进了 batch。
+    # 受影响的**只有上报字段**（日志混样列 / measured_ratio / weights 元数据），
+    # **不影响**训练、权重、门禁三轨指标与 U 判定。
+    #
+    # 修法：从 --longquan-data 推导 LQ 数据集根目录（绝对路径 + 目录名两个标记，
+    # 兼容 im_file 是相对路径的情况）；GMC 场景下目录名与旧硬编码**逐位等价** ⇒ 旧行为不变。
+    _lq_root = Path(args.longquan_data).resolve().parent
+    _LQ_MARKERS = (str(_lq_root), _lq_root.name)
+
+    def _is_lq_file(f) -> bool:
+        s = str(f)
+        return any(m in s for m in _LQ_MARKERS)
+
+    print(f"[MIX-MARK] LQ 判定标记：{_LQ_MARKERS}", flush=True)
 
     mixed = ConcatDataset(datasets)
     mixed.collate_fn = YOLODataset.collate_fn  # 官方静态方法（collate_fn 内 batch_idx += 批内位置）
@@ -513,7 +609,7 @@ def run_worker() -> int:
             if device.type == "cuda":
                 vram_peak = max(vram_peak, torch.cuda.max_memory_allocated(device) / 2**30)
             im_files = batch.get("im_file", []) or []
-            n_lq_batch = sum(1 for f in im_files if "longquanshan_ft_gmc_median_official" in str(f))
+            n_lq_batch = sum(1 for f in im_files if _is_lq_file(f))
             lq_seen += n_lq_batch
             uav_seen += int(bs - n_lq_batch)
             if it % args.log_every == 0 or it == 1:
@@ -604,11 +700,25 @@ def run_worker() -> int:
         "--infer-gpu", str(args.gpu_id),
         "--cache-gpus", str(args.gpu_id),
         "--baseline-cache", args.baseline_cache,
-        "--min-track2-f1", str(GATE_TRACK2_F1_MIN),
-        # 绝对上限语义：= 基线 FP 26 + 增量 10 = 36（等价于我们自己的 ΔFP ≤ +10）
-        "--max-track2-fp", str(GATE_TRACK2_FP_ABS_MAX),
-        "--min-track1-f1", str(GATE_TRACK1_F1_ABS_MIN),  # = 基线 0.905736 + (-0.005)，与我们的 ΔF1 红线等价
+        "--min-track2-f1", str(gate_cfg["track2_f1_min"]),
+        # 绝对上限语义：= 基线 FP + 增量（等价于我们自己的 ΔFP ≤ +10）
+        "--max-track2-fp", str(gate_track2_fp_abs_max),
+        # 绝对 F1 下限 = 基线 F1 + Δ 下限（与我们的 ΔF1 红线等价）
+        "--min-track1-f1", str(gate_track1_f1_abs_min),
+        # ---- 特征根目录随本 trial 的数据集走（不再用门禁脚本里的硬编码常量）----
+        "--uav-data", args.uav_data,
+        "--ft-root", str(Path(args.longquan_data).parent),
     ]
+    # ---- 门禁基线数字随参照系走（no-GMC 等换语义时必须成组替换）----
+    for _k, _flag in (
+        ("track1_f1", "--base-track1-f1"), ("track1_tp", "--base-track1-tp"), ("track1_fp", "--base-track1-fp"),
+        ("track2_f1", "--base-track2-f1"), ("track2_tp", "--base-track2-tp"),
+        ("track2_fp", "--base-track2-fp"), ("track2_fn", "--base-track2-fn"),
+        ("track3_f1", "--base-track3-f1"), ("track3_tp", "--base-track3-tp"),
+        ("track3_fp", "--base-track3-fp"), ("track3_fn", "--base-track3-fn"),
+    ):
+        if _k in gate_base:
+            cmd += [_flag, str(gate_base[_k])]
     print(f"\n[GATE] 三轨门禁（{args.mix_spec} / epoch{gate_epoch}"
           f"{'（末 epoch）' if gate_epoch == args.epochs else f'（训练了 {args.epochs} epoch）'}）…"
           f"\n$ {' '.join(cmd)}\n", flush=True)
@@ -661,17 +771,17 @@ def run_worker() -> int:
             metrics = None
         if metrics is not None:
             score, reason, detail = evaluate_model_quality(
-                metrics, FROZEN_BASELINE,
-                track2_f1_min=GATE_TRACK2_F1_MIN,
-                track2_fp_max_increment=GATE_TRACK2_FP_MAX_INCREMENT,
-                track1_min_delta=GATE_TRACK1_MIN_DELTA,
+                metrics, frozen_baseline,
+                track2_f1_min=gate_cfg["track2_f1_min"],
+                track2_fp_max_increment=gate_cfg["track2_fp_max_increment"],
+                track1_min_delta=gate_cfg["track1_min_delta"],
                 alpha=UTILITY_ALPHA, beta=UTILITY_BETA, gamma=UTILITY_GAMMA,
             )
             ok, greason, gdetail = hard_gate(
-                metrics, FROZEN_BASELINE,
-                track2_f1_min=GATE_TRACK2_F1_MIN,
-                track2_fp_max_increment=GATE_TRACK2_FP_MAX_INCREMENT,
-                track1_min_delta=GATE_TRACK1_MIN_DELTA,
+                metrics, frozen_baseline,
+                track2_f1_min=gate_cfg["track2_f1_min"],
+                track2_fp_max_increment=gate_cfg["track2_fp_max_increment"],
+                track1_min_delta=gate_cfg["track1_min_delta"],
             )
             result["metrics"] = metrics
             result["utility"] = score if ok else None
@@ -679,7 +789,7 @@ def run_worker() -> int:
             result["gate_detail"] = detail
             result["tier1_ok"] = ok
             result["tier1_reason"] = greason
-            u_rc1, _ = utility(metrics, RC1_EPOCH3)
+            u_rc1, _ = utility(metrics, rc1_ref)
             result["utility_vs_rc1"] = u_rc1
             print(f"[JUDGE] {reason} | U(vs 冻结基线)={score if ok else float('-inf')} | U(vs RC1)={u_rc1:+.6f}", flush=True)
     else:
@@ -771,6 +881,12 @@ def main() -> int:
     ap.add_argument("--max-hours", type=float, default=20.0, help="到点自动收尾（不再派新 trial）")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--no-seed-trials", action="store_true", help="不注入种子 trial")
+    ap.add_argument(
+        "--reference-frame",
+        type=str,
+        default="",
+        help="参照系包 JSON（透传给每个 worker）。换特征语义（如 no-GMC）时必传；不传 = 现有 GMC 语义。",
+    )
     args = ap.parse_args()
 
     out_root = Path(args.output_root)
@@ -936,6 +1052,8 @@ def main() -> int:
                 "--clip-max-norm", str(params["clip_max_norm"]),
                 "--freeze-bn", "1" if params["freeze_bn"] else "0",
             ]
+            if args.reference_frame:
+                cmd += ["--reference-frame", args.reference_frame]
             fh = log_file.open("w", encoding="utf-8")
             proc = subprocess.Popen(cmd, stdout=fh, stderr=subprocess.STDOUT, cwd=str(REPO_ROOT))
             running.append({

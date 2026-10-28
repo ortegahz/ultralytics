@@ -36,6 +36,9 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from manu.training.mix_ratio_judgement import (  # noqa: E402
+    DEFAULT_GATE_TRACK1_MIN_DELTA,
+    DEFAULT_GATE_TRACK2_F1_MIN,
+    DEFAULT_GATE_TRACK2_FP_MAX_INCREMENT,
     FROZEN_BASELINE,
     RC1_BY_EPOCH,
     RC1_EPOCH3,
@@ -180,6 +183,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="混合比例超参搜索状态查询")
     ap.add_argument("--out-root", default=OUT_ROOT_DEFAULT)
     ap.add_argument("--study-name", default=STUDY_NAME_DEFAULT)
+    ap.add_argument(
+        "--reference-frame",
+        default="",
+        help="参照系包 JSON（换特征语义如 no-GMC 时**必须传**；"
+             "内含 frozen_baseline / rc1 / gate 阈值）。不传 = 沿用 GMC 语义的模块常量（旧行为不变）",
+    )
     ap.add_argument("--top", type=int, default=10)
     ap.add_argument("--tail-log", type=int, default=15)
     ap.add_argument("--out-json", default="")
@@ -188,6 +197,27 @@ def main() -> int:
     ap.add_argument("--all-calibers", action="store_true",
                     help="决赛候选池不按调度口径过滤（默认只取 cosine 周期 5ep、与 RC1 可比的 trial）")
     args = ap.parse_args()
+
+    # ---- 参照系注入（不传 --reference-frame ⇒ 与模块常量逐位相同，旧行为不变）----
+    base = FROZEN_BASELINE
+    rc1_ref = RC1_EPOCH3
+    gate_cfg = {
+        "track2_f1_min": DEFAULT_GATE_TRACK2_F1_MIN,
+        "track2_fp_max_increment": DEFAULT_GATE_TRACK2_FP_MAX_INCREMENT,
+        "track1_min_delta": DEFAULT_GATE_TRACK1_MIN_DELTA,
+    }
+    if args.reference_frame:
+        _rf = Path(args.reference_frame)
+        if not _rf.is_file():
+            print(f"[FAIL] 找不到参照系包：{_rf}")
+            return 3
+        _ref = json.loads(_rf.read_text(encoding="utf-8"))
+        base = {**FROZEN_BASELINE, **(_ref.get("frozen_baseline") or {})}
+        rc1_ref = {**RC1_EPOCH3, **(_ref.get("rc1") or {})}
+        gate_cfg = {**gate_cfg, **(_ref.get("gate") or {})}
+        print(f"[REF] 已注入参照系：{_rf}")
+        print(f"[REF] 门禁阈值：{gate_cfg}")
+
     allow_relaxed = not args.strict_only
 
     out_root = Path(args.out_root)
@@ -235,8 +265,12 @@ def main() -> int:
     crashed = [r for r in rows if r["status"] not in ("SUCCESS", "PRUNED")]
     print(f"\n[2] 进度：共 {total} 个 trial | 过线 {len(success)} | 剪枝 {len(pruned)} | 异常 {len(crashed)}")
     if hb.get("best_value") is not None:
+        _u_champ = utility(rc1_ref, base)[0]
+        _champ_name = "natural 对照" if args.reference_frame else "RC1/Ep3"
+        # ★ GMC 侧保持旧文案逐字一致（不带正号）；no-GMC 侧用带符号写法更清楚
+        _u_txt = f"{_u_champ:+.6f}" if args.reference_frame else f"{_u_champ:.6f}"
         print(f"    当前最佳 U = {hb['best_value']:+.6f}（trial #{hb.get('best_trial')}）"
-              f"   及格线 RC1/Ep3 = 0.027579")
+              f"   及格线 {_champ_name} = {_u_txt}")
 
     # ---- 3. GPU ----
     print(f"\n[3] GPU：{gpu_status()}")
@@ -274,7 +308,7 @@ def main() -> int:
         m = metrics_of(row)
         if m is None:
             return None
-        return utility(m, FROZEN_BASELINE)[0]
+        return utility(m, base)[0]
 
     def gate_verdict(row) -> tuple[bool, str]:
         """按一级红线重判该行（CSV 的 status 列只作参考）。
@@ -285,7 +319,13 @@ def main() -> int:
         m = metrics_of(row)
         if m is None:
             return False, "NO_METRICS"
-        ok, reason, _ = hard_gate(m, FROZEN_BASELINE, allow_relaxed=allow_relaxed)
+        ok, reason, _ = hard_gate(
+            m, base,
+            track2_f1_min=gate_cfg["track2_f1_min"],
+            track2_fp_max_increment=gate_cfg["track2_fp_max_increment"],
+            track1_min_delta=gate_cfg["track1_min_delta"],
+            allow_relaxed=allow_relaxed,
+        )
         return ok, reason
 
     def gate_ok(row) -> bool:
@@ -310,16 +350,17 @@ def main() -> int:
     print(f"    {'trial':<14}{'mix':<9}{'实测1:x':<9}{'T1 F1':<10}{'T2 F1':<10}{'T3 F1':<10}"
           f"{'T1FP':<7}{'T2FP':<7}{'T3FP':<7}{'U':<11}{'U-RC1':<11}")
     # 参照系两行（**相对冻结基线**的 U；U-RC1 列 = U − U(RC1)）
-    u_rc1 = utility(RC1_EPOCH3, FROZEN_BASELINE)[0]
+    u_rc1 = utility(rc1_ref, base)[0]
     print(f"    {'【冻结基线】':<14}{'—':<9}{'—':<9}"
-          f"{FROZEN_BASELINE['track1_f1']:<10.6f}{FROZEN_BASELINE['track2_f1']:<10.6f}"
-          f"{FROZEN_BASELINE['track3_f1']:<10.6f}"
-          f"{FROZEN_BASELINE['track1_fp']:<7}{FROZEN_BASELINE['track2_fp']:<7}"
-          f"{FROZEN_BASELINE['track3_fp']:<7}{0.0:<+11.6f}{-u_rc1:<+11.6f}")
-    print(f"    {'【RC1=Ep3】':<14}{'natural':<9}{'3.09':<9}"
-          f"{RC1_EPOCH3['track1_f1']:<10.6f}{RC1_EPOCH3['track2_f1']:<10.6f}"
-          f"{RC1_EPOCH3['track3_f1']:<10.6f}"
-          f"{RC1_EPOCH3['track1_fp']:<7}{RC1_EPOCH3['track2_fp']:<7}{RC1_EPOCH3['track3_fp']:<7}"
+          f"{base['track1_f1']:<10.6f}{base['track2_f1']:<10.6f}"
+          f"{base['track3_f1']:<10.6f}"
+          f"{base['track1_fp']:<7}{base['track2_fp']:<7}"
+          f"{base['track3_fp']:<7}{0.0:<+11.6f}{-u_rc1:<+11.6f}")
+    _champ_label = "【现任擂主】" if args.reference_frame else "【RC1=Ep3】"
+    print(f"    {_champ_label:<14}{'natural':<9}{'3.09':<9}"
+          f"{rc1_ref['track1_f1']:<10.6f}{rc1_ref['track2_f1']:<10.6f}"
+          f"{rc1_ref['track3_f1']:<10.6f}"
+          f"{rc1_ref['track1_fp']:<7}{rc1_ref['track2_fp']:<7}{rc1_ref['track3_fp']:<7}"
           f"{u_rc1:<+11.6f}{0.0:<+11.6f}")
     for r in ranked[: args.top]:
         u = u_of(r)
@@ -377,6 +418,15 @@ def main() -> int:
             slot["items"].setdefault(m, []).append(r)
             slot["trials"].append(r)
 
+    # ★ 参照系注入时，no-GMC 语义下的「现任擂主」是 **natural 对照**（参照系包里的 rc1），
+    #   而不是 GMC 的 RC1_EPOCH3 ⇒ 口径组的擂主一律换成注入的 rc1，
+    #   否则会拿 GMC 的擂主跟 no-GMC 的候选对局（跨语义，不可比）。
+    champion = rc1_ref
+    if args.reference_frame:
+        for _g, _slot in by_cal.items():
+            if _slot["ref"] is not None:
+                _slot["ref"] = champion
+
     # 排序：有参照系的组排前面（按测量 epoch），其余在后
     def group_sort_key(name: str):
         ep = 0
@@ -388,7 +438,7 @@ def main() -> int:
     for gname in sorted(by_cal, key=group_sort_key):
         slot = by_cal[gname]
         ref = slot["ref"]
-        ref_u = utility(ref, FROZEN_BASELINE)[0] if ref is not None else None
+        ref_u = utility(ref, base)[0] if ref is not None else None
         if ref is not None:
             note = f"⇒ 擂主 = 该口径的 RC1（U={ref_u:+.6f}）"
         else:
@@ -396,10 +446,13 @@ def main() -> int:
         print_group_table(slot["items"], gname, note, ref_u)
         print()
     if allow_relaxed:
-        print("    ⚠️ 一级红线为**双通道**：严格口径 ΔFP_T2 ≤ +10；受控放宽口径 ΔFP_T2 ≤ +15 且要求")
+        print(f"    ⚠️ 一级红线为**双通道**：严格口径 ΔFP_T2 ≤ {gate_cfg['track2_fp_max_increment']:+d}；受控放宽口径 ΔFP_T2 ≤ +15 且要求")
         print("       T2 F1 ≥ +0.008、T3 F1 ≥ +0.020 同时有实质增益（🟡过线(放宽) 标记）。")
     else:
-        print("    ⚠️ 当前为**严格口径**（--strict-only）：ΔFP_T2 ≤ +10。")
+        print(f"    ⚠️ 当前为**严格口径**（--strict-only）：ΔFP_T2 ≤ {gate_cfg['track2_fp_max_increment']:+d}。")
+    if args.reference_frame and allow_relaxed:
+        print("    ⚠️ 参照系注入下：**受控放宽通道的 ΔFP_T2 上限仍是 GMC 默认 +15**（未随参照系重标定），")
+        print(f"       而本语义正常带为 [+43,+51] ⇒ 放宽通道实际不可达；**以严格口径 ΔFP_T2 ≤ {gate_cfg['track2_fp_max_increment']:+d} 为准**。")
     print("    ⚠️ T2 虚警的单 trial 噪声约 ±5 ⇒ **红线切在噪声带中部**；")
     print("       同一 mix_spec 多个 trial 一律看**中位数**，别用单点下结论。")
 
@@ -440,11 +493,12 @@ def main() -> int:
                 print(f"\n    ▸ 分组【{scope}】 无同口径 RC1 参照系 ⇒ **不参与对局**"
                       f"（候选 {len(cands)} 个：{[c['name'] for c in cands]}）")
                 continue
-            rep = select_best(cands, reference=ref, dims="full", allow_relaxed=allow_relaxed)
+            rep = select_best(cands, reference=ref, dims="full", allow_relaxed=allow_relaxed,
+                              frozen_baseline=base, gate_config=gate_cfg)
             print(f"\n    ▸ 分组【{scope}】 擂主={reference_name(ref)}"
-                  f"（U={utility(ref, FROZEN_BASELINE)[0]:+.6f}）")
+                  f"（U={utility(ref, base)[0]:+.6f}）")
             print(f"      候选 {rep['n_candidates']} 个，过一级红线 {rep['n_passed_gate']} 个，"
-                  f"帕累托极大元 {rep['n_pareto_maximal']} 个")
+                  f"帕累托极大元 {rep.get('n_pareto_maximal', 0)} 个")
             if rep.get("rejected"):
                 print(f"      被红线剔除：{[(r['name'], r['reason']) for r in rep['rejected']]}")
             if rep.get("winner"):
@@ -457,12 +511,19 @@ def main() -> int:
                       f"vs {vs.get('utility_b', 0):+.6f}")
                 print(f"         ⇒ {'✅ 打败本组擂主' if rep.get('beats_reference') else '❌ 未打败本组擂主'}")
             # ★ 用户的目标是「比 RC1/Ep3 更好」⇒ 额外对**现任擂主 Ep3** 也报一次
-            if ref is not RC1_EPOCH3:
-                rep3 = select_best(cands, reference=RC1_EPOCH3, dims="full", allow_relaxed=allow_relaxed)
+            if ref is not champion:
+                rep3 = select_best(cands, reference=champion, dims="full", allow_relaxed=allow_relaxed,
+                                   frozen_baseline=base, gate_config=gate_cfg)
                 vs3 = rep3.get("vs_reference", {})
-                print(f"         vs 现任擂主 RC1/Ep3（U=+0.027579）：{vs3.get('verdict')}   "
+                # ★ 文案**按参照系**分支：GMC 侧逐字保留旧文案（断言按字面匹配），
+                #   no-GMC 侧换成「现任擂主(natural 对照)」措辞，避免跨语义误读。
+                if args.reference_frame:
+                    _cn, _beat, _lose = "natural 对照", "✅ 打败现任擂主", "❌ 未打败现任擂主"
+                else:
+                    _cn, _beat, _lose = "RC1/Ep3", "✅ 打败 RC1/Ep3", "❌ 未打败 RC1/Ep3"
+                print(f"         vs 现任擂主 {_cn}（U={u_rc1:+.6f}）：{vs3.get('verdict')}   "
                       f"U={vs3.get('utility_a', 0):+.6f} vs {vs3.get('utility_b', 0):+.6f}"
-                      f"  ⇒ {'✅ 打败 RC1/Ep3' if rep3.get('beats_reference') else '❌ 未打败 RC1/Ep3'}")
+                      f"  ⇒ {_beat if rep3.get('beats_reference') else _lose}")
         if skipped_caliber and not args.all_calibers:
             print(f"\n    （已按口径排除 {len(skipped_caliber)} 个非同口径 trial：{skipped_caliber}）")
     else:

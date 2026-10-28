@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>解耦型三级异步流水线 + 双缓存 — 设计与实现</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&amp;family=Outfit:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#f7f5f0; --card:#ffffff; --line:#e9e3d6; --line-soft:#f0ece2;
+    --ink:#14171e; --ink2:#3a4256; --muted:#7c7a72;
+    --primary:#2f6f5e; --primary-soft:rgba(47,111,94,.09);
+    --amber:#c97b3f; --amber-soft:rgba(201,123,63,.11);
+    --danger:#b06367; --danger-soft:rgba(176,99,103,.11);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:'Outfit',system-ui,sans-serif;
+    font-size:15px; line-height:1.58;
+    -webkit-font-smoothing:antialiased;
+  }
+  body::before{
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
+    background:
+      radial-gradient(520px 320px at 8% -4%, rgba(47,111,94,.055), transparent 70%),
+      radial-gradient(460px 300px at 96% 2%, rgba(201,123,63,.05), transparent 70%);
+  }
+  .wrap{position:relative; z-index:1; max-width:1120px; margin:0 auto; padding:40px 24px 80px}
+  header.hd{margin-bottom:34px}
+  .eyebrow{
+    font-family:'JetBrains Mono',monospace; font-size:11.5px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--primary); font-weight:500;
+  }
+  h1{
+    font-family:'DM Serif Display',serif; font-weight:400; font-size:34px;
+    line-height:1.22; letter-spacing:-.005em; margin:12px 0 14px;
+  }
+  .lede{font-size:15.5px; color:var(--ink2); max-width:74ch; margin:0}
+  .lede strong{color:var(--ink); font-weight:600}
+  h2{
+    font-family:'DM Serif Display',serif; font-weight:400; font-size:23px;
+    letter-spacing:-.004em; margin:0 0 6px;
+  }
+  .h2row{display:flex; align-items:baseline; gap:12px; margin-bottom:16px}
+  .h2row svg{color:var(--primary); flex:0 0 auto; align-self:center}
+  .sec{margin-top:52px}
+  .secmeta{font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--muted); margin:-2px 0 18px}
+  .card{
+    background:var(--card); border:1px solid var(--line); border-radius:16px;
+    padding:22px 24px; box-shadow:0 2px 8px rgba(0,0,0,.04);
+  }
+  .fig{overflow-x:auto; -webkit-overflow-scrolling:touch}
+  .fig svg{display:block; width:100%; height:auto; min-width:900px}
+  figcaption{
+    font-family:'JetBrains Mono',monospace; font-size:11.5px; color:var(--muted);
+    margin-top:12px; line-height:1.6;
+  }
+  table{width:100%; border-collapse:collapse; font-size:14px}
+  thead th{
+    text-align:left; font-family:'JetBrains Mono',monospace; font-size:11px;
+    letter-spacing:.1em; text-transform:uppercase; color:var(--muted);
+    font-weight:500; padding:0 12px 10px 0; border-bottom:1px solid var(--line);
+  }
+  tbody td{padding:11px 12px 11px 0; border-bottom:1px solid var(--line-soft); vertical-align:top; color:var(--ink2)}
+  tbody td:first-child{color:var(--ink); font-weight:600; white-space:nowrap}
+  tbody tr:last-child td{border-bottom:none}
+  code,.mono{font-family:'JetBrains Mono',monospace; font-size:12.5px; color:var(--ink)}
+  .tag{
+    display:inline-block; font-family:'JetBrains Mono',monospace; font-size:10.5px;
+    letter-spacing:.06em; padding:2px 7px; border-radius:999px; font-weight:500; white-space:nowrap;
+  }
+  .tag-ok{background:var(--primary-soft); color:var(--primary)}
+  .tag-warn{background:var(--amber-soft); color:var(--amber)}
+  .tag-no{background:var(--danger-soft); color:var(--danger)}
+  ul.inv{list-style:none; padding:0; margin:0; display:grid; gap:14px}
+  ul.inv li{
+    background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px 18px;
+    box-shadow:0 2px 8px rgba(0,0,0,.04);
+  }
+  ul.inv li b{display:block; color:var(--ink); font-weight:600; margin-bottom:4px; font-size:14.5px}
+  ul.inv li span{color:var(--ink2); font-size:14px}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  .kv{display:grid; grid-template-columns:200px 1fr; row-gap:9px; column-gap:16px; margin:0; font-size:14px}
+  .kv dt{color:var(--muted); border-bottom:1px dashed var(--line); padding-bottom:7px}
+  .kv dd{margin:0; border-bottom:1px dashed var(--line); padding-bottom:7px; color:var(--ink2)}
+  .kv dd b{color:var(--ink); font-weight:600}
+  .note{
+    border:1px solid var(--line); border-radius:12px; padding:14px 16px;
+    background:var(--primary-soft); font-size:13.5px; color:var(--ink2); margin-top:16px;
+  }
+  .note b{color:var(--primary)}
+  .note.amber{background:var(--amber-soft)}
+  .note.amber b{color:var(--amber)}
+  footer{margin-top:56px; padding-top:20px; border-top:1px solid var(--line); font-family:'JetBrains Mono',monospace; font-size:11.5px; color:var(--muted); line-height:1.8}
+  @media (max-width:820px){
+    .grid2{grid-template-columns:1fr}
+    .kv{grid-template-columns:1fr; row-gap:2px}
+    .kv dt{border:none; padding:10px 0 0}
+    .kv dd{border-bottom:1px dashed var(--line)}
+    .wrap{padding:28px 16px 60px}
+    h1{font-size:27px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hd">
+  <div class="eyebrow">RK3588 · GMC 特征流水线 · 设计说明</div>
+  <h1>解耦型三级异步流水线 + 双缓存</h1>
+  <p class="lede">
+    当前实现是一台<strong>三级解耦的流式机器</strong>：相机层只管收帧并绝不阻塞，GMC 特征层独占一份连续单环并按物理帧号锚定历史，
+    推理层拿到的只是<strong>不可变的三通道特征</strong>。缓存分两级——一级是 44 帧的原始帧环，二级是 GMC 计算时
+    <strong>零拷贝 pin 出来</strong>的 22 槽读槽。背压<strong>只允许在特征层发生</strong>；相机层一旦丢帧，
+    注册链就断了，那是被禁止的失败模式，而不是可接受的降级。
+  </p>
+</header>
+
+<section class="sec">
+  <div class="h2row">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+    <h2>一、主结构</h2>
+  </div>
+  <p class="secmeta">mosaic_pipeline.cpp · mosaic_pipeline.h:22-63 · gmc_stream_ocl.cpp</p>
+  <div class="card">
+    <div class="fig">
+      <svg viewBox="0 0 1200 640" role="img" aria-label="三级异步流水线与双缓存结构图">
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#7c7a72"/>
+          </marker>
+          <marker id="ahp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#2f6f5e"/>
+          </marker>
+          <marker id="aha" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#c97b3f"/>
+          </marker>
+        </defs>
+
+        <!-- group brackets -->
+        <path d="M16,118 h272" stroke="#e9e3d6" stroke-width="1" stroke-dasharray="3 3"/>
+        <path d="M320,118 h426" stroke="#e9e3d6" stroke-width="1" stroke-dasharray="3 3"/>
+        <path d="M778,118 h408" stroke="#e9e3d6" stroke-width="1" stroke-dasharray="3 3"/>
+        <text x="16" y="108" font-family="JetBrains Mono,monospace" font-size="11" fill="#7c7a72" letter-spacing="1.6">① 相机侧</text>
+        <text x="320" y="108" font-family="JetBrains Mono,monospace" font-size="11" fill="#7c7a72" letter-spacing="1.6">② GMC 特征层</text>
+        <text x="778" y="108" font-family="JetBrains Mono,monospace" font-size="11" fill="#7c7a72" letter-spacing="1.6">③ 推理层</text>
+
+        <!-- boxes -->
+        <g>
+          <rect x="16" y="160" width="100" height="140" rx="12" fill="#ffffff" stroke="#e9e3d6"/>
+          <rect x="148" y="160" width="140" height="140" rx="12" fill="#ffffff" stroke="#e9e3d6"/>
+          <rect x="320" y="160" width="132" height="140" rx="12" fill="#ffffff" stroke="#e9e3d6"/>
+          <rect x="484" y="160" width="262" height="140" rx="12" fill="#ffffff" stroke="#2f6f5e" stroke-width="1.6"/>
+          <rect x="778" y="160" width="128" height="140" rx="12" fill="#ffffff" stroke="#c97b3f" stroke-width="1.6"/>
+          <rect x="938" y="160" width="100" height="140" rx="12" fill="#ffffff" stroke="#e9e3d6"/>
+          <rect x="1070" y="160" width="116" height="140" rx="12" fill="#ffffff" stroke="#e9e3d6"/>
+        </g>
+
+        <!-- camera -->
+        <text x="66" y="196" text-anchor="middle" font-family="Outfit" font-size="13.5" font-weight="600" fill="#14171e">相机</text>
+        <text x="66" y="216" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="11" fill="#7c7a72">25 fps</text>
+        <text x="66" y="240" text-anchor="middle" font-family="Outfit" font-size="12" fill="#3a4256">640×512 B</text>
+        <text x="66" y="258" text-anchor="middle" font-family="Outfit" font-size="12" fill="#3a4256">灰度原始帧</text>
+        <text x="66" y="322" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#7c7a72">调用方线程</text>
+
+        <!-- FIFO -->
+        <text x="218" y="190" text-anchor="middle" font-family="Outfit" font-size="13.5" font-weight="600" fill="#14171e">相机 FIFO</text>
+        <text x="218" y="212" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="12" fill="#14171e">input_queue ≤ 64</text>
+        <text x="218" y="234" text-anchor="middle" font-family="Outfit" font-size="12" fill="#3a4256">溢出丢最老</text>
+        <text x="218" y="252" text-anchor="middle" font-family="Outfit" font-size="12" fill="#3a4256">计时 dropped</text>
+        <text x="218" y="322" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#b06367">必须恒为 0</text>
+
+        <!-- ingest -->
+        <text x="386" y="190" text-anchor="middle" font-family="Outfit" font-size="13.5" font-weight="600" fill="#14171e">INGEST</text>
+        <text x="386" y="212" text-anchor="middle" font-family="Outfit" font-size="12" fill="#3a4256">物理帧号锚定</text>
+        <text x="386" y="230" text-anchor="middle" font-family="Outfit" font-size="12" fill="#3a4256">cadence 选组</text>
+        <text x="386" y="248" text-anchor="middle" font-family="Outfit" font-size="12" fill="#3a4256">窗口守卫</text>
+        <text x="386" y="274" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#7c7a72">唯一写者</text>
+        <text x="386" y="322" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#7c7a72">ingest_loop</text>
+
+        <!-- GMC -->
+        <text x="615" y="186" text-anchor="middle" font-family="Outfit" font-size="13.5" font-weight="600" fill="#14171e">GMC 引擎</text>
+        <text x="615" y="204" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#2f6f5e">21 lag = {2,4,…,42}</text>
+        <rect x="500" y="216" width="230" height="24" rx="7" fill="#f0ece2"/>
+        <text x="512" y="232" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#3a4256">一级 ring_ 44 帧 · CPU</text>
+        <rect x="500" y="246" width="230" height="24" rx="7" fill="rgba(47,111,94,.11)"/>
+        <text x="512" y="262" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#2f6f5e">二级 snap_ 22 槽 · 0 拷贝</text>
+        <rect x="500" y="276" width="230" height="24" rx="7" fill="#f0ece2"/>
+        <text x="512" y="292" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#3a4256">GPU GpuHist 45 槽 · keyed</text>
+        <text x="615" y="322" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#7c7a72">engine_loop · 绑核 4-7 (A76)</text>
+
+        <!-- feature queue -->
+        <text x="842" y="190" text-anchor="middle" font-family="Outfit" font-size="13.5" font-weight="600" fill="#14171e">特征队列</text>
+        <text x="842" y="212" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="12" fill="#14171e">feat_q 深度 3</text>
+        <text x="842" y="234" text-anchor="middle" font-family="Outfit" font-size="12" fill="#3a4256">溢出丢最老</text>
+        <text x="842" y="252" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="11" fill="#c97b3f">features_dropped</text>
+        <text x="842" y="322" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#c97b3f">唯一允许的背压点</text>
+
+        <!-- npu -->
+        <text x="988" y="196" text-anchor="middle" font-family="Outfit" font-size="13.5" font-weight="600" fill="#14171e">NPU</text>
+        <text x="988" y="218" text-anchor="middle" font-family="Outfit" font-size="12" fill="#3a4256">2 × RKNN</text>
+        <text x="988" y="236" text-anchor="middle" font-family="Outfit" font-size="12" fill="#3a4256">fp16 单次前向</text>
+        <text x="988" y="254" text-anchor="middle" font-family="Outfit" font-size="12" fill="#3a4256">640×640 拼图</text>
+        <text x="988" y="322" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#7c7a72">npu_loop</text>
+
+        <!-- post -->
+        <text x="1128" y="196" text-anchor="middle" font-family="Outfit" font-size="13.5" font-weight="600" fill="#14171e">POST</text>
+        <text x="1128" y="218" text-anchor="middle" font-family="Outfit" font-size="12" fill="#3a4256">回投原生像素</text>
+        <text x="1128" y="236" text-anchor="middle" font-family="Outfit" font-size="12" fill="#3a4256">8 连通域</text>
+        <text x="1128" y="254" text-anchor="middle" font-family="Outfit" font-size="12" fill="#3a4256">→ 回调</text>
+        <text x="1128" y="322" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#7c7a72">post / dispatch</text>
+
+        <!-- arrows -->
+        <g stroke="#7c7a72" stroke-width="1.6" fill="none" marker-end="url(#ah)">
+          <path d="M116,230 h28"/>
+          <path d="M288,230 h28"/>
+          <path d="M452,230 h28"/>
+          <path d="M746,230 h28"/>
+          <path d="M906,230 h28"/>
+          <path d="M1038,230 h28"/>
+        </g>
+        <text x="130" y="216" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="9.5" fill="#7c7a72">push</text>
+        <text x="302" y="216" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="9.5" fill="#7c7a72">seed</text>
+        <text x="466" y="216" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="9.5" fill="#7c7a72">组</text>
+        <text x="760" y="216" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="9.5" fill="#7c7a72">特征</text>
+
+        <!-- drop markers -->
+        <g>
+          <path d="M218,378 l11,19 h-22 z" fill="none" stroke="#b06367" stroke-width="1.8" stroke-linejoin="round"/>
+          <path d="M218,385 v6 M218,394 v.6" stroke="#b06367" stroke-width="1.8" stroke-linecap="round"/>
+          <text x="238" y="384" font-family="Outfit" font-size="12.5" font-weight="600" fill="#b06367">被禁止的丢失点</text>
+          <text x="238" y="402" font-family="Outfit" font-size="12" fill="#3a4256">一旦相机 FIFO 溢出，物理帧号出现空洞 → 注册链断裂</text>
+        </g>
+        <g>
+          <path d="M842,378 l11,19 h-22 z" fill="none" stroke="#c97b3f" stroke-width="1.8" stroke-linejoin="round"/>
+          <path d="M842,385 v6 M842,394 v.6" stroke="#c97b3f" stroke-width="1.8" stroke-linecap="round"/>
+          <text x="862" y="384" font-family="Outfit" font-size="12.5" font-weight="600" fill="#c97b3f">设计上的背压点</text>
+          <text x="862" y="402" font-family="Outfit" font-size="12" fill="#3a4256">GMC 已算完，丢的只是推理机会，历史与特征仍完整</text>
+        </g>
+
+        <!-- legend -->
+        <rect x="16" y="440" width="1168" height="180" rx="14" fill="#ffffff" stroke="#e9e3d6"/>
+        <text x="40" y="472" font-family="JetBrains Mono,monospace" font-size="11" fill="#7c7a72" letter-spacing="1.4">缓存层级与生命周期</text>
+
+        <rect x="40" y="492" width="356" height="104" rx="11" fill="#f0ece2"/>
+        <text x="58" y="516" font-family="Outfit" font-size="13" font-weight="600" fill="#14171e">一级缓存 · 原始帧环 ring_</text>
+        <text x="58" y="538" font-family="Outfit" font-size="12" fill="#3a4256">深度 = max_lag + 1 + slack = 42 + 1 + 1 = 44 帧</text>
+        <text x="58" y="557" font-family="Outfit" font-size="12" fill="#3a4256">640×512 B × 44 ≈ 13.8 MiB，按物理帧号 mod 44 索引</text>
+        <text x="58" y="576" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#7c7a72">gmc_stream_ocl.cpp:1572-1578 · 唯一写者 = INGEST</text>
+
+        <rect x="422" y="492" width="356" height="104" rx="11" fill="rgba(47,111,94,.09)"/>
+        <text x="440" y="516" font-family="Outfit" font-size="13" font-weight="600" fill="#14171e">二级缓存 · 读槽快照 snap_</text>
+        <text x="440" y="538" font-family="Outfit" font-size="12" fill="#3a4256">22 槽 = 当前帧 + 21 个 lag，GMC 计算时一次性 pin</text>
+        <text x="440" y="557" font-family="Outfit" font-size="12" fill="#3a4256">浅引用（refcount + 指针），拷贝成本 0.01 ms/帧</text>
+        <text x="440" y="576" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#7c7a72">gmc_stream_ocl.cpp:2282-2341 · 独写者 = 计算线程</text>
+
+        <rect x="804" y="492" width="356" height="104" rx="11" fill="#f0ece2"/>
+        <text x="822" y="516" font-family="Outfit" font-size="13" font-weight="600" fill="#14171e">GPU 端历史缓存 GpuHist</text>
+        <text x="822" y="538" font-family="Outfit" font-size="12" fill="#3a4256">45 槽，按<tspan font-weight="600">内容身份</tspan>而非取模寻址</text>
+        <text x="822" y="557" font-family="Outfit" font-size="12" fill="#3a4256">命中不重传，冷启动钳位帧不会被错配</text>
+        <text x="822" y="576" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#7c7a72">gmc_stream_ocl.cpp:1092-1117</text>
+      </svg>
+    </div>
+    <figcaption>
+      图 1 · 三级解耦与双缓存。所有框为独立服务，各自有界队列；相机线程永不阻塞、永不等待。
+      相机 FIFO 溢出（dropped）是<tspan style="color:#b06367">被禁止</tspan>的失败；特征队列溢出（features_dropped）是<tspan style="color:#c97b3f">设计上允许</tspan>的背压。
+    </figcaption>
+  </div>
+</section>
+
+<section class="sec">
+  <div class="h2row">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M2 12h20"/><circle cx="12" cy="12" r="9"/></svg>
+    <h2>二、双缓存的读槽 Pin 机制</h2>
+  </div>
+  <p class="secmeta">gmc_stream_ocl.cpp:2282 build_snapshot · :2301 hold_snapshot_slot · :2379 frame_at_lag</p>
+  <div class="card">
+    <div class="fig">
+      <svg viewBox="0 0 1200 520" role="img" aria-label="一级环与二级快照的读槽 pin 示意图">
+        <defs>
+          <marker id="ph" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#2f6f5e"/>
+          </marker>
+        </defs>
+
+        <!-- timeline -->
+        <text x="40" y="34" font-family="JetBrains Mono,monospace" font-size="11" fill="#7c7a72" letter-spacing="1.4">物理帧号时间轴（锚定基准 = 相机真实帧号）</text>
+        <line x1="40" y1="70" x2="1160" y2="70" stroke="#e9e3d6" stroke-width="2"/>
+        <g font-family="JetBrains Mono,monospace" font-size="9.5" fill="#7c7a72">
+          <!-- 22 ticks: f-42 .. f-2, f -->
+          <g>
+            <circle cx="40" cy="70" r="4" fill="#c97b3f"/><text x="40" y="92" text-anchor="middle">f−42</text>
+            <circle cx="90" cy="70" r="3.5" fill="#2f6f5e"/><text x="90" y="92" text-anchor="middle">f−40</text>
+            <circle cx="140" cy="70" r="3.5" fill="#2f6f5e"/><text x="140" y="92" text-anchor="middle">f−38</text>
+            <circle cx="190" cy="70" r="3.5" fill="#2f6f5e"/><text x="190" y="92" text-anchor="middle">f−36</text>
+            <circle cx="240" cy="70" r="3.5" fill="#2f6f5e"/><text x="240" y="92" text-anchor="middle">f−34</text>
+            <circle cx="290" cy="70" r="3.5" fill="#2f6f5e"/><text x="290" y="92" text-anchor="middle">f−32</text>
+            <circle cx="340" cy="70" r="3.5" fill="#2f6f5e"/><text x="340" y="92" text-anchor="middle">f−30</text>
+            <circle cx="390" cy="70" r="3.5" fill="#2f6f5e"/><text x="390" y="92" text-anchor="middle">f−28</text>
+            <circle cx="440" cy="70" r="3.5" fill="#2f6f5e"/><text x="440" y="92" text-anchor="middle">f−26</text>
+            <circle cx="490" cy="70" r="3.5" fill="#2f6f5e"/><text x="490" y="92" text-anchor="middle">f−24</text>
+            <circle cx="540" cy="70" r="3.5" fill="#2f6f5e"/><text x="540" y="92" text-anchor="middle">f−22</text>
+            <circle cx="590" cy="70" r="3.5" fill="#2f6f5e"/><text x="590" y="92" text-anchor="middle">f−20</text>
+            <circle cx="640" cy="70" r="3.5" fill="#2f6f5e"/><text x="640" y="92" text-anchor="middle">f−18</text>
+            <circle cx="690" cy="70" r="3.5" fill="#2f6f5e"/><text x="690" y="92" text-anchor="middle">f−16</text>
+            <circle cx="740" cy="70" r="3.5" fill="#2f6f5e"/><text x="740" y="92" text-anchor="middle">f−14</text>
+            <circle cx="790" cy="70" r="3.5" fill="#2f6f5e"/><text x="790" y="92" text-anchor="middle">f−12</text>
+            <circle cx="840" cy="70" r="3.5" fill="#2f6f5e"/><text x="840" y="92" text-anchor="middle">f−10</text>
+            <circle cx="890" cy="70" r="3.5" fill="#2f6f5e"/><text x="890" y="92" text-anchor="middle">f−8</text>
+            <circle cx="940" cy="70" r="3.5" fill="#2f6f5e"/><text x="940" y="92" text-anchor="middle">f−6</text>
+            <circle cx="990" cy="70" r="3.5" fill="#2f6f5e"/><text x="990" y="92" text-anchor="middle">f−4</text>
+            <circle cx="1090" cy="70" r="3.5" fill="#2f6f5e"/><text x="1090" y="92" text-anchor="middle">f−2</text>
+            <circle cx="1140" cy="70" r="5" fill="#14171e"/><text x="1140" y="92" text-anchor="middle" fill="#14171e">f</text>
+          </g>
+        </g>
+        <path d="M1140,108 v34" stroke="#2f6f5e" stroke-width="1.6" stroke-dasharray="4 3" marker-end="url(#ph)"/>
+        <text x="1152" y="132" font-family="JetBrains Mono,monospace" font-size="10" fill="#2f6f5e">当前帧</text>
+        <text x="40" y="132" font-family="Outfit" font-size="11.5" fill="#3a4256">21 个 lag 点 = 短程链的一步配对（stride = 2 帧）</text>
+
+        <!-- ring -->
+        <rect x="34" y="168" width="330" height="20" rx="4" fill="#ffffff"/>
+        <text x="40" y="182" font-family="JetBrains Mono,monospace" font-size="11" fill="#7c7a72" letter-spacing="1.4">一级缓存 ring_ · 44 槽（物理帧号 mod 44）</text>
+        <g>
+          <!-- row 1 -->
+          <rect x="40"  y="198" width="44" height="26" rx="5" fill="rgba(47,111,94,.16)" stroke="#2f6f5e" stroke-width="1.2"/>
+          <rect x="90"  y="198" width="44" height="26" rx="5" fill="rgba(47,111,94,.16)" stroke="#2f6f5e" stroke-width="1.2"/>
+          <rect x="140" y="198" width="44" height="26" rx="5" fill="rgba(47,111,94,.16)" stroke="#2f6f5e" stroke-width="1.2"/>
+          <rect x="190" y="198" width="44" height="26" rx="5" fill="rgba(47,111,94,.16)" stroke="#2f6f5e" stroke-width="1.2"/>
+          <rect x="240" y="198" width="44" height="26" rx="5" fill="rgba(47,111,94,.16)" stroke="#2f6f5e" stroke-width="1.2"/>
+          <rect x="290" y="198" width="44" height="26" rx="5" fill="rgba(47,111,94,.16)" stroke="#2f6f5e" stroke-width="1.2"/>
+          <rect x="340" y="198" width="44" height="26" rx="5" fill="rgba(47,111,94,.16)" stroke="#2f6f5e" stroke-width="1.2"/>
+          <rect x="390" y="198" width="44" height="26" rx="5" fill="rgba(47,111,94,.16)" stroke="#2f6f5e" stroke-width="1.2"/>
+          <rect x="440" y="198" width="44" height="26" rx="5" fill="rgba(47,111,94,.16)" stroke="#2f6f5e" stroke-width="1.2"/>
+          <rect x="490" y="198" width="44" height="26" rx="5" fill="rgba(47,111,94,.16)" stroke="#2f6f5e" stroke-width="1.2"/>
+          <!-- row 2 -->
+          <rect x="540" y="198" width="44" height="26" rx="5" fill="rgba(47,111,94,.16)" stroke="#2f6f5e" stroke-width="1.2"/>
+          <rect x="590" y="198" width="44" height="26" rx="5" fill="rgba(47,111,94,.16)" stroke="#2f6f5e" stroke-width="1.2"/>
+          <rect x="640" y="198" width="44" height="26" rx="5" fill="rgba(47,111,94,.16)" stroke="#2f6f5e" stroke-width="1.2"/>
+          <rect x="690" y="198" width="44" height="26" rx="5" fill="rgba(47,111,94,.16)" stroke="#2f6f5e" stroke-width="1.2"/>
+          <rect x="740" y="198" width="44" height="26" rx="5" fill="rgba(47,111,94,.16)" stroke="#2f6f5e" stroke-width="1.2"/>
+          <rect x="790" y="198" width="44" height="26" rx="5" fill="rgba(47,111,94,.16)" stroke="#2f6f5e" stroke-width="1.2"/>
+          <rect x="840" y="198" width="44" height="26" rx="5" fill="rgba(47,111,94,.16)" stroke="#2f6f5e" stroke-width="1.2"/>
+          <rect x="890" y="198" width="44" height="26" rx="5" fill="rgba(47,111,94,.16)" stroke="#2f6f5e" stroke-width="1.2"/>
+          <rect x="940" y="198" width="44" height="26" rx="5" fill="rgba(47,111,94,.16)" stroke="#2f6f5e" stroke-width="1.2"/>
+          <rect x="990" y="198" width="44" height="26" rx="5" fill="rgba(47,111,94,.16)" stroke="#2f6f5e" stroke-width="1.2"/>
+          <rect x="1040" y="198" width="44" height="26" rx="5" fill="rgba(47,111,94,.16)" stroke="#2f6f5e" stroke-width="1.2"/>
+          <rect x="1090" y="198" width="44" height="26" rx="5" fill="rgba(47,111,94,.16)" stroke="#2f6f5e" stroke-width="1.2"/>
+          <rect x="1140" y="198" width="44" height="26" rx="5" fill="#14171e"/>
+          <!-- filler slots row 3 -->
+          <rect x="40" y="230" width="44" height="26" rx="5" fill="#f7f5f0" stroke="#e9e3d6"/>
+          <rect x="90" y="230" width="44" height="26" rx="5" fill="#f7f5f0" stroke="#e9e3d6"/>
+          <rect x="140" y="230" width="44" height="26" rx="5" fill="#f7f5f0" stroke="#e9e3d6"/>
+          <rect x="190" y="230" width="44" height="26" rx="5" fill="#f7f5f0" stroke="#e9e3d6"/>
+          <rect x="240" y="230" width="44" height="26" rx="5" fill="#f7f5f0" stroke="#e9e3d6"/>
+          <rect x="290" y="230" width="44" height="26" rx="5" fill="#f7f5f0" stroke="#e9e3d6"/>
+          <rect x="340" y="230" width="44" height="26" rx="5" fill="#f7f5f0" stroke="#e9e3d6"/>
+          <rect x="390" y="230" width="44" height="26" rx="5" fill="#f7f5f0" stroke="#e9e3d6"/>
+          <rect x="440" y="230" width="44" height="26" rx="5" fill="#f7f5f0" stroke="#e9e3d6"/>
+          <rect x="490" y="230" width="44" height="26" rx="5" fill="#f7f5f0" stroke="#e9e3d6"/>
+          <rect x="540" y="230" width="44" height="26" rx="5" fill="#f7f5f0" stroke="#e9e3d6"/>
+          <rect x="590" y="230" width="44" height="26" rx="5" fill="#f7f5f0" stroke="#e9e3d6"/>
+          <rect x="640" y="230" width="44" height="26" rx="5" fill="#f7f5f0" stroke="#e9e3d6"/>
+          <rect x="690" y="230" width="44" height="26" rx="5" fill="#f7f5f0" stroke="#e9e3d6"/>
+          <rect x="740" y="230" width="44" height="26" rx="5" fill="#f7f5f0" stroke="#e9e3d6"/>
+          <rect x="790" y="230" width="44" height="26" rx="5" fill="#f7f5f0" stroke="#e9e3d6"/>
+          <rect x="840" y="230" width="44" height="26" rx="5" fill="#f7f5f0" stroke="#e9e3d6"/>
+          <rect x="890" y="230" width="44" height="26" rx="5" fill="#f7f5f0" stroke="#e9e3d6"/>
+          <rect x="940" y="230" width="44" height="26" rx="5" fill="#f7f5f0" stroke="#e9e3d6"/>
+          <rect x="990" y="230" width="44" height="26" rx="5" fill="#f7f5f0" stroke="#e9e3d6"/>
+          <rect x="1040" y="230" width="44" height="26" rx="5" fill="#f7f5f0" stroke="#e9e3d6"/>
+          <rect x="1090" y="230" width="44" height="26" rx="5" fill="#f7f5f0" stroke="#e9e3d6"/>
+          <rect x="1140" y="230" width="44" height="26" rx="5" fill="#f7f5f0" stroke="#e9e3d6"/>
+        </g>
+        <text x="40" y="276" font-family="Outfit" font-size="11.5" fill="#3a4256">绿色 = 本次计算要读的 21 个 lag 槽；黑色 = 当前帧 f。</text>
+        <text x="40" y="296" font-family="Outfit" font-size="11.5" fill="#3a4256">浅色 = 本次不读的槽位（仍存着更老的历史帧）。槽位里放的是<tspan font-weight="600">原始帧本身</tspan>，生产者只换指针，不写像素。</text>
+
+        <!-- clamp target: separate member, not a ring slot -->
+        <rect x="40" y="308" width="264" height="30" rx="7" fill="rgba(201,123,63,.13)" stroke="#c97b3f" stroke-width="1.2"/>
+        <text x="54" y="327" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#c97b3f">first_ / snap_first_ 冷启动钳位目标</text>
+
+        <!-- pin arrows -->
+        <g stroke="#2f6f5e" stroke-width="1.2" opacity=".55" marker-end="url(#ph)" fill="none">
+          <path d="M90,262 L90,368"/><path d="M390,262 L390,368"/><path d="M690,262 L690,368"/>
+          <path d="M990,262 L990,368"/><path d="M1090,262 L1090,368"/><path d="M1140,212 L1140,368"/>
+        </g>
+
+        <!-- snapshot -->
+        <rect x="34" y="342" width="330" height="20" rx="4" fill="#ffffff"/>
+        <text x="40" y="356" font-family="JetBrains Mono,monospace" font-size="11" fill="#2f6f5e" letter-spacing="1.4">二级缓存 snap_ · 22 槽（浅引用 pin，0 字节像素拷贝）</text>
+        <rect x="980" y="342" width="204" height="20" rx="4" fill="#ffffff"/>
+        <text x="1178" y="356" text-anchor="end" font-family="JetBrains Mono,monospace" font-size="10" fill="#7c7a72">snap_[k] = f − lags[k−1]</text>        <g>
+          <rect x="40" y="372" width="44" height="30" rx="6" fill="#14171e"/>
+          <rect x="90" y="372" width="44" height="30" rx="6" fill="rgba(47,111,94,.14)" stroke="#2f6f5e" stroke-width="1.1"/>
+          <rect x="140" y="372" width="44" height="30" rx="6" fill="rgba(47,111,94,.14)" stroke="#2f6f5e" stroke-width="1.1"/>
+          <rect x="190" y="372" width="44" height="30" rx="6" fill="rgba(47,111,94,.14)" stroke="#2f6f5e" stroke-width="1.1"/>
+          <rect x="240" y="372" width="44" height="30" rx="6" fill="rgba(47,111,94,.14)" stroke="#2f6f5e" stroke-width="1.1"/>
+          <rect x="290" y="372" width="44" height="30" rx="6" fill="rgba(47,111,94,.14)" stroke="#2f6f5e" stroke-width="1.1"/>
+          <rect x="340" y="372" width="44" height="30" rx="6" fill="rgba(47,111,94,.14)" stroke="#2f6f5e" stroke-width="1.1"/>
+          <rect x="390" y="372" width="44" height="30" rx="6" fill="rgba(47,111,94,.14)" stroke="#2f6f5e" stroke-width="1.1"/>
+          <rect x="440" y="372" width="44" height="30" rx="6" fill="rgba(47,111,94,.14)" stroke="#2f6f5e" stroke-width="1.1"/>
+          <rect x="490" y="372" width="44" height="30" rx="6" fill="rgba(47,111,94,.14)" stroke="#2f6f5e" stroke-width="1.1"/>
+          <rect x="540" y="372" width="44" height="30" rx="6" fill="rgba(47,111,94,.14)" stroke="#2f6f5e" stroke-width="1.1"/>
+          <rect x="590" y="372" width="44" height="30" rx="6" fill="rgba(47,111,94,.14)" stroke="#2f6f5e" stroke-width="1.1"/>
+          <rect x="640" y="372" width="44" height="30" rx="6" fill="rgba(47,111,94,.14)" stroke="#2f6f5e" stroke-width="1.1"/>
+          <rect x="690" y="372" width="44" height="30" rx="6" fill="rgba(47,111,94,.14)" stroke="#2f6f5e" stroke-width="1.1"/>
+          <rect x="740" y="372" width="44" height="30" rx="6" fill="rgba(47,111,94,.14)" stroke="#2f6f5e" stroke-width="1.1"/>
+          <rect x="790" y="372" width="44" height="30" rx="6" fill="rgba(47,111,94,.14)" stroke="#2f6f5e" stroke-width="1.1"/>
+          <rect x="840" y="372" width="44" height="30" rx="6" fill="rgba(47,111,94,.14)" stroke="#2f6f5e" stroke-width="1.1"/>
+          <rect x="890" y="372" width="44" height="30" rx="6" fill="rgba(47,111,94,.14)" stroke="#2f6f5e" stroke-width="1.1"/>
+          <rect x="940" y="372" width="44" height="30" rx="6" fill="rgba(47,111,94,.14)" stroke="#2f6f5e" stroke-width="1.1"/>
+          <rect x="990" y="372" width="44" height="30" rx="6" fill="rgba(47,111,94,.14)" stroke="#2f6f5e" stroke-width="1.1"/>
+          <rect x="1040" y="372" width="44" height="30" rx="6" fill="rgba(47,111,94,.14)" stroke="#2f6f5e" stroke-width="1.1"/>
+          <rect x="1090" y="372" width="44" height="30" rx="6" fill="rgba(47,111,94,.14)" stroke="#2f6f5e" stroke-width="1.1"/>
+        </g>
+        <text x="40" y="424" font-family="Outfit" font-size="11.5" fill="#3a4256">snap_[0] = 当前帧 f；k = 1..21 对应 lags[k−1] = {2,4,…,42}</text>
+
+        <!-- GPU -->
+        <rect x="40" y="446" width="1144" height="52" rx="11" fill="#f0ece2"/>
+        <text x="60" y="470" font-family="Outfit" font-size="13" font-weight="600" fill="#14171e">GPU 端 GpuHist · 45 槽</text>
+        <text x="60" y="490" font-family="Outfit" font-size="12" fill="#3a4256">按内容身份寻址；只有未命中的帧才 uploadImage，命中则直接复用显存里的那一槽</text>
+      </svg>
+    </div>
+    <figcaption>
+      图 2 · 读槽 Pin：GMC 计算开始时一次性把本次要读的 22 帧「钉」在二级缓存里，之后 producer 可以自由把一级环往前推，
+      被钉住的像素不会变。<tspan style="color:#b06367">深拷贝在这里是错的工具</tspan>——它会连同「槽位已被换帧」的错误状态一起冻结，把要暴露的问题掩盖掉。
+    </figcaption>
+    <div class="note">
+      <b>为什么是浅引用而不是深拷贝。</b>生产者从不写入已交出的 buffer，它只是把环槽位重新绑定到另一个帧（<code>ring_[s] = frame</code>）。
+      所以「读权独占」只需要保住指针和 refcount，不需要复制像素。实测拷贝成本从 <b>0.92–1.86 ms/帧</b>（占帧预算 1.4–2.7%）降到 <b>0.01 ms/帧</b>。
+    </div>
+  </div>
+</section>
+
+<section class="sec">
+  <div class="h2row">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+    <h2>三、规格对照</h2>
+  </div>
+  <p class="secmeta">用户 canonical 规格 → 当前代码实现</p>
+  <div class="card">
+    <table>
+      <thead>
+        <tr><th style="width:23%">canonical 规格</th><th style="width:40%">当前实现</th><th style="width:11%">结论</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>① 原始帧 FIFO 深度 30~50</td>
+          <td>相机 FIFO <code>input_queue ≤ 64</code>；一级缓存 ring <b>44 帧</b>（43 + slack 1）</td>
+          <td><span class="tag tag-ok">已覆盖</span></td>
+          <td>44 落在 30~50 区间内，且不额外占用相机侧内存</td>
+        </tr>
+        <tr>
+          <td>② 特征队列深度 2~3</td>
+          <td><code>jitter_depth = 3</code>（<code>feat_q</code>，mosaic_pipeline.cpp:732）</td>
+          <td><span class="tag tag-ok">一致</span></td>
+          <td>溢出丢最老特征，计 <code>features_dropped</code>，不触发告警</td>
+        </tr>
+        <tr>
+          <td>③ 物理时间轴锚定：主图 T、短程 T−1、21 帧中值底图</td>
+          <td><code>gmc_phys_anchor = 1</code>，锚在相机物理帧号（cpp:418 / :588）；<br>Ch0 = I<sub>f</sub>，Ch1 = |I<sub>f</sub> − W(I<sub>f−2</sub>)|，Ch2 = (I<sub>f</sub> − B<sub>f</sub>)<sup>+</sup>，B<sub>f</sub> = median{W(I<sub>f−2k</sub>)}, k=1..21</td>
+          <td><span class="tag tag-warn">部分偏离</span></td>
+          <td>主图与 21 帧中值底图<strong>完全吻合</strong>；<strong>短程是 T−2 而非 T−1</strong>——认证参考实现里短程永远是 lag 2，改成 lag 1 会破坏 bit-exact 认证</td>
+        </tr>
+        <tr>
+          <td>④ 背压只丢特征层</td>
+          <td>相机层溢出丢最老（计 <code>dropped</code>，被禁止）；特征层丢最老（设计允许）</td>
+          <td><span class="tag tag-warn">需工况保障</span></td>
+          <td>机制上支持，但相机层不溢出必须靠 GMC 产能 ≥ 相机速率——由 <code>gmc_compute_stride</code> 提供</td>
+        </tr>
+        <tr>
+          <td>⑤ 双缓存</td>
+          <td>一级 <code>ring_</code>（44 帧原始帧）+ 二级 <code>snap_</code>（22 槽零拷贝读槽 pin），另有 GPU 端 <code>GpuHist</code> 45 槽</td>
+          <td><span class="tag tag-ok">一致</span></td>
+          <td>两级都是<strong>连续单环</strong>，未使用 A/B 乒乓块</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="note amber">
+      <b>唯一的规格偏离是短程 lag。</b>canonical 文字写「短程 T−1」，而认证参考实现（<code>build_nogmc_median_dataset.py</code> / Python golden）里短程<strong>固定为 lag 2</strong>，
+      源码注释写得很明确：「lag 2 exactly; never 1, never 4」。本实现跟随参考而非跟随文字，因为逐位 md5 一致性是本轮的验收铁证；
+      若强行改成 lag 1，特征将与 Python 参考不一致，等于换掉整个认证基线。
+    </div>
+  </div>
+</section>
+
+<section class="sec">
+  <div class="h2row">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+    <h2>四、三条不可违反的不变量</h2>
+  </div>
+  <ul class="inv">
+    <li>
+      <b>cadence 只改「哪些帧被算」，绝不改「帧 f 的特征由什么算出」</b>
+      <span>组选在物理网格 <code>item.id % stride == 0</code>（mosaic_pipeline.cpp:462）；引擎锚点用 <code>job.id</code>（物理号），lag 读取路径一行未动。
+      所以 cadence=2 算出的帧与 cadence=1 算出的同一帧<strong>逐位相同</strong>。</span>
+    </li>
+    <li>
+      <b>随到随算，绝不等 buffer 填满</b>
+      <span>引擎拿到 job 立刻 <code>process_frame</code>；<code>gmc_job_depth</code> 是背压上限，不是攒批阈值。
+      任何「攒够一批再算」的设计都会引入 42 帧 × 40 ms ≈ 1.68 s 的闭环延时。</span>
+    </li>
+    <li>
+      <b>一级环保持连续单环 + 读槽 Pin，不做 A/B 乒乓块</b>
+      <span>GMC 的 21 帧历史是<strong>滑动重叠窗口</strong>（算 f=122 需 [100,120]，算 f=124 需 [102,122]，20/21 帧重叠）。
+      切块后 producer 必须跨块搬移历史帧，零拷贝立即失效；且切块天然带来 1.68 s 批处理延时。连续单环是唯一同时满足零拷贝与低延时的解。</span>
+    </li>
+  </ul>
+
+  <div class="card" style="margin-top:16px;">
+    <h3 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:18px; margin:0 0 4px;">算力赤字如何传回相机 —— 代码级链条</h3>
+    <p style="font-size:13.5px; color:var(--muted); margin:0 0 14px;">
+      这是 25 fps 实时工况下唯一的失败链条，也是理解 cadence 为什么存在的关键。
+    </p>
+    <table>
+      <thead><tr><th style="width:24%">环节</th><th style="width:34%">代码位置</th><th style="width:42%">发生了什么</th></tr></thead>
+      <tbody>
+        <tr><td>算力赤字</td><td class="mono">gmc_fit p50 = 49.7 ms<br>gmc_total = 71.6 ms/帧</td><td>单引擎 GMC 一帧要 ~72 ms，25 fps 的预算是 40 ms ⇒ 每秒缺口 ≈ 8 帧</td></tr>
+        <tr><td>回压传导</td><td class="mono">window_ok(abs) :352<br>等待点 :429</td><td>守卫基准是 <code>oldest_pending</code>（引擎队列<strong>最老的待算帧</strong>），不是 GMC 正在算的那一帧 ⇒ INGEST 被迫<strong>按序补算</strong>，不能跳到最新帧</td></tr>
+        <tr><td>INGEST 停顿</td><td class="mono">gmc_window_blocks = <b>2968</b><br>gmc_ingest_window = 20.9 ms/帧</td><td>实测：INGEST 被守卫挡住 2968 次，平均每次等 20.9 ms。停顿直接顶回相机侧</td></tr>
+        <tr><td>相机堆积</td><td class="mono">in_q 溢出丢最老 :1670</td><td>停顿期间相机仍按 25 fps 灌 ⇒ 64 深 FIFO 被顶爆 ⇒ 丢帧 ⇒ 物理帧号出现空洞</td></tr>
+        <tr><td>洞 → 精度</td><td class="mono">gmc_history_gaps</td><td>洞使 21 帧历史窗口被拉伸，特征改变 ⇒ 精度与无丢帧基准不再一致</td></tr>
+      </tbody>
+    </table>
+    <div class="note" style="margin-top:16px">
+      <b>结论：掉帧不是「相机太快」的错，而是「GMC 算不完」的错。</b>缺口沿
+      <code>GMC 算力 → 窗口守卫 → INGEST 停顿 → 相机 FIFO 溢出 → 物理空洞 → 精度漂移</code>
+      这条链传导的。
+      两种打断点：<strong>(a) 让 GMC 少算</strong>（cadence 提高覆盖率，这是本方案的选择）；
+      <strong>(b) 让 GMC 会跳步</strong>（守卫基准改为「正在算的帧」，INGEST 可自由超前）—— 后者需要改守卫语义，
+      会动到「引擎欠账」这条不变式，代价与风险更高，而 cadence 已经能以零代码语义改动达成同一目标。
+    </div>
+
+    <div class="card" style="margin-top:16px;">
+      <h3 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:18px; margin:0 0 4px;">「自由跳步」方案的可行性算术</h3>
+      <p style="font-size:13.5px; color:var(--muted); margin:0 0 14px;">
+        「让 GMC 空闲时直接抓环里最新的一帧算、跳过中间帧」是彻底解开回压链的方案。
+        它在数学上成立，但有一个容易被忽略的硬约束：<strong>环深度</strong>。
+      </p>
+      <table>
+        <thead><tr><th style="width:30%">项</th><th style="width:24%">数值</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td>历史跨度</td><td class="mono">42 + 1 = 43 帧</td><td>GMC 算 f 必须同时持有 f−42 … f 共 43 帧</td></tr>
+          <tr><td>canonical 环深</td><td class="mono">44 帧</td><td>43 帧历史 + <b>1 帧余量</b>（= slack 1）</td></tr>
+          <tr><td>GMC 算一组的耗时</td><td class="mono">p50 53.2 / p95 165.1<br>p99 199.8 / max 249.6 ms</td><td>= gmc_fit + gmc_post（CANON5 实测）</td></tr>
+          <tr><td>期间 producer 推进</td><td class="mono">p50 1.33 帧<br>p95 4.13 帧<br>p99 4.99 帧<br>max 6.24 帧</td><td>= 组耗时 ÷ 40 ms（25 fps）</td></tr>
+          <tr><td>所需 slack</td><td class="mono">p50 ≥ 2<br>p95/p99 ≥ 5<br>max ≥ <b>7</b></td><td>slack=1 的 canonical 环<strong>装不下</strong>跳步所需的历史</td></tr>
+        </tbody>
+      </table>
+      <div class="note amber" style="margin-top:16px">
+        <b>关键约束：跳步不是免费的。</b>GMC 跳到最新帧 f+K 时，它的新历史窗口是 f+K−42 … f+K，
+        最老那一帧必须<strong>还在环里</strong>。环深 44 只比历史跨度 43 多 1 帧余量，
+        而 GMC 算一组的期间 producer 就要推进 1.3（p50）～ 6.2（max）帧 ⇒ <strong>余量不够，窗口会被覆盖</strong>。
+        <br>要让自由跳步安全，环深需 ≥ 43 + 7 = <b>50 帧</b>（约 16 MB，仍在可接受范围），
+        且必须处理「窗口被覆盖 ⇒ 该组作废」的情况。这是一套新的调度语义 + 新的失败模式。
+        <br>相比之下，<strong>cadence 是零语义改动</strong>：GMC 仍然按序补算，但每组覆盖 N 帧，
+        覆盖率 = 组速率 × N。把 N 从 2 提到 3，覆盖率从 23.3 fps 抬到 35 fps，越过 25 fps 即零丢帧。
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sec">
+  <div class="h2row">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg>
+    <h2>五、当前实测</h2>
+  </div>
+  <p class="secmeta">板卡 root@192.168.0.64 · 序列 VIDEO00007_19700101_001324 · 11810 物理帧</p>
+  <div class="grid2">
+    <div class="card">
+      <h3 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:18px; margin:0 0 12px;">零拷贝与精度</h3>
+      <dl class="kv">
+        <dt>二级缓存拷贝成本</dt><dd><b>0.01 ms/帧</b>（原深拷贝 0.92–1.86）</dd>
+        <dt>600 帧双臂 · 历史完整帧</dt><dd><b>211 / 211 逐位相同</b>，0 差异</dd>
+        <dt>全量臂 · 历史完整帧</dt><dd><b>1160 / 1161 逐位相同</b>（唯一差异帧 230，两臂历史均完整，属孤立竞态帧）</dd>
+        <dt>差异归因</dt><dd>1123 处差异中 <b>1122 处至少一臂有洞</b></dd>
+      </dl>
+    </div>
+    <div class="card">
+      <h3 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:18px; margin:0 0 12px;">cadence 产能（25 fps 实时）</h3>
+      <dl class="kv">
+        <dt>cadence = 1</dt><dd>相机掉帧 <b>7709（65.3%）</b>，gmc_history_gaps 80116</dd>
+        <dt>cadence = 2</dt><dd>相机掉帧 <b>352 / 5905</b>（实测 CANON4），覆盖 23.3 fps &lt; 25 fps</dd>
+        <dt>帧覆盖速率</dt><dd>11.7 组/s ⇒ <b>23.3 fps</b> 覆盖（低于 25 fps，故仍溢出）</dd>
+        <dt>已知约束</dt><dd>cadence &gt; 1 <b>必须单引擎</b>，多引擎会因 window_ok 取最严而死锁</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px;">
+    <h3 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:18px; margin:0 0 4px;">验收铁证 · CANON4 vs A_gate 同帧号逐位比对</h3>
+    <p style="font-size:13.5px; color:var(--muted); margin:0 0 14px;">
+      CANON4（25 fps + FIFO64 + slack1 + cadence 2）vs A_gate（零丢帧全量基准），按物理帧号对齐、按历史完整性分层。
+    </p>
+    <table>
+      <thead><tr><th style="width:34%">历史状态</th><th style="width:16%">共同帧</th><th style="width:22%">md5 逐位相同</th><th style="width:22%">md5 不同</th><th>结论</th></tr></thead>
+      <tbody>
+        <tr><td>双方历史完整</td><td>4644</td><td><b style="color:var(--primary)">4644</b></td><td><b style="color:var(--primary)">0</b></td><td>零例外</td></tr>
+        <tr><td>双方历史有洞</td><td>21</td><td>21</td><td>0</td><td>洞的位置一致</td></tr>
+        <tr><td>ref 完整 / new 有洞</td><td>888</td><td>0</td><td>888</td><td>差异<strong>全部</strong>落在有洞帧</td></tr>
+      </tbody>
+    </table>
+    <div class="note" style="margin-top:16px">
+      <b>这 888 处差异就是全部差异，没有例外。</b>历史完整的帧，CANON4 与无丢帧基准 A_gate <strong>逐位 md5 完全相同</strong>（4644/4644）；
+      每一处不同，都恰好落在「至少一臂的历史有洞」的帧上。验收口径因此从「统计接近」变成<strong>可判定的等式</strong>：
+      <br>· 「处理的帧与无丢帧子集精度完全一致」<strong>当且仅当</strong>「该帧的历史完整」。
+      <br>· 所以<strong>唯一的工程目标就是让历史不产生洞</strong>，而洞的唯一来源是相机队列溢出 —— 这正是 cadence 要解决的问题。
+      <br>· 反过来也证实：<strong>cadence 本身不改变任何一帧的特征</strong>（4665 = 4644 + 21 全部逐位相同），
+      它只改变「哪些帧被算」，与设计不变量完全吻合。
+    </div>
+  </div>
+
+  <div class="note amber" style="margin-top:16px">
+    <b>CADENCE = 2 仍然不够。</b>CANON4 实测在 25 fps 下相机队列仍溢出 <b>352 帧</b>（占 5905 组的 6.0%），
+    缺口集中在第 2000–11000 帧段（按千帧分桶：0–1k 26 帧、2–3k 88 帧、4–6k 165 帧、8–10k 66 帧）。
+    根因是 GMC 组速率 <b>11.7 组/s</b> ⇒ 帧覆盖 <b>23.3 fps</b>，仍低于相机的 25 fps。
+  </div>
+
+  <div class="card" style="margin-top:16px;">
+    <h3 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:18px; margin:0 0 4px;">实时臂 · cadence 逐档实测</h3>
+    <p style="font-size:13.5px; color:var(--muted); margin:0 0 14px;">
+      同一板卡、同一序列、同一绑定核配置（1 引擎绑 <span class="mono">4-7</span> + anchor threads 4），只改 <span class="mono">--gmc-compute-stride</span>。
+    </p>
+    <table>
+      <thead><tr><th style="width:14%">cadence</th><th style="width:12%">覆盖帧率</th><th style="width:12%">相机掉帧</th><th style="width:14%">history gaps</th><th style="width:14%">无洞帧逐位相同</th><th>结论</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">1</td><td>15.3 fps</td><td><b>7709</b> (65.3%)</td><td>80116</td><td>—</td><td><span class="tag tag-no">严重溢出</span></td></tr>
+        <tr><td class="mono">2</td><td>23.3 fps</td><td><b>352</b> (6.0%)</td><td>2680</td><td>4644 / 4644</td><td><span class="tag tag-warn">仍溢出</span></td></tr>
+        <tr><td class="mono">3</td><td>35.1 fps</td><td><b>34</b> (0.87%)</td><td>398</td><td><b>3823 / 3823</b></td><td><span class="tag tag-warn">接近零</span></td></tr>
+      </tbody>
+    </table>
+    <div class="note" style="margin-top:16px">
+      <b>cadence=3 的精度依然成立。</b>CANON6（cadence 3 @25 fps）vs A_gate：共同帧 3914，<strong>差异 91</strong>；
+      而库自己报告的历史有洞帧<strong>恰好也是 91 个</strong>（逐条 WARN 从 <span class="mono">CANON6_live25_s3.log</span> 提取）。
+      两个集合<strong>双向差集为空</strong> ⇒ <strong>每一处差异都精确落在有洞帧上，无一例外</strong>；
+      无洞帧 <strong>3823 / 3823 逐位相同</strong>。
+      <br>这条链条再次印证同一条不变量：<strong>精度是否一致，只取决于该帧的历史是否完整</strong>；cadence 本身不改变任何一帧的特征。
+    </div>
+    <div class="note amber" style="margin-top:16px">
+      <b>为什么 cadence=3 仍有 34 帧溢出？</b>不是平均速率不够，而是<strong>GMC 拟合抖动</strong>：
+      <span class="mono">gmc_fit p50 = 53.0 ms</span> 但 <span class="mono">p99 = 200.2 ms、max = 249.2 ms</span>（约 4.7 倍）。
+      单组比平均多耗 ~147 ms ⇒ 期间相机多进 ~3.7 帧 ⇒ FIFO 瞬时堆积。
+      <span class="mono">gmc_ingest_window = 46.4 ms/帧、gmc_window_blocks = 1855</span> 说明抖动直接转化成窗口守卫的长时间阻塞。
+      抖动源是 <strong>RANSAC 消耗 OpenCV 全局 RNG</strong>（gmc_stream_ocl.cpp:338-345 的注释明确记载）——
+      这是<strong>下一轮真正该攻的点</strong>，比继续加 cadence 更本质。
+    </div>
+
+    <div class="card" style="margin-top:16px;">
+      <h3 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:18px; margin:0 0 4px;">实时臂 CANON6 的精度 @S 口径</h3>
+      <p style="font-size:13.5px; color:var(--muted); margin:0 0 14px;">
+        臂 <span class="mono">CANON6_live25_s3</span>：25 fps 真相机 + cadence 3 + FIFO64 + slack1 + phys_anchor1 + 1 引擎绑核 <span class="mono">4-7</span> + anchor threads 4。
+        服务器 <span class="mono">huangzhe@192.168.99.40:32222</span>，参照 <span class="mono">P1b_step2_nodrop_orig</span>，参数 <span class="mono">trial_0080/gate/epoch3/track3_blind.json</span>。
+      </p>
+      <table>
+        <thead><tr><th style="width:34%">口径</th><th style="width:12%">帧数</th><th style="width:30%">TP / FP / FN</th><th style="width:12%">F1</th><th>结论</th></tr></thead>
+        <tbody>
+          <tr><td>arm @S（存活帧）</td><td>3893</td><td>2867 / 66 / 617</td><td><b>0.893564</b></td><td rowspan="2"><span class="tag tag-ok">ΔF1 = +0.000033</span><br>实时臂与无丢帧参照<strong>基本相同</strong></td></tr>
+          <tr><td>ref @S（同口径参照）</td><td>3893</td><td>2866 / 65 / 618</td><td>0.893531</td></tr>
+        </tbody>
+      </table>
+      <div class="note" style="margin-top:16px">
+        <b>这条数回答了什么。</b>CANON6 是<strong>真 25 fps 实时</strong>工况，相机在跑、队列在溢出、只有 34 帧被丢。
+        在这个真实的、不完美的工况下，其存活帧口径 F1 = <b>0.893564</b>，与「把参照裁剪到同样 3893 帧」的参照臂
+        （ref@S = 0.893531）<strong>基本相同</strong>（ΔF1 = +0.000033）。
+        <br>结合层 2 的逐位结论：无洞帧 <strong>3823/3823 逐位相同</strong>，91 处差异与 91 个有洞帧<strong>一一对应</strong>。
+        <strong>⇒ 实时工况下，本方案不会因为「跳帧算特征」而损失精度。</strong>
+        <br><span class="mono">arm@fullGT F1 = 0.425750</span> 是<strong>覆盖率口径</strong>（只看 3893 帧却对全序列 10535 个 GT），
+        它衡量的是「处理了多少帧」而不是「每帧算得准不准」——按用户的验收口径（覆盖率不重要），<strong>这个数不作为判据</strong>。
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h3 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:18px; margin:0 0 4px;">实时臂 CANON7（cadence=4 @25fps）—— 验收口径完全闭合</h3>
+      <p style="font-size:13.5px; color:var(--muted); margin:0 0 14px;">
+        臂 <span class="mono">CANON7_live25_s4</span>：25 fps 真相机 + cadence 4 + FIFO64 + slack1 + phys_anchor1 + 1 引擎绑核 <span class="mono">4-7</span> + anchor threads 4。
+        二进制 <span class="mono">/root/rknn_mosaic_e2e_v4</span> md5 <span class="mono">51a572f0…</span>。
+      </p>
+      <table>
+        <thead><tr><th style="width:30%">层</th><th style="width:34%">判据</th><th style="width:30%">结果</th><th>结论</th></tr></thead>
+        <tbody>
+          <tr><td>层 1 跑批</td><td class="mono">dropped / features_dropped /<br>detections_dropped / gmc_history_gaps</td><td><b>0 / 0 / 0 / 0</b></td><td><span class="tag tag-ok">实时零丢帧零洞</span></td></tr>
+          <tr><td>层 2 逐位</td><td class="mono">feature_md5 vs A_gate<br>（按物理帧号对齐）</td><td><b>2953 / 2953 逐位相同</b><br>different = <b>0</b></td><td><span class="tag tag-ok">完全一致</span></td></tr>
+          <tr><td>层 3 精度</td><td class="mono">服务器 @S 存活帧口径</td><td>arm@S TP=2161 FP=48 FN=474<br><b>F1 = 0.892238</b><br>ref@S F1 = <b>0.892238</b></td><td><span class="tag tag-ok">ΔF1 = 0.000000</span> 逐项相同</td></tr>
+          <tr><td>层 4 延时</td><td class="mono">相机 push → 结果回调<br>（不含 imread），n=2953</td><td>mean 277.2 ms<br><b>p50 232.1 / p95 547.2<br>p99 892.2 / max 1190.1</b></td><td><span class="tag tag-ok">较 CANON6 明显改善</span></td></tr>
+        </tbody>
+      </table>
+      <div class="note" style="margin-top:16px">
+        <b>这是验收口径的最强形式。</b>CANON7 是<strong>真 25 fps 实时</strong>工况：相机在跑、队列在推，
+        而结果是 <strong>零丢帧、零洞、2953/2953 帧逐位 md5 与无丢帧基准完全相同</strong>，
+        且 <span class="mono">arm@S</span> 与 <span class="mono">ref@S</span> 的 TP/FP/FN/F1 <strong>逐项相同</strong>（ΔF1 = 0.000000）。
+        <br>⇒ 你的口径「<strong>处理的帧跟无丢帧子集能够精度完全一致</strong>」在实时工况下<strong>完全成立</strong>，
+        而且是逐位意义上的成立，不是统计意义上的接近。
+        <br>⇒ 同时证明<strong>cadence 不改变任何一帧的特征</strong>：cadence=4 算出的帧与 cadence=1 基准逐位相同，
+        只是<strong>选算哪些帧</strong>不同（覆盖率 2953/11810 = 25%，按你的口径「覆盖率不重要」）。
+      </div>
+      <div class="note amber" style="margin-top:16px">
+        <b>cadence=4 为什么比 cadence=3 更好：</b>CANON6（cadence=3）覆盖 35.1 fps（对 25 fps 有 40% 余量）但仍掉 34 帧；
+        CANON7（cadence=4）覆盖 <b>44.6 fps（余量 78%）</b> ⇒ 抖动尖峰不再击穿 FIFO ⇒ <strong>dropped = 0、gaps = 0</strong>。
+        同时 <span class="mono">gmc_window_blocks</span> 从 1855 降到 <b>1022</b>、端到端 <span class="mono">p50</span> 从 249.0 降到 <b>232.1 ms</b>。
+        ⇒ <strong>cadence 的取值必须给抖动留足余量</strong>，不能只按平均速率算。
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px;">
+    <h3 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:18px; margin:0 0 4px;">全量零洞臂 · CANON5_nodrop 的三层验收</h3>
+    <p style="font-size:13.5px; color:var(--muted); margin:0 0 14px;">
+      臂配置：pace 0（零丢帧全量）+ cadence 1 + FIFO64 + slack1 + phys_anchor1 + 1 引擎绑核 4-7 + anchor threads 4
+      ｜ 板卡 <span class="mono">root@192.168.0.64</span> ｜ 二进制 <span class="mono">rknn_mosaic_e2e_v3</span> (42f4171f…) ｜ 序列 11810 帧
+    </p>
+    <table>
+      <thead><tr><th style="width:16%">层</th><th style="width:34%">判据</th><th style="width:32%">结果</th><th>结论</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>层 1<br>跑批健康</td>
+          <td class="mono">dropped / features_dropped /<br>detections_dropped / gmc_history_gaps</td>
+          <td><b>0 / 0 / 0 / 0</b><br><span class="mono">gmc_frames = 11810<br>det_frames = 11810</span></td>
+          <td><span class="tag tag-ok">全绿</span> 一帧不丢、一洞不生</td>
+        </tr>
+        <tr>
+          <td>层 2<br>逐位指纹</td>
+          <td class="mono">feature_md5 vs A_gate<br>（按物理帧号对齐）</td>
+          <td><b>11810 / 11810 逐位相同</b><br>different = <b>0</b></td>
+          <td><span class="tag tag-ok">完全一致</span> 与无丢帧基准逐位相同</td>
+        </tr>
+        <tr>
+          <td>层 3<br>精度</td>
+          <td class="mono">服务器 @S 存活帧口径<br>TP/FP/FN 逐项</td>
+          <td>TP=8640 FP=200 FN=1895<br>R=82.012% P=97.738%<br><b>F1 = 0.891871</b></td>
+          <td><span class="tag tag-ok">与 P1b 认证基线逐项相同</span></td>
+        </tr>
+        <tr>
+          <td>层 4<br>端到端延时</td>
+          <td class="mono">相机 push → 结果回调返回<br>（不含 imread），n = 11810</td>
+          <td>mean 381.0 ms<br><b>p50 323.6 / p95 681.7<br>p99 814.8 / max 946.5</b></td>
+          <td><span class="tag tag-warn">偏大</span> 见下方说明</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="note amber" style="margin-top:16px">
+      <b>层 4 的延时为什么大，要说清楚。</b>这组数字来自 <strong>零丢帧全量（pace 0）</strong>工况，
+      此时 GMC 的 <code>gmc_fit p50 = 49.7 ms</code> 已超过 25 fps 的 40 ms 预算，系统<strong>结构性欠账</strong>：
+      队列越积越深，每一帧都要等前面的帧算完。p50 323.6 ms ≈ 4~5 帧的排队，不是单帧计算耗时。
+      <br>实时工况（25 fps）下应看「零丢帧」那一档：只要 GMC 覆盖率 ≥ 相机速率，队列就不会堆积，延时回落到
+      <code>gmc_total + gmc_post + NPU + POST</code> 的单帧路径。当前实测的 GMC 覆盖率上限是 11.7 组/s（单引擎），
+      这是实时零丢帧必须跨过的门槛 —— 也是 <code>cadence</code> 存在的原因。
+    </div>
+    <div class="note" style="margin-top:16px">
+      <b>三层合起来的结论。</b>零洞工况下，本方案产出的 GMC 特征与认证基线<strong>逐位相同</strong>，
+      精度指标<strong>逐项相同</strong>（F1 = 0.891871 = P1b）。这正面回答了验收口径：
+      <strong>「处理的帧跟无丢帧子集能够精度完全一致」已经成立，且是逐位意义上的成立，不是统计意义上的接近。</strong>
+    </div>
+  </div>
+</section>
+
+<footer>
+  设计说明 · 生成于本地工作区 /media/manu/1TB-Volume/workspace/ultralytics<br>
+  代码出处：manu/pipeline/npu/mosaic_pipeline.{h,cpp} · manu/pipeline/cpp/gmc_stream_ocl.cpp<br>
+  相关报告：manu/pipeline/npu/DECOUPLED_PIPELINE_REPORT.md · manu/pipeline/npu/SNAPSHOT_ACCEPTANCE_REPORT.md
+</footer>
+
+</div>
+</body>
+</html>

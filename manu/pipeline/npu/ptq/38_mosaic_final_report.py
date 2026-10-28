@@ -188,9 +188,21 @@ def parse_timing(path: Path) -> dict:
     for line in text.splitlines():
         if line.startswith("fps="):
             out["fps"] = float(line.split("=")[1])
-        elif "=" in line and line.split("=")[0].strip() in ("frames", "canvas_mode", "input_mode", "seq"):
+        elif "=" in line and not line.startswith("#"):
+            # Any key=value line the board writes: the service configuration
+            # (gmc_workers / npu_workers / jitter_depth / ...) and the
+            # service-health counters (dropped / deadline_blows /
+            # gmc_fit_max).
             key, _, value = line.partition("=")
-            out[key.strip()] = value.strip() if not value.strip().isdigit() else float(value.strip())
+            key = key.strip()
+            value = value.strip()
+            if key in ("frames", "canvas_mode", "input_mode", "seq"):
+                out[key] = value if not value.isdigit() else float(value)
+            else:
+                try:
+                    out[key] = float(value)
+                except ValueError:
+                    pass
     return out
 
 
