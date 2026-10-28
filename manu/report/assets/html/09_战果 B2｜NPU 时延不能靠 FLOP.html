@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN" style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>战果 B2｜NPU 时延不能靠 FLOPs 外推</title>
+</head>
+<body style="width: 100%; height: 100%; position: relative; overflow: hidden; margin: 0; font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; color: #122033; background: radial-gradient(circle at top right, rgba(188, 147, 72, 0.18), transparent 32%), linear-gradient(180deg, #f7f5ef 0%, #f4f6f9 100%);">
+  <div class="slide" style="box-sizing: border-box; width: 1180px; height: 620px; aspect-ratio: 59 / 31; display: grid; grid-template-rows: 110px minmax(0, 1fr) 70px; gap: 18px; padding: 28px 30px; border-radius: 28px; background: rgba(255, 255, 255, 0.84); box-shadow: 0 24px 80px rgba(15, 23, 42, 0.12); border: 1px solid rgba(18, 32, 51, 0.08);">
+    <header class="header" style="box-sizing: border-box; flex-shrink: 0; display: flex; align-items: flex-end; justify-content: space-between; border-bottom: 1px solid rgba(18, 32, 51, 0.12); padding-bottom: 14px;">
+      <div style="min-width: 0;">
+        <div class="eyebrow" style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; background: rgba(201, 151, 77, 0.12); color: #7d5a22; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;">战果 B2｜性能归因</div>
+        <h1 class="title" style="margin: 14px 0 0; font-size: 38px; line-height: 1.08; font-weight: 800; letter-spacing: -0.03em;">战果 B2｜NPU 时延不能靠 FLOPs 外推</h1>
+        <p class="subtitle" style="margin: 8px 0 0; color: #4b5b70; font-size: 15px; line-height: 1.4;">删除 P0 Highway：MAC −6.8%，rknn_run 实测时延 −46.5%</p>
+      </div>
+      <div class="page-tag" style="flex-shrink: 0; align-self: flex-start; padding: 10px 14px; border-radius: 14px; background: #122033; color: #f8fafc; font-size: 12px; font-weight: 700; letter-spacing: 0.06em;">09 / 18</div>
+    </header>
+
+    <main class="content" style="box-sizing: border-box; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) 48px; gap: 12px;">
+      <div style="min-height: 0; display: grid; grid-template-columns: minmax(0, 1.34fr) minmax(0, 0.86fr); gap: 18px;">
+        <section class="panel" aria-label="MAC 与 NPU 时延反差及形状瓶颈" style="box-sizing: border-box; min-height: 0; overflow: hidden; border-radius: 24px; background: rgba(255, 255, 255, 0.82); border: 1px solid rgba(18, 32, 51, 0.08); box-shadow: 0 14px 36px rgba(15, 23, 42, 0.08); padding: 17px 20px; display: grid; grid-template-rows: 116px minmax(0, 1fr); gap: 10px;">
+          <div style="min-width: 0;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+              <span style="font-size: 12px; font-weight: 700; color: #7d5a22; letter-spacing: 0.08em;">同起点反直觉对照</span>
+              <span style="padding: 4px 9px; border-radius: 999px; background: rgba(201, 151, 77, 0.12); color: #7d5a22; font-size: 11px; font-weight: 700;">P0 Highway 已删除</span>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 76px minmax(0, 1fr) 78px; align-items: center; gap: 10px; margin-bottom: 7px;">
+              <strong style="font-size: 14px; color: #4b5b70; white-space: nowrap;">MAC</strong>
+              <div style="height: 12px; border-radius: 999px; background: rgba(18, 32, 51, 0.07); overflow: hidden;">
+                <div style="width: 14.6%; height: 100%; border-radius: 999px; background: #9aa6b5;"></div>
+              </div>
+              <span style="font-size: 21px; font-weight: 800; color: #5a6879; text-align: right;">−6.8%</span>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 76px minmax(0, 1fr) 78px; align-items: center; gap: 10px;">
+              <strong style="font-size: 14px; color: #122033; white-space: nowrap;">实测时延</strong>
+              <div style="height: 18px; border-radius: 999px; background: rgba(201, 151, 77, 0.11); overflow: hidden;">
+                <div style="width: 100%; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #d7b36b 0%, #b7792d 100%); box-shadow: inset -18px 0 0 rgba(255,255,255,0.16);"></div>
+              </div>
+              <span style="font-size: 31px; line-height: 1; font-weight: 800; color: #a66b23; text-align: right; letter-spacing: -0.04em;">−46.5%</span>
+            </div>
+          </div>
+
+          <div style="min-height: 0; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(155px, 0.85fr); align-items: center; gap: 14px; padding: 12px 14px; border-radius: 18px; background: linear-gradient(135deg, rgba(247,245,239,0.92), rgba(244,246,249,0.82)); border: 1px solid rgba(18, 32, 51, 0.08);">
+            <div style="min-width: 0; align-self: stretch; display: flex; flex-direction: column; justify-content: center;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                <span style="font-size: 12px; color: #4b5b70; font-weight: 700;">P0 最劣形状</span>
+                <span style="font-size: 12px; color: #7d5a22; font-weight: 700;">逼近硬件约束</span>
+              </div>
+              <div style="position: relative; height: 66px; display: flex; align-items: center; justify-content: center; border: 2px solid rgba(183, 121, 45, 0.76); border-radius: 12px; background: linear-gradient(90deg, rgba(201,151,77,0.10), rgba(201,151,77,0.19)); box-shadow: inset 0 0 0 5px rgba(255,255,255,0.34);">
+                <span style="font-size: 24px; line-height: 1; font-weight: 800; color: #122033; letter-spacing: -0.03em;">640 × 640</span>
+                <span style="position: absolute; left: 12px; bottom: 8px; padding: 3px 8px; border-radius: 999px; background: #122033; color: #f8fafc; font-size: 11px; font-weight: 700;">C = 16</span>
+              </div>
+              <div style="height: 2px; margin-top: 8px; border-radius: 999px; background: linear-gradient(90deg, rgba(183,121,45,0.22) 0%, #b7792d 100%); position: relative;">
+                <span style="position: absolute; right: 0; top: -5px; width: 11px; height: 11px; border-radius: 50%; background: #b7792d; box-shadow: 0 0 0 4px rgba(201,151,77,0.14);"></span>
+              </div>
+              <div style="display: flex; justify-content: space-between; margin-top: 6px; color: #5a6879; font-size: 11px;">
+                <span>空间乘积成为瓶颈</span>
+                <strong style="color: #7d5a22;">H×W ≤ 16384</strong>
+              </div>
+            </div>
+
+            <div style="align-self: stretch; display: flex; flex-direction: column; justify-content: center; padding-left: 14px; border-left: 1px solid rgba(18,32,51,0.10);">
+              <span style="margin-bottom: 7px; font-size: 11px; font-weight: 700; color: #7d5a22; letter-spacing: 0.08em;">瓶颈结论</span>
+              <strong style="font-size: 20px; line-height: 1.35; color: #122033;">上限卡在“空间乘积”</strong>
+              <span style="margin-top: 8px; font-size: 13px; line-height: 1.5; color: #4b5b70;">与张量怎么拼无关</span>
+              <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 11px;">
+                <span style="padding: 5px 9px; border-radius: 999px; background: rgba(255,255,255,0.88); border: 1px solid rgba(18,32,51,0.08); color: #4b5b70; font-size: 11px; font-weight: 700;">CPU 算子 0</span>
+                <span style="padding: 5px 9px; border-radius: 999px; background: rgba(255,255,255,0.88); border: 1px solid rgba(18,32,51,0.08); color: #4b5b70; font-size: 11px; font-weight: 700;">警告 0</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" aria-label="关键实测指标" style="box-sizing: border-box; min-height: 0; overflow: hidden; border-radius: 24px; background: rgba(255, 255, 255, 0.82); border: 1px solid rgba(18, 32, 51, 0.08); box-shadow: 0 14px 36px rgba(15, 23, 42, 0.08); padding: 17px 18px; display: grid; grid-template-rows: 28px repeat(3, minmax(0, 1fr)) 36px; gap: 8px;">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <h2 style="margin: 0; font-size: 14px; line-height: 1.2; color: #122033; font-weight: 800;">关键实测指标</h2>
+            <span style="font-size: 11px; color: #7d5a22; font-weight: 700;">优化前 → 优化后</span>
+          </div>
+
+          <article style="min-height: 0; display: grid; grid-template-columns: 70px minmax(0, 1fr); align-items: center; gap: 8px; padding: 8px 10px; border-radius: 14px; background: linear-gradient(90deg, rgba(201,151,77,0.16), rgba(201,151,77,0.05)); border: 1px solid rgba(201,151,77,0.20);">
+            <div>
+              <span style="display: block; font-size: 12px; font-weight: 800; color: #122033;">rknn_run</span>
+              <span style="display: block; margin-top: 2px; font-size: 10px; color: #7d5a22;">NPU 算子执行</span>
+            </div>
+            <div style="min-width: 0; text-align: right;">
+              <div style="font-size: 20px; line-height: 1.1; font-weight: 800; color: #122033; white-space: nowrap;">103.7 → 55.5 <small style="font-size: 11px; color: #4b5b70;">ms</small></div>
+              <div style="margin-top: 3px; font-size: 11px; font-weight: 700; color: #a66b23;">−46.5% ｜ 1.87×</div>
+            </div>
+          </article>
+
+          <article style="min-height: 0; display: grid; grid-template-columns: 70px minmax(0, 1fr); align-items: center; gap: 8px; padding: 8px 10px; border-radius: 14px; background: rgba(247,249,251,0.78); border: 1px solid rgba(18,32,51,0.07);">
+            <div>
+              <span style="display: block; font-size: 12px; font-weight: 800; color: #122033;">端到端</span>
+              <span style="display: block; margin-top: 2px; font-size: 10px; color: #7d5a22;">吞吐</span>
+            </div>
+            <div style="min-width: 0; text-align: right;">
+              <div style="font-size: 19px; line-height: 1.1; font-weight: 800; color: #122033; white-space: nowrap;">9.5 → 17.7 <small style="font-size: 11px; color: #4b5b70;">fps</small></div>
+              <div style="margin-top: 3px; font-size: 11px; font-weight: 700; color: #4b7d64;">约 1.86×</div>
+            </div>
+          </article>
+
+          <article style="min-height: 0; display: grid; grid-template-columns: 70px minmax(0, 1fr); align-items: center; gap: 8px; padding: 8px 10px; border-radius: 14px; background: rgba(247,249,251,0.78); border: 1px solid rgba(18,32,51,0.07);">
+            <div>
+              <span style="display: block; font-size: 12px; font-weight: 800; color: #122033;">F1</span>
+              <span style="display: block; margin-top: 2px; font-size: 10px; color: #7d5a22;">精度代价</span>
+            </div>
+            <div style="min-width: 0; text-align: right;">
+              <div style="font-size: 17px; line-height: 1.1; font-weight: 800; color: #122033; white-space: nowrap;">0.906361 → 0.905736</div>
+              <div style="margin-top: 3px; font-size: 11px; font-weight: 700; color: #a66b23;">−0.000625</div>
+            </div>
+          </article>
+
+          <div style="display: flex; align-items: center; justify-content: center; gap: 8px; padding: 6px 10px; border-radius: 12px; background: #122033; color: #f8fafc;">
+            <span style="font-size: 11px; font-weight: 700;">CPU 算子 0</span>
+            <span style="width: 1px; height: 14px; background: rgba(248,250,252,0.28);"></span>
+            <span style="font-size: 11px; font-weight: 700;">警告 0</span>
+          </div>
+        </section>
+      </div>
+
+      <section aria-label="工程铁律" style="box-sizing: border-box; min-width: 0; display: grid; grid-template-columns: 5px minmax(0, 1fr) auto; align-items: center; gap: 13px; padding: 9px 14px; border-radius: 18px; background: #122033; color: #f8fafc; box-shadow: 0 12px 30px rgba(15,23,42,0.12);">
+        <span style="display: block; width: 5px; height: 28px; border-radius: 999px; background: #c9974d;"></span>
+        <div style="min-width: 0;">
+          <div style="font-size: 15px; line-height: 1.25; font-weight: 800;">新铁律：禁止用 MAC / FLOPs 外推 NPU 时延，必须使用 RKNN 算子表与实测结果。</div>
+          <div style="margin-top: 2px; font-size: 10px; line-height: 1.25; color: rgba(248,250,252,0.68);">宁可牺牲 0.0006 F1 换 1.87× rknn_run 时延，但精度代价必须全量实测钉死。</div>
+        </div>
+        <span style="padding: 6px 10px; border-radius: 999px; background: rgba(201,151,77,0.18); color: #f3d59f; font-size: 10px; font-weight: 800; white-space: nowrap;">形状优先</span>
+      </section>
+    </main>
+
+    <footer class="footer" style="box-sizing: border-box; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 8px; color: #5a6879; font-size: 12px; border-top: 1px solid rgba(18, 32, 51, 0.1);">
+      <span>Editorial Light Master</span>
+      <span>09</span>
+    </footer>
+  </div>
+</body>
+</html>

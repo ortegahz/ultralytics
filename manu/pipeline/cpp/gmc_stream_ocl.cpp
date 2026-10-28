@@ -89,6 +89,21 @@
 //       --sequence wg2022_ir_052_split_08 --limit 200 --anchor-step 2
 //       --md5-out runs/cpp_port/step2.md5 --dump-dir runs/cpp_port/step2_npy
 
+// THE PHYSICAL DEPTH OF THE HISTORY RING.
+//
+// WHY 64: the algorithm reads a 42-frame history (21 lags: 2,4,...,42) plus the
+// frame itself = 43 frames.  A 64-deep ring lets the producer (the ingest) run
+// 21 frames -- 21 * 40 ms = 840 ms -- ahead of the frame the engine is about to
+// compute and the engine's history is STILL INTACT, which is more than the
+// worst GMC stall measured on the board (250 ms).
+//
+// WHY IT IS A MACRO: the depth is a property of the SCHEDULER, not of the
+// algorithm, and the scheduler is the thing that has to be tuned on the
+// board.  The algorithm (max_lag_, lags_, the anchor grid) is frozen.
+#ifndef GMC_RING_BUFFER_SIZE
+#define GMC_RING_BUFFER_SIZE 64
+#endif
+
 #include "md5.h"
 
 // OpenCL fused tail (warp + 21-frame median + 3-channel assembly).
@@ -1533,9 +1548,10 @@ public:
           window_(window),
           stride_step_(stride_step),
           max_lag_(window * stride_step),
+          ring_slack_(ring_slack < 0 ? 0 : ring_slack),
+          ring_depth_(std::max<long>(GMC_RING_BUFFER_SIZE, max_lag_ + 1 + ring_slack_)),
           rng_seed_per_fit_(rng_seed_per_fit),
-          nogmc_(nogmc),
-          ring_slack_(ring_slack < 0 ? 0 : ring_slack) {
+          nogmc_(nogmc) {
         // 1 thread is the bit-exactness contract; >1 trades reproducibility for
         // throughput. RANSAC and the LK inner loop are not bit-reproducible
         // under a thread pool (see the floating-point contract in the header),
@@ -1556,20 +1572,23 @@ public:
         // deepest anchor lag, and the same for the one-step fits.
         est_.reset(new FastGMCEstimator(downscale, pyr_cache, max_lag_ + 1, max_corners,
                                         fit_win, fit_level, fit_iters, cache_parts));
-        // The history ring is max_lag + 1 deep by default: that is exactly the
-        // set of frames ONE push can reference, so the single-engine path
-        // never needs a lookahead.
+        // The history ring is DEEP ENOUGH FOR THE PRODUCER TO RUN AHEAD.
         //
-        // `ring_slack` deepens it for the multi-engine case.  WHY: when several
-        // engines share the history and each computes a DIFFERENT frame, the
-        // producer of the history may run ahead of the engines.  Seeding frame
-        // S overwrites the slot that held frame S - ring_depth, and the engine
-        // that is about to compute frame J still needs frames J-42..J.  With
-        // ring_depth == max_lag+1 the producer may not run ahead AT ALL; with
-        // `ring_slack` extra slots it may run `ring_slack` frames ahead of the
-        // oldest frame any engine still owes.  Without the slack the fit would
-        // silently use OVERWRITTEN pixels -- wrong numbers, no crash.
-        ring_.assign(static_cast<size_t>(max_lag_ + 1 + ring_slack_), Mat());
+        // WHY the depth is now a fixed floor (GMC_RING_BUFFER_SIZE = 64) and
+        // not "exactly the set of frames ONE push can reference" (max_lag+1 =
+        // 43): under the OPPORTUNISTIC scheduler the producer (the ingest)
+        // NEVER waits, so it is expected to run ahead of the engine.  Seeding
+        // frame S overwrites the slot that held frame S - ring_depth, and the
+        // engine computing frame J still needs frames J-42..J.  With a 43-deep
+        // ring the producer may not run ahead AT ALL; with 64 slots it may run
+        // 64 - 43 = 21 frames ahead (21 * 40 ms = 840 ms) and the engine's
+        // history is still intact.  Without that room the fit would silently
+        // use OVERWRITTEN pixels -- wrong numbers, no crash.
+        //
+        // `ring_slack` still deepens the ring further (it is one of the two
+        // terms of the max() below); it is the knob for "the producer may run
+        // even further ahead than the 64-slot floor allows".
+        ring_.assign(static_cast<size_t>(ring_depth_), Mat());
         // The companion array: WHICH frame index each ring slot currently
         // holds.  In the physical anchoring mode this is what turns a MISSING
         // frame into a DETECTED event instead of a silently wrong history
@@ -1589,7 +1608,54 @@ public:
 
     const std::vector<int>& anchors() const { return anchors_; }
     const std::vector<int>& lags() const { return lags_; }
-    long ring_depth() const { return max_lag_ + 1 + ring_slack_; }
+    long ring_depth() const { return ring_depth_; }
+
+    // ---------------------------------------------------------------------
+    // THE OPPORTUNISTIC SCHEDULER'S TWO QUESTIONS.
+    //
+    // The scheduler does not ask "which frame is next in the queue" -- there
+    // is no queue any more.  It asks the ENGINE "what is the newest frame you
+    // have, and is its history still whole?", and it asks the PRODUCER
+    // nothing at all: the producer never waits.
+    // ---------------------------------------------------------------------
+
+    // The NEWEST frame the producer has seeded -- the opportunistic
+    // scheduler's "current head".  Atomic: the producer (ingest thread)
+    // writes it, the engine thread reads it.
+    //
+    // THE INDEX IT CARRIES is the index the producer SEEDED with: the
+    // camera's physical frame number when the physical anchor is on, the
+    // dense consumption counter otherwise.  That is exactly the index
+    // process_frame() expects, so the engine hands this value straight to
+    // process_frame() and the two index spaces can never drift apart.
+    long latest_seeded() const { return latest_seeded_.load(std::memory_order_acquire); }
+
+    // Is the WHOLE 21-lag history of `abs` present in the ring?
+    //
+    // WHY IT EXISTS: the engine may only compute a frame whose history it can
+    // actually read.  The producer is never blocked, so it is EXPECTED to run
+    // ahead of the engine; once it is more than (ring_depth - 43) frames
+    // ahead, the frames the engine still needs have been OVERWRITTEN in the
+    // ring.  This predicate is the DETECTOR: the frame is then VOIDED
+    // (never fitted against torn data) instead of silently fitted against
+    // whatever happens to sit in the slot.
+    //
+    // The check is the SAME one frame_at_lag() makes -- the ring slot must
+    // hold the index the lag asks for -- so it detects BOTH failure modes:
+    // a history overwritten by the producer, AND a camera frame that was
+    // lost (with the physical anchor the lost frame's slot holds another
+    // frame, so the lag does not land on the index it asks for).
+    //
+    // The cold-start lags are exempt: a lag that reaches past the first
+    // frame is served by the clamp target (first_), which is written once
+    // and never changes.
+    bool history_complete(long abs) const {
+        if (abs < 0) return false;
+        if (!history_frame_present(abs)) return false;
+        for (int lag : lags_)
+            if (!history_frame_present(abs - lag)) return false;
+        return true;
+    }
 
     // ---------------------------------------------------------------------
     // THE ANCHOR LK STAGE'S PARALLELISM.
@@ -1812,6 +1878,13 @@ public:
         // asks for, and if the slot's index is not that one, the frame is not
         // in the ring -- it never arrived.
         ring_id_[slot] = abs;
+        // THE HEAD, published LAST and with RELEASE semantics.
+        //
+        // WHY: an engine that sees the head must also see the frame the head
+        // points at.  The slot and its id are written above; this store is the
+        // fence that publishes them.  The engine reads it with ACQUIRE, so
+        // "I can see the head" implies "I can see the frame behind it".
+        latest_seeded_.store(abs, std::memory_order_release);
     }
 
     // Compute the feature for the frame at absolute index `abs`.
@@ -2416,6 +2489,24 @@ private:
     // is actually read and the index that names it agree.
     long clamp_lo() const { return phys_anchor_ ? first_idx_ : 0; }
 
+    // Is the frame at absolute index `idx` really in the ring?
+    //
+    // The one place where the ring's "which frame is in which slot" bookkeeping
+    // (ring_id_) is consulted WITHOUT the physical-anchor guard that
+    // frame_at_lag() applies: the question asked here is not "may I read this
+    // frame" but "IS this frame still here", and the answer has to be the
+    // same in both index modes -- otherwise the opportunistic scheduler would
+    // silently accept a torn history in the consumption-counter mode.
+    //
+    // Reading ring_id_ while the producer writes it is the same pattern
+    // frame_at_lag() and nearest_older() already use (a long is written
+    // atomically on every target); no new lock is introduced.
+    bool history_frame_present(long idx) const {
+        if (idx <= clamp_lo()) return true;   // served by the clamp target
+        const size_t s = static_cast<size_t>(((idx % ring_depth()) + ring_depth()) % ring_depth());
+        return ring_id_[s] == idx;
+    }
+
     // H_{abs_index -> abs_index + stride_step}, cached by absolute index.
     Matx23f step(int abs_index) {
         auto it = steps_.find(abs_index);
@@ -2560,7 +2651,24 @@ private:
     // Extra history-ring slots, so a producer of the history may run ahead of
     // the engine that consumes it (multi-engine, different frames).  0 keeps
     // the original single-engine behaviour exactly.
+    //
+    // Under the OPPORTUNISTIC scheduler this is no longer a "the producer must
+    // not outrun the engine" budget -- the producer never waits, so it runs
+    // ahead freely.  It is now only one of the two terms of the ring depth
+    // below (the other being the GMC_RING_BUFFER_SIZE floor): it says "the
+    // ring may be deeper than 64 slots".  The EFFECTIVE slack the scheduler
+    // enjoys is ring_depth - 43 frames of headroom for the producer.
     int ring_slack_ = 0;
+    // THE PHYSICAL DEPTH OF THE HISTORY RING -- computed ONCE, in the
+    // constructor, and never re-derived.
+    //
+    // WHY a member instead of the old expression max_lag+1+slack evaluated on
+    // every access: the opportunistic scheduler compares the head against the
+    // ring's capacity to decide whether the history is still whole, so the
+    // depth has to be ONE number that cannot change under it.  The old
+    // expression could not change either, but it was a function of two knobs
+    // that are read from several places -- one fact, one member.
+    long ring_depth_ = 0;
     int ransac_max_iters_ = 0;   // 0 == the reference's own default
     bool rng_seed_per_fit_;
     bool nogmc_;
@@ -2582,6 +2690,13 @@ private:
     std::vector<Mat> ring_;
     // WHICH frame index each ring slot holds (see frame_at_lag).
     std::vector<long> ring_id_;
+    // THE HEAD: the index of the NEWEST frame the producer has seeded.
+    //
+    // ATOMIC because the producer (the ingest thread) writes it and the
+    // engine thread reads it -- and because it is the ONE piece of state the
+    // two threads share about "where is the newest frame".  -1 means "nothing
+    // has been seeded yet".
+    std::atomic<long> latest_seeded_{-1};
     // ---- the computation snapshot (the two-level cache) ----
     // REFERENCES to the history frames the CURRENT computation reads.  ZERO
     // COPY: each slot holds a shallow Mat (a data pointer plus a refcount), so

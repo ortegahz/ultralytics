@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Editorial Light Master</title>
+  <style>
+    html, body {
+      width: 1280px;
+      height: 720px;
+      margin: 0;
+      overflow: hidden;
+      font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+      background:
+        radial-gradient(circle at top right, rgba(188, 147, 72, 0.18), transparent 32%),
+        linear-gradient(180deg, #f7f5ef 0%, #f4f6f9 100%);
+      color: #122033;
+    }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .slide {
+      width: 1180px;
+      height: 620px;
+      display: grid;
+      grid-template-rows: 110px 1fr 70px;
+      gap: 18px;
+      padding: 28px 30px;
+      border-radius: 28px;
+      background: rgba(255, 255, 255, 0.84);
+      box-shadow: 0 24px 80px rgba(15, 23, 42, 0.12);
+      border: 1px solid rgba(18, 32, 51, 0.08);
+    }
+    .header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(18, 32, 51, 0.12);
+      padding-bottom: 14px;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(201, 151, 77, 0.12);
+      color: #7d5a22;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .title {
+      margin: 14px 0 0;
+      font-size: 38px;
+      line-height: 1.08;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+    .subtitle {
+      margin: 8px 0 0;
+      color: #4b5b70;
+      font-size: 15px;
+      line-height: 1.4;
+    }
+    .page-tag {
+      align-self: start;
+      padding: 10px 14px;
+      border-radius: 14px;
+      background: #122033;
+      color: #f8fafc;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+    }
+    .content {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 18px;
+      min-height: 0;
+    }
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 8px;
+      color: #5a6879;
+      font-size: 12px;
+      border-top: 1px solid rgba(18, 32, 51, 0.1);
+    }
+
+    /* 主内容区 */
+    .content {
+      grid-template-columns: 1fr;
+      grid-template-rows: 230px 60px 92px;
+      gap: 11px;
+      position: relative;
+    }
+
+    .content::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.22;
+      background-image:
+        linear-gradient(to right, rgba(18, 32, 51, 0.035) 1px, transparent 1px);
+      background-size: calc(100% / 12) 100%;
+    }
+
+    .panel {
+      min-height: 0;
+      border-radius: 24px;
+      background: rgba(255, 255, 255, 0.82);
+      border: 1px solid rgba(18, 32, 51, 0.08);
+      box-shadow: 0 14px 36px rgba(15, 23, 42, 0.08);
+      padding: 22px;
+    }
+
+    .top-grid {
+      display: grid;
+      grid-template-columns: 7fr 5fr;
+      gap: 18px;
+      min-height: 0;
+      position: relative;
+      z-index: 1;
+    }
+
+    .diagnostic-panel,
+    .compare-panel,
+    .equivalence-panel,
+    .pipeline-panel {
+      box-sizing: border-box;
+      padding: 15px 18px;
+      overflow: visible;
+      transition:
+        transform 180ms ease,
+        border-color 180ms ease,
+        box-shadow 180ms ease;
+    }
+
+    .diagnostic-panel:hover,
+    .compare-panel:hover,
+    .equivalence-panel:hover,
+    .pipeline-panel:hover {
+      transform: translateY(-2px);
+      border-color: rgba(18, 32, 51, 0.14);
+      box-shadow: 0 18px 44px rgba(15, 23, 42, 0.10);
+    }
+
+    .panel-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .panel-kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: #4b5b70;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+
+    .panel-kicker::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #35556f;
+      box-shadow: 0 0 0 4px rgba(53, 85, 111, 0.10);
+    }
+
+    .panel-index {
+      color: rgba(18, 32, 51, 0.38);
+      font: 700 10px/1 Consolas, "SFMono-Regular", monospace;
+      letter-spacing: 0.08em;
+    }
+
+    .metric-row {
+      display: flex;
+      align-items: flex-end;
+      gap: 10px;
+      margin-bottom: 11px;
+    }
+
+    .metric-main {
+      color: #35556f;
+      font-size: 32px;
+      line-height: 0.95;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+    }
+
+    .metric-unit {
+      margin-bottom: 2px;
+      color: #4b5b70;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .metric-label {
+      margin-left: auto;
+      padding-bottom: 1px;
+      color: #4b5b70;
+      font-size: 12px;
+    }
+
+    .time-bar {
+      display: flex;
+      height: 34px;
+      overflow: hidden;
+      border-radius: 12px;
+      background: rgba(18, 32, 51, 0.06);
+      box-shadow: inset 0 0 0 1px rgba(18, 32, 51, 0.05);
+    }
+
+    .time-segment {
+      position: relative;
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .time-segment.compute {
+      width: 67.72%;
+      background: linear-gradient(90deg, #29465f, #41647e);
+    }
+
+    .time-segment.contention {
+      width: 32.28%;
+      min-width: 132px;
+      color: #513a13;
+      background:
+        repeating-linear-gradient(
+          135deg,
+          rgba(255, 255, 255, 0.30) 0,
+          rgba(255, 255, 255, 0.30) 5px,
+          transparent 5px,
+          transparent 10px
+        ),
+        #d7b56f;
+    }
+
+    .bar-annotation {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 8px;
+      color: #5a6879;
+      font-size: 11px;
+    }
+
+    .wait-note {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: #7d5a22;
+      font-weight: 700;
+    }
+
+    .wait-note::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #bc9348;
+    }
+
+    .diagnosis-line {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin-top: 10px;
+      padding: 9px 11px;
+      border-radius: 13px;
+      background: rgba(53, 85, 111, 0.07);
+      color: #34475c;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .diagnosis-line strong {
+      color: #122033;
+      font-weight: 800;
+    }
+
+    .compare-panel {
+      position: relative;
+      display: grid;
+      grid-template-rows: 30px 1fr 24px;
+    }
+
+    .compare-body {
+      display: grid;
+      grid-template-columns: 1fr 112px;
+      align-items: stretch;
+      gap: 12px;
+      min-height: 0;
+    }
+
+    .bar-chart {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      align-items: end;
+      gap: 18px;
+      height: 126px;
+      padding: 0 6px 20px;
+      border-bottom: 1px solid rgba(18, 32, 51, 0.12);
+    }
+
+    .bar-column {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+      height: 100%;
+    }
+
+    .bar-value {
+      margin-bottom: 5px;
+      color: #122033;
+      font-size: 13px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .bar {
+      width: 54px;
+      border-radius: 10px 10px 4px 4px;
+      box-shadow: inset 0 0 0 1px rgba(18, 32, 51, 0.06);
+    }
+
+    .bar.fast {
+      height: 39px;
+      background: linear-gradient(180deg, #6f947f, #4f8068);
+    }
+
+    .bar.slow {
+      height: 91px;
+      background:
+        repeating-linear-gradient(
+          135deg,
+          rgba(255, 255, 255, 0.22) 0,
+          rgba(255, 255, 255, 0.22) 5px,
+          transparent 5px,
+          transparent 10px
+        ),
+        #d1aa60;
+    }
+
+    .bar-name {
+      margin-top: 6px;
+      color: #5a6879;
+      font-size: 10px;
+      white-space: nowrap;
+    }
+
+    .verdict-badge {
+      align-self: center;
+      min-height: 112px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      border-radius: 18px;
+      background: #122033;
+      color: #f8fafc;
+      box-shadow: 0 12px 26px rgba(18, 32, 51, 0.17);
+    }
+
+    .verdict-badge strong {
+      font-size: 31px;
+      line-height: 1;
+      letter-spacing: -0.04em;
+    }
+
+    .verdict-badge span {
+      margin-top: 7px;
+      color: rgba(248, 250, 252, 0.72);
+      font-size: 10px;
+      line-height: 1.45;
+      text-align: center;
+    }
+
+    .compare-caption {
+      align-self: end;
+      color: #4b5b70;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .compare-caption strong {
+      color: #7d5a22;
+    }
+
+    .equivalence-panel {
+      display: grid;
+      grid-template-columns: 285px 1fr;
+      align-items: center;
+      gap: 14px;
+      border-color: rgba(79, 128, 104, 0.18);
+      background:
+        linear-gradient(90deg, rgba(79, 128, 104, 0.08), rgba(255, 255, 255, 0.88) 36%);
+    }
+
+    .equivalence-title {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      min-width: 0;
+    }
+
+    .check-icon {
+      flex: 0 0 34px;
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: #4f8068;
+      color: #fff;
+      font-size: 16px;
+      font-weight: 800;
+    }
+
+    .equivalence-title strong {
+      display: block;
+      color: #355f4c;
+      font-size: 15px;
+      line-height: 1.1;
+    }
+
+    .equivalence-title span {
+      display: block;
+      margin-top: 4px;
+      color: #5a6879;
+      font-size: 10px;
+      line-height: 1.35;
+    }
+
+    .evidence-grid {
+      display: grid;
+      grid-template-columns: 1.15fr 0.8fr 1fr;
+      align-items: stretch;
+      min-width: 0;
+    }
+
+    .evidence-item {
+      min-width: 0;
+      padding: 0 14px;
+      border-left: 1px solid rgba(18, 32, 51, 0.10);
+    }
+
+    .evidence-item strong {
+      display: block;
+      color: #122033;
+      font-size: 18px;
+      line-height: 1;
+      letter-spacing: -0.025em;
+    }
+
+    .evidence-item strong .hash {
+      font: 700 11px/1.2 Consolas, "SFMono-Regular", monospace;
+      color: #4f8068;
+    }
+
+    .evidence-item span {
+      display: block;
+      margin-top: 5px;
+      color: #5a6879;
+      font-size: 10px;
+      line-height: 1.3;
+      white-space: nowrap;
+    }
+
+    .pipeline-panel {
+      position: relative;
+      display: grid;
+      grid-template-rows: 28px 1fr;
+      padding: 12px 18px 10px;
+    }
+
+    .pipeline-head {
+      display: grid;
+      grid-template-columns: 190px 1fr 270px;
+      align-items: start;
+      gap: 18px;
+    }
+
+    .pipeline-title {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      color: #122033;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .pipeline-title::before {
+      content: "";
+      width: 18px;
+      height: 3px;
+      border-radius: 999px;
+      background: #bc9348;
+    }
+
+    .ceiling-meter {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 9px;
+      color: #5a6879;
+      font-size: 10px;
+    }
+
+    .ceiling-meter strong {
+      color: #122033;
+      font-size: 12px;
+    }
+
+    .meter-track {
+      position: relative;
+      height: 7px;
+      overflow: visible;
+      border-radius: 999px;
+      background: rgba(18, 32, 51, 0.08);
+    }
+
+    .meter-fill {
+      width: 94.2%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #35556f, #4f8068);
+    }
+
+    .meter-cap {
+      position: absolute;
+      top: -3px;
+      right: 0;
+      width: 2px;
+      height: 13px;
+      background: #bc9348;
+    }
+
+    .hard-floor {
+      color: #5a6879;
+      font: 10px/1.35 Consolas, "SFMono-Regular", monospace;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .hard-floor strong {
+      color: #7d5a22;
+      font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    }
+
+    .pipeline-track {
+      display: grid;
+      grid-template-columns: 128px 34px 144px 34px 156px 34px 170px;
+      align-items: center;
+      gap: 4px;
+      min-height: 0;
+    }
+
+    .stage-node {
+      position: relative;
+      height: 48px;
+      padding: 7px 11px;
+      border: 1px solid rgba(18, 32, 51, 0.08);
+      border-radius: 13px;
+      background: rgba(255, 255, 255, 0.86);
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+    }
+
+    .stage-node.base {
+      border-style: dashed;
+      background: rgba(255, 255, 255, 0.58);
+    }
+
+    .stage-node.final {
+      border-color: rgba(79, 128, 104, 0.24);
+      background: linear-gradient(135deg, rgba(79, 128, 104, 0.10), rgba(255, 255, 255, 0.90));
+    }
+
+    .stage-name {
+      color: #5a6879;
+      font-size: 10px;
+      line-height: 1.1;
+    }
+
+    .stage-fps {
+      margin-top: 4px;
+      color: #122033;
+      font-size: 17px;
+      line-height: 1;
+      font-weight: 800;
+      letter-spacing: -0.025em;
+    }
+
+    .stage-fps small {
+      margin-left: 2px;
+      color: #5a6879;
+      font-size: 9px;
+      font-weight: 500;
+    }
+
+    .stage-gain {
+      position: absolute;
+      right: 8px;
+      top: 7px;
+      color: #7d5a22;
+      font-size: 9px;
+      font-weight: 700;
+    }
+
+    .stage-arrow {
+      position: relative;
+      height: 2px;
+      background: rgba(18, 32, 51, 0.24);
+    }
+
+    .stage-arrow::after {
+      content: "";
+      position: absolute;
+      top: -4px;
+      right: -1px;
+      width: 8px;
+      height: 8px;
+      border-top: 2px solid rgba(18, 32, 51, 0.34);
+      border-right: 2px solid rgba(18, 32, 51, 0.34);
+      transform: rotate(45deg);
+    }
+
+    .stage-node:nth-child(1) {
+      transform: translateY(7px);
+    }
+
+    .stage-node:nth-child(3) {
+      transform: translateY(2px);
+    }
+
+    .stage-node:nth-child(5) {
+      transform: translateY(-3px);
+    }
+
+    .stage-node:nth-child(7) {
+      transform: translateY(-8px);
+    }
+
+    :focus-visible {
+      outline: 2px solid rgba(201, 151, 77, 0.55);
+      outline-offset: 3px;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .diagnostic-panel,
+      .compare-panel,
+      .equivalence-panel,
+      .pipeline-panel {
+        transition: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="slide">
+    <header class="header">
+      <div>
+        <div class="eyebrow">Signal Narrative</div>
+        <h1 class="title">底座 1｜并行结构：先分清「算法慢」还是「被抢慢」</h1>
+        <p class="subtitle">先归因，再并行：真正硬件计算仅 59.96 ms。</p>
+      </div>
+      <div class="page-tag">12/18</div>
+    </header>
+    <main class="content">
+      <section class="top-grid" aria-label="NPU 线程归因分析">
+        <article class="panel diagnostic-panel">
+          <div class="panel-heading">
+            <span class="panel-kicker">NPU 线程耗时构成</span>
+            <span class="panel-index">01 / ATTRIBUTION</span>
+          </div>
+
+          <div class="metric-row">
+            <span class="metric-main">59.96</span>
+            <span class="metric-unit">ms</span>
+            <span class="metric-label">真正硬件计算</span>
+          </div>
+
+          <div class="time-bar" role="img" aria-label="NPU 线程总耗时中，59.96 毫秒为硬件计算，28.60 毫秒为 CPU letterbox 争抢">
+            <div class="time-segment compute">59.96 ms｜硬件计算</div>
+            <div class="time-segment contention">28.60 ms｜争抢</div>
+          </div>
+
+          <div class="bar-annotation">
+            <span>线程占用 88.56 ms</span>
+            <span class="wait-note">NPU 等待，无有效计算</span>
+          </div>
+
+          <div class="diagnosis-line">
+            <strong>先做归因：</strong>
+            <span>其余 28.60 ms 是挤在同一线程上的 CPU letterbox。</span>
+          </div>
+        </article>
+
+        <article class="panel compare-panel">
+          <div class="panel-heading">
+            <span class="panel-kicker">同一 letterbox，不同线程</span>
+            <span class="panel-index">02 / COMPARE</span>
+          </div>
+
+          <div class="compare-body">
+            <div class="bar-chart" role="img" aria-label="独占线程耗时 12.23 毫秒，挂在 NPU 线程耗时 28.60 毫秒，相差 2.3 倍">
+              <div class="bar-column">
+                <span class="bar-value">12.23 ms</span>
+                <div class="bar fast"></div>
+                <span class="bar-name">独占线程</span>
+              </div>
+              <div class="bar-column">
+                <span class="bar-value">28.60 ms</span>
+                <div class="bar slow"></div>
+                <span class="bar-name">挂在 NPU 线程</span>
+              </div>
+            </div>
+
+            <div class="verdict-badge" aria-label="2.3 倍争抢损耗，不是算法慢">
+              <strong>2.3×</strong>
+              <span>争抢损耗<br />不是算法慢</span>
+            </div>
+          </div>
+
+          <div class="compare-caption">
+            同任务、同输入；差别只在 <strong>线程归属</strong>。
+          </div>
+        </article>
+      </section>
+
+      <section class="panel equivalence-panel" aria-label="并行迁移等价性证据">
+        <div class="equivalence-title">
+          <span class="check-icon" aria-hidden="true">✓</span>
+          <div>
+            <strong>等价性白送</strong>
+            <span>纯搬运 / 纯计算的无状态阶段迁移后，输出不变。</span>
+          </div>
+        </div>
+
+        <div class="evidence-grid">
+          <div class="evidence-item">
+            <strong>1070 / 1070</strong>
+            <span>heatmap + offset 逐字节一致</span>
+          </div>
+          <div class="evidence-item">
+            <strong>0 行</strong>
+            <span>检出 TSV 无差异</span>
+          </div>
+          <div class="evidence-item">
+            <strong>6 档 <span class="hash">d5e81977</span></strong>
+            <span>结果哈希全部一致</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel pipeline-panel" aria-label="三级流水线性能收益">
+        <div class="pipeline-head">
+          <div class="pipeline-title">三级流水线</div>
+
+          <div class="ceiling-meter" aria-label="当前 14.07 fps，理论天花板 14.93 fps">
+            <strong>14.07 fps</strong>
+            <div class="meter-track">
+              <div class="meter-fill"></div>
+              <span class="meter-cap"></span>
+            </div>
+            <span>天花板 14.93</span>
+          </div>
+
+          <div class="hard-floor">
+            <strong>硬地板</strong>　rknn 60.77 + dequant 2.75 + peaks 0.35
+          </div>
+        </div>
+
+        <div class="pipeline-track">
+          <div class="stage-node base">
+            <div class="stage-name">原始基线</div>
+            <div class="stage-fps">5.74 <small>fps</small></div>
+          </div>
+
+          <div class="stage-arrow" aria-hidden="true"></div>
+
+          <div class="stage-node">
+            <div class="stage-name">去落盘</div>
+            <div class="stage-fps">8.16 <small>fps</small></div>
+            <span class="stage-gain">+42%</span>
+          </div>
+
+          <div class="stage-arrow" aria-hidden="true"></div>
+
+          <div class="stage-node">
+            <div class="stage-name">并行 2 级</div>
+            <div class="stage-fps">10.15 <small>fps</small></div>
+          </div>
+
+          <div class="stage-arrow" aria-hidden="true"></div>
+
+          <div class="stage-node final">
+            <div class="stage-name">并行 3 级</div>
+            <div class="stage-fps">14.07 <small>fps</small></div>
+            <span class="stage-gain">累计 2.45×</span>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer class="footer">
+      <span>Editorial Light Master</span>
+      <span>12</span>
+    </footer>
+  </div>
+</body>
+</html>

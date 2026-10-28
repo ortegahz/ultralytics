@@ -232,7 +232,13 @@ int main(int argc, char** argv) {
       // frames, same corner budget: 2 engines 70.4 ms/frame and 15.16 fps,
       // 3 engines 103.9 ms/frame and 14.78 fps, 4 engines 86.9 ms/frame and
       // 14.97 fps.  The library therefore refuses to be configured above 2.
-      Check(eff.gmc_workers == 2, "clamped: gmc_workers -> 2 (more engines make the GMC slower)");
+      // v9: the OPPORTUNISTIC latest-frame scheduler requires EXACTLY ONE
+      // engine.  Several engines would grab the SAME newest frame (duplicate
+      // results), and the board numbers above already say that more engines
+      // make the GMC slower.  The library therefore refuses to be configured
+      // above 1 and clamps every request down to 1.
+      Check(eff.gmc_workers == 1,
+            "clamped: gmc_workers -> 1 (the opportunistic scheduler needs one engine)");
       // The anchor workers follow the same rule as every other knob: an
       // out-of-range request falls back to the REFERENCE default, which is the
       // serial anchor loop (1 worker).  A garbage value must not silently
@@ -304,11 +310,17 @@ int main(int argc, char** argv) {
 
   const int n = (int)frames.size();
   // push() NEVER blocks: the camera queue drops the OLDEST frame when the
-  // pipeline is behind, so the consumer has to pace itself.  A batch of 4 is
-  // well under the camera queue depth (8), so nothing is dropped and every
-  // pushed frame produces exactly one result.  (The batch is ALSO smaller
-  // than the jitter buffer, so the GMC service is never starved.)
-  const int kBatch = 4;
+  // pipeline is behind, so the consumer has to pace itself.
+  //
+  // v9 -- THE BATCH IS 1, AND IT MUST BE.  Under the OPPORTUNISTIC scheduler
+  // the engine computes the NEWEST frame it can see and SKIPS the rest; it
+  // never goes back for the frames it passed.  A batch of 4 would therefore
+  // produce results for the last frame of the batch only, and the three
+  // earlier ones would never come back -> mosaic_pipeline_collect() would
+  // BLOCK FOREVER.  One push, one collect: the head is never ahead of the
+  // engine by more than the frame it is computing, so EVERY pushed frame
+  // still produces exactly one result and the 1:1 contract below holds.
+  const int kBatch = 1;
   int got = 0;
   bool ids_ok = true;
   bool dets_ok = true;
@@ -381,29 +393,42 @@ int main(int argc, char** argv) {
   Check(tm.detections_dropped == 0, "get_timing: no heatmap was skipped by the back-projection");
   Check(tm.gmc_deadline_blows == 0, "get_timing: no GMC frame blew the wall-clock watchdog");
   // The GMC GROUPS that completed: the frames a feature was really computed
-  // for.  With the default cadence (one group per frame) it equals the number
-  // of pushed frames, and it is the denominator a caller checks the delivered
-  // results against -- NOT the number of pushed frames, which stops being the
-  // right denominator once gmc_compute_stride > 1.
+  // for.  It is the denominator a caller checks the delivered results
+  // against -- NOT the number of pushed frames, which stops being the right
+  // denominator as soon as the scheduler skips anything.
+  //
+  // v9: under the OPPORTUNISTIC scheduler the engine computes the NEWEST
+  // frame it can see and SKIPS the ones it passed, so groups_done is "how many
+  // features were really produced" and nothing else.  gmc_compute_stride is
+  // gone; its replacement, gmc_min_stride, is a MINIMUM spacing, not a grid.
   Check(tm.gmc_groups_done == n,
         "get_timing: the GMC group count matches the frames a feature was computed for");
+  // v9: the frames the scheduler SKIPPED, and the frames it had to ABANDON
+  // because their 21-frame history was overwritten.  With one push at a time
+  // the engine is never more than one frame behind, so nothing is skipped and
+  // nothing is void -- these two are the direct evidence that the
+  // opportunistic scheduler did not have to drop anything to keep up.
+  Check(tm.gmc_void_frames == 0,
+        "get_timing: no frame was abandoned because its history was overwritten");
+  Check(tm.gmc_frames_skipped == 0,
+        "get_timing: the scheduler skipped no frame (one push at a time)");
   // THE FRAME ACCOUNTING INVARIANT, in the form the e2e checks it:
   //   expected results = gmc_groups_done - features_dropped - detections_dropped
   // Every GMC group produced one feature; the two drop counters are the only
   // places a feature or a heatmap is lost, so what is left is exactly the
-  // number of results.  (With the default cadence this reduces to the old
-  // "pushed - dropped - ..." form, because then gmc_groups_done == pushed -
-  // dropped; with a cadence > 1 it does NOT, which is why the e2e must use
-  // this counter.)
+  // number of results.  (Under the opportunistic scheduler gmc_groups_done is
+  // the ONLY reliable denominator: the number of pushed frames is no longer
+  // the number of features, because the scheduler skips frames.)
   Check(tm.gmc_groups_done - tm.features_dropped - tm.detections_dropped == tm.frames,
         "get_timing: the GMC group count minus the downstream drops is the result count");
   Check(tm.wall_ms > 0.0, "get_timing: the wall clock was measured");
   Check(tm.run_ms > 0.0, "get_timing: the NPU run was measured");
-  // The new ingest/job-queue instrumentation must actually be wired: every
-  // frame the engines popped was sampled, and the ingest's waits are
-  // accounted for.
-  Check(tm.gmc_queue_samples > 0,
-        "get_timing: the engine job queue depth was sampled");
+  // v9: the engine's job queue is GONE -- the opportunistic scheduler has no
+  // queue to sample, because the engine pulls the newest frame itself.  The
+  // equivalent evidence is the group's own accounting, checked above:
+  // every group produced exactly one feature and nothing was skipped.
+  Check(tm.gmc_groups_done > 0,
+        "get_timing: the opportunistic engine completed at least one group");
   Check(tm.gmc_ingest_in_wait_ms + tm.gmc_ingest_window_ms + tm.gmc_ingest_space_ms <=
             tm.gmc_ingest_ms + 1.0,
         "get_timing: the ingest's waits are a subset of its total wall time");

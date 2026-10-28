@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>底座 3｜从 demo 到“契约成立”：端到端库交付</title>
+  <style>
+    html, body {
+      width: 1280px;
+      height: 720px;
+      margin: 0;
+      overflow: hidden;
+      font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+      background:
+        radial-gradient(circle at top right, rgba(188, 147, 72, 0.18), transparent 32%),
+        linear-gradient(180deg, #f7f5ef 0%, #f4f6f9 100%);
+      color: #122033;
+    }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .slide {
+      width: 1180px;
+      height: 620px;
+      display: grid;
+      grid-template-rows: 110px 1fr 70px;
+      gap: 18px;
+      padding: 28px 30px;
+      border-radius: 28px;
+      background: rgba(255, 255, 255, 0.84);
+      box-shadow: 0 24px 80px rgba(15, 23, 42, 0.12);
+      border: 1px solid rgba(18, 32, 51, 0.08);
+    }
+    .header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(18, 32, 51, 0.12);
+      padding-bottom: 14px;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(201, 151, 77, 0.12);
+      color: #7d5a22;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .title {
+      margin: 14px 0 0;
+      font-size: 38px;
+      line-height: 1.08;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+    .subtitle {
+      margin: 8px 0 0;
+      color: #4b5b70;
+      font-size: 15px;
+      line-height: 1.4;
+    }
+    .page-tag {
+      align-self: start;
+      padding: 10px 14px;
+      border-radius: 14px;
+      background: #122033;
+      color: #f8fafc;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+    }
+    .content {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 18px;
+      min-height: 0;
+    }
+    .panel {
+      min-height: 0;
+      border-radius: 24px;
+      background: rgba(255, 255, 255, 0.82);
+      border: 1px solid rgba(18, 32, 51, 0.08);
+      box-shadow: 0 14px 36px rgba(15, 23, 42, 0.08);
+      padding: 22px;
+    }
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 8px;
+      color: #5a6879;
+      font-size: 12px;
+      border-top: 1px solid rgba(18, 32, 51, 0.1);
+    }
+
+    /* Main-content-only styles */
+    .content,
+    .content * {
+      min-width: 0;
+    }
+
+    .pipeline-panel,
+    .acceptance-panel {
+      padding: 16px;
+      overflow: hidden;
+    }
+
+    .section-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 9px;
+    }
+
+    .section-heading h2 {
+      margin: 0;
+      color: #122033;
+      font-size: 16px;
+      line-height: 1.2;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+    }
+
+    .section-heading p {
+      margin: 0;
+      color: #5a6879;
+      font-size: 11px;
+      line-height: 1.3;
+      text-align: right;
+    }
+
+    .contract-strip {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+      padding: 8px 10px;
+      border: 1px solid rgba(201, 151, 77, 0.20);
+      border-radius: 12px;
+      background: linear-gradient(90deg, rgba(201, 151, 77, 0.11), rgba(255, 255, 255, 0.36));
+    }
+
+    .contract-strip strong {
+      color: #7d5a22;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .contract-strip span {
+      color: #4b5b70;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .pipeline-wrap {
+      position: relative;
+      padding: 8px 8px 23px;
+      border: 1px solid rgba(18, 32, 51, 0.07);
+      border-radius: 16px;
+      background:
+        linear-gradient(180deg, rgba(244, 246, 249, 0.72), rgba(255, 255, 255, 0.38)),
+        repeating-linear-gradient(90deg, transparent 0, transparent 43px, rgba(18, 32, 51, 0.025) 44px);
+    }
+
+    .pipeline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 5px;
+    }
+
+    .flow-node {
+      position: relative;
+      flex: 1 1 0;
+      height: 48px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      border: 1px solid rgba(18, 32, 51, 0.13);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.92);
+      color: #122033;
+      text-align: center;
+      box-shadow: 0 5px 14px rgba(15, 23, 42, 0.06);
+    }
+
+    .flow-node .node-icon {
+      width: 18px;
+      height: 18px;
+      display: grid;
+      place-items: center;
+      border-radius: 6px;
+      background: #e7eef5;
+      color: #31546f;
+      font-size: 10px;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .flow-node .node-label {
+      font-size: 11px;
+      line-height: 1.15;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .flow-node.gmc {
+      border-color: rgba(190, 66, 66, 0.58);
+      background: linear-gradient(180deg, #fffafa, #ffffff);
+      box-shadow: 0 5px 16px rgba(190, 66, 66, 0.08);
+    }
+
+    .flow-node.gmc .node-icon {
+      background: rgba(190, 66, 66, 0.11);
+      color: #a33d3d;
+    }
+
+    .flow-node.npu {
+      border-color: rgba(48, 126, 137, 0.36);
+      background: linear-gradient(180deg, #f2fbfb, #ffffff);
+    }
+
+    .flow-node.npu .node-icon {
+      background: rgba(48, 126, 137, 0.12);
+      color: #236d78;
+    }
+
+    .chip-pair {
+      display: flex;
+      gap: 3px;
+      width: 27px;
+      justify-content: center;
+    }
+
+    .chip-pair i {
+      width: 10px;
+      height: 10px;
+      border: 1px solid #397c87;
+      border-radius: 3px;
+      background: #d9eef0;
+    }
+
+    .flow-arrow {
+      flex: 0 0 auto;
+      color: #8a99aa;
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .boundary-labels {
+      position: absolute;
+      right: 8px;
+      bottom: 5px;
+      left: 8px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      align-items: center;
+      gap: 12px;
+      color: #7a8796;
+      font-size: 9px;
+      line-height: 1;
+    }
+
+    .boundary-labels span {
+      padding-top: 5px;
+      border-top: 1px solid rgba(18, 32, 51, 0.10);
+    }
+
+    .boundary-labels .upstream {
+      color: #a33d3d;
+      text-align: left;
+    }
+
+    .boundary-labels .downstream {
+      color: #347c67;
+      text-align: right;
+    }
+
+    .drop-comparison {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .drop-card {
+      position: relative;
+      min-height: 88px;
+      padding: 10px 11px;
+      border-radius: 14px;
+      border: 1px solid rgba(18, 32, 51, 0.09);
+      background: rgba(255, 255, 255, 0.72);
+      overflow: hidden;
+    }
+
+    .drop-card::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 4px;
+      height: 100%;
+      background: #b34242;
+    }
+
+    .drop-card.safe::before {
+      background: #3e8b72;
+    }
+
+    .drop-card .impact-label {
+      display: inline-flex;
+      align-items: center;
+      margin-bottom: 5px;
+      padding: 3px 7px;
+      border-radius: 999px;
+      background: rgba(190, 66, 66, 0.09);
+      color: #a33d3d;
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+    }
+
+    .drop-card.safe .impact-label {
+      background: rgba(62, 139, 114, 0.10);
+      color: #347c67;
+    }
+
+    .drop-card h3 {
+      margin: 0 0 4px;
+      color: #122033;
+      font-size: 13px;
+      line-height: 1.2;
+      font-weight: 800;
+    }
+
+    .drop-card p {
+      margin: 0;
+      color: #5a6879;
+      font-size: 10px;
+      line-height: 1.42;
+    }
+
+    .defect-strip {
+      display: grid;
+      grid-template-columns: 94px 1fr;
+      gap: 11px;
+      align-items: stretch;
+      margin-top: 10px;
+      padding: 10px 11px;
+      border: 1px solid rgba(18, 32, 51, 0.08);
+      border-radius: 15px;
+      background: linear-gradient(90deg, rgba(18, 32, 51, 0.045), rgba(255, 255, 255, 0.52));
+    }
+
+    .defect-count {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      border-right: 1px solid rgba(18, 32, 51, 0.09);
+    }
+
+    .defect-count strong {
+      color: #122033;
+      font-size: 30px;
+      line-height: 0.95;
+      font-weight: 800;
+    }
+
+    .defect-count span {
+      margin-top: 4px;
+      color: #5a6879;
+      font-size: 9px;
+      line-height: 1.25;
+      text-align: center;
+    }
+
+    .defect-list {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .defect-item {
+      min-width: 0;
+      padding: 6px 8px;
+      border-radius: 9px;
+      background: rgba(255, 255, 255, 0.72);
+    }
+
+    .defect-item code {
+      display: block;
+      margin-bottom: 3px;
+      color: #31546f;
+      font-family: Consolas, "SFMono-Regular", monospace;
+      font-size: 9px;
+      line-height: 1.2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .defect-item span {
+      display: block;
+      color: #6a4b4b;
+      font-size: 9px;
+      line-height: 1.25;
+    }
+
+    .acceptance-list {
+      display: grid;
+      grid-template-rows: repeat(4, 1fr);
+      gap: 9px;
+      height: 100%;
+    }
+
+    .acceptance-card {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 10px;
+      min-height: 0;
+      padding: 9px 11px;
+      border: 1px solid rgba(18, 32, 51, 0.09);
+      border-radius: 15px;
+      background: rgba(255, 255, 255, 0.74);
+      box-shadow: 0 6px 16px rgba(15, 23, 42, 0.045);
+    }
+
+    .acceptance-card .card-copy {
+      min-width: 0;
+    }
+
+    .acceptance-card h3 {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 0 0 4px;
+      color: #122033;
+      font-size: 12px;
+      line-height: 1.2;
+      font-weight: 800;
+    }
+
+    .acceptance-card h3::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: #c4974d;
+      box-shadow: 0 0 0 3px rgba(196, 151, 77, 0.12);
+    }
+
+    .acceptance-card p {
+      margin: 0;
+      color: #5a6879;
+      font-size: 9px;
+      line-height: 1.35;
+    }
+
+    .acceptance-card code {
+      color: #31546f;
+      font-family: Consolas, "SFMono-Regular", monospace;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 6px;
+      border-radius: 999px;
+      background: rgba(62, 139, 114, 0.10);
+      color: #347c67;
+      font-size: 8px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .status-pill::before {
+      content: "✓";
+      font-size: 9px;
+    }
+
+    .acceptance-card.performance {
+      border-color: rgba(201, 151, 77, 0.24);
+      background: linear-gradient(100deg, rgba(255, 255, 255, 0.82), rgba(201, 151, 77, 0.065));
+    }
+
+    .metric {
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .metric strong {
+      display: block;
+      color: #122033;
+      font-size: 23px;
+      line-height: 1;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+    }
+
+    .metric span {
+      display: block;
+      margin-top: 3px;
+      color: #7d5a22;
+      font-size: 9px;
+      line-height: 1.2;
+      font-weight: 700;
+    }
+
+    .acceptance-card.diagnosis {
+      border-color: rgba(190, 66, 66, 0.25);
+      background: linear-gradient(100deg, rgba(255, 255, 255, 0.78), rgba(190, 66, 66, 0.055));
+    }
+
+    .acceptance-card.diagnosis h3::before {
+      background: #b34242;
+      box-shadow: 0 0 0 3px rgba(179, 66, 66, 0.11);
+    }
+
+    .acceptance-card.diagnosis .metric strong {
+      color: #a33d3d;
+      font-size: 18px;
+      letter-spacing: -0.025em;
+    }
+
+    .acceptance-card.diagnosis .metric span {
+      color: #a33d3d;
+    }
+
+    @media (max-width: 1000px) {
+      html, body {
+        transform: scale(0.78);
+        transform-origin: center center;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="slide">
+    <header class="header">
+      <div>
+        <div class="eyebrow">底座 3 / END-TO-END LIBRARY DELIVERY</div>
+        <h1 class="title">底座 3｜从 demo 到“契约成立”：端到端库交付</h1>
+        <p class="subtitle">纯 C ABI 交付，不只验证正常路径，更验证错误路径</p>
+      </div>
+      <div class="page-tag">14/18</div>
+    </header>
+
+    <main class="content">
+      <section class="panel pipeline-panel" aria-label="端到端服务链路与契约验证">
+        <div class="section-heading">
+          <h2>端到端链路与丢帧边界</h2>
+          <p>demo 跑通 ≠ 库契约成立</p>
+        </div>
+
+        <div class="contract-strip">
+          <strong>交付结论</strong>
+          <span>端到端库必须同时覆盖纯 C ABI、错误路径与部署验收。</span>
+        </div>
+
+        <div class="pipeline-wrap" aria-label="相机队列到 POST 的服务化流程">
+          <div class="pipeline">
+            <div class="flow-node">
+              <span class="node-icon">CAM</span>
+              <span class="node-label">相机队列</span>
+            </div>
+            <span class="flow-arrow" aria-hidden="true">→</span>
+            <div class="flow-node gmc">
+              <span class="node-icon">G</span>
+              <span class="node-label">GMC 服务</span>
+            </div>
+            <span class="flow-arrow" aria-hidden="true">→</span>
+            <div class="flow-node">
+              <span class="node-icon">F</span>
+              <span class="node-label">特征缓冲</span>
+            </div>
+            <span class="flow-arrow" aria-hidden="true">→</span>
+            <div class="flow-node npu">
+              <span class="node-icon chip-pair"><i></i><i></i></span>
+              <span class="node-label">NPU × 2</span>
+            </div>
+            <span class="flow-arrow" aria-hidden="true">→</span>
+            <div class="flow-node">
+              <span class="node-icon">H</span>
+              <span class="node-label">热图缓冲</span>
+            </div>
+            <span class="flow-arrow" aria-hidden="true">→</span>
+            <div class="flow-node">
+              <span class="node-icon">API</span>
+              <span class="node-label">POST</span>
+            </div>
+          </div>
+
+          <div class="boundary-labels">
+            <span class="upstream">GMC 上游：不可丢帧</span>
+            <span class="downstream">GMC 下游：允许跳帧</span>
+          </div>
+        </div>
+
+        <div class="drop-comparison">
+          <article class="drop-card">
+            <span class="impact-label">高影响 · 状态扩散</span>
+            <h3>GMC 丢一帧</h3>
+            <p>当前帧失配后，后续所有帧持续失配，影响整条检测链。</p>
+          </article>
+
+          <article class="drop-card safe">
+            <span class="impact-label">可控制 · 单点损失</span>
+            <h3>NPU 跳一帧</h3>
+            <p>仅损失一个检测结果，不污染后续帧的状态与配准关系。</p>
+          </article>
+        </div>
+
+        <div class="defect-strip">
+          <div class="defect-count">
+            <strong>5</strong>
+            <span>真实缺陷<br />已修复</span>
+          </div>
+
+          <div class="defect-list">
+            <div class="defect-item">
+              <code>Mat::operator=</code>
+              <span>浅拷贝 → 悬垂指针</span>
+            </div>
+            <div class="defect-item">
+              <code>config_defaults</code>
+              <span>漏设 5 字段 → 门限读取栈垃圾</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel acceptance-panel" aria-label="交付与验收指标">
+        <div class="section-heading">
+          <h2>交付与验收</h2>
+          <p>可交付 · 可验证 · 可部署</p>
+        </div>
+
+        <div class="acceptance-list">
+          <article class="acceptance-card">
+            <div class="card-copy">
+              <h3>编译交付</h3>
+              <p><code>libmosaic_pipeline.a</code><br />主机 / aarch64 交叉纯 C 编译通过</p>
+              <span class="status-pill">双平台通过</span>
+            </div>
+            <div class="metric">
+              <strong style="font-size: 18px;">.a</strong>
+              <span>静态库</span>
+            </div>
+          </article>
+
+          <article class="acceptance-card performance">
+            <div class="card-copy">
+              <h3>吞吐表现</h3>
+              <p>当前最优 · 97.2% 占用<br />性能天花板 ≈ 15.3–15.6 fps</p>
+            </div>
+            <div class="metric">
+              <strong>14.838</strong>
+              <span>fps</span>
+            </div>
+          </article>
+
+          <article class="acceptance-card">
+            <div class="card-copy">
+              <h3>核心杠杆</h3>
+              <p>NPU 上下文 1 → 2<br /><code>7.984 → 14.654 fps</code></p>
+            </div>
+            <div class="metric">
+              <strong>1.84×</strong>
+              <span>吞吐提升</span>
+            </div>
+          </article>
+
+          <article class="acceptance-card diagnosis">
+            <div class="card-copy">
+              <h3>部署瓶颈已定位</h3>
+              <p>同线程串行执行 <code>upload</code> 与 <code>rknn_run</code>，形成 NPU 核资源争抢。</p>
+            </div>
+            <div class="metric">
+              <strong>130.98</strong>
+              <span>ms / 帧 / 线程</span>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Editorial Light Master</span>
+      <span>14</span>
+    </footer>
+  </div>
+</body>
+</html>

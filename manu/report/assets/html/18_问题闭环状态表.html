@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Editorial Light Master</title>
+  <style>
+    html, body {
+      width: 1280px;
+      height: 720px;
+      margin: 0;
+      overflow: hidden;
+      font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+      background:
+        radial-gradient(circle at top right, rgba(188, 147, 72, 0.18), transparent 32%),
+        linear-gradient(180deg, #f7f5ef 0%, #f4f6f9 100%);
+      color: #122033;
+    }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .slide {
+      width: 1180px;
+      height: 620px;
+      display: grid;
+      grid-template-rows: 110px 1fr 70px;
+      gap: 18px;
+      padding: 28px 30px;
+      border-radius: 28px;
+      background: rgba(255, 255, 255, 0.84);
+      box-shadow: 0 24px 80px rgba(15, 23, 42, 0.12);
+      border: 1px solid rgba(18, 32, 51, 0.08);
+    }
+    .header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(18, 32, 51, 0.12);
+      padding-bottom: 14px;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(201, 151, 77, 0.12);
+      color: #7d5a22;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .title {
+      margin: 14px 0 0;
+      font-size: 38px;
+      line-height: 1.08;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+    .subtitle {
+      margin: 8px 0 0;
+      color: #4b5b70;
+      font-size: 15px;
+      line-height: 1.4;
+    }
+    .page-tag {
+      align-self: start;
+      padding: 10px 14px;
+      border-radius: 14px;
+      background: #122033;
+      color: #f8fafc;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+    }
+    .content {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      grid-template-rows: minmax(0, 1fr) 56px;
+      gap: 16px 18px;
+      min-height: 0;
+    }
+    .panel {
+      min-height: 0;
+      border-radius: 24px;
+      background: rgba(255, 255, 255, 0.82);
+      border: 1px solid rgba(18, 32, 51, 0.08);
+      box-shadow: 0 14px 36px rgba(15, 23, 42, 0.08);
+      padding: 22px;
+    }
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 8px;
+      color: #5a6879;
+      font-size: 12px;
+      border-top: 1px solid rgba(18, 32, 51, 0.1);
+    }
+
+    .priority-panel,
+    .metrics-panel {
+      display: grid;
+      grid-template-rows: 30px minmax(0, 1fr);
+      gap: 10px;
+      overflow: visible;
+    }
+
+    .panel-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-width: 0;
+    }
+
+    .panel-heading h2 {
+      margin: 0;
+      color: #122033;
+      font-size: 17px;
+      line-height: 1.2;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+    }
+
+    .panel-kicker {
+      color: #7d5a22;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .priority-list {
+      display: grid;
+      grid-template-rows: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      min-height: 0;
+    }
+
+    .priority-card {
+      display: grid;
+      grid-template-columns: 46px minmax(0, 1fr) 132px;
+      align-items: center;
+      gap: 12px;
+      min-height: 0;
+      padding: 9px 12px 9px 9px;
+      border-radius: 18px;
+      background: rgba(248, 250, 252, 0.88);
+      border: 1px solid rgba(18, 32, 51, 0.08);
+    }
+
+    .priority-card.is-primary {
+      background:
+        linear-gradient(90deg, rgba(201, 151, 77, 0.11), rgba(255, 255, 255, 0.72) 42%),
+        rgba(255, 255, 255, 0.9);
+      border-color: rgba(201, 151, 77, 0.30);
+      box-shadow: inset 3px 0 0 #c9974d;
+    }
+
+    .priority-card.is-parallel {
+      box-shadow: inset 3px 0 0 rgba(58, 113, 167, 0.64);
+    }
+
+    .priority-card.is-validation {
+      box-shadow: inset 3px 0 0 rgba(194, 127, 54, 0.72);
+    }
+
+    .priority-rank {
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      border-radius: 13px;
+      background: rgba(201, 151, 77, 0.14);
+      color: #7d5a22;
+      font-size: 18px;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .is-parallel .priority-rank {
+      background: rgba(58, 113, 167, 0.10);
+      color: #315f91;
+    }
+
+    .is-validation .priority-rank {
+      background: rgba(194, 127, 54, 0.11);
+      color: #9a5e20;
+    }
+
+    .priority-copy {
+      min-width: 0;
+    }
+
+    .priority-name-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .priority-name {
+      margin: 0;
+      color: #122033;
+      font-size: 20px;
+      line-height: 1.2;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      white-space: nowrap;
+    }
+
+    .priority-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(201, 151, 77, 0.13);
+      color: #7d5a22;
+      font-size: 10px;
+      line-height: 1;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .is-parallel .priority-chip {
+      background: rgba(58, 113, 167, 0.10);
+      color: #315f91;
+    }
+
+    .is-validation .priority-chip {
+      background: rgba(194, 127, 54, 0.11);
+      color: #92571e;
+    }
+
+    .priority-detail {
+      margin: 5px 0 0;
+      color: #4b5b70;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .priority-state {
+      min-width: 0;
+      text-align: right;
+    }
+
+    .state-label {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+      color: #6d5a32;
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .state-label::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      flex: 0 0 6px;
+      border-radius: 50%;
+      background: #c9974d;
+      box-shadow: 0 0 0 4px rgba(201, 151, 77, 0.11);
+    }
+
+    .is-parallel .state-label {
+      color: #315f91;
+    }
+
+    .is-parallel .state-label::before {
+      background: #4b79aa;
+      box-shadow: 0 0 0 4px rgba(75, 121, 170, 0.10);
+    }
+
+    .is-validation .state-label {
+      color: #92571e;
+    }
+
+    .is-validation .state-label::before {
+      background: #c27f36;
+      box-shadow: 0 0 0 4px rgba(194, 127, 54, 0.10);
+    }
+
+    .state-note {
+      margin: 4px 0 0;
+      color: #5a6879;
+      font-size: 11px;
+      line-height: 1.3;
+    }
+
+    .risk-metric {
+      margin-top: 3px;
+      color: #b24747;
+      font-size: 23px;
+      line-height: 1;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .risk-metric small {
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .threshold {
+      margin-top: 4px;
+      color: #9b5656;
+      font-size: 10px;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
+
+    .monitor-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: #6b7788;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .monitor-label::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #c9974d;
+      box-shadow: 0 0 0 4px rgba(201, 151, 77, 0.11);
+    }
+
+    .metric-list {
+      display: grid;
+      grid-template-rows: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      min-height: 0;
+    }
+
+    .metric {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 118px;
+      align-items: center;
+      gap: 10px;
+      min-height: 0;
+      padding: 8px 10px;
+      border-radius: 17px;
+      background: rgba(248, 250, 252, 0.88);
+      border: 1px solid rgba(18, 32, 51, 0.07);
+    }
+
+    .metric-copy {
+      min-width: 0;
+    }
+
+    .metric-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #122033;
+      font-size: 14px;
+      line-height: 1.2;
+      font-weight: 800;
+    }
+
+    .metric-status {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 6px;
+      border-radius: 999px;
+      background: rgba(201, 151, 77, 0.12);
+      color: #7d5a22;
+      font-size: 9px;
+      line-height: 1;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+    }
+
+    .metric-description {
+      margin: 4px 0 0;
+      color: #5a6879;
+      font-size: 11px;
+      line-height: 1.28;
+    }
+
+    .metric-value {
+      text-align: right;
+      color: #122033;
+      font-size: 21px;
+      line-height: 1.05;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .metric-value small {
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .metric-value.is-risk {
+      color: #b24747;
+    }
+
+    .metric-value.is-warning {
+      color: #9a641f;
+    }
+
+    .metric-value.is-pass {
+      color: #28785c;
+    }
+
+    .metric-caption {
+      margin-top: 4px;
+      color: #6b7788;
+      font-size: 10px;
+      line-height: 1.2;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .metric-caption code {
+      color: #28785c;
+      font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .conclusion {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 16px;
+      min-width: 0;
+      padding: 0 18px;
+      border-radius: 20px;
+      background: #122033;
+      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.14);
+      color: #f8fafc;
+    }
+
+    .next-label {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 9px;
+      border-radius: 10px;
+      background: rgba(201, 151, 77, 0.18);
+      color: #e4c791;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      white-space: nowrap;
+    }
+
+    .conclusion-text {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.2;
+      font-weight: 700;
+      letter-spacing: -0.015em;
+      white-space: nowrap;
+    }
+
+    .conclusion-text strong {
+      color: #e4c791;
+      font-weight: 800;
+    }
+
+    .next-action {
+      color: #aeb9c8;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+  <div class="slide">
+    <header class="header">
+      <div>
+        <div class="eyebrow">Signal Narrative</div>
+        <h1 class="title">问题闭环状态表</h1>
+        <p class="subtitle">优先推进高确定性、低投入、可并行事项；硬指标不降级</p>
+      </div>
+      <div class="page-tag">18/18</div>
+    </header>
+    <main class="content">
+      <section class="panel priority-panel" aria-labelledby="priority-heading">
+        <div class="panel-heading">
+          <h2 id="priority-heading">推进优先级｜先做什么</h2>
+          <span class="panel-kicker">Priority Order</span>
+        </div>
+
+        <div class="priority-list">
+          <article class="priority-card is-primary" aria-label="优先级一，恒等门控 GMC，首要推进">
+            <div class="priority-rank" aria-hidden="true">01</div>
+            <div class="priority-copy">
+              <div class="priority-name-row">
+                <h3 class="priority-name">恒等门控 GMC</h3>
+                <span class="priority-chip">方向 A1</span>
+              </div>
+              <p class="priority-detail">收益确定性高 · 投入低 · 命中战线 A 的 L1 / L2</p>
+            </div>
+            <div class="priority-state">
+              <span class="state-label">首要推进</span>
+              <div class="risk-metric">60.8 <small>ms</small></div>
+              <div class="threshold">仍超 40 ms 红线</div>
+            </div>
+          </article>
+
+          <article class="priority-card is-parallel" aria-label="优先级二，嵌入式集成，可并行推进">
+            <div class="priority-rank" aria-hidden="true">02</div>
+            <div class="priority-copy">
+              <div class="priority-name-row">
+                <h3 class="priority-name">嵌入式集成</h3>
+                <span class="priority-chip">方向 C</span>
+              </div>
+              <p class="priority-detail">八项交付工作 · 不占算力 · 可与其他工作线并行</p>
+            </div>
+            <div class="priority-state">
+              <span class="state-label">可并行</span>
+              <p class="state-note">不与 A1 形成算力互斥</p>
+            </div>
+          </article>
+
+          <article class="priority-card is-validation" aria-label="优先级三，第二个场景，长周期验证">
+            <div class="priority-rank" aria-hidden="true">03</div>
+            <div class="priority-copy">
+              <div class="priority-name-row">
+                <h3 class="priority-name">第二个场景</h3>
+                <span class="priority-chip">方向 B</span>
+              </div>
+              <p class="priority-detail">需要长周期验证 · 决定 SOP 是否真正具备可复制性</p>
+            </div>
+            <div class="priority-state">
+              <span class="state-label">持续验证</span>
+              <p class="state-note">关系 SOP 可复制性</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel metrics-panel" aria-labelledby="metrics-heading">
+        <div class="panel-heading">
+          <h2 id="metrics-heading">残留硬指标｜持续监控</h2>
+          <span class="monitor-label">底线不降级</span>
+        </div>
+
+        <div class="metric-list">
+          <article class="metric" aria-label="GMC 吞吐六十点八至六十一点二毫秒，超过四十毫秒红线">
+            <div class="metric-copy">
+              <div class="metric-title">
+                <span>GMC 吞吐</span>
+                <span class="metric-status">超时</span>
+              </div>
+              <p class="metric-description">红线 40 ms · step2 差 4 倍</p>
+            </div>
+            <div>
+              <div class="metric-value is-risk">60.8–61.2 <small>ms</small></div>
+              <div class="metric-caption">尚未通过板端红线</div>
+            </div>
+          </article>
+
+          <article class="metric" aria-label="吞吐剩余空间百分之三至百分之五，upload 移出 NPU 线程可回收约百分之十">
+            <div class="metric-copy">
+              <div class="metric-title">
+                <span>吞吐剩余空间</span>
+                <span class="metric-status">偏紧</span>
+              </div>
+              <p class="metric-description">upload 移出 NPU 线程可回收约 10%</p>
+            </div>
+            <div>
+              <div class="metric-value is-warning">≤ 3%–5%</div>
+              <div class="metric-caption">约 10% 回收机会</div>
+            </div>
+          </article>
+
+          <article class="metric" aria-label="dropped 必须持续守住等于零">
+            <div class="metric-copy">
+              <div class="metric-title">
+                <span>dropped</span>
+                <span class="metric-status" style="background: rgba(40, 120, 92, 0.10); color: #28785c;">PASS</span>
+              </div>
+              <p class="metric-description">锚定等价的前提，必须持续守住</p>
+            </div>
+            <div>
+              <div class="metric-value is-pass"><code>== 0</code></div>
+              <div class="metric-caption">持续监控</div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="conclusion" aria-label="下一阶段行动结论">
+        <span class="next-label">NEXT PHASE</span>
+        <p class="conclusion-text">下一阶段的核心是 <strong>“少算”</strong> 而不是“多算”——把<strong>重复</strong>与<strong>搬运</strong>打到极致</p>
+        <span class="next-action">消除冗余计算与数据搬运 →</span>
+      </section>
+    </main>
+    <footer class="footer">
+      <span>Editorial Light Master</span>
+      <span>18</span>
+    </footer>
+  </div>
+</body>
+</html>

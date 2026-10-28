@@ -90,12 +90,18 @@ struct InItem {
 };
 
 // One frame assigned to one GMC engine.
+//
+// DEPRECATED (v9): the OPPORTUNISTIC scheduler has no job queue any more --
+// the engine grabs the newest seeded frame out of the history ring itself.
+// The struct is KEPT because Engine::jobs is still declared with this type
+// (nothing is ever pushed into it), and deleting it would have touched the
+// engine's layout for no benefit.
 struct GmcJob {
   int64_t id = 0;
   long abs = 0;  // the engine's absolute frame index
   // THE ARTIFACT SEQUENCE: the DENSE index of the artifact this job will
-  // produce.  It is NOT the consumption counter `abs`: with a cadence of N
-  // only every Nth frame produces an artifact, so `abs` has GAPS -- and the
+  // produce.  It is NOT the consumption counter `abs`: only the frames that
+  // become a group produce an artifact, so `abs` has GAPS -- and the
   // order-sensitive writer waits for the next CONTIGUOUS index, so it would
   // stall forever on the first frame that produced none.
   long art_seq = 0;
@@ -144,14 +150,52 @@ struct MosaicPipeline {
     // The engine is not copyable (it owns the estimator), so it is held by
     // pointer and built in place.
     std::unique_ptr<OnlineFeaturePipeline> pipe;
+    // ------------------------------------------------------------------------
+    // DEPRECATED (v9): THE ENGINE JOB QUEUE of the in-order scheduler.
+    //
+    // Under the OPPORTUNISTIC scheduler the engine does not take frames off a
+    // queue: it grabs the NEWEST frame out of the history ring, and the
+    // frames it skips are simply not computed.  Nothing is pushed here any
+    // more, so `jobs` stays empty forever.
+    //
+    // The members are KEPT (not deleted) on purpose: they are part of this
+    // struct's layout and of the code that reads them, and deleting them
+    // would drag unrelated logic into the change.  They are simply never
+    // used, and every reader below says so.
+    // ------------------------------------------------------------------------
     std::deque<GmcJob> jobs;
     std::mutex m;
-    std::condition_variable cv_job;   // a job arrived
-    std::condition_variable cv_space;  // the queue has room
+    std::condition_variable cv_job;   // DEPRECATED: no jobs are posted any more
+    std::condition_variable cv_space;  // DEPRECATED: no jobs are posted any more
     // The oldest absolute frame this engine still owes.  `has_pending` is
     // false while the engine is idle.
+    // DEPRECATED (v9): the in-order scheduler's backlog bookkeeping.  The
+    // opportunistic engine never owes anything -- it takes the newest frame
+    // and skips the rest -- so these two stay at their initial values.
     long oldest_pending = 0;
     bool has_pending = false;
+    // THE HEAD WAKE-UP (v9): the ingest notifies it after it seeded a new
+    // frame, so the engine can grab the newest one instead of waiting for a
+    // job to be posted.
+    std::condition_variable cv_head;
+    // THE PHYSICAL ID of every frame this engine was seeded with, in the
+    // order it was seeded, paired with the INDEX it was seeded under.
+    //
+    // WHY IT IS NEEDED: the engine computes the seeded INDEX (the consumption
+    // counter, or the camera's physical number when the physical anchor is
+    // on), but the artifacts and the RESULTS have to carry the camera's
+    // PHYSICAL frame number -- that is the id the caller sees and the id the
+    // reference's feature_md5.txt names.  The ingest knows both (it seeds
+    // with one and receives the other) and hands the pair over here.
+    //
+    // The engine pops the entries it has passed (the frames it skipped), so
+    // the deque only holds the frames between the last computed one and the
+    // head.
+    std::deque<std::pair<long, int64_t>> phys_ids;
+    // THE NEWEST INDEX THIS ENGINE HAS DEALT WITH (computed or voided).  -1
+    // until the first frame arrives.  Only the engine's own thread touches
+    // it, so it needs no lock.
+    long last_done = -1;
     long seq_frame = 0;
     // The engine's corner counters are CUMULATIVE, so the per-frame corner
     // count is a difference against the previous frame.  These two hold the
@@ -229,7 +273,17 @@ struct MosaicPipeline {
   // The dense counter behind `next_artifact`: it is incremented once per
   // frame that ACTUALLY produces an artifact, so the writer's index stays
   // contiguous even when the computation cadence skips frames.
-  long artifact_seq = 0;
+  //
+  // v9: the ARTIFACT SEQUENCE is now produced by the ENGINE (the engine
+  // decides which frames become groups), so it is an ATOMIC: with the
+  // opportunistic scheduler there is exactly one engine, but the type makes
+  // the hand-off safe if that ever changes, and it costs one uncontended
+  // fetch-add per group.
+  std::atomic<long> artifact_seq{0};
+  // HOW MANY FRAMES THE INGEST SEEDED INTO THE HISTORY.  It is the
+  // denominator of "how many frames did the camera deliver that the engine
+  // did not compute": seeded - groups_done - void_frames = frames skipped.
+  std::atomic<long> gmc_seeded_frames{0};
   std::thread art_thread;
 
   // The history-window guard.  The ingest waits on this until the engines
@@ -323,6 +377,7 @@ struct MosaicPipeline {
   void wake_everyone() {
     cv_in.notify_all();
     for (auto& e : engines) {
+      e->cv_head.notify_all();
       e->cv_job.notify_all();
       e->cv_space.notify_all();
     }
@@ -342,44 +397,53 @@ struct MosaicPipeline {
   }
 
   // -------------------------------------------------------------------------
-  // THE HISTORY WINDOW GUARD.
+  // THE HISTORY WINDOW GUARD -- NOW A PURE PREDICATE, NEVER A WAIT.
   //
-  // The ingest may seed frame `abs` only if every engine still owes at most
-  // `ring_slack` frames of backlog: seeding `abs` overwrites the slot that
-  // held `abs - ring_depth`, and the engine that computes frame J still
-  // needs frames J-42..J.  See the header comment, rule 1.
+  // 它曾经问的是「producer 能不能跑到最老待算帧前面 ring_slack 帧以外」，
+  // 而 INGEST 会【阻塞等待】这个答案为真。那条等待就是杀死相机队列的
+  // 回压路径：ingest 一次 20.9 ms 的停顿就足以顶爆 64 深的相机 FIFO，
+  // 在物理帧号上打出洞。
+  //
+  // 在机会主义调度下答案恒为真，原因是三条：
+  //   * 二级快照是零拷贝 PIN（浅引用），producer 改写 ring 槽位只是重新绑定
+  //     指针，正在跑的拟合读到的像素不变；
+  //   * 环深 64 而一次计算只读 43 帧，producer 可以领先 21 帧（840 ms）
+  //     才可能覆写最老的历史；
+  //   * 万一真被覆写，`history_complete()` 会【检测到并作废该帧】，绝不在
+  //     撕裂数据上计算。
+  //
+  // 为什么函数还留着：它记录的正是「producer 能不能前进」这个问题所在的
+  // 位置，而且多引擎路径（gmc_workers > 1）仍然需要判断历史是否被覆写。
   // -------------------------------------------------------------------------
   bool window_ok(long abs) const {
-    for (const auto& e : engines) {
-      std::lock_guard<std::mutex> lk(e->m);
-      if (e->has_pending && abs - e->oldest_pending > ring_slack) return false;
-    }
+    (void)abs;
     return true;
   }
 
   // -------------------------------------------------------------------------
-  // THE INGEST: raw frames -> the engines' history rings + the job queues.
+  // THE INGEST: raw frames -> the engines' history rings.
   //
   // It is the only thread that writes the history, so the ring state has a
   // single writer.  It seeds EVERY engine with EVERY frame (each engine may
-  // need any frame as history) and hands the frame to the engine that will
-  // compute it.
+  // need any frame as history).
+  //
+  // v9 -- IT NEVER WAITS.  It used to block on the history-window guard and
+  // on the engines' job queues, and that back-pressure was the thing that
+  // killed the camera queue: one 20.9 ms stall in the ingest was enough to
+  // overflow a 64-deep camera FIFO and punch a hole in the physical frame
+  // numbers.  Now the ingest's whole job is: take the frame, seed it into
+  // every engine's history, record its physical id, and tell the engine that
+  // the head moved.  The engine decides on its own what to compute.
   // -------------------------------------------------------------------------
   void ingest_loop() {
     for (;;) {
       const auto t_ingest0 = std::chrono::steady_clock::now();
       // The ingest's own accounting of THIS frame: how long it waited for the
-      // camera, for the lookahead budget and for room in the job queue.  They
-      // are accumulated TOGETHER WITH gmc_ingest_ms at the end of the frame,
-      // so the three waits plus the ingest's own work always add up to the
-      // ingest's total wall time.  A frame that was aborted half-way is not
-      // accounted for at all -- it never became a GMC job.
+      // camera.  The two other waits (the history window and the job queue's
+      // space) are GONE: the ingest does not block on them any more, so their
+      // counters stay at 0 -- which is the evidence that the back-pressure
+      // path is closed.
       double in_wait_ms = 0.0;
-      double win_ms = 0.0;
-      double space_ms = 0.0;
-      // The round-robin cursor over the GMC GROUPS (not over the frames) --
-      // see the computation cadence below.
-      long group_counter = 0;
       InItem item;
       {
         std::unique_lock<std::mutex> lk(m_in);
@@ -417,98 +481,40 @@ struct MosaicPipeline {
       // the engine's history is anchored on the physical number.
       const long eng_idx = cfg.gmc_phys_anchor ? (long)item.id : abs;
 
-      // Wait until the history window allows this frame.
-      {
-        const auto t_win0 = std::chrono::steady_clock::now();
-        std::unique_lock<std::mutex> lk(m_guard);
-        if (!abort && !window_ok(abs)) {
-          {
-            std::lock_guard<std::mutex> lt(m_time);
-            timing.gmc_window_blocks += 1;
-          }
-          while (!abort && !window_ok(abs)) cv_guard.wait(lk);
-        }
-        if (abort) break;
-        // The time the LOOKAHEAD BUDGET was exhausted: the ingest was faster
-        // than the engines that owe the history.  This is the number that
-        // says "the pipeline's rate is capped by the guard, not by the work".
-        win_ms =
-            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_win0)
-                .count();
-      }
-
       // Seed every engine: each of them may need this frame as history.
-      for (auto& e : engines) e->pipe->seed_frame(eng_idx, item.gray);
-
-      // THE COMPUTATION CADENCE.
       //
-      // With the default stride of 1 every frame gets its own GMC group --
-      // the certified behaviour.  With a stride of N only every Nth camera
-      // frame gets a group; the frames in between are seeded as history and
-      // nothing else.  The groups are taken on the PHYSICAL grid, so a
-      // group's 21 lags stay exactly on the f-2, f-4, ... f-42 positions the
-      // certified pipeline reads for that same frame.
-      //
-      // WHY IT EXISTS: the GMC group costs ~65-116 ms, so one group per frame
-      // covers only 15.3 camera frames per second -- LESS than a 25 fps
-      // camera -- and the camera queue overflows, the physical frame ids
-      // develop holes, and with the physical anchor those holes become
-      // DETECTED history gaps.  One group per two frames covers 30.6 camera
-      // frames per second, so the camera queue never overflows, the ids stay
-      // dense, the history has no holes, and the frames that ARE computed
-      // carry exactly the features the certified pipeline computes for the
-      // same frame numbers.
-      const int cstride = cfg.gmc_compute_stride > 0 ? cfg.gmc_compute_stride : 1;
-      const bool is_group_frame = (cstride == 1) || ((item.id % cstride) == 0);
-      if (is_group_frame) {
-        // The engine that computes THIS group.  Round robin over the GROUPS,
-        // not over the frames: with a stride of 2 the groups are frames 2, 4,
-        // 6, ... and (abs-1) % n would hand every group to the same engine
-        // and idle the others.
-        Engine* eng = engines[(size_t)(group_counter % (long)engines.size())].get();
-        ++group_counter;
+      // The PHYSICAL ID is recorded FIRST, and the head is published by
+      // seed_frame() AFTER it: the engine must never see a head whose id it
+      // cannot look up yet.
+      for (auto& e : engines) {
         {
-          const auto t_space0 = std::chrono::steady_clock::now();
-          std::unique_lock<std::mutex> lk(eng->m);
-          if (!abort && eng->jobs.size() >= gmc_job_depth) {
-            std::lock_guard<std::mutex> lt(m_time);
-            timing.gmc_space_blocks += 1;
-          }
-          eng->cv_space.wait(lk, [this, eng] {
-            return abort || eng->jobs.size() < gmc_job_depth;
-          });
-          if (abort) break;
-          if (!eng->has_pending) {
-            eng->oldest_pending = abs;
-            eng->has_pending = true;
-          }
-          GmcJob job;
-          job.id = item.id;
-          job.abs = abs;
-          job.art_seq = ++artifact_seq;
-          job.gray = item.gray;  // refcounted: no pixel copy
-          eng->jobs.push_back(std::move(job));
-          // The time the ingest waited for room in the engine's job queue.
-          space_ms =
-              std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_space0)
-                  .count();
+          std::lock_guard<std::mutex> lk(e->m);
+          e->phys_ids.emplace_back(eng_idx, item.id);
         }
-        eng->cv_job.notify_one();
+        e->pipe->seed_frame(eng_idx, item.gray);
+        // The head moved: wake the engine so it can grab the newest frame.
+        e->cv_head.notify_one();
       }
+      gmc_seeded_frames.fetch_add(1, std::memory_order_relaxed);
+
       {
         std::lock_guard<std::mutex> lt(m_time);
         timing.gmc_ingest_in_wait_ms += in_wait_ms;
-        timing.gmc_ingest_window_ms += win_ms;
-        timing.gmc_ingest_space_ms += space_ms;
+        // gmc_ingest_window_ms and gmc_ingest_space_ms are NOT incremented:
+        // the ingest does not wait on the history window any more, and it
+        // does not wait for room in a job queue (there is no job queue).
+        // Their reading of 0 IS the measurement: the camera is never
+        // stalled by the GMC service.
         timing.gmc_ingest_ms +=
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_ingest0).count();
       }
     }
     ingest_done = true;
-    // Wake everybody: the engines drain and stop, the upstream services see
-    // that no more features are coming.
+    // Wake everybody: the engines take their last head and stop, the upstream
+    // services see that no more features are coming.
     cv_in.notify_all();
     for (auto& e : engines) {
+      e->cv_head.notify_all();
       e->cv_job.notify_all();
       e->cv_space.notify_all();
     }
@@ -517,7 +523,15 @@ struct MosaicPipeline {
   }
 
   // -------------------------------------------------------------------------
-  // SERVICE GMC: one engine computes one frame.
+  // SERVICE GMC: one engine computes the NEWEST frame it can get.
+  //
+  // v9 -- THE OPPORTUNISTIC SCHEDULER.  The engine no longer takes frames off
+  // a queue in order; it asks the history ring for the NEWEST seeded frame
+  // and computes THAT one.  The frames it passes are not lost: they were
+  // seeded into the history, so they are the lags the next fit reads -- and
+  // that is the whole reason skipping is safe here (a frame skipped by the
+  // engine NEVER punches a hole in the history, unlike a frame lost at the
+  // camera queue).
   // -------------------------------------------------------------------------
   void engine_loop(Engine* eng, size_t eng_index) {
     // Place this engine on its own core (if the caller asked for it).  A GMC
@@ -539,12 +553,21 @@ struct MosaicPipeline {
       if (mosaic::PinCurrentThreadToCpu(cpu))
         fprintf(stderr, "[i] GMC engine %zu pinned to core %d\n", eng_index, cpu);
     }
+    // THE MINIMUM GAP BETWEEN TWO GROUPS, in the index space the engine
+    // computes in.  1 == no limit: grab the newest frame as soon as it is
+    // there (the adaptive default).  >1 == an artificial rate limit.
+    const long min_stride = cfg.gmc_min_stride > 0 ? cfg.gmc_min_stride : 1;
     for (;;) {
-      GmcJob job;
+      // ---- 1) WAIT FOR A HEAD THAT IS NEW ENOUGH --------------------------
+      long abs = 0;
       {
         const auto t_wait0 = std::chrono::steady_clock::now();
         std::unique_lock<std::mutex> lk(eng->m);
-        eng->cv_job.wait(lk, [this, eng] { return !eng->jobs.empty() || abort || ingest_done; });
+        eng->cv_head.wait(lk, [this, eng, min_stride] {
+          if (abort || ingest_done) return true;
+          const long h = eng->pipe->latest_seeded();
+          return h > eng->last_done && (h - eng->last_done) >= min_stride;
+        });
         const double waited =
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_wait0)
                 .count();
@@ -553,24 +576,65 @@ struct MosaicPipeline {
           timing.gmc_wait_ms += waited;
         }
         if (abort) break;
-        if (eng->jobs.empty()) {
+        const long h = eng->pipe->latest_seeded();
+        if (h > eng->last_done && (h - eng->last_done) >= min_stride) {
+          abs = h;
+        } else {
+          // The producer is done and what is left does not satisfy the
+          // minimum gap (or it was already computed): there is nothing more
+          // to come.  Note that the engine does NOT go back for the frames it
+          // passed -- the whole point is to work on the freshest data.
           if (ingest_done) break;
-          continue;
-        }
-        // The depth of the job queue AT THE MOMENT the job is taken, the job
-        // included.  THIS IS THE STARVATION PROOF: a mean of ~1 means the
-        // engine picked the job up off an empty queue (it had been waiting
-        // for work), a mean well above 1 means it always had a backlog.
-        const size_t depth_before = eng->jobs.size();
-        job = std::move(eng->jobs.front());
-        eng->jobs.pop_front();
-        {
-          std::lock_guard<std::mutex> lt(m_time);
-          timing.gmc_queue_depth_sum += (double)depth_before;
-          timing.gmc_queue_samples += 1;
+          continue;  // a spurious wakeup
         }
       }
-      eng->cv_space.notify_one();
+
+      // ---- 2) THE PHYSICAL ID OF THAT FRAME -------------------------------
+      //
+      // The engine computed the SEEDED INDEX (the consumption counter, or the
+      // camera's physical number when the physical anchor is on), but the
+      // artifacts and the results have to carry the camera's PHYSICAL frame
+      // number -- that is the id the caller sees.
+      int64_t phys_id = abs;
+      {
+        std::lock_guard<std::mutex> lk(eng->m);
+        // Drop the ids of the frames this engine passed (the ones it skipped).
+        while (!eng->phys_ids.empty() && eng->phys_ids.front().first < abs)
+          eng->phys_ids.pop_front();
+        if (!eng->phys_ids.empty() && eng->phys_ids.front().first == abs) {
+          phys_id = eng->phys_ids.front().second;
+        } else {
+          // Should not happen: the ingest records the id BEFORE it publishes
+          // the head, so an id is always there when the head is.  Loud anyway:
+          // a wrong frame id in the results is a wrong answer, not a slowdown.
+          fprintf(stderr,
+                  "[WARN] GMC engine %zu: no physical id for the seeded index %lld -- the frame id "
+                  "falls back to the seeded index\n",
+                  eng_index, (long long)abs);
+        }
+      }
+
+      // ---- 3) CONTINUITY: IS THE WHOLE HISTORY STILL THERE? --------------
+      //
+      // The producer is never blocked, so it is EXPECTED to run ahead of the
+      // engine.  Once it is more than (ring_depth - 43) frames ahead, the
+      // frames this fit needs have been OVERWRITTEN in the ring -- and a
+      // camera frame that was lost does the same thing to the lags that reach
+      // across the hole.  In both cases the frame is VOIDED: it is not
+      // computed at all, rather than fitted against torn pixels.
+      if (!eng->pipe->history_complete(abs)) {
+        eng->last_done = abs;
+        {
+          std::lock_guard<std::mutex> lt(m_time);
+          timing.gmc_void_frames += 1;
+        }
+        fprintf(stderr,
+                "[WARN] GMC frame %lld (engine %zu) VOIDED: its 21-frame history is NOT whole "
+                "(the producer ran too far ahead of the engine, or a camera frame was lost) -- the "
+                "frame is NOT computed, and the engine does NOT go back for it\n",
+                (long long)phys_id, eng_index);
+        continue;
+      }
 
       const OnlineFeaturePipeline::Stats st0 = eng->pipe->stats();
       const long blows_before = eng->pipe->n_fit_deadline();
@@ -583,9 +647,9 @@ struct MosaicPipeline {
       const auto mark_entry = std::chrono::steady_clock::now();
       // THE INDEX THE ENGINE ANCHORS ITS HISTORY ON: the camera's PHYSICAL
       // frame number when the physical anchor is on, the consumption counter
-      // otherwise.  `job.abs` stays the dense counter that orders the
-      // artifacts; `job.id` is the physical number.
-      const long eng_idx = cfg.gmc_phys_anchor ? (long)job.id : job.abs;
+      // otherwise.  `abs` IS that index -- it is the index the producer
+      // seeded this frame under, which is exactly what process_frame() reads.
+      const long eng_idx = abs;
       const cv::Mat out =
           eng->pipe->process_frame(eng_idx, mats_out ? &mats : nullptr, mark_entry);
       const OnlineFeaturePipeline::Stats st1 = eng->pipe->stats();
@@ -605,17 +669,22 @@ struct MosaicPipeline {
       }
       // The order-sensitive artifacts go to the writer thread, which emits
       // them in FRAME order.
-      publish_artifact(job.art_seq, job.id, fh, mats);
+      //
+      // THE ARTIFACT SEQUENCE is now minted HERE, by the engine: under the
+      // opportunistic scheduler the engine decides which frames become
+      // groups, so the ingest cannot number them any more.  It stays DENSE
+      // (1, 2, 3, ...) because the writer waits for the next CONTIGUOUS index.
+      publish_artifact(++artifact_seq, phys_id, fh, mats);
 
       // THE AUTHORITATIVE COUNT OF THE GMC GROUPS THAT COMPLETED.
       //
       // One increment per group the GMC service actually computed, i.e. per
       // frame a feature really exists for.  It is the ONLY denominator that
-      // holds for every cadence: the number of PUSHED frames does not (with
-      // gmc_compute_stride > 1 only every Nth frame becomes a group, the rest
-      // are seeded as history and produce nothing), and the number of frames
-      // that reached the GMC service does not either (the camera queue may
-      // have dropped some of them).
+      // holds for every scheduler: the number of PUSHED frames does not (the
+      // opportunistic engine SKIPS the frames it could not keep up with, and
+      // those frames are seeded as history and produce nothing), and the
+      // number of frames that reached the GMC service does not either (the
+      // camera queue may have dropped some of them).
       //
       // It is counted HERE, right after the fit, so it cannot drift from the
       // features that were produced.  A caller derives the number of results
@@ -648,7 +717,7 @@ struct MosaicPipeline {
                 "[WARN] GMC frame %lld (engine %zu) blew the %d ms fit watchdog: the "
                 "transform DEGRADED (identity or last-good), so this frame's features are "
                 "NOT registered to the raw frame\n",
-                (long long)job.id, eng_index, cfg.gmc_deadline_ms);
+                (long long)phys_id, eng_index, cfg.gmc_deadline_ms);
       }
       // THE PHYSICAL HISTORY HAD A HOLE.  A camera frame was lost, so one or
       // more of this frame's 21 history frames do not exist.  The engine did
@@ -662,7 +731,7 @@ struct MosaicPipeline {
                 "history lookup(s) hit a MISSING physical frame (a camera frame was lost), "
                 "so this frame's temporal window is stretched -- the fit used the nearest "
                 "available older frame instead of the lost one\n",
-                (long long)job.id, eng_index, gaps_after - gaps_before);
+                (long long)phys_id, eng_index, gaps_after - gaps_before);
       }
       {
         std::lock_guard<std::mutex> lk(m_time);
@@ -716,7 +785,7 @@ struct MosaicPipeline {
         }
         char nm[640];
         std::snprintf(nm, sizeof(nm), "%s/%s_%06lld.bmp", dump_dir.c_str(), cfg.sequence,
-                      (long long)job.id);
+                      (long long)phys_id);
         cv::imwrite(nm, hwc);
       }
 
@@ -725,7 +794,7 @@ struct MosaicPipeline {
       // row 2 = residual.
       const size_t plane = static_cast<size_t>(height) * static_cast<size_t>(width);
       FeatureItem fi;
-      fi.id = job.id;
+      fi.id = phys_id;
       fi.rgb.resize(plane * 3);
       const uint8_t* c0 = out.ptr<uint8_t>(0);
       const uint8_t* c1 = out.ptr<uint8_t>(1);
@@ -778,17 +847,15 @@ struct MosaicPipeline {
         timing.gmc_post_ms += post_ms;
       }
 
-      // The engine has finished this frame: the oldest frame it still owes
-      // moves forward, which may unblock the ingest.
-      {
-        std::lock_guard<std::mutex> lk(eng->m);
-        if (eng->jobs.empty()) {
-          eng->has_pending = false;
-        } else {
-          eng->oldest_pending = eng->jobs.front().abs;
-        }
-      }
-      cv_guard.notify_all();
+      // The engine has finished this frame.  Its "newest index dealt with"
+      // moves forward, so the next head becomes eligible -- and the frames
+      // this engine PASSED are simply dropped: they were seeded into the
+      // history, so they are the lags the NEXT fit reads, and they are not
+      // computed on their own.
+      //
+      // THERE IS NO NOTIFY FOR THE INGEST: it never waits, so there is
+      // nothing to unblock.
+      eng->last_done = abs;
     }
   }
 
@@ -945,7 +1012,7 @@ struct MosaicPipeline {
   // The order-sensitive writer: the rolling md5 and the --mats-all dump, in
   // FRAME order, no matter in which order the engines finished.
   // -------------------------------------------------------------------------
-  void publish_artifact(long abs, int64_t id, const std::string& md5_hex,
+  void publish_artifact(long art_seq, int64_t id, const std::string& md5_hex,
                         const std::vector<Matx23f>& mats) {
     {
       std::lock_guard<std::mutex> lk(m_art);
@@ -953,7 +1020,7 @@ struct MosaicPipeline {
       a.id = id;
       a.md5_hex = md5_hex;
       a.mats = mats;
-      artifacts[abs] = std::move(a);
+      artifacts[art_seq] = std::move(a);
     }
     cv_art.notify_all();
   }
@@ -1115,12 +1182,12 @@ void mosaic_pipeline_config_defaults(MosaicPipelineConfig* cfg) {
   // reject the NEWEST (keep the queued frames, throw away the incoming one).
   // See the header for why 0 is the default.
   cfg->gmc_input_drop_policy = 0;
-  // The computation cadence: how many camera frames make one GMC group.
-  // 1 == every frame gets its own group (the certified behaviour).  2 == one
-  // group per two frames, which lets the GMC service cover MORE camera frames
-  // per second than the camera produces, so the camera queue never overflows
-  // and the physical history has no holes.  See the header.
-  cfg->gmc_compute_stride = 1;
+  // THE MINIMUM GAP BETWEEN TWO GMC GROUPS, in frames.
+  // 1 == no limit: the engine grabs the NEWEST frame as soon as it is free
+  // (the adaptive default -- the opportunistic scheduler).  >1 == an
+  // artificial rate limit: the engine waits until the head is at least N
+  // frames past the one it computed last.  See the header.
+  cfg->gmc_min_stride = 1;
   // The anchor LK stage's parallelism.  1 == the reference's serial anchor
   // loop, which is the CERTIFIED behaviour: the anchor workers only exist to
   // make the same numbers faster, and they are opt-in because they change
@@ -1275,13 +1342,12 @@ MosaicPipeline* mosaic_pipeline_create(const MosaicPipelineConfig* cfg, char* er
       // What the camera queue does on overflow.  0 = evict the oldest (the
       // shipped behaviour), 1 = reject the newest.
       {"gmc_input_drop_policy", &cfg_s.gmc_input_drop_policy, 0, 1, 0},
-      // How many camera frames make one GMC group.  1 == every frame (the
-      // certified behaviour).  2 == one group per two frames: the GMC service
-      // then covers 30.6 camera frames per second against a 25 fps camera,
-      // so the camera queue never overflows and the physical history stays
-      // hole-free.  It changes WHICH frames get a feature, never what a
-      // feature is computed from.
-      {"gmc_compute_stride", &cfg_s.gmc_compute_stride, 1, 8, 1},
+      // The MINIMUM GAP between two GMC groups, in frames.  1 == no limit: the
+      // engine grabs the newest frame as soon as it is free (the adaptive
+      // default).  >1 == an artificial rate limit.  The ceiling is 64 because
+      // beyond that the "gap" is longer than the whole history window and no
+      // frame would ever be eligible.
+      {"gmc_min_stride", &cfg_s.gmc_min_stride, 1, 64, 1},
       // The anchor LK stage's worker count.  1 == the reference's serial
       // anchor loop (the default, and the certified behaviour).  The ceiling
       // is 8: the anchor grid has 5 anchors, so anything above that is a
@@ -1310,7 +1376,29 @@ MosaicPipeline* mosaic_pipeline_create(const MosaicPipelineConfig* cfg, char* er
   if (cfg_s.gmc_prealloc_pad < 0) cfg_s.gmc_prealloc_pad = 0;
   if (cfg_s.input_mode < 0 || cfg_s.input_mode > MOSAIC_INPUT_IO_MEM_NHWC)
     cfg_s.input_mode = MOSAIC_INPUT_SET;
-  // THE AUTO RULE FOR THE LOOKAHEAD BUDGET LIVES HERE AND NOWHERE ELSE.
+  // -------------------------------------------------------------------------
+  // THE OPPORTUNISTIC SCHEDULER NEEDS EXACTLY ONE GMC ENGINE.
+  //
+  // WHY: the engine grabs the NEWEST seeded frame, and every engine shares
+  // the same history ring -- so several engines would all compute THE SAME
+  // frame and publish DUPLICATE results, not extra throughput.  And the
+  // second engine is not free: two engines measured the GMC fit's p99 at
+  // 695 ms against 200 ms with one, because they fight over the same cores.
+  //
+  // The clamp table above still allows 2 (the hard cap, and the default the
+  // table falls back to); the request is forced down to one HERE, and only a
+  // caller who actually asked for more is warned about it.
+  // -------------------------------------------------------------------------
+  if (cfg_s.gmc_workers != 1) {
+    fprintf(stderr,
+            "[WARN] gmc_workers=%d was requested, but the OPPORTUNISTIC latest-frame scheduler "
+            "requires exactly ONE engine: several engines would grab the SAME newest frame "
+            "(duplicate results), and two engines measured the GMC fit's p99 at 695 ms against "
+            "200 ms with one.  Forcing gmc_workers=1.\n",
+            (int)cfg_s.gmc_workers);
+    cfg_s.gmc_workers = 1;
+  }
+  // THE AUTO RULE FOR THE HISTORY RING'S SLACK LIVES HERE AND NOWHERE ELSE.
   //
   // A request of 0 means "auto", and the auto value is resolved ONCE, HERE,
   // in the sanitize stage -- after the clamp table, so gmc_workers is already
@@ -1322,6 +1410,12 @@ MosaicPipeline* mosaic_pipeline_create(const MosaicPipelineConfig* cfg, char* er
   //
   // The clamp table's "out of range -> 0" stays as it is: an impossible
   // request is folded back to AUTO, and AUTO is resolved right here.
+  //
+  // v9: the slack is no longer "how far the ingest may run ahead of the
+  // engines" (the ingest never waits any more) -- it is one of the two terms
+  // of the history ring's depth, the other being the GMC_RING_BUFFER_SIZE
+  // floor of 64 slots (= 21 frames of producer headroom over the 43 frames
+  // one fit reads).
   if (cfg_s.gmc_ring_slack == 0)
     cfg_s.gmc_ring_slack = (int32_t)std::max<long>(64, 32 * cfg_s.gmc_workers);
   const MosaicPipelineConfig* safe_cfg = &cfg_s;
@@ -1341,37 +1435,24 @@ MosaicPipeline* mosaic_pipeline_create(const MosaicPipelineConfig* cfg, char* er
   // window of 9999) and the allocation would happen before any clamp.
   const int slots = safe_cfg->gmc_window * safe_cfg->gmc_stride_step + 3;
 
-  // The history window: the engines may lag the ingest by `ring_slack` frames.
-  // The slack buys the LOOKAHEAD the multi-engine assignment needs; without
-  // it the ingest could not run ahead of the oldest frame an engine still
-  // owes, and the whole multi-engine scheme would collapse into one engine.
+  // The history window: the ring's SLACK, in frames.
   //
-  // WHY the budget is a knob and not a constant: the guard's release rate IS
-  // the engine's completion rate, so a budget that is too small makes the
-  // ingest wait for the engines, which starves the engines, which makes them
-  // slower -- a self-sustaining rate limit.  Measured on the board with a 25
-  // fps camera and 11,810 frames: a budget of 16 frames held the steady state
-  // at 23.3 fps (below the camera), the camera queue overflowed (794 frames
-  // lost, i.e. the GMC registration chain broken) and the ingest spent 42.9
-  // ms per frame against a 40 ms frame period.  The budget is a THROUGHPUT
-  // knob: it changes how far the ingest may run ahead, never which pixels a
-  // fit reads, so the feature stream stays bit-identical.
-  //
-  // The value is TAKEN, not derived: the AUTO rule was already resolved in the
-  // sanitize stage (one rule, one place), so this cannot drift from what
-  // mosaic_pipeline_effective_config() reports.
+  // v9: the ingest NEVER WAITS any more, so the slack is no longer "how far
+  // the ingest may run ahead of the engines" -- there is no such budget any
+  // more, and the back-pressure that budget used to impose (and that killed
+  // the camera queue) is gone.  The slack is now one of the two terms of the
+  // history ring's depth:  ring_depth = max(64, max_lag + 1 + ring_slack),
+  // i.e. how much room the producer has before it overwrites a frame the
+  // running fit still needs.  The value is TAKEN, not derived: the AUTO rule
+  // was already resolved in the sanitize stage (one rule, one place), so this
+  // cannot drift from what mosaic_pipeline_effective_config() reports.
   p->ring_slack = (long)safe_cfg->gmc_ring_slack;
 
-  // The ENGINE JOB QUEUE must be able to hold the lookahead the window guard
-  // allows, otherwise the two guards fight each other: the window guard
-  // releases a frame, and the space guard immediately blocks it because the
-  // queue is too shallow to hold the burst.  That is exactly what the old
-  // coupling (ring_slack == 2 * queue_depth) produced -- raising queue_depth
-  // alone did not help, because the budget still capped the job queue.
-  //
-  // The depth is therefore derived from the budget: half of it (the ingest
-  // assigns every other frame to this engine) plus a small margin, and never
-  // below queue_depth (a caller that asked for a deeper queue keeps it).
+  // The ENGINE JOB QUEUE's depth.  DEPRECATED (v9): there is no job queue
+  // any more -- the engine grabs the newest frame out of the history ring --
+  // so this number is not used for anything.  It is KEPT (and still derived
+  // from the slack) so the struct layout and the create-time report stay
+  // intact.
   p->gmc_job_depth = std::max<size_t>(safe_cfg->queue_depth,
                                       (size_t)(p->ring_slack / 2 + 4));
 
@@ -1754,6 +1835,7 @@ int32_t mosaic_pipeline_flush(MosaicPipeline* p) {
   }
   p->cv_in.notify_all();
   for (auto& e : p->engines) {
+    e->cv_head.notify_all();
     e->cv_job.notify_all();
     e->cv_space.notify_all();
   }
@@ -1821,16 +1903,31 @@ int32_t mosaic_pipeline_flush(MosaicPipeline* p) {
     const int64_t feat = p->timing.features_dropped;
     const int64_t det = p->timing.detections_dropped;
     const int64_t blows = p->timing.gmc_deadline_blows;
-    if (cam || feat || det || blows) {
+    // The frames the opportunistic engine VOIDED because their history was
+    // not whole.  This is the one the operator has to look at: it means the
+    // producer outran the history ring (or a camera frame was lost).
+    const int64_t voids = p->timing.gmc_void_frames;
+    const int64_t seeded = p->gmc_seeded_frames.load(std::memory_order_relaxed);
+    int64_t skipped = seeded - p->timing.gmc_groups_done - voids;
+    if (skipped < 0) skipped = 0;
+    p->timing.gmc_frames_skipped = skipped;
+    fprintf(stderr,
+            "[i] opportunistic schedule: %lld frames seeded into the history, %lld groups "
+            "computed, %lld frames skipped (the engine was busy with a newer frame), %lld frames "
+            "VOIDED (their 21-frame history was not whole)\n",
+            (long long)seeded, (long long)p->timing.gmc_groups_done, (long long)skipped,
+            (long long)voids);
+    if (cam || feat || det || blows || voids) {
       fprintf(stderr,
               "[i] fallback summary: camera-queue drops %lld (BREAKS the GMC registration), "
               "features skipped by the inference %lld, detections skipped %lld, "
-              "GMC fits degraded by the watchdog %lld\n",
-              (long long)cam, (long long)feat, (long long)det, (long long)blows);
+              "GMC fits degraded by the watchdog %lld, GMC frames voided %lld\n",
+              (long long)cam, (long long)feat, (long long)det, (long long)blows,
+              (long long)voids);
     } else {
       fprintf(stderr,
               "[i] fallback summary: clean -- no camera-queue drop, no skipped feature, "
-              "no skipped detection, no degraded GMC fit\n");
+              "no skipped detection, no degraded GMC fit, no voided GMC frame\n");
     }
   }
   p->cv_out.notify_all();
@@ -1851,6 +1948,19 @@ int32_t mosaic_pipeline_get_timing(MosaicPipeline* p, MosaicPipelineTiming* out)
   // gmc_ingest_window_ms, gmc_ingest_space_ms) and the job-queue depth
   // counters (gmc_queue_depth_sum / gmc_queue_samples) come along with it.
   *out = p->timing;
+  // THE FRAMES THE ENGINE DELIBERATELY DID NOT COMPUTE.
+  //
+  // It is a DIFFERENCE, not a counter: the frames the ingest seeded into the
+  // history, minus the frames that became a group, minus the frames that were
+  // voided.  What is left is the frames the engine passed because it was busy
+  // with a newer one -- the whole point of the opportunistic scheduler, and
+  // NOT a loss (they are still in the history).
+  {
+    const int64_t seeded = p->gmc_seeded_frames.load(std::memory_order_relaxed);
+    int64_t skipped = seeded - out->gmc_groups_done - out->gmc_void_frames;
+    if (skipped < 0) skipped = 0;   // the counters are sampled at different instants
+    out->gmc_frames_skipped = skipped;
+  }
   // The fit distribution is computed here rather than accumulated, so it is
   // always consistent with the samples collected SO FAR (a partially completed
   // run still reports a usable distribution).

@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Editorial Light Master</title>
+</head>
+<body style="width:1280px;height:720px;margin:0;overflow:hidden;font-family:'Microsoft YaHei','PingFang SC',sans-serif;background:radial-gradient(circle at top right,rgba(188,147,72,0.18),transparent 32%),linear-gradient(180deg,#f7f5ef 0%,#f4f6f9 100%);color:#122033;display:flex;align-items:center;justify-content:center;">
+  <div class="slide" style="width:1180px;height:620px;display:grid;grid-template-rows:110px 1fr 70px;gap:18px;padding:28px 30px;border-radius:28px;background:rgba(255,255,255,0.84);box-shadow:0 24px 80px rgba(15,23,42,0.12);border:1px solid rgba(18,32,51,0.08);">
+    <header class="header" style="display:flex;align-items:end;justify-content:space-between;border-bottom:1px solid rgba(18,32,51,0.12);padding-bottom:14px;">
+      <div>
+        <div class="eyebrow" style="display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:rgba(201,151,77,0.12);color:#7d5a22;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">Signal Narrative</div>
+        <h1 class="title" style="margin:14px 0 0;font-size:38px;line-height:1.08;font-weight:800;letter-spacing:-0.03em;">战果 B4｜精度账：f16 代价 ≈ 0，打包的账单独算</h1>
+        <p class="subtitle" style="margin:8px 0 0;color:#4b5b70;font-size:15px;line-height:1.4;">&nbsp;</p>
+      </div>
+      <div class="page-tag" style="align-self:start;padding:10px 14px;border-radius:14px;background:#122033;color:#f8fafc;font-size:12px;font-weight:700;letter-spacing:0.06em;">11/18</div>
+    </header>
+
+    <main class="content" style="display:grid;grid-template-rows:62px 210px 1fr;gap:8px;min-height:0;">
+      <section aria-label="精度归因结论" style="display:grid;grid-template-rows:18px 1fr;gap:3px;padding:8px 16px;border-radius:18px;background:linear-gradient(90deg,rgba(255,255,255,0.9),rgba(255,255,255,0.7));border:1px solid rgba(18,32,51,0.1);box-shadow:0 10px 28px rgba(15,23,42,0.06);">
+        <div style="display:flex;align-items:center;justify-content:space-between;color:#5a6879;font-size:10.5px;line-height:1;">
+          <span style="font-weight:700;color:#7d5a22;">口径修正</span>
+          <span>原记录无 B 臂；7 个 arm 使用同一打分器、同图、同一画布、同一次前向重算，补齐 B 臂。</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);align-items:center;min-height:0;">
+          <div style="display:flex;align-items:baseline;gap:10px;padding-right:18px;border-right:1px solid rgba(18,32,51,0.1);">
+            <span style="font-size:24px;line-height:1;font-weight:800;color:#2f7568;letter-spacing:-0.03em;">+0.000529</span>
+            <span style="font-size:12px;font-weight:700;color:#4b5b70;">f16 量化</span>
+          </div>
+          <div style="display:flex;align-items:baseline;gap:10px;padding:0 18px;border-right:1px solid rgba(18,32,51,0.1);">
+            <span style="font-size:24px;line-height:1;font-weight:800;color:#9a514c;letter-spacing:-0.03em;">−0.002668</span>
+            <span style="font-size:12px;font-weight:700;color:#4b5b70;">打包变化</span>
+          </div>
+          <div style="display:flex;align-items:baseline;gap:10px;padding-left:18px;">
+            <span style="font-size:24px;line-height:1;font-weight:800;color:#122033;letter-spacing:-0.03em;">−0.002139</span>
+            <span style="font-size:12px;font-weight:700;color:#4b5b70;">交付净账</span>
+          </div>
+        </div>
+      </section>
+
+      <section style="display:grid;grid-template-columns:1.48fr 0.92fr;gap:8px;min-height:0;">
+        <article class="panel" aria-label="T3 盲测交付总账" style="min-height:0;padding:12px 14px;border-radius:20px;background:rgba(255,255,255,0.86);border:1px solid rgba(18,32,51,0.08);box-shadow:0 12px 30px rgba(15,23,42,0.07);overflow:hidden;">
+          <div style="display:flex;align-items:center;justify-content:space-between;height:24px;">
+            <h2 style="margin:0;font-size:16px;line-height:1.2;font-weight:800;letter-spacing:-0.02em;">T3 盲测｜真实交付总账</h2>
+            <span style="padding:5px 9px;border-radius:999px;background:rgba(201,151,77,0.12);color:#7d5a22;font-size:10.5px;font-weight:700;">11,810 帧</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;height:18px;color:#6a7889;font-size:10.5px;">
+            <span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:#c9974d;"></span>
+            <span>同图、同画布、同一次前向；增量以原始未舍入结果计算</span>
+          </div>
+          <table aria-label="T3 A B C F1 对照表" style="width:100%;margin-top:5px;border-collapse:separate;border-spacing:0;font-size:11.5px;table-layout:fixed;">
+            <thead>
+              <tr style="color:#6a7889;font-size:10.5px;font-weight:700;text-align:left;">
+                <th scope="col" style="width:42px;padding:5px 6px;border-bottom:1px solid rgba(18,32,51,0.1);">臂</th>
+                <th scope="col" style="padding:5px 6px;border-bottom:1px solid rgba(18,32,51,0.1);">计算方式</th>
+                <th scope="col" style="width:92px;padding:5px 6px;border-bottom:1px solid rgba(18,32,51,0.1);text-align:right;">F1</th>
+                <th scope="col" style="width:112px;padding:5px 6px;border-bottom:1px solid rgba(18,32,51,0.1);text-align:right;">角色</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr style="height:38px;border-bottom:1px solid rgba(18,32,51,0.06);">
+                <td style="padding:5px 6px;">
+                  <span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:8px;background:rgba(18,32,51,0.08);color:#122033;font-size:11px;font-weight:800;">A</span>
+                </td>
+                <td style="padding:5px 6px;color:#34445a;">PC f32 <span style="color:#8a96a4;">｜</span> 逐尺度 3 次</td>
+                <td style="padding:5px 6px;text-align:right;font-size:15px;font-weight:800;font-variant-numeric:tabular-nums;">0.897694</td>
+                <td style="padding:5px 6px;text-align:right;"><span style="padding:4px 7px;border-radius:999px;background:rgba(18,32,51,0.07);color:#536174;font-size:10px;font-weight:700;">冻结基准</span></td>
+              </tr>
+              <tr style="height:38px;border-bottom:1px solid rgba(18,32,51,0.06);">
+                <td style="padding:5px 6px;">
+                  <span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:8px;background:rgba(154,81,76,0.1);color:#8d4945;font-size:11px;font-weight:800;">B</span>
+                </td>
+                <td style="padding:5px 6px;color:#34445a;">PC f32 <span style="color:#8a96a4;">｜</span> 拼图 1 次</td>
+                <td style="padding:5px 6px;text-align:right;font-size:15px;font-weight:800;font-variant-numeric:tabular-nums;">0.895025</td>
+                <td style="padding:5px 6px;text-align:right;"><span style="padding:4px 7px;border-radius:999px;background:rgba(154,81,76,0.1);color:#8d4945;font-size:10px;font-weight:700;">隔离打包损失</span></td>
+              </tr>
+              <tr style="height:38px;">
+                <td style="padding:5px 6px;">
+                  <span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:8px;background:rgba(201,151,77,0.16);color:#7d5a22;font-size:11px;font-weight:800;">C</span>
+                </td>
+                <td style="padding:5px 6px;color:#34445a;">板端 f16 <span style="color:#8a96a4;">｜</span> 拼图 1 次</td>
+                <td style="padding:5px 6px;text-align:right;font-size:15px;font-weight:800;color:#7d5a22;font-variant-numeric:tabular-nums;">0.895555</td>
+                <td style="padding:5px 6px;text-align:right;"><span style="padding:4px 7px;border-radius:999px;background:rgba(201,151,77,0.14);color:#7d5a22;font-size:10px;font-weight:700;">交付产物</span></td>
+              </tr>
+            </tbody>
+          </table>
+          <div style="display:flex;align-items:center;justify-content:space-between;height:17px;margin-top:3px;color:#68778a;font-size:10.5px;">
+            <span>B → C：量化后 F1 回升</span>
+            <strong style="color:#2f7568;font-size:12px;">+0.000529</strong>
+          </div>
+        </article>
+
+        <article class="panel" aria-label="T2 黄金池量化对照" style="min-height:0;padding:12px 14px;border-radius:20px;background:rgba(255,255,255,0.86);border:1px solid rgba(18,32,51,0.08);box-shadow:0 12px 30px rgba(15,23,42,0.07);overflow:hidden;">
+          <div style="display:flex;align-items:center;justify-content:space-between;height:25px;">
+            <div>
+              <h2 style="margin:0;font-size:16px;line-height:1.15;font-weight:800;letter-spacing:-0.02em;">T2 黄金池</h2>
+              <div style="margin-top:3px;color:#6a7889;font-size:10.5px;">量化对照</div>
+            </div>
+            <span style="padding:5px 9px;border-radius:999px;background:rgba(47,117,104,0.1);color:#2f7568;font-size:10px;font-weight:700;">f16 无可见损失</span>
+          </div>
+
+          <div style="display:grid;grid-template-rows:39px 1fr;gap:8px;height:137px;margin-top:7px;">
+            <div style="display:grid;grid-template-columns:34px 1fr 78px;align-items:center;padding:6px 9px;border-radius:12px;background:rgba(18,32,51,0.045);border:1px solid rgba(18,32,51,0.07);">
+              <span style="display:inline-flex;align-items:center;justify-content:center;width:23px;height:23px;border-radius:7px;background:rgba(18,32,51,0.08);font-size:11px;font-weight:800;">A</span>
+              <span style="color:#45556a;font-size:10.5px;">PC f32｜逐尺度 3 次</span>
+              <strong style="text-align:right;font-size:15px;font-variant-numeric:tabular-nums;">0.998949</strong>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 30px 1fr;align-items:stretch;min-height:0;">
+              <div style="display:grid;grid-template-columns:30px 1fr;grid-template-rows:34px 1fr;align-items:center;padding:7px 8px;border-radius:12px;background:rgba(201,151,77,0.08);border:1px solid rgba(201,151,77,0.18);">
+                <span style="grid-row:1 / 3;display:inline-flex;align-items:center;justify-content:center;width:23px;height:23px;border-radius:7px;background:rgba(201,151,77,0.15);color:#7d5a22;font-size:11px;font-weight:800;">B</span>
+                <span style="padding-left:4px;color:#45556a;font-size:10px;line-height:1.2;">PC f32｜拼图</span>
+                <strong style="padding-left:4px;padding-top:3px;font-size:15px;font-variant-numeric:tabular-nums;">0.999790</strong>
+              </div>
+              <div style="position:relative;display:flex;align-items:center;justify-content:center;color:#7d5a22;font-size:17px;font-weight:800;">
+                <span style="position:absolute;left:4px;right:4px;top:50%;height:1px;background:rgba(201,151,77,0.42);"></span>
+                <span style="position:relative;background:rgba(255,255,255,0.96);padding:2px 0;">＝</span>
+              </div>
+              <div style="display:grid;grid-template-columns:30px 1fr;grid-template-rows:34px 1fr;align-items:center;padding:7px 8px;border-radius:12px;background:rgba(47,117,104,0.07);border:1px solid rgba(47,117,104,0.16);">
+                <span style="grid-row:1 / 3;display:inline-flex;align-items:center;justify-content:center;width:23px;height:23px;border-radius:7px;background:rgba(47,117,104,0.12);color:#2f7568;font-size:11px;font-weight:800;">C</span>
+                <span style="padding-left:4px;color:#45556a;font-size:10px;line-height:1.2;">板端 f16｜拼图</span>
+                <strong style="padding-left:4px;padding-top:3px;color:#2f7568;font-size:15px;font-variant-numeric:tabular-nums;">0.999790</strong>
+              </div>
+            </div>
+          </div>
+          <div style="height:18px;margin-top:5px;color:#6a7889;font-size:10px;line-height:1.2;display:flex;align-items:center;gap:6px;">
+            <span style="display:inline-block;width:18px;height:1px;background:rgba(201,151,77,0.6);"></span>
+            B = C：同值直接支撑“量化无损”
+          </div>
+        </article>
+      </section>
+
+      <section aria-label="交付精度变化拆账" style="display:grid;grid-template-columns:1.55fr 0.65fr;gap:8px;min-height:0;">
+        <div style="display:grid;grid-template-rows:18px 1fr 14px;padding:10px 14px;border-radius:18px;background:rgba(255,255,255,0.84);border:1px solid rgba(18,32,51,0.08);box-shadow:0 10px 28px rgba(15,23,42,0.06);overflow:hidden;">
+          <div style="display:flex;align-items:center;justify-content:space-between;color:#4b5b70;font-size:10.5px;font-weight:700;">
+            <span>相对 A 基准的 F1 变化｜局部尺度</span>
+            <span style="color:#7d5a22;">交付拆账</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1.1fr 1.1fr 1.15fr;align-items:center;gap:8px;min-height:0;">
+            <div style="position:relative;padding:8px 10px;border-radius:11px;background:rgba(18,32,51,0.07);border:1px solid rgba(18,32,51,0.1);">
+              <div style="font-size:10px;color:#68778a;font-weight:700;">起点 A</div>
+              <div style="margin-top:3px;font-size:16px;font-weight:800;font-variant-numeric:tabular-nums;">0.897694</div>
+            </div>
+            <div style="position:relative;height:54px;padding:8px 10px;border-radius:11px;background:rgba(154,81,76,0.08);border:1px solid rgba(154,81,76,0.16);">
+              <span style="position:absolute;right:9px;top:7px;color:#9a514c;font-size:18px;font-weight:800;">↓</span>
+              <div style="font-size:10px;color:#775f5c;font-weight:700;">拼图打包</div>
+              <div style="margin-top:3px;color:#9a514c;font-size:16px;font-weight:800;">−0.002668</div>
+            </div>
+            <div style="position:relative;height:54px;padding:8px 10px;border-radius:11px;background:rgba(47,117,104,0.07);border:1px solid rgba(47,117,104,0.15);">
+              <span style="position:absolute;right:9px;top:7px;color:#2f7568;font-size:18px;font-weight:800;">↑</span>
+              <div style="font-size:10px;color:#54706a;font-weight:700;">f16 量化</div>
+              <div style="margin-top:3px;color:#2f7568;font-size:16px;font-weight:800;">+0.000529</div>
+            </div>
+            <div style="position:relative;padding:8px 10px;border-radius:11px;background:linear-gradient(135deg,rgba(201,151,77,0.13),rgba(255,255,255,0.72));border:1px solid rgba(201,151,77,0.24);">
+              <div style="font-size:10px;color:#7d5a22;font-weight:700;">终点 C · 交付产物</div>
+              <div style="margin-top:3px;font-size:16px;font-weight:800;font-variant-numeric:tabular-nums;">0.895555</div>
+              <span style="position:absolute;right:9px;top:7px;color:#7d5a22;font-size:18px;font-weight:800;">↘</span>
+            </div>
+          </div>
+          <div style="color:#7b8796;font-size:9.5px;line-height:1;">口径：B → C 为量化增量；显示差值按原始未舍入结果统一核算，避免六位小数舍入误差。</div>
+        </div>
+
+        <aside aria-label="核心结论" style="display:flex;flex-direction:column;justify-content:center;padding:12px 16px;border-radius:18px;background:#122033;color:#f8fafc;box-shadow:0 12px 30px rgba(15,23,42,0.12);overflow:hidden;">
+          <div style="margin-bottom:5px;color:rgba(248,250,252,0.62);font-size:10px;font-weight:700;letter-spacing:0.08em;">交付结论</div>
+          <div style="font-size:15px;line-height:1.45;font-weight:800;">净损失主要来自<span style="color:#efc98f;">打包</span>，而非 <span style="color:#8fd0c3;">f16</span>。</div>
+          <div style="margin-top:7px;padding-top:7px;border-top:1px solid rgba(248,250,252,0.14);color:rgba(248,250,252,0.7);font-size:10px;line-height:1.35;">不是 f16 把精度打掉了，而是打包方式单独产生损失。</div>
+        </aside>
+      </section>
+    </main>
+
+    <footer class="footer" style="display:flex;align-items:center;justify-content:space-between;padding:0 8px;color:#5a6879;font-size:12px;border-top:1px solid rgba(18,32,51,0.1);">
+      <span>Editorial Light Master</span>
+      <span>11</span>
+    </footer>
+  </div>
+</body>
+</html>

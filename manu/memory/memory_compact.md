@@ -995,6 +995,7 @@ python3 manu/memory/validate_nav_table.py    # 归档完整性 + 59 条导航逐
 | 你要 | 去哪儿 |
 |:--|:--|
 | 当前状态 / 擂主 / 最新结论 / §导航表 | `manu/memory/memory.md`（**1,233 行**主档，**§11.7 为最新**） |
+| **对外汇报的正文 / PPT / 讲稿底稿** | **`manu/report/`**（`00_汇报正文_工程化阶段.md` 正文 + `01_幻灯片大纲.md` 18 页逐页素材 + `02_数据溯源.md` 数字→memory 出处 + `assets/` PPTX + `slides/` PNG）。**分工**：memory = 做过什么 · report = 怎么讲 · skills = 怎么做 |
 | 完整历史（按年代切 5 卷，零丢失） | `manu/memory/archive/00~04_*.md`；compact 全量 `05_memory_compact_全量_20261022.md` |
 | 铁律正文 | `manu/memory/rules.md`（1,282 行） |
 | 失败与证伪实验全景 | `manu/memory/falsified_archive.md` |

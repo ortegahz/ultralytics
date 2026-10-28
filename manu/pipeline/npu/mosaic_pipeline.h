@@ -64,9 +64,19 @@
  *   timing.gmc_groups_done    -- the frames the GMC service really computed a
  *                                feature for.  THE AUTHORITATIVE denominator
  *                                for "how many results should I get": it is
- *                                NOT the number of pushed frames, because with
- *                                gmc_compute_stride > 1 only every Nth frame
- *                                becomes a group.
+ *                                NOT the number of pushed frames, because the
+ *                                OPPORTUNISTIC scheduler computes the newest
+ *                                frame only and skips the ones it could not
+ *                                keep up with.
+ *   timing.gmc_frames_skipped -- the frames that were seeded into the history
+ *                                but never computed (the engine was busy with
+ *                                a newer frame).  NOT an error: this is what
+ *                                "opportunistic" means.
+ *   timing.gmc_void_frames    -- the frames whose 21-frame history was NOT
+ *                                whole (overwritten by a producer that ran
+ *                                too far ahead, or a camera frame that was
+ *                                lost).  They are VOIDED, never fitted on
+ *                                torn data.  Must stay 0 in a healthy run.
  *
  * THREADING CONTRACT
  * ------------------
@@ -94,13 +104,23 @@
 extern "C" {
 #endif
 
-/* v8: MosaicPipelineTiming gained gmc_groups_done, so the STRUCT LAYOUT
+/* v9: MosaicPipelineTiming gained gmc_void_frames and gmc_frames_skipped,
+ * and MosaicPipelineConfig's gmc_compute_stride was RENAMED to gmc_min_stride
+ * (same slot, same type -- the MEANING changed: it is no longer a fixed
+ * cadence but the minimum physical-frame gap between two GMC groups), so
+ * BOTH STRUCT LAYOUTS changed.  A caller built against v8 must be recompiled:
+ * the version is checked in mosaic_pipeline_create() and a mismatch is
+ * rejected instead of silently reading the wrong fields.
+ *
+ * The v8 note below still stands:
+ * v8: MosaicPipelineTiming gained gmc_groups_done, so the STRUCT LAYOUT
  * changed.  A caller built against v7 must be recompiled: the version is
  * checked in mosaic_pipeline_create() and a mismatch is rejected instead of
  * silently reading the wrong fields.
  *
  * The v7 note below still stands:
- * v7: MosaicPipelineConfig gained gmc_compute_stride, so the STRUCT LAYOUT
+ * v7: MosaicPipelineConfig gained gmc_compute_stride (renamed to gmc_min_stride
+ * in v9), so the STRUCT LAYOUT
  * changed.  A caller built against v6 must be recompiled: the version is
  * checked in mosaic_pipeline_create() and a mismatch is rejected instead of
  * silently reading the wrong fields.
@@ -125,7 +145,7 @@ extern "C" {
  * caller built against v3 must be recompiled: the version is checked in
  * mosaic_pipeline_create() and a mismatch is rejected instead of silently
  * reading the wrong fields. */
-#define MOSAIC_API_VERSION 8
+#define MOSAIC_API_VERSION 9
 
 /* ---- canvas modes ------------------------------------------------------- */
 enum {
@@ -267,46 +287,45 @@ typedef struct {
                            * DEFAULT 1: the board A/B showed 1 engine and 2 engines
                            * produce byte-identical GMC features, and the NPU stage
                            * is the bottleneck, so the second engine buys nothing.
-                           * The hard cap stays 2. */
-  /* THE LOOKAHEAD BUDGET of the GMC service, in frames.
+                           * The hard cap stays 2.
+                           *
+                           * THE OPPORTUNISTIC SCHEDULER FORCES THIS TO 1 (v9).
+                           * WHY: several engines would all grab the SAME newest
+                           * frame (they share one history and one head), so the
+                           * extra engines would produce DUPLICATE results, not
+                           * extra throughput; and two engines measured the GMC
+                           * fit's p99 at 695 ms against 200 ms with one, because
+                           * they fight over the same CPU.  A request for more
+                           * than one is forced down to one and logged. */
+  /* THE HISTORY RING'S SLACK, in frames.
    *
-   * WHY it exists: the ingest thread is the ONLY writer of the GMC history
-   * rings, so it may not run ahead of the oldest frame an engine still OWES
-   * by more than this budget.  Seeding frame S overwrites the slot that held
-   * S-ring_depth, and the engine computing frame J still needs frames
-   * J-42..J, so a producer that runs too far ahead makes the fit read
-   * OVERWRITTEN pixels -- wrong numbers, no crash.  The budget therefore IS
-   * the ingest's freedom to run ahead, and it IS the history ring's depth:
-   * ring_depth = max_lag + 1 + ring_slack.
+   * WHAT IT IS NOW (v9): one of the two terms of the ring's depth --
+   * ring_depth = max(GMC_RING_BUFFER_SIZE = 64, max_lag + 1 + gmc_ring_slack).
+   * It is no longer a "the ingest must not outrun the engines" budget: under
+   * the OPPORTUNISTIC scheduler the ingest NEVER waits, so it runs ahead
+   * freely, and the ring's depth is what keeps that freedom SAFE.
    *
-   * It is a THROUGHPUT knob, never an accuracy knob: it changes how far the
-   * ingest may run ahead of the engines, never WHICH pixels a fit reads, so
-   * the feature stream stays bit-identical.
+   * WHY the depth matters now more than ever: seeding frame S overwrites the
+   * slot that held S - ring_depth, and the engine computing frame J still
+   * needs frames J-42..J.  The engine checks that the whole history is still
+   * there (history_complete) and VOIDS the frame if it is not, so a producer
+   * that runs too far ahead costs a frame instead of producing wrong pixels.
    *
-   * WHY it has to be big enough: the guard's release rate is the engine's
-   * COMPLETION rate.  With a small budget the ingest is blocked by the
-   * lagging engine, the engine's job queue drains, the engine starves and
-   * slows down -- and the slower engine blocks the ingest even harder.  That
-   * is a self-sustaining rate limit, and its price is paid at the CAMERA
-   * queue, where a lost frame breaks the GMC registration chain for every
-   * frame after it.  With a budget that covers the whole lookahead the
-   * engines always have work queued and the camera is the only pacer.
+   * THE EFFECTIVE SLACK of the default configuration: ring_depth 64 - 43
+   * frames the algorithm reads = 21 frames of producer headroom = 840 ms at
+   * 25 fps, against a worst measured GMC stall of 250 ms.  A gmc_ring_slack
+   * above 21 only deepens the ring (more raw frames stay alive: ring_depth x
+   * 640x512 B); it buys no accuracy.
    *
    * 0 = AUTO (the default): the library derives it from gmc_workers as
-   * max(64, 32*gmc_workers).  The engine job queue follows it (see the
-   * library's gmc_job_depth), because a lookahead the job queue cannot hold
-   * is a lookahead that cannot be used.
+   * max(64, 32*gmc_workers).
    *
    * THE AUTO RULE IS RESOLVED BY THE LIBRARY, ONCE.  A request of 0 is
    * resolved during create()'s sanitize stage, and
    * mosaic_pipeline_effective_config() then reports the RESOLVED budget -- so
    * a caller reads the budget in force instead of re-deriving the rule (a
    * second copy of the formula would drift, and the report would then state
-   * a budget the pipeline does not use).
-   *
-   * COST: the history ring is deeper, so more raw frames stay alive:
-   * ring_depth x 640x512 B (both engines are seeded with the SAME frame
-   * buffers, so it is paid once). */
+   * a budget the pipeline does not use). */
   int32_t gmc_ring_slack;
   int32_t post_workers;  /* back-projection + connected components service   */
   int32_t queue_depth;   /* depth of the queues BETWEEN the services         */
@@ -469,30 +488,33 @@ typedef struct {
    * how stale the output is. */
   int32_t gmc_input_drop_policy;
 
-  /* THE COMPUTATION CADENCE: how many camera frames make ONE GMC group.
+  /* THE MINIMUM GAP BETWEEN TWO GMC GROUPS, in frames.
    *
-   * 1 (the default) = every frame gets its own group -- the certified
-   * behaviour, one GMC feature per camera frame.
+   * THIS IS NOT A CADENCE ANY MORE.  Under the OPPORTUNISTIC latest-frame
+   * scheduler there is no fixed grid: the engine computes whatever the
+   * NEWEST frame is when it becomes free, and this number only says how far
+   * apart two consecutive groups have to be.
    *
-   * 2 = every second frame gets a group.  WHY IT EXISTS: the GMC group cost
-   * is ~65-116 ms, so at one group per frame the service can only cover
-   * 15.3 camera frames per second -- LESS than the 25 fps camera -- and the
-   * camera queue therefore overflows, the physical frame ids develop holes,
-   * and with the physical anchor those holes become DETECTED history gaps.
-   * At one group per two frames the same service covers 30.6 camera frames
-   * per second, which is FASTER than the camera: the camera queue never
-   * overflows, the frame ids stay dense, the history has no holes, and the
-   * features of the frames that ARE computed are bit-identical to the ones
-   * the certified pipeline computes for the same frame numbers.
+   * 1 (the default) = NO LIMIT: the engine grabs the newest frame the moment
+   * it is free.  This is the ADAPTIVE mode -- the service always works on the
+   * freshest data and its throughput is whatever the hardware allows, and the
+   * frames it could not keep up with are simply SKIPPED (they still seed the
+   * history, so skipping never punches a hole in it).
    *
-   * The stride counts CAMERA frames (the physical id), and the groups are
-   * taken on the physical grid, so the 21 lags of a group are exactly the
-   * 21 grid positions f-2, f-4, ... f-42 -- the same reads the certified
-   * pipeline makes for that frame.
+   * >1 = an artificial rate limit: the engine waits until the newest frame is
+   * at least N frames past the one it computed last (2 = at least two frames
+   * between two groups).  Use it only to pin a frame rate that the caller
+   * needs downstream; it buys nothing in accuracy and it makes the output
+   * older.
    *
-   * It changes WHICH frames get a feature (one in every N), never what a
-   * feature is computed from. */
-  int32_t gmc_compute_stride;
+   * The gap is counted in the SAME index space the engine computes in: the
+   * camera's physical frame number when gmc_phys_anchor=1, the dense
+   * consumption counter otherwise.
+   *
+   * RENAMED in v9 from gmc_compute_stride, whose meaning was the opposite
+   * (a fixed "every Nth frame" cadence on the physical grid).  Same slot, same
+   * type -- the layout is unchanged, only the semantics are. */
+  int32_t gmc_min_stride;
 } MosaicPipelineConfig;
 
 /* ---- accumulated timing, milliseconds ------------------------------------ */
@@ -512,7 +534,13 @@ typedef struct {
    *   gmc_window_blocks    times it waited for the history-window guard
    *   gmc_space_blocks     times it waited for room in an engine's job queue
    * A "window_blocks" that grows with the run means the pipeline's RATE is
-   * capped by the guard, not by the work. */
+   * capped by the guard, not by the work.
+   *
+   * v9: under the OPPORTUNISTIC scheduler the ingest NEVER WAITS -- it seeds
+   * the history and moves on.  The two block counters are therefore KEPT (the
+   * layout is frozen) but they are never incremented any more, and their
+   * reading of 0 IS the evidence that the back-pressure path is gone: the
+   * camera queue is no longer stalled by the GMC service. */
   double gmc_ingest_ms;
   int64_t gmc_window_blocks;
   int64_t gmc_space_blocks;
@@ -526,7 +554,11 @@ typedef struct {
    *                          faster than the engines)
    *   gmc_ingest_space_ms    blocked by an engine's job queue being full
    * The sum of the three plus the ingest's own work is gmc_ingest_ms, so the
-   * split is a COMPLETE accounting of the ingest, not an estimate. */
+   * split is a COMPLETE accounting of the ingest, not an estimate.
+   *
+   * v9: the ingest does not block any more, so the last two are always 0 --
+   * they are KEPT (the layout is frozen) and their reading of 0 is the
+   * evidence that the back-pressure is gone. */
   double gmc_ingest_in_wait_ms;
   double gmc_ingest_window_ms;
   double gmc_ingest_space_ms;
@@ -535,7 +567,12 @@ typedef struct {
    * STARVING: a mean of ~1 means every engine picked its job up off an empty
    * queue (it was waiting for work), a mean well above 1 means the engine had
    * a backlog and never went idle.  gmc_queue_samples is the number of pops
-   * the average is over. */
+   * the average is over.
+   *
+   * v9: there IS no job queue any more (the engine grabs the newest frame
+   * straight from the history ring), so these two counters are never
+   * incremented: they read 0 / 0.  They are KEPT so the layout stays frozen
+   * and so an old reader sees a zero instead of a wild number. */
   double gmc_queue_depth_sum;
   int64_t gmc_queue_samples;
   double gmc_warp_ms;
@@ -625,19 +662,50 @@ typedef struct {
    *   * the frames the CAMERA queue dropped -- they never reached the GMC
    *     service, so they have no feature at all (that is timing.dropped);
    *   * the frames that were only SEEDED into the history ring without
-   *     becoming a group -- with gmc_compute_stride > 1 only every Nth camera
-   *     frame gets a group, the frames in between are history and nothing
-   *     else (see gmc_compute_stride in MosaicPipelineConfig).
+   *     becoming a group -- under the OPPORTUNISTIC scheduler the engine
+   *     computes the newest frame and SKIPS the ones it could not keep up
+   *     with; those skipped frames are still seeded (so they are history and
+   *     nothing else).  See gmc_frames_skipped and gmc_min_stride in
+   *     MosaicPipelineConfig.
    *
    * WHY IT EXISTS: it is the AUTHORITATIVE denominator for "how many frames
    * SHOULD have produced a result".  The number of PUSHED frames is NOT that
-   * number once the cadence is > 1, so a caller that checks the delivered
+   * number once frames are skipped, so a caller that checks the delivered
    * results against the pushed frames is wrong by construction.  With this
    * counter the caller computes
    *     expected results = gmc_groups_done - features_dropped
    *                       - detections_dropped
-   * which holds for every cadence. */
+   * which holds for every scheduler. */
   int64_t gmc_groups_done;
+  /* The frames the engine FOUND but refused to compute: their 21-frame
+   * history was not whole.
+   *
+   * WHY IT CAN HAPPEN: the engine computes the NEWEST frame, and the producer
+   * (the ingest) is never blocked, so the producer may run ahead of the
+   * engine.  Once it is more than (ring_depth - 43) frames ahead, the frames
+   * the engine still needs have been OVERWRITTEN in the history ring -- and
+   * then the frame is VOIDED rather than fitted against torn pixels.  A
+   * camera frame that was lost does the same thing to the frames whose
+   * history reaches across the hole (with the physical anchor).
+   *
+   * It is 0 in a healthy run: the ring's 21 frames of producer headroom
+   * (840 ms at 25 fps) cover the worst measured GMC stall (250 ms).  A
+   * non-zero value means the producer outran the ring -- look at
+   * gmc_frames_skipped and at the ingest's wall time. */
+  int64_t gmc_void_frames;
+  /* The frames that were SEEDED into the history but never became a group:
+   * the engine was busy with a newer frame and simply moved on.
+   *
+   * THIS IS NOT AN ERROR.  It is the definition of the opportunistic
+   * scheduler: the engine always works on the FRESHEST frame it can, and the
+   * frames it skipped are still in the history (they are the lags the next
+   * fit reads), so skipping never punches a hole in the history.
+   *
+   * It is computed as
+   *     seeded frames - groups done - void frames
+   * and is therefore the number of frames the camera delivered that the
+   * engine deliberately did not compute. */
+  int64_t gmc_frames_skipped;
 } MosaicPipelineTiming;
 
 /* ---- opaque handle ------------------------------------------------------ */

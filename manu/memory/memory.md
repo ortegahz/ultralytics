@@ -574,6 +574,7 @@ python manu/evaluation/verify_delivery_evidence.py --server huangzhe@192.168.99.
 | `spire_antiuav_debug.md` | SPIRE-IRSTD 在 Anti-UAV 掉分的根因排查 |
 | `web_annotate_tool.md` | 网页视频逐帧标注工具 |
 | `memory_report_detailed.md` | 阶段性汇报专用背景记忆 |
+| 📁 **`manu/report/`** | **汇报产物归档区**（2026-10-27 起）：`00_汇报正文_工程化阶段.md`（工程化阶段汇报正文，**v2 2026-10-28 修订**）+ `01_幻灯片大纲.md`（18 页逐页素材，自动导出）+ `02_数据溯源.md`（每个数字 → memory 出处 + v2 修订记录）+ `assets/`（PPTX + HTML 源）+ `slides/`（PNG 预览）。**分工**：memory = 做过什么；report = 怎么讲；skills = 怎么做。**内容源唯一真值**在 `PPT-AGENT/deck_content.py` |
 
 ---
 
@@ -2687,3 +2688,31 @@ ssh -p 22 root@192.168.0.64 'export LD_LIBRARY_PATH=/root/psearch/fixlibs; \
 | **§17**（专题档） | ⭐ **2026-10-28 第七轮**：**CANON7 实时零丢帧零洞（cadence=4）** + 四层验收全绿 + 吞吐口径（组产能 13.50 组/s ⇒ 覆盖上限 54.0 fps）+ cadence 逐档实测 | `manu/memory/MOSAIC_RK3588_20261026.md` | 该文件末尾 |
 | **§五十三**（证伪档） | ⭐ **2026-10-28 第七轮**：**CANON4「掉帧 352」是错的**（真值 745 帧掉帧 / 352 组未产出 / 898 有洞帧 / 10302 gap）+ **「cadence=3 就够」被推翻** + **「组速率 11.7 组/s」口径作废** | `manu/memory/falsified_archive.md` | 该文件末尾 |
 | **§20**（本档） | ⭐ **2026-10-28 第七轮收口**：CANON7 = canonical 最终交付臂 | **本文档内**（活章节，不入归档） | 见本文件 **§20** |
+
+---
+
+## §21 ⭐ 2026-10-28 第八轮收口：机会主义动态最新帧调度（ABI v9）+ CANON8 最终交付臂
+
+**一句话**：canonical 方案的「动态版」跑通了——**回压被彻底删除（INGEST 零阻塞）、跳帧不产生洞、
+GMC 产能 6.25 → 15.89 组/s、交付检测帧 +79.2%、精度仍逐位一致（7513/7513，ΔF1 = 0.000000）**。
+
+| 项 | 值 |
+|:--|:--|
+| 臂 | `CANON8_opportunistic`（`--gmc-min-stride 1`，真 25 fps，11810 帧） |
+| 执行机 | 板卡 `root@192.168.0.64:22`，二进制 `/root/rknn_mosaic_e2e_v5` md5 `29f151a155648be36a30d7fb2a2b40b2`（ABI **v9**） |
+| 关键数字 | `dropped`=**0**、`gmc_history_gaps`=**0**、`gmc_void_frames`=**0**、`gmc_ingest_window_ms`=**0.000**、`gmc_window_blocks`=**0**、`gmc_groups_done`=**7513**、`gmc_frames_skipped`=**4297**、`features_dropped`=2221 |
+| 吞吐 | GMC **15.89 组/s**（CANON7 的 2.54×）、交付 **11.19 fps**、`gmc_total` 55.21 ms/组、`gmc_fit` p50 39.4 ms |
+| 精度 | 子集校验 **7513/7513 逐位 md5 相同（different=0）**；@S arm 与 ref 逐项相同（F1 0.900282，**ΔF1 = 0.000000**）；判定 **✅ PASS** |
+| 新瓶颈 | **NPU 段**：`upload` 41.56 + `rknn_run` 109.85 + `backproject` 24.15 ≈ 177.5 ms/帧/worker × 2 = 11.27 fps 上限，实测 11.19 fps（**99.3% 饱和**） |
+| 新工具 | `manu/pipeline/npu/ptq/load_and_align_subset.py`（子集对齐校验，md5 `348c895f40ab98d09f206561c1cd8d30`） |
+| 专题档 | `manu/memory/MOSAIC_RK3588_20261026.md` **§18** |
+| 证伪档 | `manu/memory/falsified_archive.md` **§五十四**（cadence 主杠杆说法被取代） |
+| 事故记录 | **§18.7**：scp 误覆盖板卡认证库 `/root/libmosaic_pipeline.a`，已从服务器镜像回灌，md5 回到 `d5b7185f…`；认证二进制 sweep3 未受影响 |
+
+**导航表新增行**（本节）：
+
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|:--|
+| **§18**（专题档） | ⭐ **2026-10-28 第八轮**：**机会主义动态最新帧调度（ABI v9）** + CANON8 实测 + 环深 64 推导 + 子集校验 + 操作事故与恢复 | `manu/memory/MOSAIC_RK3588_20261026.md` | 该文件末尾 |
+| **§五十四**（证伪档） | ⭐ **2026-10-28 第八轮**：**「cadence 是 canonical 主杠杆」被动态调度取代** + 口径作废清单 | `manu/memory/falsified_archive.md` | 该文件末尾 |
+| **§21**（本档） | ⭐ **2026-10-28 第八轮收口**：动态调度 + CANON8 最终交付臂 | **本文档内**（活章节，不入归档） | 见本文件 **§21** |

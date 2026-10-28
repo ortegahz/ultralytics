@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>战果 A1｜GMC Tree 锚点级联：拟合 22 → 6.19 次/帧</title>
+</head>
+<body style="width: 100%; height: 100%; margin: 0; overflow: hidden; position: relative; display: flex; align-items: center; justify-content: center; font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; background: radial-gradient(circle at top right, rgba(188, 147, 72, 0.18), transparent 32%), linear-gradient(180deg, #f7f5ef 0%, #f4f6f9 100%); color: #122033;">
+  <div class="slide" style="width: 1180px; height: 620px; display: grid; grid-template-rows: 110px 1fr 70px; gap: 18px; padding: 28px 30px; border-radius: 28px; background: rgba(255, 255, 255, 0.84); box-shadow: 0 24px 80px rgba(15, 23, 42, 0.12); border: 1px solid rgba(18, 32, 51, 0.08); transform-origin: center center;">
+    <header class="header" style="display: flex; align-items: end; justify-content: space-between; border-bottom: 1px solid rgba(18, 32, 51, 0.12); padding-bottom: 14px; flex-shrink: 0;">
+      <div style="min-width: 0;">
+        <div class="eyebrow" style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; background: rgba(201, 151, 77, 0.12); color: #7d5a22; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;">Signal Narrative</div>
+        <h1 class="title" style="margin: 14px 0 0; font-size: 38px; line-height: 1.08; font-weight: 800; letter-spacing: -0.03em;">战果 A1｜GMC Tree 锚点级联：拟合 22 → 6.19 次/帧</h1>
+        <p class="subtitle" style="margin: 8px 0 0; color: #4b5b70; font-size: 15px; line-height: 1.4;">节省的是拟合次数；warp 仍为 22 次/帧，不等同于整帧计算提速 71.9%。</p>
+      </div>
+      <div class="page-tag" style="align-self: start; padding: 10px 14px; border-radius: 14px; background: #122033; color: #f8fafc; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; flex-shrink: 0;">6/18</div>
+    </header>
+
+    <main class="content" style="display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 18px; min-height: 0; flex: 1;">
+      <section class="panel" style="min-height: 0; border-radius: 24px; background: rgba(255, 255, 255, 0.82); border: 1px solid rgba(18, 32, 51, 0.08); box-shadow: 0 14px 36px rgba(15, 23, 42, 0.08); padding: 22px; display: grid; grid-template-rows: auto 1fr auto; gap: 13px; overflow: hidden;">
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 14px;">
+          <div>
+            <div style="font-size: 18px; line-height: 1.25; font-weight: 800; letter-spacing: -0.01em;">树状锚点级联机制</div>
+            <div style="margin-top: 4px; color: #5a6879; font-size: 12px; line-height: 1.45;">相邻 lag 描述同一段相机运动，22 次长基线拟合存在高度冗余。</div>
+          </div>
+          <span style="flex-shrink: 0; padding: 6px 10px; border-radius: 999px; background: rgba(201, 151, 77, 0.12); color: #7d5a22; font-size: 11px; font-weight: 700;">5 锚点 + 16 推导 lag</span>
+        </div>
+
+        <div style="display: grid; grid-template-rows: 1fr auto; gap: 12px; min-height: 0;">
+          <div style="display: grid; grid-template-columns: 1fr 28px 1fr 28px 1fr; align-items: stretch; gap: 5px; min-height: 0;">
+            <article style="min-width: 0; border-radius: 18px; padding: 14px 12px; background: rgba(201, 151, 77, 0.08); border: 1px solid rgba(201, 151, 77, 0.20); display: flex; flex-direction: column; justify-content: space-between;">
+              <div>
+                <div style="color: #7d5a22; font-size: 11px; font-weight: 800; letter-spacing: 0.06em;">DIRECT FIT</div>
+                <div style="margin-top: 5px; font-size: 15px; font-weight: 800;">锚点直接拟合</div>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px;">
+                <span style="width: 31px; height: 31px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: #c9974d; color: #fff; font-size: 12px; font-weight: 800; box-shadow: 0 5px 12px rgba(201, 151, 77, 0.20);">2</span>
+                <span style="width: 31px; height: 31px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: #c9974d; color: #fff; font-size: 12px; font-weight: 800; box-shadow: 0 5px 12px rgba(201, 151, 77, 0.20);">12</span>
+                <span style="width: 31px; height: 31px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: #c9974d; color: #fff; font-size: 12px; font-weight: 800; box-shadow: 0 5px 12px rgba(201, 151, 77, 0.20);">22</span>
+                <span style="width: 31px; height: 31px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: #c9974d; color: #fff; font-size: 12px; font-weight: 800; box-shadow: 0 5px 12px rgba(201, 151, 77, 0.20);">32</span>
+                <span style="width: 31px; height: 31px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: #c9974d; color: #fff; font-size: 12px; font-weight: 800; box-shadow: 0 5px 12px rgba(201, 151, 77, 0.20);">42</span>
+              </div>
+            </article>
+
+            <div style="display: flex; align-items: center; justify-content: center; color: #b58a45; font-size: 24px; font-weight: 300;">→</div>
+
+            <article style="min-width: 0; border-radius: 18px; padding: 14px 12px; background: rgba(244, 246, 249, 0.92); border: 1px solid rgba(18, 32, 51, 0.10); display: flex; flex-direction: column; justify-content: space-between;">
+              <div>
+                <div style="color: #5a6879; font-size: 11px; font-weight: 800; letter-spacing: 0.06em;">CACHE STEP</div>
+                <div style="margin-top: 5px; font-size: 15px; font-weight: 800;">缓存步连乘推导</div>
+              </div>
+              <div style="margin-top: 10px;">
+                <div style="display: flex; align-items: center; gap: 5px;">
+                  <span style="width: 25px; height: 25px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: #d7aa65; color: #fff; font-size: 10px; font-weight: 800;">D1</span>
+                  <span style="width: 25px; height: 25px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: #dcb77e; color: #fff; font-size: 10px; font-weight: 800;">D2</span>
+                  <span style="width: 25px; height: 25px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: #e7c99d; color: #7d5a22; font-size: 10px; font-weight: 800;">D3</span>
+                  <span style="width: 25px; height: 25px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: #f1ddc0; color: #7d5a22; font-size: 10px; font-weight: 800;">D4</span>
+                </div>
+                <div style="margin-top: 7px; color: #5a6879; font-size: 11px; line-height: 1.35;">其余 16 个 lag · 最大深度 4</div>
+              </div>
+            </article>
+
+            <div style="display: flex; align-items: center; justify-content: center; color: #b58a45; font-size: 24px; font-weight: 300;">→</div>
+
+            <article style="min-width: 0; border-radius: 18px; padding: 14px 12px; background: #122033; color: #f8fafc; display: flex; flex-direction: column; justify-content: center; box-shadow: 0 12px 25px rgba(18, 32, 51, 0.16);">
+              <div style="color: #ddc18f; font-size: 11px; font-weight: 800; letter-spacing: 0.06em;">FULL OUTPUT</div>
+              <div style="margin-top: 6px; font-size: 18px; line-height: 1.25; font-weight: 800;">完整 22-lag</div>
+              <div style="margin-top: 7px; color: rgba(248, 250, 252, 0.72); font-size: 11px; line-height: 1.35;">保持完整时间基线输出</div>
+            </article>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 170px; gap: 15px; align-items: end; padding-top: 2px;">
+            <div>
+              <div style="display: grid; grid-template-columns: 78px 1fr 48px; gap: 9px; align-items: center; margin-bottom: 9px;">
+                <div style="font-size: 11px; font-weight: 700; color: #5a6879;">Baseline</div>
+                <div style="height: 18px; border-radius: 999px; background: #dfe4ea; overflow: hidden;">
+                  <div style="width: 100%; height: 100%; border-radius: inherit; background: #718096;"></div>
+                </div>
+                <div style="font-size: 13px; font-weight: 800; text-align: right;">22</div>
+              </div>
+              <div style="display: grid; grid-template-columns: 78px 1fr 48px; gap: 9px; align-items: center;">
+                <div style="font-size: 11px; font-weight: 800; color: #7d5a22;">GMC Tree</div>
+                <div style="height: 18px; border-radius: 999px; background: rgba(201, 151, 77, 0.13); overflow: hidden;">
+                  <div style="width: 28.14%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #b9863d, #d3aa69);"></div>
+                </div>
+                <div style="font-size: 13px; font-weight: 800; color: #7d5a22; text-align: right;">6.19</div>
+              </div>
+              <div style="margin-top: 9px; display: flex; align-items: center; gap: 7px;">
+                <span style="padding: 5px 9px; border-radius: 999px; background: rgba(201, 151, 77, 0.14); color: #7d5a22; font-size: 12px; font-weight: 800;">直接拟合 −71.9%</span>
+                <span style="color: #68778a; font-size: 11px;">6.19 次/帧</span>
+              </div>
+            </div>
+            <aside style="padding: 11px 12px; border-radius: 14px; background: rgba(95, 108, 125, 0.08); border: 1px solid rgba(18, 32, 51, 0.08);">
+              <div style="font-size: 10px; font-weight: 800; letter-spacing: 0.08em; color: #68778a;">CALCULATION BOUNDARY</div>
+              <div style="margin-top: 4px; font-size: 14px; font-weight: 800;">warp 22 次/帧</div>
+              <div style="margin-top: 3px; color: #68778a; font-size: 10px; line-height: 1.35;">不计入本次拟合节省</div>
+            </aside>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 11px; border-top: 1px solid rgba(18, 32, 51, 0.08);">
+          <div style="font-size: 11px; color: #5a6879; line-height: 1.45;">方法本质：用缓存变换恢复其余 lag，避免 22 次逐一拟合。</div>
+          <span style="flex-shrink: 0; padding: 5px 9px; border-radius: 999px; background: rgba(201, 151, 77, 0.10); color: #7d5a22; font-size: 10px; font-weight: 700;">代数等价性 ≠ 估计量等价</span>
+        </div>
+      </section>
+
+      <section class="panel" style="min-height: 0; border-radius: 24px; background: rgba(255, 255, 255, 0.82); border: 1px solid rgba(18, 32, 51, 0.08); box-shadow: 0 14px 36px rgba(15, 23, 42, 0.08); padding: 22px; display: grid; grid-template-rows: auto auto 1fr auto; gap: 11px; overflow: hidden;">
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;">
+          <div>
+            <div style="font-size: 18px; line-height: 1.25; font-weight: 800;">精度判决</div>
+            <div style="margin-top: 4px; color: #5a6879; font-size: 12px; line-height: 1.4;">计算量显著下降，精度差异接近噪声下限。</div>
+          </div>
+          <span style="flex-shrink: 0; padding: 6px 9px; border-radius: 10px; background: #122033; color: #f8fafc; font-size: 10px; font-weight: 700;">官方 val</span>
+        </div>
+
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 11px; border-radius: 14px; background: rgba(244, 246, 249, 0.88); border: 1px solid rgba(18, 32, 51, 0.07);">
+          <span style="font-size: 11px; color: #5a6879;">验证范围</span>
+          <span style="font-size: 12px; font-weight: 800;">31,613 帧</span>
+          <span style="width: 1px; height: 13px; background: rgba(18, 32, 51, 0.12);"></span>
+          <span style="font-size: 12px; font-weight: 800;">25,111 GT</span>
+        </div>
+
+        <div style="display: grid; grid-template-rows: repeat(3, 1fr); gap: 8px; min-height: 0;">
+          <article style="display: grid; grid-template-columns: 105px 1fr; align-items: center; gap: 10px; padding: 10px 11px; border-radius: 14px; border: 1px solid rgba(46, 125, 88, 0.16); background: rgba(46, 125, 88, 0.055);">
+            <div>
+              <div style="font-size: 12px; font-weight: 800;">ctrl 空对照臂</div>
+              <div style="margin-top: 3px; color: #5a6879; font-size: 10px; line-height: 1.3;">8 门限 / 24 序列</div>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+              <span style="font-size: 17px; font-weight: 800; color: #2f7656;">ΔF1 +0.0000</span>
+              <span style="padding: 4px 7px; border-radius: 999px; background: rgba(46, 125, 88, 0.12); color: #2f7656; font-size: 10px; font-weight: 800;">● 全 0</span>
+            </div>
+          </article>
+
+          <article style="display: grid; grid-template-columns: 105px 1fr; align-items: center; gap: 10px; padding: 10px 11px; border-radius: 14px; border: 1px solid rgba(201, 151, 77, 0.19); background: rgba(201, 151, 77, 0.065);">
+            <div>
+              <div style="font-size: 12px; font-weight: 800;">tree vs GMC</div>
+              <div style="margin-top: 3px; color: #5a6879; font-size: 10px;">精度主判决</div>
+            </div>
+            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;">
+              <span style="font-size: 16px; font-weight: 800;">F1 0.9060</span>
+              <span style="font-size: 12px; font-weight: 800; color: #9a5d43;">ΔF1 −0.0003</span>
+            </div>
+          </article>
+
+          <article style="display: grid; grid-template-columns: 105px 1fr; align-items: center; gap: 10px; padding: 10px 11px; border-radius: 14px; background: rgba(244, 246, 249, 0.82); border: 1px solid rgba(18, 32, 51, 0.07);">
+            <div>
+              <div style="font-size: 12px; font-weight: 800;">板端三臂</div>
+              <div style="margin-top: 3px; color: #5a6879; font-size: 10px;">窄带内差异</div>
+            </div>
+            <div>
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <span style="font-size: 15px; font-weight: 800;">0.9021–0.9025</span>
+                <span style="font-size: 10px; color: #68778a;">噪声 ±0.0002</span>
+              </div>
+              <div style="position: relative; height: 8px; margin-top: 8px; border-radius: 999px; background: linear-gradient(90deg, #edf0f4, #dfe4ea, #edf0f4);">
+                <span style="position: absolute; left: 20%; top: 0; width: 6px; height: 8px; border-radius: 50%; background: #7d8a9a;"></span>
+                <span style="position: absolute; left: 48%; top: 0; width: 6px; height: 8px; border-radius: 50%; background: #c9974d;"></span>
+                <span style="position: absolute; right: 19%; top: 0; width: 6px; height: 8px; border-radius: 50%; background: #68778a;"></span>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 116px 1fr; gap: 12px; align-items: center; padding: 12px 13px; border-radius: 16px; background: linear-gradient(135deg, rgba(46, 125, 88, 0.09), rgba(201, 151, 77, 0.08)); border: 1px solid rgba(18, 32, 51, 0.08);">
+          <div>
+            <div style="font-size: 27px; line-height: 1; font-weight: 800; color: #2f7656;">99.6%</div>
+            <div style="margin-top: 4px; color: #5a6879; font-size: 10px;">GMC 精度保持</div>
+          </div>
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px;">
+              <span style="font-size: 11px; font-weight: 800; color: #5a6879;">ΔF1 分量拆解</span>
+              <span style="font-size: 10px; color: #8f5e4d;">主要来自 FP</span>
+            </div>
+            <div style="display: flex; gap: 7px; margin-top: 7px;">
+              <span style="flex: 1; padding: 6px 7px; border-radius: 9px; background: rgba(255,255,255,0.72); color: #5a6879; font-size: 10px; text-align: center;">TP −1 → −0.00002</span>
+              <span style="flex: 1.45; padding: 6px 7px; border-radius: 9px; background: rgba(154, 93, 67, 0.09); color: #8f5e4d; font-size: 10px; text-align: center; font-weight: 800;">FP +13 → −0.00025</span>
+            </div>
+            <div style="margin-top: 7px; color: #5a6879; font-size: 10px; line-height: 1.35;">F1 微降主要来自 FP 增量，而非锚点级联本身失效。</div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer" style="display: flex; align-items: center; justify-content: space-between; padding: 0 8px; color: #5a6879; font-size: 12px; border-top: 1px solid rgba(18, 32, 51, 0.1); flex-shrink: 0;">
+      <span>Editorial Light Master</span>
+      <span>6</span>
+    </footer>
+  </div>
+
+  <script>
+    (function () {
+      const slide = document.querySelector('.slide');
+      function fitSlide() {
+        const scale = Math.min(1, window.innerWidth / 1280, window.innerHeight / 720);
+        slide.style.transform = 'scale(' + scale + ')';
+      }
+      fitSlide();
+      window.addEventListener('resize', fitSlide);
+    })();
+  </script>
+</body>
+</html>

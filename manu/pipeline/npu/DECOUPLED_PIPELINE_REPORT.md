@@ -31,7 +31,7 @@
 > 「精度完全一致」⇔「该帧的历史完整」
 > 洞的唯一来源 = 相机队列溢出 ⇒ 唯一的工程目标是**让历史不产生洞**
 
-**⭐ 最终交付三层验收已闭合（臂 `CANON5_nodrop`）**：
+**⭐ 最终交付验收已闭合（零洞臂 `CANON5_nodrop` + 实时臂 `CANON7` + **动态调度交付臂 `CANON8_opportunistic`**）**：
 
 > 臂配置：pace 0（零丢帧全量）+ cadence 1 + FIFO64 + slack1 + phys_anchor1 + 1 引擎绑核 `4-7` + anchor threads 4
 > 板卡 `root@192.168.0.64:22`，二进制 `/root/rknn_mosaic_e2e_v3` md5 `42f4171fabfa516788318a047050a1b9`，序列 11810 帧
@@ -102,7 +102,8 @@
 | **CANON4** | 2 | 1 | 68.07 ms/组 | 14.69 组/s | 29.4 fps | 23.49 fps | **745** | **898** | **10302** | ❌ **不够**（覆盖 23.5 fps < 25 fps） |
 | **CANON5** | 1 | 1 | 71.64 ms/组 | 13.96 组/s | 13.96 fps | 10.36 fps | **0** | **0** | **0** | ✅ **零洞臂**（pace 0 不限速，见 §0.3.1.1） |
 | **CANON6** | 3 | 1 | 79.10 ms/组 | 12.64 组/s | **37.9 fps** | 24.85 fps | **34** | **91** | **398** | ⚠️ **接近零，精度零损失**（§0.3.1.2） |
-| **CANON7** ⭐ | 4 | 1 | 74.07 ms/组 | 13.50 组/s | **54.0 fps** | 25.00 fps | **0** | **0** | **0** | ✅ **实时零丢帧零洞，最终交付臂**（§0.3.1.4） |
+| **CANON7** ⭐ | 4 | 1 | 74.07 ms/组 | 13.50 组/s | **54.0 fps** | 25.00 fps | **0** | **0** | **0** | ✅ 实时零丢帧零洞（§0.3.1.4） |
+| **CANON8** ⭐⭐⭐ | **动态**（`min_stride=1`） | 1 | **55.21 ms/组** | **15.89 组/s** | **动态（无上限）** | — | **0** | **0** | **0** | ⭐⭐⭐ **最终交付臂：零丢帧零洞零回压 + 算力最大化**（§0.3.1.5） |
 
 > **口径要点**：CANON5 是 `pace 0`（不限速）⇒ 相机被下游反压推着走，实测覆盖速率只有 10.36 fps，但**因为 push 会阻塞而不是丢帧**，`dropped = 0`；它是**零洞基准臂**，不是 25 fps 实时臂。
 > CANON4 / CANON6 / CANON7 三臂同口径（`pace 40 ms` = 真 25 fps、1 引擎、绑核 `"4-7"`、anchor threads 4、FIFO 64、slack 1、phys_anchor 1），**可直接横向比较**。
@@ -219,6 +220,84 @@
 
 
 
+
+#### 0.3.1.5 ⭐⭐⭐ **机会主义动态最新帧调度（Opportunistic Latest Frame Scheduling）—— 最终交付臂 CANON8_opportunistic**
+
+> **这是 canonical 方案的「动态版」**：把「静态固定步长 cadence」换成「引擎一空闲就原子抓取相机写入的物理最新帧」，**中间所有未计算的旧帧直接作废、绝不回头补算**，而它们**仍然留在环里当历史**。
+> ⇒ 跳帧**不产生洞**，回压**被彻底删除**，GMC 产能从「被静态步长人为压到 6.25 组/s」解放到 **15.89 组/s**。
+
+**臂配置**：`--pace-ms 40`（真 25 fps）、**`--gmc-min-stride 1`**、`--input-queue 64`、`--gmc-ring-slack 1`、`--gmc-phys-anchor 1`、`--gmc-workers 1`、绑核 `"4-7"`、anchor threads 4、`--npu-workers 2`、`--post-workers 1`、`--jitter-depth 3`。
+**执行机**：板卡 `root@192.168.0.64:22`，二进制 `/root/rknn_mosaic_e2e_v5` md5 `29f151a155648be36a30d7fb2a2b40b2`（ABI **v9**）。
+
+**① 回压消失的直接证据（这是本次重构的核心目标）**
+
+| 指标 | CANON5（cadence 1，pace 0） | CANON7（cadence 4） | **CANON8（动态）** | 含义 |
+|:--|--:|--:|--:|:--|
+| `gmc_ingest_window_ms`（ingest 被窗口守卫阻塞的总时长） | **246895 ms（20.9 ms/帧）** | 12047 ms | **0.000 ms（0.000 ms/帧）** | ⭐ **回压被删除，不是被调小** |
+| `gmc_window_blocks`（守卫阻塞次数） | 2968 | 1022 | **0** | ⭐ |
+| `gmc_space_blocks`（等任务队列空位次数） | — | 0 | **0** | ⭐ |
+| `gmc_queue_samples`（引擎任务队列采样数） | >0 | >0 | **0** | ⭐ **队列本身不存在了** |
+
+**② 零掉帧、零洞、零作废**
+
+| 指标 | 值 |
+|:--|--:|
+| `pushed`（相机推入） | 11810 |
+| **`dropped`（相机 FIFO 溢出丢帧）** | **0** |
+| **`gmc_history_gaps`（历史查找命中 MISSING）** | **0** |
+| **`gmc_void_frames`（因历史被覆写而作废的帧）** | **0** |
+| `gmc_groups_done`（真正算出特征的帧数） | **7513** |
+| `gmc_frames_skipped`（被引擎跳过的帧，**它们仍然是历史**） | 4297 |
+| `features_dropped`（特征队列满，**设计允许的丢特征层**） | 2221 |
+| `detections_dropped` | 0 |
+| `deadline_blows` | 0 |
+
+**③ 吞吐：GMC 侧从「不足」变成「过剩」，瓶颈整体下移到 NPU 段**
+
+| 指标 | CANON7（cadence 4） | **CANON8（动态）** | 变化 |
+|:--|--:|--:|--:|
+| GMC 组速率 | 6.25 组/s | **15.89 组/s** | **×2.54** |
+| `gmc_total` avg | 74.07 ms/组 | **55.21 ms/组** | **−25.5%** |
+| `gmc_fit` p50 / p95 / p99 / max | 51.0 / 163.0 / 196.7 / 233.4 ms | **39.4 / 125.2 / 179.8 / 248.3 ms** | p50 **−22.7%** |
+| 产出特征帧数 | 2953 | **7513** | **×2.54** |
+| 交付检测帧数（最终结果） | 2953 | **5292** | **+79.2%** |
+| 特征队列丢弃 | 0 | 2221（29.6%） | ⚠️ **GMC 已快过 NPU** |
+
+> **为什么 `gmc_fit` 反而更快了**：动态调度算的是**相邻物理帧**（组间平均只差 ~1.85 帧），而 cadence=4 算的是**隔 4 帧的帧**。GMC 引擎内部的 `FastGMCEstimator` 有一圈 **43 深**的按帧号索引的缓存；步长越小，相邻两次计算用到的历史越靠近，**缓存命中率更高** ⇒ p50 从 51.0 降到 39.4 ms。
+> ⇒ **动态调度同时提高了「算多少」和「算得多快」**。
+
+**④ 端到端延时（n=5292）**：mean **363.1** / **p50 357.8** / **p95 470.0** / **p99 509.6** / **max 574.5** ms。
+> ⚠️ **比 CANON7 的 p50 232.1 ms 更高**，这是**结构性的、不是回压**：GMC 现在把特征以 15.89 帧/s 灌进深度只有 3 的特征队列，而下游 NPU 只能吃下 11.19 帧/s ⇒ 队列恒满 ⇒ 特征按设计被丢弃（丢最老的、保最新鲜的），**活下来的特征多等了一个队列周期**。
+> ⇒ **下一轮的约束已经不在 GMC 了，在 NPU 段**（2 个 context、`rknn_run` avg 109.85 ms/帧）。要么把 `jitter_depth` 放大以平滑，要么加 NPU 产能。
+
+**⑤ 子集对齐精度校验（详见 §6.10 与 `/mnt/data/siping/ptq_work/surviving_frames/CANON8_opportunistic.md`）**
+
+| 项 | 值 |
+|:--|--:|
+| 真值键（板端运行态实际处理帧号集合） | **\|S\| = 7513** |
+| **逐位 MD5 相同 / 不同** | **7513 / 0**（**bit-exact 率 100.0000%**） |
+| 板端自报有洞帧 | **0** |
+| @S 评测帧数（交付了检测的帧） | 5292 |
+| arm@S：GT / TP / FP / FN / R / P / **F1** | 4794 / 3986 / 75 / 808 / 83.146% / 98.153% / **0.900282** |
+| ref@S（同一受限帧宇宙）：**逐项完全相同** | 4794 / 3986 / 75 / 808 / 83.146% / 98.153% / **0.900282** |
+| **ΔF1** | **0.000000** |
+| **校验判定** | **✅ PASS** |
+
+**⑥ 结论**
+
+> **「永远使用实时帧 + 保证算力最大化 + 彻底消灭丢帧/空洞」三个目标，在 CANON8 上同时成立：**
+> - **零丢帧**（`dropped = 0`）、**零空洞**（`gmc_history_gaps = 0`、**`gmc_void_frames = 0`**）、**零回压**（`gmc_ingest_window_ms = 0.000`）；
+> - **算力最大化**：GMC 组速率 **15.89 组/s**（CANON7 的 **2.54 倍**），交付检测帧数 **+79.2%**；
+> - **精度完全一致**：**7513 / 7513 逐位 md5 相同**，`different = 0`，**ΔF1 = 0.000000**。
+>
+> **代价只有两个，且都可控**：① 下游 NPU 段成为新瓶颈（特征队列丢 2221 个特征）；② 端到端 p50 从 232 ms 升到 358 ms（排队，不是计算）。
+
+**产物**：
+- 板卡 `/root/psearch/results/CANON8_opportunistic/{VIDEO00007_19700101_001324_mosaic.tsv,feature_md5.txt,timing.txt,processed_frames.csv}`
+- 服务器可见 `/mnt/data/siping/ptq_work/psearch/results/CANON8_opportunistic/`
+- 服务器子集校验 `/mnt/data/siping/ptq_work/surviving_frames/CANON8_opportunistic.{json,md}`
+- 运行态清单 `/mnt/data/siping/ptq_work/surviving_frames/CANON8_opportunistic_processed_frames.csv`
+
 #### 0.3.2 历史实时臂与扫参（**副线：step10 / 深 FIFO 臂已降级或否决**）
 
 > ⚠️ 本表**不再是交付候选**，保留是因为其中的**瓶颈诊断**（NPU 上下文上限、starvation 语义、jitter 量级）仍然是有效结论。定位列说明了每个臂的现状。
@@ -254,7 +333,7 @@
 
 ### 0.4 一句话结论
 
-**这个架构成立，而且本轮把它推到了「精度可判定一致」**：**canonical 方案（step2 锚点 + 物理帧号锚定 + 双缓存 0 拷贝 + cadence + 连续单环读槽 Pin）使「处理的帧与无丢帧子集精度完全一致」成为可判定的等式——零洞臂 CANON5_nodrop 全量 11810/11810 逐位 md5 相同、different = 0，精度 F1 = 0.891871 与 P1b 认证基线逐项相同；实时臂 CANON6（cadence 3）的 91 处差异与库自报的 91 个有洞帧双向差集为空；实时交付臂 CANON7（cadence 4）掉帧 0、洞 0、逐位 2953/2953 相同、ΔF1 = 0.000000**；洞的唯一来源被物理帧号锚定钉死在相机队列溢出这一个点上，于是工程目标从「别丢帧」变成「**调 cadence 让 GMC 组速率覆盖相机速率**」（实测组产能 12.6~14.7 组/s ⇒ 帧覆盖上限 29.4 → 37.9 → **54.0 fps**，cadence 4 才够，且**余量必须按抖动后的速率算**：cadence 3 平均覆盖 37.9 fps 已远超 25 fps，仍被 `gmc_fit` p99 ≈ 200 ms 的尾部击穿 34 帧，cadence 4 才归零）；同时**双缓存的二级缓存从深拷贝改为浅引用 pin，拷贝成本 0.01 ms/帧（原 0.92–1.86 ms/帧）**，因为深拷贝「白搬 ~7 MB/帧」且「会把『槽位已被换帧』的错误状态一起冻结、把要暴露的问题掩盖掉」——两处都证明**深 FIFO 与深拷贝都是错的工具**，正确的工具是**物理锚定 + 0 拷贝 + cadence**。
+**这个架构成立，而且本轮把它推到了「精度可判定一致」，并进一步升级成「机会主义动态最新帧调度」**：**canonical 方案（step2 锚点 + 物理帧号锚定 + 双缓存 0 拷贝 + cadence + 连续单环读槽 Pin）使「处理的帧与无丢帧子集精度完全一致」成为可判定的等式——零洞臂 CANON5_nodrop 全量 11810/11810 逐位 md5 相同、different = 0，精度 F1 = 0.891871 与 P1b 认证基线逐项相同；实时臂 CANON6（cadence 3）的 91 处差异与库自报的 91 个有洞帧双向差集为空；实时交付臂 CANON7（cadence 4）掉帧 0、洞 0、逐位 2953/2953 相同、ΔF1 = 0.000000**；洞的唯一来源被物理帧号锚定钉死在相机队列溢出这一个点上，于是工程目标从「别丢帧」变成「**调 cadence 让 GMC 组速率覆盖相机速率**」（实测组产能 12.6~14.7 组/s ⇒ 帧覆盖上限 29.4 → 37.9 → **54.0 fps**，cadence 4 才够，且**余量必须按抖动后的速率算**：cadence 3 平均覆盖 37.9 fps 已远超 25 fps，仍被 `gmc_fit` p99 ≈ 200 ms 的尾部击穿 34 帧，cadence 4 才归零）；同时**双缓存的二级缓存从深拷贝改为浅引用 pin，拷贝成本 0.01 ms/帧（原 0.92–1.86 ms/帧）**，因为深拷贝「白搬 ~7 MB/帧」且「会把『槽位已被换帧』的错误状态一起冻结、把要暴露的问题掩盖掉」——两处都证明**深 FIFO 与深拷贝都是错的工具**，正确的工具是**物理锚定 + 0 拷贝 + cadence**。
 
 ### 0.5 用户规格 vs 实现（逐条评估表）
 
@@ -928,6 +1007,350 @@ NPU service 线程每帧**串行**占用 **130.9791 ms/帧/线程**（算式见 
 
 ---
 
+
+### 6.10 ⭐ 机会主义动态最新帧调度（ABI v9）—— canonical 的「动态版」
+
+#### 6.10.1 为什么静态 cadence 是错的
+
+cadence（`gmc_compute_stride`）把「GMC 算哪几帧」写死成一个固定网格。它的致命问题是：**它必须靠人工猜一个足够小的步长来硬扛 GMC 的抖动长尾**。CANON2→CANON7 这一路的实测（cadence 2 掉 745 帧、cadence 3 掉 34 帧、cadence 4 才归零）说明：**步长是「用算力换掉帧」**，步长 4 就意味着只算 1/4 的帧。
+
+更根本的是：**cadence 不解决回压**。回压来自 `window_ok()` 以 `oldest_pending`（引擎队列里最老的待算帧）为基准——GMC 一旦落后，INGEST 就必须停下来等它，否则最老待算帧的历史底图会被 producer 覆写。**实测这个等待是 20.9 ms/帧（CANON5），足以顶爆 64 深的相机 FIFO。**
+
+#### 6.10.2 新调度器的三条规则
+
+| 规则 | 实现 | 后果 |
+|:--|:--|:--|
+| **① 引擎抓最新帧，不补算** | GMC 线程空闲时用 `latest_seeded()`（`std::atomic<long>`，release/acquire）读一级环的**物理最新帧**；`last_done` 单调前进，**被跳过的帧直接作废，绝不回头** | 回压链被切断：INGEST 不再需要等任何东西 |
+| **② 历史窗口靠环深保证** | 一级环深 **64**（`GMC_RING_BUFFER_SIZE` 宏，42 帧历史 + 1 当前 + **21 帧余量 = 840 ms**）；`history_complete(abs)` 逐个校验 21 个偶数 lag 的 `ring_id_` 是否还在环里 | 环深 64 ≫ 43 ⇒ 只要相机没掉帧，历史**永远完整**；**跳帧不产生洞** |
+| **③ 兜底：作废而不是撕裂计算** | 若 `history_complete()` 为 false（引擎停摆 > 840 ms），该帧**直接作废**（`gmc_void_frames += 1`），更新锚点继续等下一帧 | **绝不在撕裂数据上计算** |
+
+#### 6.10.3 为什么环深 64 就够（关键推导）
+
+```
+历史需求      = 21 个偶数 lag (2,4,...,42) + 当前帧 = 43 帧
+环深 64       ⇒ producer 最多领先 64 - 43 = 21 帧 = 21 × 40 ms = 840 ms
+GMC 最坏单组  = 248 ms (CANON8 实测 max)  ≪ 840 ms
+⇒ 历史窗口在整整 840 ms 内都不会被覆写
+```
+
+再叠加**二级快照是零拷贝 pin**（`snap_[slot] = src`，浅引用）：producer 改写 `ring_[slot]` 只是**重新绑定指针**，被 pin 住的旧像素**仍然存活、内容不变** ⇒ **写入方与计算方之间根本不存在写后读冲突**，环深只影响「历史还在不在」，不影响「像素会不会被踩」。
+
+#### 6.10.4 代码改动清单（ABI v8 → v9）
+
+| 文件 | 改动 |
+|:--|:--|
+| `manu/pipeline/cpp/gmc_stream_ocl.cpp` | `GMC_RING_BUFFER_SIZE 64` 宏；`ring_depth_` 成员（构造时算一次，永不变）；`ring_depth()` 改读成员；`latest_seeded_`（atomic，release store / acquire load）；`latest_seeded()`、`history_complete()`、`history_frame_present()` |
+| `manu/pipeline/npu/mosaic_pipeline.h` | `MOSAIC_API_VERSION` **8 → 9**；`gmc_compute_stride` → **`gmc_min_stride`**（位置/类型不变，语义=两次组之间的**最小**物理帧间隔，默认 1）；`MosaicPipelineTiming` 新增 **`gmc_void_frames`**、**`gmc_frames_skipped`** |
+| `manu/pipeline/npu/mosaic_pipeline.cpp` | `window_ok()` 改为**纯谓词**（不再以 `oldest_pending` 为基准）；`ingest_loop()` **删除全部等待**（窗口守卫等待 + 任务队列空位等待），只做「取帧 → 播种 → 发布 head」；`engine_loop()` 改为「等 head → 连续性校验 → 算 → 发布」，**任务队列整体删除**；`gmc_workers` **强制为 1**（多引擎会抓同一帧，且实测 p99 从 200 ms 恶化到 695 ms） |
+| `manu/pipeline/npu/rknn_mosaic_e2e.cpp` | `--gmc-min-stride`（`--gmc-compute-stride` 保留为 DEPRECATED 别名）；输出 **`processed_frames.csv`**（`frame_id,n_dets`）；timing 增加 `gmc_void_frames`/`gmc_frames_skipped`/`gmc_min_stride`/`processed_frames_csv` |
+| `manu/pipeline/npu/mosaic_api_test.cpp` | `kBatch` 4 → **1**（一次推一帧，否则引擎会跳过中间帧，collect 会永久阻塞）；`gmc_workers == 2` → `== 1`；`gmc_queue_samples > 0` → 改为 `gmc_void_frames == 0` / `gmc_frames_skipped == 0` / `gmc_groups_done > 0` |
+| `manu/pipeline/npu/ptq/load_and_align_subset.py` | **新增**：子集对齐校验脚本（见 §6.10.5） |
+
+**板卡 api_test 实测：82 passed / 0 failed**（ABI v9）。
+
+#### 6.10.5 子集对齐精度校验（`load_and_align_subset.py`）
+
+**为什么必须换掉「行数必须一致」的全量 diff**：动态调度下，产出帧数 N 取决于负载（CANON8 是 7513，不是 11810），而且**每次运行都不一样**。用行数当判据等于没有判据。
+
+**新口径（三把钥匙）**：
+
+| # | 钥匙 | 定义 |
+|:--|:--|:--|
+| 1 | **真值键 = 板端运行态实际处理帧号集合** | `surviving_frames = set(run_results.keys())`，来源是板端自己落盘的 `feature_md5.txt`（每行 `seq \t %06d(frame_id) \t md5`）。**不推算行数、不看 cadence、不假定帧号稠密。** |
+| 2 | **基准裁到同一子集** | `ref_subset = {k: v for k, v in golden.items() if k in surviving_frames}` —— 基准里没被算的帧**不参与**任何比对 |
+| 3 | **GT 与基准臂裁到同一子集** | GT 软链到受限标签目录，基准臂也裁到 S ⇒ `ΔF1` 只反映**单帧检测质量**，不含帧覆盖率 |
+
+**输出**：`--out-json` + `--out-md`，含
+- 帧集合对齐表（|S|、S∩ref、S
+ef、清单与 TSV 的差异）
+- **逐位 MD5**：identical / different / bit-exact 率 + 不同帧号连续区间
+- **分层**：**有洞帧从纯净子集中隔离**（洞帧号从板端 run.log 的 `[WARN] GMC frame N ... has a HOLE` 解析，或从 `--gap-frames` 读）
+- **@S 精度**：arm@S 与 ref@S 的 GT/TP/FP/FN/R/P/F1 **逐项** + **ΔF1**
+- **判定**：`无洞帧逐位相同率 = 100%` ∧ `全子集不同帧数 = 0` ∧ `ΔF1 ≥ 0`
+
+**双回归实测（脚本本身先被验证过）**：
+
+| 输入 | \|S\| | 逐位相同 / 不同 | 有洞帧 | @S F1 (arm vs ref) | 判定 |
+|:--|--:|--:|--:|--:|:--|
+| **CANON7_live25_s4**（零洞） | 2953 | **2953 / 0** | 0 | 0.892238 vs 0.892238（ΔF1 = 0） | ✅ **PASS** |
+| **CANON6_live25_s3**（91 洞） | 3914 | 3823 / **91** | 91 | — | ❌ FAIL（但**无洞帧 3823/3823 全同** ⇒ 差异帧与洞帧一一对应） |
+| **CANON8_opportunistic**（动态，零洞） | **7513** | **7513 / 0** | **0** | **0.900282 vs 0.900282（ΔF1 = 0）** | ✅ **PASS** |
+
+**命令**（服务器侧）：
+
+```bash
+ssh -p 32222 huangzhe@192.168.99.40
+source /home/huangzhe/anaconda3/etc/profile.d/conda.sh && conda activate uav
+cd /tmp/pycharm_project_10ae9e2e
+python manu/pipeline/npu/ptq/load_and_align_subset.py \
+  --arm-md5 /mnt/data/siping/ptq_work/psearch/results/CANON8_opportunistic/feature_md5.txt \
+  --arm-tsv /mnt/data/siping/ptq_work/psearch/results/CANON8_opportunistic/VIDEO00007_19700101_001324_mosaic.tsv \
+  --ref-md5 /mnt/data/siping/ptq_work/psearch/results/A_gate_step2_nodrop/feature_md5.txt \
+  --ref-tsv manu/pipeline/npu/ptq/board_tsv_svc/P1b_step2_nodrop_orig/VIDEO00007_19700101_001324_mosaic.tsv \
+  --seq VIDEO00007_19700101_001324 \
+  --labels-root "/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010" \
+  --params-json runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/track3_blind.json \
+  --gap-log /mnt/data/siping/ptq_work/psearch/logs/CANON8_opportunistic.run.log \
+  --work-dir /tmp/surv_work_CANON8 \
+  --out-json /mnt/data/siping/ptq_work/surviving_frames/CANON8_opportunistic.json \
+  --out-md   /mnt/data/siping/ptq_work/surviving_frames/CANON8_opportunistic.md \
+  --manifest-out /mnt/data/siping/ptq_work/surviving_frames/CANON8_opportunistic_processed_frames.csv
+```
+
+> 脚本 md5 `348c895f40ab98d09f206561c1cd8d30`（本地与服务器 `/tmp/pycharm_project_10ae9e2e/manu/pipeline/npu/ptq/` 一致）。
+
+
+#### 6.10.6 ⭐ C++ 核心修改差异（**目标要求「直接给出」的三处，逐字摘录真实代码**）
+
+> 全部来自本仓库的**实际实现**（不是示意伪码），行号对应当前源码。
+
+##### ① 环深宏定义 + 环形索引取模（`manu/pipeline/cpp/gmc_stream_ocl.cpp`）
+
+```cpp
+// 宏区（文件靠前）
+// THE PHYSICAL DEPTH OF THE HISTORY RING.
+//
+// WHY 64: the algorithm reads a 42-frame history (21 lags: 2,4,...,42) plus the
+// frame itself = 43 frames.  A 64-deep ring lets the producer (the ingest) run
+// 21 frames -- 21 * 40 ms = 840 ms -- ahead of the frame the engine is about to
+// compute and the engine's history is STILL INTACT, which is more than the
+// worst GMC stall measured on the board (250 ms).
+#ifndef GMC_RING_BUFFER_SIZE
+#define GMC_RING_BUFFER_SIZE 64
+#endif
+```
+
+```cpp
+// 构造函数：环深算成 ONCE，永不改变（:1554 / :1591）
+: gpu_(gpu), backend_(backend), window_(window), stride_step_(stride_step),
+  max_lag_(window * stride_step),
+  ring_slack_(ring_slack < 0 ? 0 : ring_slack),
+  rng_seed_per_fit_(rng_seed_per_fit),
+  nogmc_(nogmc),
+  ring_depth_(std::max<long>(GMC_RING_BUFFER_SIZE, max_lag_ + 1 + ring_slack_)) {
+  ...
+  ring_.assign(static_cast<size_t>(ring_depth_), Mat());
+  ring_id_.assign(ring_.size(), kNoRingIndex);
+}
+
+// 取模改读成员（:1611）—— 原式 max_lag_ + 1 + ring_slack_ 是每次访问现算的表达式
+long ring_depth() const { return ring_depth_; }
+
+// 成员声明（:2662-2671）：一个事实，一个成员
+// THE PHYSICAL DEPTH OF THE HISTORY RING -- computed ONCE, in the
+// constructor, and never re-derived. ...
+long ring_depth_ = 0;
+```
+
+> **取模全部自动跟随**：`seed_frame()`、`hold_snapshot_slot()`、`frame_at_lag()`、`nearest_older()` 里的
+> `ring_depth()` 都返回 64 ⇒ **没有任何一处还写着 `%44`**。
+
+##### ② `window_ok()` 重构（`manu/pipeline/npu/mosaic_pipeline.cpp:399-421`）
+
+```cpp
+  // -------------------------------------------------------------------------
+  // THE HISTORY WINDOW GUARD -- NOW A PURE PREDICATE, NEVER A WAIT.
+  //
+  // 它曾经问的是「producer 能不能跑到最老待算帧前面 ring_slack 帧以外」，
+  // 而 INGEST 会【阻塞等待】这个答案为真。那条等待就是杀死相机队列的
+  // 回压路径：ingest 一次 20.9 ms 的停顿就足以顶爆 64 深的相机 FIFO，
+  // 在物理帧号上打出洞。
+  //
+  // 在机会主义调度下答案恒为真，原因是三条：
+  //   * 二级快照是零拷贝 PIN（浅引用），producer 改写 ring 槽位只是重新绑定
+  //     指针，正在跑的拟合读到的像素不变；
+  //   * 环深 64 而一次计算只读 43 帧，producer 可以领先 21 帧（840 ms）
+  //     才可能覆写最老的历史；
+  //   * 万一真被覆写，`history_complete()` 会【检测到并作废该帧】，绝不在
+  //     撕裂数据上计算。
+  //
+  // 为什么函数还留着：它记录的正是「producer 能不能前进」这个问题所在的
+  // 位置，而且多引擎路径（gmc_workers > 1）仍然需要判断历史是否被覆写。
+  // -------------------------------------------------------------------------
+  bool window_ok(long abs) const {
+    (void)abs;
+    return true;
+  }
+```
+
+**旧实现（已删除）**：判据是 `abs - e->oldest_pending > ring_slack ⇒ false`，且 INGEST 拿它做**条件变量等待**。
+
+##### ③ INGEST 不再阻塞（`mosaic_pipeline.cpp:482-510`）
+
+```cpp
+      // NOTE the split of the two roles: `abs` stays the DENSE counter, because
+      // it orders the artifacts (the rolling md5 and the mats dump are
+      // emitted in frame order, and that order must not have holes), while
+      // the engine's history is anchored on the physical number.
+      const long eng_idx = cfg.gmc_phys_anchor ? (long)item.id : abs;
+
+      // Seed every engine: each of them may need this frame as history.
+      //
+      // The PHYSICAL ID is recorded FIRST, and the head is published by
+      // seed_frame() AFTER it: the engine must never see a head whose id it
+      // cannot look up yet.
+      for (auto& e : engines) {
+        {
+          std::lock_guard<std::mutex> lk(e->m);
+          e->phys_ids.emplace_back(eng_idx, item.id);
+        }
+        e->pipe->seed_frame(eng_idx, item.gray);
+        // The head moved: wake the engine so it can grab the newest frame.
+        e->cv_head.notify_one();
+      }
+      gmc_seeded_frames.fetch_add(1, std::memory_order_relaxed);
+
+      {
+        std::lock_guard<std::mutex> lt(m_time);
+        timing.gmc_ingest_in_wait_ms += in_wait_ms;
+        // gmc_ingest_window_ms and gmc_ingest_space_ms are NOT incremented:
+        // the ingest does not wait on the history window any more, and it
+        // does not wait for room in a job queue (there is no job queue).
+        // Their reading of 0 IS the measurement: the camera is never
+        // stalled by the GMC service.
+        timing.gmc_ingest_ms +=
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_ingest0).count();
+      }
+```
+
+**删掉的东西**：`cv_guard.wait(...)`（窗口守卫等待）、`cv_space.wait(...)`（任务队列空位等待）、
+`GmcJob` 的构造与 `eng->jobs.push_back(...)`。
+**新加的东西**：`cv_head.notify_one()`（通知引擎「有新 head 了」）。
+
+##### ④ GMC 线程：原子抓取最新帧 + 连续性校验（`mosaic_pipeline.cpp:556-637`）
+
+```cpp
+    // THE MINIMUM GAP BETWEEN TWO GROUPS, in the index space the engine
+    // computes in.  1 == no limit: grab the newest frame as soon as it is
+    // there (the adaptive default).  >1 == an artificial rate limit.
+    const long min_stride = cfg.gmc_min_stride > 0 ? cfg.gmc_min_stride : 1;
+    for (;;) {
+      // ---- 1) WAIT FOR A HEAD THAT IS NEW ENOUGH --------------------------
+      long abs = 0;
+      {
+        const auto t_wait0 = std::chrono::steady_clock::now();
+        std::unique_lock<std::mutex> lk(eng->m);
+        eng->cv_head.wait(lk, [this, eng, min_stride] {
+          if (abort || ingest_done) return true;
+          const long h = eng->pipe->latest_seeded();     // <- 原子读最新帧
+          return h > eng->last_done && (h - eng->last_done) >= min_stride;
+        });
+        ...
+        const long h = eng->pipe->latest_seeded();
+        if (h > eng->last_done && (h - eng->last_done) >= min_stride) {
+          abs = h;
+        } else {
+          // The producer is done and what is left does not satisfy the
+          // minimum gap (or it was already computed): there is nothing more
+          // to come.  Note that the engine does NOT go back for the frames it
+          // passed -- the whole point is to work on the freshest data.
+          if (ingest_done) break;
+          continue;  // a spurious wakeup
+        }
+      }
+
+      // ---- 2) THE PHYSICAL ID OF THAT FRAME -------------------------------
+      int64_t phys_id = abs;
+      {
+        std::lock_guard<std::mutex> lk(eng->m);
+        // Drop the ids of the frames this engine passed (the ones it skipped).
+        while (!eng->phys_ids.empty() && eng->phys_ids.front().first < abs)
+          eng->phys_ids.pop_front();
+        if (!eng->phys_ids.empty() && eng->phys_ids.front().first == abs) {
+          phys_id = eng->phys_ids.front().second;
+        } else {
+          fprintf(stderr, "[WARN] GMC engine %zu: no physical id for the seeded index %lld ...\n",
+                  eng_index, (long long)abs);
+        }
+      }
+
+      // ---- 3) CONTINUITY: IS THE WHOLE HISTORY STILL THERE? --------------
+      //
+      // The producer is never blocked, so it is EXPECTED to run ahead of the
+      // engine.  Once it is more than (ring_depth - 43) frames ahead, the
+      // frames this fit needs have been OVERWRITTEN in the ring -- and a
+      // camera frame that was lost does the same thing to the lags that reach
+      // across the hole.  In both cases the frame is VOIDED: it is not
+      // computed at all, rather than fitted against torn pixels.
+      if (!eng->pipe->history_complete(abs)) {
+        eng->last_done = abs;
+        {
+          std::lock_guard<std::mutex> lt(m_time);
+          timing.gmc_void_frames += 1;
+        }
+        fprintf(stderr,
+                "[WARN] GMC frame %lld (engine %zu) VOIDED: its 21-frame history is NOT whole "
+                "(the producer ran too far ahead of the engine, or a camera frame was lost) -- the "
+                "frame is NOT computed, and the engine does NOT go back for it\n",
+                (long long)phys_id, eng_index);
+        continue;
+      }
+      ...
+      // THE INDEX THE ENGINE ANCHORS ITS HISTORY ON: the camera's PHYSICAL
+      // frame number when the physical anchor is on, the consumption counter
+      // otherwise.  `abs` IS that index -- it is the index the producer
+      // seeded this frame under, which is exactly what process_frame() reads.
+      const long eng_idx = abs;
+      const cv::Mat out =
+          eng->pipe->process_frame(eng_idx, mats_out ? &mats : nullptr, mark_entry);
+```
+
+##### ⑤ 引擎侧：原子 head + 历史完整性判定（`gmc_stream_ocl.cpp`）
+
+```cpp
+  // 公开接口（:1631 / :1652）
+  long latest_seeded() const { return latest_seeded_.load(std::memory_order_acquire); }
+
+  bool history_complete(long abs) const {
+    // lag 0（当前帧）+ 21 个偶数 lag（2,4,...,42）
+    ...
+  }
+
+  // 槽位里装的是不是那一帧？（:2504）
+  bool history_frame_present(long idx) const {
+    if (idx <= clamp_lo()) return true;   // served by the clamp target
+    const size_t s = static_cast<size_t>(((idx % ring_depth()) + ring_depth()) % ring_depth());
+    return ring_id_[s] == idx;
+  }
+
+  // 播种：先写像素，再写帧号，最后【发布 head】—— release 语义是那道栅栏（:1875-1887）
+    ring_[slot] = frame;
+    // WHICH frame this slot holds.  The companion array is what makes a
+    // missing frame detectable: a lag looks its frame up by the index it
+    // asks for, and if the slot's index is not that one, the frame is not
+    // in the ring -- it never arrived.
+    ring_id_[slot] = abs;
+    // THE HEAD, published LAST and with RELEASE semantics.
+    //
+    // WHY: an engine that sees the head must also see the frame the head
+    // points at.  The slot and its id are written above; this store is the
+    // fence that publishes them.  The engine reads it with ACQUIRE, so
+    // "I can see the head" implies "I can see the frame behind it".
+    latest_seeded_.store(abs, std::memory_order_release);
+```
+
+> **pin 锁定的 0.01 ms 成本没有变化**：`process_frame()` 内部的 `build_snapshot()` 仍然是
+> `snap_[slot] = ring_[slot]`（OpenCV 浅拷贝，只加引用计数）—— 本次重构**没有触碰**它，
+> 22 个槽位（当前帧 + 21 个偶数历史底图）仍然是一次浅引用绑定。
+
+##### ⑥ 接口清理（`manu/pipeline/npu/mosaic_pipeline.h`）
+
+```cpp
+// ABI 版本：8 -> 9（结构体布局变了：Timing 增加了两个计数器）
+#define MOSAIC_API_VERSION 9
+
+// 配置字段：gmc_compute_stride -> gmc_min_stride（位置/类型不变，语义变了）
+int32_t gmc_min_stride;   // 两次 GMC 组之间的【最小】物理帧间隔；1 = 抓最新帧（自适应默认）
+
+// 观测指标（新增两个，其余保留并正确更新）
+int64_t gmc_void_frames;     // 历史被覆写而【作废】的帧数
+int64_t gmc_frames_skipped;  // 已播种但未被计算、被【跳过】的帧数（它们仍然是历史）
+// 保留并正确更新：gmc_groups_done / dropped / gmc_history_gaps
+```
+
+**编译与板卡自检**：`MOSAIC_NO_DEPLOY=1 bash manu/pipeline/npu/build_mosaic_pipeline_arm64.sh` **零 error 零 warning**；
+板卡 `/root/mosaic_api_test_v9` 实测 **82 passed / 0 failed**。
+
 ## 7. 架构修正建议（全部有实测支撑；「必做」项 = 7.1 / 7.2 / 7.4，「已否决」项 = 7.8 / 7.11，「建议」项 = 7.9，「后续」项 = 7.10）
 
 ### 7.1 必做：把 NPU 上下文用满 2 个
@@ -1219,9 +1642,14 @@ eval timeout 1500 /root/rknn_mosaic_e2e_v3 $BASE \
 eval timeout 1500 /root/rknn_mosaic_e2e_v4 $BASE \
   --pace-ms 40 --gmc-compute-stride 3 --out /root/psearch/results/CANON6_live25_s3
 
-# --- CANON7：25 fps + cadence 4（最终交付臂：实时零丢帧零洞）-------------------
+# --- CANON7：25 fps + cadence 4（实时零丢帧零洞）-----------------------------
 eval timeout 1500 /root/rknn_mosaic_e2e_v4 $BASE \
   --pace-ms 40 --gmc-compute-stride 4 --out /root/psearch/results/CANON7_live25_s4
+
+# --- CANON8：机会主义动态最新帧调度（最终交付臂：零丢帧零洞零回压 + 算力最大化）--
+#     ABI v9；--gmc-min-stride 1 = 引擎一空闲就抓相机最新帧，不补算
+eval timeout 1500 /root/rknn_mosaic_e2e_v5 $BASE \
+  --pace-ms 40 --gmc-min-stride 1 --out /root/psearch/results/CANON8_opportunistic
 ```
 
 > ⚠️ **必须带 `--gmc-affinity-group "4-7"`（带引号）** —— 不带引号会被 shell 拆成两个参数。
@@ -1261,7 +1689,8 @@ python manu/pipeline/npu/ptq/score_surviving_frames.py \
 | **吞吐扫参（副线补测）** | `/root/psearch/results/S2b_slack64/` |
 | **jitter 扫参（副线，6 臂）** | `/root/psearch/results/{S1b_j3_q1024,S4_j8,S5_j16,S6_j32,S7_j16_qd16,S8_j16_post2}/` ＋ 发布到 `/mnt/srv2/psearch/results/<ARM>/` |
 | **canonical 主线（CANON 臂）** | 板卡 `/root/psearch/results/CANON4_live25/`（25 fps + cadence 2）、`/root/psearch/results/CANON5_nodrop/`（pace 0 + cadence 1）、`/root/psearch/results/CANON6_live25_s3/`（25 fps + cadence 3）、`/root/psearch/results/CANON7_live25_s4/`（25 fps + cadence 4 ⭐ 最终交付臂）＋ 均已发布到服务器可见路径 `/mnt/data/siping/ptq_work/psearch/results/<ARM>/` |
-| **canonical 打分产物** | `/mnt/data/siping/ptq_work/surviving_frames/CANON5_nodrop.{md,json}`、`/mnt/data/siping/ptq_work/surviving_frames/CANON6_live25_s3.{md,json}`、**`/mnt/data/siping/ptq_work/surviving_frames/CANON7_live25_s4.{md,json}`** |
+| **canonical 打分产物** | `/mnt/data/siping/ptq_work/surviving_frames/CANON5_nodrop.{md,json}`、`/mnt/data/siping/ptq_work/surviving_frames/CANON6_live25_s3.{md,json}`、`/mnt/data/siping/ptq_work/surviving_frames/CANON7_live25_s4.{md,json}` |
+| **⭐ 动态调度交付臂 CANON8** | 板卡 `/root/psearch/results/CANON8_opportunistic/{VIDEO00007_19700101_001324_mosaic.tsv,feature_md5.txt,timing.txt,processed_frames.csv}`；服务器 `/mnt/data/siping/ptq_work/psearch/results/CANON8_opportunistic/`；**子集校验 `/mnt/data/siping/ptq_work/surviving_frames/CANON8_opportunistic.{json,md}`**；**运行态清单 `/mnt/data/siping/ptq_work/surviving_frames/CANON8_opportunistic_processed_frames.csv`** |
 | 服务器全量报告 | `/mnt/data/siping/ptq_work/final_report_svc/<ARM>/mosaic_vs_f32_report.{md,json}` |
 | 服务器存活帧报告 | `/mnt/data/siping/ptq_work/surviving_frames/<ARM>.{md,json}` |
 | 双缓存位级验收现场 | 板卡 `/tmp/snapcmp/`（脚本 stdout 见 §6.7 的 PASS 输出） |
@@ -1284,7 +1713,10 @@ python manu/pipeline/npu/ptq/score_surviving_frames.py \
 | `/root/rknn_mosaic_e2e_snap` | `8a5a04e9585194ac1d9022b4a0a72b5f` | 双缓存**深拷贝**版（§6.7 位级验收） |
 | **`/root/rknn_mosaic_e2e_snap2`** | **`833ae181c939b32a013486cf9f974732`** | **双缓存 0 拷贝版**（canonical 主线用；拷贝成本 0.01 ms/帧） |
 | **`/root/rknn_mosaic_e2e_v3`** | **`42f4171fabfa516788318a047050a1b9`** | 含 artifact 修复 + **延时测量**（CANON4 / CANON5 用它） |
-| **`/root/rknn_mosaic_e2e_v4`** | **`51a572f081f9670e49950f43d2e0335e`** | **最新**：含 `gmc_groups_done` 计数器（ABI v8）+ e2e expect 公式修复（CANON6 / CANON7 用它） |
+| **`/root/rknn_mosaic_e2e_v4`** | **`51a572f081f9670e49950f43d2e0335e`** | 含 `gmc_groups_done` 计数器（ABI v8）+ e2e expect 公式修复（CANON6 / CANON7 用它） |
+| **`/root/rknn_mosaic_e2e_v5`** | **`29f151a155648be36a30d7fb2a2b40b2`** | ⭐ **最新**：**机会主义动态最新帧调度**（ABI **v9**）：环深 64、`gmc_min_stride`、INGEST 零阻塞、`gmc_void_frames`/`gmc_frames_skipped`、`processed_frames.csv` 运行态清单（CANON8 用它） |
+| **`/root/mosaic_api_test_v9`** | **`7a2fac566a4dec7c4df67119e3a2521d`** | ABI v9 的 api_test（板卡实测 **82 passed / 0 failed**）；**认证件 `/root/mosaic_api_test` 未覆盖** |
+| **`/root/libmosaic_pipeline_v9.a`** | **`a73c1a0fec07911e5a6e77b4fb1208b3`** | ABI v9 的静态库（版本化存放，不覆盖认证件） |
 
 > ⚠️ **`/root/rknn_mosaic_e2e` 的 md5 异常（如实记录）**：板上现值 `81c52a15b4333d1cb7a7b7b880912249`，与本表上方记录的 `ce8656350cb97e28094f4d3d403ac36d` **不符**，来源未查明。
 > **不影响已报的任何数字**：A_gate 门禁臂用的是 `/root/rknn_mosaic_e2e_sweep3`（md5 `6571454f70747f0348d063f753225551`，**与板上现值一致**），CANON4/5/6/7 用的是 `v3`/`v4`，两者 md5 均已逐一核对一致。
@@ -1400,13 +1832,14 @@ LD_LIBRARY_PATH=/root/psearch/fixlibs bash /root/cmp_snapshot_board.sh \
 
 | # | 待验证项 | 现状 | 卡在哪 | 完成判据 |
 |:--|:--|:--|:--|:--|
-| 1 | **GMC 拟合抖动的根因分离**（`gmc_fit` p99 ≈ 200 ms ≈ p50 的 4 倍） | 两个候选源尚未分离：① **RANSAC 消耗 OpenCV 全局 RNG**（`gmc_stream_ocl.cpp:338-345` 注释明确记载，且为保 bit-exact 必须串行跑 RANSAC 阶段）；② **NPU/POST 线程未绑核**，会抢 GMC 的 4-7 核（`--npu-affinity` 未传 ⇒ 继承 `cpu-affinity 0-7`；CANON6/CANON7 日志中**无**「NPU/POST services -> cores」行）。**判据层面已达成**：CANON7 用 cadence=4 把掉帧与洞全部归零 | 需要一条对照臂（`--npu-affinity "0-3"` 让 NPU/POST 独占 A55 核）才能分离两个候选源 —— **用户已明确「不要瞎做实验」，故未跑** | 抖动来源可归因，且 p99 下降后 cadence 可退到 3（少算 25% 的帧） |
+| 1 | **GMC 拟合抖动的根因分离**（`gmc_fit` p99 ≈ 180 ms ≈ p50 的 4.6 倍） | 两个候选源尚未分离：① **RANSAC 消耗 OpenCV 全局 RNG**（`gmc_stream_ocl.cpp:338-345` 注释明确记载，且为保 bit-exact 必须串行跑 RANSAC 阶段）；② **NPU/POST 线程未绑核**，会抢 GMC 的 4-7 核（`--npu-affinity` 未传 ⇒ 继承 `cpu-affinity 0-7`；CANON6/CANON7 日志中**无**「NPU/POST services -> cores」行）。**判据层面已达成**：CANON7 用 cadence=4 把掉帧与洞全部归零 | 需要一条对照臂（`--npu-affinity "0-3"` 让 NPU/POST 独占 A55 核）才能分离两个候选源 —— **用户已明确「不要瞎做实验」，故未跑** | 抖动来源可归因，且 p99 下降后 cadence 可退到 3（少算 25% 的帧） |
 | 2 | cadence **> 1 时的多引擎死锁**验证 | 已由源码定位（`window_ok` 取最严，`mosaic_pipeline.cpp:352-357`）；**未做板卡复现** | 需专门构造 | — （结论已可用于约束配置：cadence>1 ⇒ 单引擎） |
 | 3 | **canonical 口径下的 jitter 复扫**（jitter 3 vs 8 vs 16，step2 + cadence + FIFO≤64） | 未测（现有 jitter 数据是 step10 + 深 FIFO 口径） | 未安排 | 出 canonical 口径的 fps 与 ΔF1 曲线 |
 | 4 | **带 tracker 的时序链口径**评测 | 未做（所有门禁/对照都是 `--no-pipeline` 单帧臂） | 需时序链评测器 | 「零洞是硬性必要条件」在时序链口径上才能被最终判定 |
 | 5 | §0.2 的 **22 帧指纹差异**（60~102 偶数帧）成因 | 未决（形态指向 `gmc_ring_slack` 隐患） | 定位它的二分实验被板卡 RKNPU 驱动崩溃打断 | 定位成因；**不影响 F1，也不影响 §3.2 / §0.3 的逐位结论**（那 22 帧是 A_gate vs P1b 之间的，与 canonical 臂无关） |
 | 6 | **「自由跳步」方案**（GMC 空闲时直接抓环里最新的一帧） | 已算清可行性（§7.3.2）：方向对，但 **slack=1 的环装不下**跳步所需的历史（需 ≥ 43+7 = 50 帧），且需处理「窗口被覆盖 ⇒ 该组作废」这一新失败模式 | 未实现 | 环深 ≥ 50 帧 + 跳步语义 + 作废路径全部落地 |
-| 7 | 板卡 `/root/rknn_mosaic_e2e` md5 异常 | 现值 `81c52a15b4333d1cb7a7b7b880912249`，与旧记录 `ce8656350cb97e28094f4d3d403ac36d` 不符，来源未查明。**不影响已报数字**：A_gate 用的是 `/root/rknn_mosaic_e2e_sweep3`（md5 `6571454f70747f0348d063f753225551`，与板上现值一致），CANON4/5/6/7 用的是 `v3`/`v4` | 未查明 | 说明 `81c52a15…` 的来源 |
+| 7 | **NPU 段成为新瓶颈**（动态调度后 GMC 产能 15.89 组/s ≫ NPU 段 11.19 fps，特征队列按设计丢了 **2221** 个特征，端到端 p50 从 232 ms 升到 **357.8 ms**） | 动态调度把 GMC 从「不足」变成「过剩」，瓶颈整体下移到下游链：`upload` 41.56 + `rknn_run` 109.85 + `backproject` 24.15 ≈ **177.5 ms/帧/worker** × 2 worker = **11.27 fps** 上限，实测 **11.19 fps（99.3% 饱和）** | 未安排（需要动 NPU 段：`jitter_depth` 放大 / upload 与推理重叠 / 更多 context） | 特征队列丢弃数降下来，且端到端 p50 回落到 232 ms 以下 |
+| 8 | 板卡 `/root/rknn_mosaic_e2e` md5 异常 | 现值 `81c52a15b4333d1cb7a7b7b880912249`，与旧记录 `ce8656350cb97e28094f4d3d403ac36d` 不符，来源未查明。**不影响已报数字**：A_gate 用的是 `/root/rknn_mosaic_e2e_sweep3`（md5 `6571454f70747f0348d063f753225551`，与板上现值一致），CANON4/5/6/7 用的是 `v3`/`v4` | 未查明 | 说明 `81c52a15…` 的来源 |
 
 ---
 
@@ -1419,6 +1852,9 @@ LD_LIBRARY_PATH=/root/psearch/fixlibs bash /root/cmp_snapshot_board.sh \
 | 3 | 端到端延时 p50 / p95 / p99 | mean 381.0，**p50 323.6 / p95 681.7 / p99 814.8 / max 946.5 ms**（n=11810，pace 0 工况） | §0.3.1.1 |
 | 4 | cadence = 3 的实时臂 | **已跑**（CANON6_live25_s3）：dropped **34**、无洞帧 **3823 / 3823 逐位相同**、91 处差异与库报告的 91 个有洞帧**双向差集为空**；@S 口径 arm F1 **0.893564** vs ref@S 0.893531（**ΔF1 = +0.000033**） | §0.3.1.2 / §0.3.1.3 |
 | 5 | **实时零丢帧零洞（最终交付臂）** | **已跑**（CANON7_live25_s4，cadence 4 @ 真 25 fps）：dropped / features_dropped / detections_dropped / gmc_history_gaps **0 / 0 / 0 / 0**；逐位 **2953 / 2953 相同、different = 0**；@S 口径 arm 与 ref **TP/FP/FN/R/P/F1 逐项相同**（**ΔF1 = 0.000000**）；端到端 mean 277.2 / p50 232.1 / p95 547.2 / p99 892.2 / max 1190.1 ms | §0.3.1.4 |
+| 7 | **机会主义动态最新帧调度（ABI v9）** | **已实现并跑通**：一级环深 44→**64**（`GMC_RING_BUFFER_SIZE` 宏，余量 21 帧 = 840 ms）、`window_ok()` 去 `oldest_pending` 基准改纯谓词、**INGEST 零阻塞**（`gmc_ingest_window_ms` 246895 → **0.000**、`gmc_window_blocks` 2968 → **0**）、GMC 引擎原子抓最新帧 + `history_complete()` 连续性校验、`gmc_compute_stride` → **`gmc_min_stride`**、新增 `gmc_void_frames`/`gmc_frames_skipped`、e2e 输出 `processed_frames.csv` | §6.10 / §0.3.1.5 |
+| 8 | **CANON8 动态调度臂的逐位与精度验收** | **已跑**（CANON8_opportunistic）：`dropped`/`gmc_history_gaps`/`gmc_void_frames` 全 **0**；**7513 / 7513 逐位 md5 相同**（different = 0）；@S arm 与 ref **TP/FP/FN/R/P/F1 逐项相同**（F1 0.900282，**ΔF1 = 0.000000**）；GMC 组速率 **15.89 组/s**（CANON7 的 2.54 倍），交付检测帧 **5292**（+79.2%）；板卡 api_test **82 passed / 0 failed** | §0.3.1.5 / §6.10 |
+| 9 | **子集对齐校验脚本** | **已实现并双回归**：`manu/pipeline/npu/ptq/load_and_align_subset.py`（md5 `348c895f40ab98d09f206561c1cd8d30`），CANON7 PASS / CANON6 洞帧隔离正确 / CANON8 PASS | §6.10.5 |
 | 6 | **CANON4 的口径勘误** | 原报告把「组网格未产出特征的 352 组」误写成「相机掉帧 352」。**实测：相机 FIFO 溢出丢 745 帧**（run.log `fallback summary`）、**352 组**未产出特征（5905 组网格 − 5553 行 md5）、库自报 **898 帧**有洞 / **10302 次** gap（= 私有快照回退次数）。本表已按实测值改写 | §0.3.1 / §6.8 |
 
 > **附带完成**：e2e 的结果数校验公式已修正（新增 `MosaicPipelineTiming.gmc_groups_done`，`MOSAIC_API_VERSION` 7 → 8）。

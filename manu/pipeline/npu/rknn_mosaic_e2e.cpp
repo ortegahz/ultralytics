@@ -160,13 +160,17 @@ struct Options {
   // DETECTED hole (reported per frame and counted in the timing file) instead
   // of a silently stretched history window.
   int gmc_phys_anchor = -1;       // -> cfg.gmc_phys_anchor
-  // How many camera frames make ONE GMC group.  1 = every frame gets its own
-  // group (the certified behaviour).  2 = one group per two frames, which lets
-  // the GMC service cover 30.6 camera frames per second against a 25 fps
-  // camera, so the camera queue never overflows and the physical history has
-  // no holes.  It changes WHICH frames get a feature, never what a feature is
-  // computed from.
-  int gmc_compute_stride = -1;     // -> cfg.gmc_compute_stride
+  // THE MINIMUM GAP BETWEEN TWO GMC GROUPS, in frames.  1 = no limit: the
+  // engine grabs the NEWEST frame as soon as it is free (the adaptive
+  // default of the OPPORTUNISTIC scheduler).  >1 = an artificial rate limit:
+  // the engine waits until the newest frame is at least N frames past the one
+  // it computed last.
+  //
+  // RENAMED from gmc_compute_stride, whose meaning was the opposite (a fixed
+  // "every Nth frame" cadence).  The OLD FLAG IS STILL ACCEPTED as an alias
+  // and is reported as such, so an old command line keeps working.
+  int gmc_min_stride = -1;          // -> cfg.gmc_min_stride
+  int gmc_compute_stride = -1;      // DEPRECATED alias of gmc_min_stride
   // WHAT THE CAMERA QUEUE DOES ON OVERFLOW.  -1 = "not specified": the
   // library's own default (0 = evict the OLDEST, i.e. keep the freshest
   // data) applies.  1 = reject the NEWEST (keep the queued frames).
@@ -287,6 +291,17 @@ void PrintUsage(const char* argv0) {
           "                                reject the NEWEST (keep the queued\n"
           "                                frames, at the price of an unbounded\n"
           "                                latency under a sustained overload).\n"
+          "          [--gmc-min-stride N]    the MINIMUM gap between two GMC groups,\n"
+          "                                in frames.  1 (the default) = no limit:\n"
+          "                                the engine grabs the NEWEST frame as\n"
+          "                                soon as it is free (the OPPORTUNISTIC\n"
+          "                                scheduler) and the frames it could not\n"
+          "                                keep up with are skipped -- they are\n"
+          "                                still seeded, so they are still history.\n"
+          "                                >1 = an artificial rate limit.\n"
+          "          [--gmc-compute-stride N] DEPRECATED alias of --gmc-min-stride\n"
+          "                                (the old meaning was a fixed cadence);\n"
+          "                                it is reported as such when used.\n"
           "          [--pace-ms N]          push one frame every N ms, i.e. simulate a\n"
           "                                camera of 1000/N fps that does NOT wait for\n"
           "                                the pipeline (40 = the 25 fps source)\n"
@@ -428,6 +443,11 @@ int main(int argc, char** argv) {
     else if (a == "--gmc-ransac-max-iters" && i + 1 < argc)
       opt.gmc_ransac_max_iters = atoi(argv[++i]);
     else if (a == "--gmc-phys-anchor" && i + 1 < argc) opt.gmc_phys_anchor = atoi(argv[++i]);
+    else if (a == "--gmc-min-stride" && i + 1 < argc) opt.gmc_min_stride = atoi(argv[++i]);
+    // DEPRECATED ALIAS of --gmc-min-stride.  The old flag meant "a fixed
+    // cadence: every Nth frame gets a group"; the new one means "the minimum
+    // gap between two groups".  The alias is kept so an old command line
+    // keeps working, and it is reported as an alias below.
     else if (a == "--gmc-compute-stride" && i + 1 < argc) opt.gmc_compute_stride = atoi(argv[++i]);
     else if (a == "--gmc-input-drop-policy" && i + 1 < argc)
       opt.gmc_input_drop_policy = atoi(argv[++i]);
@@ -517,7 +537,17 @@ int main(int argc, char** argv) {
   // consumption counter, i.e. the CERTIFIED behaviour, and evicting the
   // oldest frame on overflow).
   if (opt.gmc_phys_anchor >= 0) cfg.gmc_phys_anchor = opt.gmc_phys_anchor;
-  if (opt.gmc_compute_stride >= 0) cfg.gmc_compute_stride = opt.gmc_compute_stride;
+  // The minimum gap between two GMC groups.  The NEW flag wins if both are
+  // given; the old one is accepted as an alias and reported as such.
+  if (opt.gmc_min_stride >= 0) {
+    cfg.gmc_min_stride = opt.gmc_min_stride;
+  } else if (opt.gmc_compute_stride >= 0) {
+    fprintf(stderr,
+            "[i] --gmc-compute-stride %d is DEPRECATED: it is read as --gmc-min-stride %d "
+            "(the minimum gap between two GMC groups, not a fixed cadence)\n",
+            opt.gmc_compute_stride, opt.gmc_compute_stride);
+    cfg.gmc_min_stride = opt.gmc_compute_stride;
+  }
   if (opt.gmc_input_drop_policy >= 0)
     cfg.gmc_input_drop_policy = opt.gmc_input_drop_policy;
   if (opt.gmc_anchor_threads >= 0) cfg.gmc_anchor_threads = opt.gmc_anchor_threads;
@@ -712,9 +742,10 @@ int main(int argc, char** argv) {
   // GROUPS that completed, minus the two downstream drop counters:
   //   * gmc_groups_done    -- the frames the GMC service really computed a
   //                           feature for.  NOT the number of pushed frames:
-  //                           with gmc_compute_stride > 1 only every Nth frame
-  //                           becomes a group, the others are seeded as
-  //                           history and produce nothing, and the frames the
+  //                           under the OPPORTUNISTIC scheduler the engine
+  //                           computes the NEWEST frame and SKIPS the ones it
+  //                           could not keep up with (they are seeded as
+  //                           history and produce nothing), and the frames the
   //                           camera queue dropped never reach the GMC service
   //                           at all.
   //   * features_dropped   -- the GMC computed it but the NPU services skipped it
@@ -723,10 +754,13 @@ int main(int argc, char** argv) {
   // after the GMC never produces a result, so waiting for `pushed` results
   // would hang forever in a paced run.
   //
-  // WHY THE COUNTER AND NOT `pushed`: the old formula assumed one result per
-  // pushed frame, which is only true at stride 1.  At stride > 1 rows.size()
-  // is a fraction of `pushed`, so the check below fired and killed the run
-  // BEFORE the TSV and the timing file were written.
+  // WHY THE COUNTER AND NOT `pushed`: the formula assumes one result per
+  // COMPUTED group, which is what the pipeline guarantees: every group that
+  // completed produces exactly one feature and (unless the inference skipped
+  // it) exactly one result.  The number of pushed frames is a different
+  // number, and under the opportunistic scheduler it is NOT the denominator
+  // any more -- the frames the engine skipped are in the manifest
+  // (processed_frames.csv), not in the results.
   MosaicPipelineTiming tm_probe;
   mosaic_pipeline_get_timing(pipe, &tm_probe);
   const int64_t expect = tm_probe.gmc_groups_done - tm_probe.features_dropped -
@@ -804,6 +838,40 @@ int main(int argc, char** argv) {
   fclose(tsv);
   fprintf(stderr, "[i] TSV -> %s (%zu frames)\n", tsv_path, rows.size());
   fprintf(stderr, "[i] feature md5 (pre-encode planes) = %s\n", mosaic_pipeline_feature_md5(pipe));
+
+  // ---- write the PROCESSED FRAME MANIFEST ---------------------------------
+  // THE LIST OF THE FRAMES THIS RUN ACTUALLY PROCESSED.
+  //
+  // WHY IT EXISTS: the board-side inference program has to leave behind a
+  // manifest of what it processed, so that the result set can be reconciled
+  // with the run afterwards ("which frames did the pipeline see?").  Under
+  // the OPPORTUNISTIC scheduler that question is NOT "how many frames were
+  // pushed": the engine skips the frames it could not keep up with, so the
+  // processed set is a SUBSET of the pushed set and only the manifest says
+  // which subset.
+  //
+  // The rows arrive in COMPLETION order (the callback fires from the
+  // dispatcher thread), so the manifest is written ONCE, at the end, from the
+  // map -- which is keyed by the frame id and therefore already in frame
+  // order.
+  //
+  // The per-frame feature fingerprint is NOT repeated here: it lives in the
+  // library's own feature_md5.txt (same directory, one line per computed
+  // frame, with the same frame id), so the two files can be joined on it.
+  char csv_path[1024];
+  snprintf(csv_path, sizeof(csv_path), "%s/processed_frames.csv", opt.out.c_str());
+  {
+    FILE* csv = fopen(csv_path, "w");
+    if (!csv) {
+      fprintf(stderr, "[FATAL] cannot open %s: %s\n", csv_path, strerror(errno));
+      mosaic_pipeline_destroy(pipe);
+      return 1;
+    }
+    fprintf(csv, "frame_id,n_dets\n");
+    for (const auto& kv : rows) fprintf(csv, "%lld,%zu\n", (long long)kv.first, kv.second.size());
+    fclose(csv);
+    fprintf(stderr, "[i] processed frames -> %s (%zu frames)\n", csv_path, rows.size());
+  }
 
   // ---- golden fingerprint self-check -------------------------------------
   // The GMC feature stream is the one thing that must be bit-identical to the
@@ -1010,10 +1078,24 @@ int main(int argc, char** argv) {
     fprintf(tf, "features_dropped=%lld\n", (long long)tm.features_dropped);
     fprintf(tf, "detections_dropped=%lld\n", (long long)tm.detections_dropped);
     // The GMC GROUPS that completed: the frames a feature was really computed
-    // for.  With gmc_compute_stride > 1 this is a fraction of `pushed` (only
-    // every Nth frame becomes a group), and it is the denominator the result
-    // count is checked against.
+    // for.  Under the OPPORTUNISTIC scheduler this is a fraction of `pushed`
+    // (the engine computes the NEWEST frame and skips the ones it could not
+    // keep up with), and it is the denominator the result count is checked
+    // against.
     fprintf(tf, "gmc_groups_done=%lld\n", (long long)tm.gmc_groups_done);
+    // The frames the engine VOIDED because their 21-frame history was not
+    // whole (the producer outran the ring, or a camera frame was lost).  0 in
+    // a healthy run.
+    fprintf(tf, "gmc_void_frames=%lld\n", (long long)tm.gmc_void_frames);
+    // The frames that were seeded into the history but never computed: the
+    // engine was busy with a newer frame.  NOT a loss -- they are still
+    // history, so skipping never punches a hole in it.
+    fprintf(tf, "gmc_frames_skipped=%lld\n", (long long)tm.gmc_frames_skipped);
+    // THE MINIMUM GAP between two GMC groups that was in force (read back
+    // with mosaic_pipeline_effective_config), and the manifest of the frames
+    // this run actually processed.
+    fprintf(tf, "gmc_min_stride=%d\n", eff_cfg.gmc_min_stride);
+    fprintf(tf, "processed_frames_csv=%s\n", csv_path);
     fprintf(tf, "deadline_blows=%lld\n", (long long)tm.gmc_deadline_blows);
     // The MISSING physical history frames.  0 unless gmc_phys_anchor=1: with
     // the consumption-counter anchor the engine cannot see a lost camera
@@ -1056,7 +1138,11 @@ int main(int argc, char** argv) {
           "[timing] ingest breakdown (ms/frame over %lld fitted frames): "
           "in %.3f  window %.3f  space %.3f  |  lookahead budget %d frames, "
           "engine job queue depth at pop %.2f (n=%lld)  window_blocks %lld  "
-          "space_blocks %lld\n",
+          "space_blocks %lld\n"
+          "[timing] opportunistic schedule: %lld frames seeded into the history, "
+          "%lld GMC groups computed, %lld frames skipped (the engine was busy with a "
+          "newer frame -- they are still history), %lld frames voided (their 21-frame "
+          "history was not whole)  |  processed frames -> %s\n",
           (long long)tm.frames, tm.wall_ms, tm.wall_ms / (tm.frames > 0 ? tm.frames : 1),
           tm.wall_ms > 0 ? 1000.0 * (double)tm.frames / tm.wall_ms : 0.0,
           tm.gmc_fit_ms / gmc_frames, tm.gmc_total_ms / gmc_frames,
@@ -1076,7 +1162,10 @@ int main(int argc, char** argv) {
           ring_slack_eff,
           tm.gmc_queue_samples > 0 ? tm.gmc_queue_depth_sum / (double)tm.gmc_queue_samples : 0.0,
           (long long)tm.gmc_queue_samples, (long long)tm.gmc_window_blocks,
-          (long long)tm.gmc_space_blocks);
+          (long long)tm.gmc_space_blocks,
+          (long long)(tm.gmc_groups_done + tm.gmc_frames_skipped + tm.gmc_void_frames),
+          (long long)tm.gmc_groups_done, (long long)tm.gmc_frames_skipped,
+          (long long)tm.gmc_void_frames, csv_path);
 
   mosaic_pipeline_destroy(pipe);
   // A golden-fingerprint mismatch is a hard failure: the process must NOT

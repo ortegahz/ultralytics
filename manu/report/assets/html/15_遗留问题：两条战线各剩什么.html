@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>遗留问题：两条战线各剩什么</title>
+  <style>
+    html, body {
+      width: 1280px;
+      height: 720px;
+      margin: 0;
+      overflow: hidden;
+      font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+      background:
+        radial-gradient(circle at top right, rgba(188, 147, 72, 0.18), transparent 32%),
+        linear-gradient(180deg, #f7f5ef 0%, #f4f6f9 100%);
+      color: #122033;
+    }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .slide {
+      width: 1180px;
+      height: 620px;
+      display: grid;
+      grid-template-rows: 110px 1fr 70px;
+      gap: 18px;
+      padding: 28px 30px;
+      border-radius: 28px;
+      background: rgba(255, 255, 255, 0.84);
+      box-shadow: 0 24px 80px rgba(15, 23, 42, 0.12);
+      border: 1px solid rgba(18, 32, 51, 0.08);
+    }
+    .header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(18, 32, 51, 0.12);
+      padding-bottom: 14px;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(201, 151, 77, 0.12);
+      color: #7d5a22;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .title {
+      margin: 14px 0 0;
+      font-size: 38px;
+      line-height: 1.08;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+    .subtitle {
+      margin: 8px 0 0;
+      color: #4b5b70;
+      font-size: 15px;
+      line-height: 1.4;
+    }
+    .page-tag {
+      align-self: start;
+      padding: 10px 14px;
+      border-radius: 14px;
+      background: #122033;
+      color: #f8fafc;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+    }
+    .content {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 18px;
+      min-height: 0;
+    }
+    .panel {
+      min-height: 0;
+      border-radius: 24px;
+      background: rgba(255, 255, 255, 0.82);
+      border: 1px solid rgba(18, 32, 51, 0.08);
+      box-shadow: 0 14px 36px rgba(15, 23, 42, 0.08);
+      padding: 22px;
+    }
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 8px;
+      color: #5a6879;
+      font-size: 12px;
+      border-top: 1px solid rgba(18, 32, 51, 0.1);
+    }
+
+    .content {
+      grid-template-columns: minmax(0, 2.08fr) minmax(0, 1fr);
+      gap: 16px;
+      overflow: hidden;
+    }
+
+    .main-column {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) 106px;
+      gap: 12px;
+    }
+
+    .battle-grid {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .metric-card,
+    .cross-card,
+    .root-panel {
+      min-width: 0;
+      min-height: 0;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.84);
+      border: 1px solid rgba(18, 32, 51, 0.08);
+      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.07);
+    }
+
+    .metric-card {
+      padding: 16px 17px 14px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+    }
+
+    .metric-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(18, 32, 51, 0.14);
+      box-shadow: 0 16px 36px rgba(15, 23, 42, 0.09);
+    }
+
+    .card-topline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .card-name {
+      color: #122033;
+      font-size: 16px;
+      font-weight: 800;
+      line-height: 1.2;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 25px;
+      padding: 5px 9px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .status-red {
+      color: #9f3f3f;
+      background: rgba(184, 74, 74, 0.11);
+    }
+
+    .status-blue {
+      color: #315f8d;
+      background: rgba(49, 95, 141, 0.10);
+    }
+
+    .hero-metric {
+      margin-top: 11px;
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .hero-metric strong {
+      font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+      font-size: clamp(26px, 2.35vw, 34px);
+      line-height: 1;
+      letter-spacing: -0.045em;
+      white-space: nowrap;
+    }
+
+    .metric-a strong {
+      color: #b84a4a;
+    }
+
+    .metric-b strong {
+      color: #244f79;
+    }
+
+    .hero-metric span {
+      color: #5a6879;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .judgement-list {
+      margin: 10px 0 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 6px;
+      color: #4b5b70;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .judgement-list li {
+      position: relative;
+      padding-left: 13px;
+    }
+
+    .judgement-list li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0.56em;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: #c9974d;
+    }
+
+    .threshold-block {
+      margin-top: auto;
+      padding-top: 11px;
+    }
+
+    .threshold-labels {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11px;
+      color: #6b7787;
+    }
+
+    .threshold-labels strong {
+      color: #b84a4a;
+      font-size: 12px;
+    }
+
+    .track {
+      position: relative;
+      height: 10px;
+      margin-top: 7px;
+      border-radius: 999px;
+      background: #edf0f4;
+      overflow: visible;
+    }
+
+    .track-fill {
+      position: absolute;
+      inset: 0 auto 0 0;
+      border-radius: inherit;
+    }
+
+    .fill-red {
+      width: 100%;
+      background: linear-gradient(90deg, rgba(184, 74, 74, 0.36), #b84a4a);
+    }
+
+    .fill-blue {
+      width: 97.2%;
+      background: linear-gradient(90deg, #315f8d, #244f79);
+    }
+
+    .threshold-mark {
+      position: absolute;
+      top: -5px;
+      bottom: -5px;
+      width: 2px;
+      background: #b84a4a;
+      border-radius: 2px;
+    }
+
+    .threshold-mark::after {
+      content: "红线 40 ms";
+      position: absolute;
+      left: 50%;
+      bottom: 13px;
+      transform: translateX(-50%);
+      color: #9f3f3f;
+      font-size: 10px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .current-marker {
+      position: absolute;
+      right: -4px;
+      top: 50%;
+      width: 10px;
+      height: 10px;
+      transform: translateY(-50%);
+      border: 2px solid #fff;
+      border-radius: 50%;
+      background: #b84a4a;
+      box-shadow: 0 1px 4px rgba(18, 32, 51, 0.18);
+    }
+
+    .marker-blue {
+      background: #244f79;
+    }
+
+    .subnote {
+      margin-top: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      color: #6a7787;
+      font-size: 11px;
+      line-height: 1.25;
+    }
+
+    .subnote .danger {
+      color: #b84a4a;
+      font-weight: 700;
+    }
+
+    .void-value {
+      color: #8b96a4;
+      text-decoration: line-through;
+      text-decoration-thickness: 1.5px;
+    }
+
+    .void-tag {
+      padding: 2px 6px;
+      border-radius: 6px;
+      background: rgba(90, 104, 121, 0.09);
+      color: #718092;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .offset-note {
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 7px 9px;
+      border: 1px solid rgba(201, 151, 77, 0.28);
+      border-radius: 10px;
+      background: rgba(201, 151, 77, 0.07);
+      color: #7d5a22;
+      font-size: 11px;
+    }
+
+    .offset-note strong {
+      font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+      font-size: 14px;
+    }
+
+    .cross-card {
+      padding: 13px 15px;
+      display: grid;
+      grid-template-columns: 72px minmax(0, 1fr);
+      align-items: center;
+      gap: 13px;
+      background:
+        linear-gradient(90deg, rgba(201, 151, 77, 0.10), rgba(255, 255, 255, 0.84) 42%);
+    }
+
+    .coverage-badge {
+      width: 66px;
+      height: 66px;
+      display: grid;
+      place-items: center;
+      align-content: center;
+      border-radius: 18px;
+      background: #122033;
+      color: #f8fafc;
+      box-shadow: 0 8px 20px rgba(18, 32, 51, 0.15);
+    }
+
+    .coverage-badge strong {
+      font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+      font-size: 24px;
+      line-height: 1;
+    }
+
+    .coverage-badge span {
+      margin-top: 4px;
+      color: #dbe3eb;
+      font-size: 9px;
+      letter-spacing: 0.08em;
+    }
+
+    .cross-copy {
+      min-width: 0;
+    }
+
+    .cross-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 7px;
+    }
+
+    .cross-title h2 {
+      margin: 0;
+      color: #122033;
+      font-size: 15px;
+      line-height: 1.2;
+    }
+
+    .cross-state {
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: rgba(201, 151, 77, 0.13);
+      color: #7d5a22;
+      font-size: 10px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .flow {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-width: 0;
+    }
+
+    .flow-step {
+      flex: 1 1 auto;
+      min-width: 0;
+      padding: 7px 8px;
+      border-radius: 9px;
+      background: rgba(255, 255, 255, 0.76);
+      border: 1px solid rgba(18, 32, 51, 0.08);
+      color: #435269;
+      font-size: 11px;
+      font-weight: 700;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    .flow-step.emphasis {
+      color: #9f3f3f;
+      background: rgba(184, 74, 74, 0.07);
+      border-color: rgba(184, 74, 74, 0.16);
+    }
+
+    .flow-arrow {
+      flex: 0 0 auto;
+      color: #b08b4e;
+      font-size: 17px;
+      font-weight: 800;
+    }
+
+    .root-panel {
+      padding: 17px 16px 14px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .root-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(18, 32, 51, 0.08);
+    }
+
+    .root-heading h2 {
+      margin: 0;
+      color: #122033;
+      font-size: 16px;
+      line-height: 1.2;
+    }
+
+    .root-heading span {
+      color: #7d5a22;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+    }
+
+    .root-list {
+      margin-top: 10px;
+      display: grid;
+      gap: 9px;
+    }
+
+    .root-item {
+      position: relative;
+      padding: 8px 9px 8px 13px;
+      border-radius: 11px;
+      background: rgba(248, 250, 252, 0.76);
+    }
+
+    .root-item::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 9px;
+      bottom: 9px;
+      width: 3px;
+      border-radius: 0 3px 3px 0;
+    }
+
+    .root-item.red::before {
+      background: #b84a4a;
+    }
+
+    .root-item.gray::before {
+      background: #8b96a4;
+    }
+
+    .root-item.orange::before {
+      background: #c9974d;
+    }
+
+    .root-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .root-title.red {
+      color: #a34343;
+    }
+
+    .root-title.gray {
+      color: #667486;
+    }
+
+    .root-title.orange {
+      color: #7d5a22;
+    }
+
+    .root-tag {
+      padding: 2px 6px;
+      border-radius: 6px;
+      background: rgba(90, 104, 121, 0.08);
+      color: #7a8797;
+      font-size: 9px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .root-detail {
+      margin-top: 4px;
+      color: #536174;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .root-detail code,
+    .mono {
+      font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+    }
+
+    .counter-flow {
+      margin-top: 6px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      color: #69778a;
+      font-size: 10px;
+    }
+
+    .counter-node {
+      padding: 3px 6px;
+      border-radius: 6px;
+      background: rgba(184, 74, 74, 0.07);
+      color: #9f3f3f;
+      font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+      font-weight: 700;
+    }
+
+    .counter-arrow {
+      color: #b84a4a;
+      font-weight: 800;
+    }
+
+    .precision-values {
+      margin-top: 5px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #6b7787;
+      font-size: 10px;
+    }
+
+    .precision-values code {
+      padding: 3px 5px;
+      border-radius: 5px;
+      background: rgba(201, 151, 77, 0.09);
+      color: #7d5a22;
+      font-weight: 700;
+    }
+
+    .decision-callout {
+      margin-top: auto;
+      padding: 10px 11px;
+      border-radius: 13px;
+      background: #122033;
+      color: #f8fafc;
+    }
+
+    .decision-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: #cfd9e3;
+      font-size: 10px;
+    }
+
+    .decision-label strong {
+      color: #f0d39b;
+      font-size: 15px;
+    }
+
+    .decision-main {
+      margin-top: 3px;
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11px;
+    }
+
+    .decision-main span {
+      color: #b9c6d3;
+    }
+
+    .decision-main .low-yield {
+      color: #9eacba;
+      white-space: nowrap;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .metric-card {
+        transition: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="slide">
+    <header class="header">
+      <div>
+        <div class="eyebrow">Signal Narrative</div>
+        <h1 class="title">遗留问题：两条战线各剩什么</h1>
+        <p class="subtitle">主动摆出未解项，比被追问出来强得多</p>
+      </div>
+      <div class="page-tag">15/18</div>
+    </header>
+
+    <main class="content">
+      <section class="main-column" aria-label="两条战线与横切问题">
+        <div class="battle-grid">
+          <article class="metric-card metric-a" aria-labelledby="battle-a-title">
+            <div class="card-topline">
+              <h2 class="card-name" id="battle-a-title">战线 A｜等价性锚定</h2>
+              <span class="status-pill status-red">零丢帧是前提</span>
+            </div>
+
+            <div class="hero-metric">
+              <strong>dropped == 0</strong>
+              <span>L1 锚定门槛</span>
+            </div>
+
+            <ul class="judgement-list">
+              <li>深缓冲不能替代零丢帧</li>
+              <li>L2 GMC 吞吐仍未过相机率红线</li>
+            </ul>
+
+            <div class="threshold-block" aria-label="L2 吞吐阈值：当前六十点八毫秒，红线四十毫秒">
+              <div class="threshold-labels">
+                <span>当前 <strong>60.8 ms</strong></span>
+                <span>step2 差 4×</span>
+              </div>
+              <div class="track">
+                <div class="track-fill fill-red"></div>
+                <div class="threshold-mark" style="left: 66%;"></div>
+                <span class="current-marker"></span>
+              </div>
+              <div class="subnote">
+                <span class="danger">仍超红线</span>
+                <span>step10 · GMC 吞吐</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="metric-card metric-b" aria-labelledby="battle-b-title">
+            <div class="card-topline">
+              <h2 class="card-name" id="battle-b-title">战线 B｜吞吐上限</h2>
+              <span class="status-pill status-blue">吞吐已饱和</span>
+            </div>
+
+            <div class="hero-metric">
+              <strong>14.838 fps</strong>
+              <span>实测最优</span>
+            </div>
+
+            <ul class="judgement-list">
+              <li>理论天花板 ≈ 15.3–15.6 fps</li>
+              <li>容量占用已达 97.2%</li>
+            </ul>
+
+            <div class="threshold-block" aria-label="L4 容量占用百分之九十七点二">
+              <div class="threshold-labels">
+                <span>容量占用 <strong>97.2%</strong></span>
+                <span>天花板 ≈ 15.3–15.6 fps</span>
+              </div>
+              <div class="track">
+                <div class="track-fill fill-blue"></div>
+                <span class="current-marker marker-blue"></span>
+              </div>
+              <div class="subnote">
+                <span class="void-value">17.51 fps</span>
+                <span class="void-tag">已作废</span>
+              </div>
+              <div class="offset-note">
+                <span>L5 离线测速低估</span>
+                <strong>1.78×</strong>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <article class="cross-card" aria-labelledby="cross-title">
+          <div class="coverage-badge" aria-label="场景覆盖四分之一">
+            <strong>1/4</strong>
+            <span>场景覆盖</span>
+          </div>
+          <div class="cross-copy">
+            <div class="cross-title">
+              <h2 id="cross-title">横切｜场景不可复制</h2>
+              <span class="cross-state">待补齐</span>
+            </div>
+            <div class="flow" aria-label="四个 Skill 仅验证一个场景且没有领域迁移标准流程">
+              <span class="flow-step">4 个 Skill</span>
+              <span class="flow-arrow" aria-hidden="true">→</span>
+              <span class="flow-step emphasis">仅 1 个场景验证</span>
+              <span class="flow-arrow" aria-hidden="true">→</span>
+              <span class="flow-step">无领域迁移 SOP</span>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <aside class="root-panel" aria-labelledby="root-title">
+        <div class="root-heading">
+          <h2 id="root-title">还没被解开的根因</h2>
+          <span>OPEN RISKS</span>
+        </div>
+
+        <div class="root-list">
+          <section class="root-item red" aria-labelledby="anchor-root-title">
+            <div class="root-title red" id="anchor-root-title">
+              <span>锚定缺陷</span>
+              <span class="root-tag">GMC 历史锚定</span>
+            </div>
+            <div class="root-detail">消费计数与物理帧号分叉，有丢帧时静默错位。</div>
+            <div class="counter-flow" aria-label="abs_counter 与 next_id 分叉后产生静默错位">
+              <span class="counter-node">abs_counter</span>
+              <span class="counter-arrow" aria-hidden="true">×</span>
+              <span class="counter-node">next_id</span>
+              <span class="counter-arrow" aria-hidden="true">→</span>
+              <span>静默错位</span>
+            </div>
+          </section>
+
+          <section class="root-item gray" aria-labelledby="disabled-root-title">
+            <div class="root-title gray" id="disabled-root-title">
+              <span>禁用项</span>
+              <span class="root-tag">负结果</span>
+            </div>
+            <div class="root-detail">
+              <code>--npu-core-mask 7</code>：崩溃 <strong>139</strong><br />
+              <code>queue_depth 16</code>、<code>post_workers 2</code> 均无效
+            </div>
+          </section>
+
+          <section class="root-item orange" aria-labelledby="precision-root-title">
+            <div class="root-title orange" id="precision-root-title">
+              <span>精度链待统一</span>
+              <span class="root-tag">需统一口径</span>
+            </div>
+            <div class="root-detail"><code>ref@fullGT = 0.891871</code></div>
+            <div class="precision-values">
+              <span>E 臂</span>
+              <code>0.891676</code>
+              <span>/</span>
+              <code>0.891871</code>
+              <span>双数并存</span>
+            </div>
+          </section>
+        </div>
+
+        <section class="decision-callout" aria-label="优化方向判断">
+          <div class="decision-label">
+            <span>已定位主杠杆 · NPU 上下文 1→2</span>
+            <strong>1.84×</strong>
+          </div>
+          <div class="decision-main">
+            <span>预期收益</span>
+            <span class="low-yield">jitter 仅 +1.2%</span>
+          </div>
+        </section>
+      </aside>
+    </main>
+
+    <footer class="footer">
+      <span>Editorial Light Master</span>
+      <span>15</span>
+    </footer>
+  </div>
+</body>
+</html>

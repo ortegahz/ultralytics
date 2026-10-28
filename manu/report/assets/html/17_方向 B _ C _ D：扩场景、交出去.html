@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Editorial Light Master</title>
+  <style>
+    html, body {
+      width: 1280px;
+      height: 720px;
+      margin: 0;
+      overflow: hidden;
+      font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+      background:
+        radial-gradient(circle at top right, rgba(188, 147, 72, 0.18), transparent 32%),
+        linear-gradient(180deg, #f7f5ef 0%, #f4f6f9 100%);
+      color: #122033;
+    }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .slide {
+      width: 1180px;
+      height: 620px;
+      display: grid;
+      grid-template-rows: 110px 1fr 70px;
+      gap: 18px;
+      padding: 28px 30px;
+      border-radius: 28px;
+      background: rgba(255, 255, 255, 0.84);
+      box-shadow: 0 24px 80px rgba(15, 23, 42, 0.12);
+      border: 1px solid rgba(18, 32, 51, 0.08);
+    }
+    .header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(18, 32, 51, 0.12);
+      padding-bottom: 14px;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(201, 151, 77, 0.12);
+      color: #7d5a22;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .title {
+      margin: 14px 0 0;
+      font-size: 38px;
+      line-height: 1.08;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+    .subtitle {
+      margin: 8px 0 0;
+      color: #4b5b70;
+      font-size: 15px;
+      line-height: 1.4;
+    }
+    .page-tag {
+      align-self: start;
+      padding: 10px 14px;
+      border-radius: 14px;
+      background: #122033;
+      color: #f8fafc;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+    }
+    .content {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-rows: minmax(0, 1fr) 64px;
+      gap: 12px;
+      min-height: 0;
+    }
+    .panel {
+      min-height: 0;
+      border-radius: 24px;
+      background: rgba(255, 255, 255, 0.82);
+      border: 1px solid rgba(18, 32, 51, 0.08);
+      box-shadow: 0 14px 36px rgba(15, 23, 42, 0.08);
+      padding: 22px;
+    }
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 8px;
+      color: #5a6879;
+      font-size: 12px;
+      border-top: 1px solid rgba(18, 32, 51, 0.1);
+    }
+
+    .track-card {
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: 48px minmax(0, 1fr) 62px;
+      gap: 8px;
+      padding: 14px 15px;
+      border-radius: 20px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(249, 251, 252, 0.92));
+      border: 1px solid rgba(18, 32, 51, 0.09);
+      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.07);
+      overflow: hidden;
+      transition:
+        transform 180ms ease,
+        border-color 180ms ease,
+        box-shadow 180ms ease;
+    }
+
+    .track-card::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: var(--route-color);
+    }
+
+    .track-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(18, 32, 51, 0.14);
+      box-shadow: 0 16px 38px rgba(15, 23, 42, 0.10);
+    }
+
+    .track-card.b {
+      --route-color: #527da8;
+      --route-wash: rgba(82, 125, 168, 0.11);
+      --route-ink: #365f87;
+    }
+
+    .track-card.c {
+      --route-color: #4c9185;
+      --route-wash: rgba(76, 145, 133, 0.11);
+      --route-ink: #32766d;
+    }
+
+    .track-card.d {
+      --route-color: #c17b42;
+      --route-wash: rgba(193, 123, 66, 0.12);
+      --route-ink: #9b5b2d;
+    }
+
+    .track-head {
+      display: grid;
+      grid-template-columns: 40px 1fr;
+      grid-template-rows: 30px 18px;
+      column-gap: 10px;
+      align-items: center;
+    }
+
+    .route-badge {
+      grid-row: 1 / 3;
+      display: grid;
+      place-items: center;
+      width: 40px;
+      height: 40px;
+      border-radius: 13px;
+      background: var(--route-wash);
+      color: var(--route-ink);
+      font-size: 22px;
+      line-height: 1;
+      font-weight: 800;
+      border: 1px solid color-mix(in srgb, var(--route-color) 24%, transparent);
+    }
+
+    .track-name {
+      margin: 0;
+      color: #122033;
+      font-size: 21px;
+      line-height: 1.08;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .track-label {
+      align-self: start;
+      color: var(--route-ink);
+      font-size: 10.5px;
+      line-height: 1.25;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+
+    .track-body {
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .sop-list {
+      position: relative;
+      display: grid;
+      gap: 3px;
+      margin: 0;
+      padding: 0 0 0 31px;
+      list-style: none;
+    }
+
+    .sop-list::before {
+      content: "";
+      position: absolute;
+      left: 12px;
+      top: 8px;
+      bottom: 8px;
+      width: 1px;
+      background: linear-gradient(180deg, var(--route-color), rgba(201, 151, 77, 0.32));
+    }
+
+    .sop-list li {
+      position: relative;
+      display: flex;
+      align-items: center;
+      min-height: 17px;
+      color: #33465c;
+      font-size: 11px;
+      line-height: 1.25;
+      white-space: nowrap;
+    }
+
+    .sop-list li::before {
+      content: attr(data-step);
+      position: absolute;
+      left: -31px;
+      top: 50%;
+      transform: translateY(-50%);
+      display: grid;
+      place-items: center;
+      width: 25px;
+      height: 15px;
+      border-radius: 999px;
+      background: var(--route-wash);
+      color: var(--route-ink);
+      font-size: 8.5px;
+      font-weight: 800;
+      letter-spacing: 0.03em;
+    }
+
+    .sop-list li:last-child {
+      color: var(--route-ink);
+      font-weight: 700;
+    }
+
+    .capability-matrix {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 7px 9px;
+    }
+
+    .capability-item {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      height: 27px;
+      padding: 0 8px;
+      border-radius: 9px;
+      background: var(--route-wash);
+      color: #33465c;
+      font-size: 10.5px;
+      line-height: 1;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .capability-item::before {
+      content: "";
+      flex: 0 0 auto;
+      width: 5px;
+      height: 5px;
+      margin-right: 6px;
+      border-radius: 50%;
+      background: var(--route-color);
+      box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.72);
+    }
+
+    .capability-item:last-child {
+      color: var(--route-ink);
+      font-weight: 800;
+    }
+
+    .metric-row {
+      display: grid;
+      grid-template-columns: 1fr 24px 1fr;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 0 8px;
+    }
+
+    .metric {
+      min-width: 0;
+      text-align: center;
+    }
+
+    .metric-value {
+      color: #6b7888;
+      font-size: 18px;
+      line-height: 1;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      white-space: nowrap;
+    }
+
+    .metric-value.int8 {
+      color: var(--route-ink);
+      font-size: 28px;
+    }
+
+    .metric-type {
+      margin-top: 5px;
+      color: #718094;
+      font-size: 9.5px;
+      line-height: 1;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+    }
+
+    .metric-arrow {
+      position: relative;
+      color: var(--route-color);
+      font-size: 22px;
+      font-weight: 400;
+      text-align: center;
+    }
+
+    .metric-arrow::after {
+      content: "";
+      position: absolute;
+      left: 4px;
+      right: 4px;
+      bottom: 1px;
+      height: 1px;
+      background: color-mix(in srgb, var(--route-color) 36%, transparent);
+    }
+
+    .speedup-chip {
+      align-self: center;
+      justify-self: center;
+      margin-top: -3px;
+      padding: 4px 9px;
+      border-radius: 999px;
+      background: rgba(201, 151, 77, 0.13);
+      color: #7d5a22;
+      font-size: 10px;
+      line-height: 1;
+      font-weight: 800;
+    }
+
+    .tradeoff {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 38px;
+      padding: 7px 9px;
+      border-radius: 10px;
+      background: var(--route-wash);
+      color: #6d4930;
+      font-size: 10.5px;
+      line-height: 1.35;
+      font-weight: 700;
+    }
+
+    .tradeoff-icon {
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      width: 23px;
+      height: 23px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.7);
+      color: var(--route-ink);
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .acceptance {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-height: 0;
+      padding: 9px 10px 9px 12px;
+      border-left: 3px solid var(--route-color);
+      border-radius: 10px;
+      background: var(--route-wash);
+    }
+
+    .acceptance-label {
+      margin-bottom: 4px;
+      color: var(--route-ink);
+      font-size: 9px;
+      line-height: 1;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .acceptance-main {
+      color: #122033;
+      font-size: 12px;
+      line-height: 1.25;
+      font-weight: 800;
+    }
+
+    .acceptance-note {
+      margin-top: 3px;
+      color: #667588;
+      font-size: 9.5px;
+      line-height: 1.25;
+      font-weight: 500;
+    }
+
+    .acceptance-split {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 8px;
+    }
+
+    .acceptance-split > div + div {
+      padding-left: 8px;
+      border-left: 1px solid color-mix(in srgb, var(--route-color) 28%, transparent);
+    }
+
+    .code-chip {
+      display: inline-block;
+      margin-top: 4px;
+      padding: 3px 6px;
+      border-radius: 6px;
+      background: rgba(18, 32, 51, 0.075);
+      color: #26384f;
+      font-family: Consolas, "SFMono-Regular", monospace;
+      font-size: 8.8px;
+      line-height: 1;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .gate {
+      position: relative;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 14px;
+      min-width: 0;
+      padding: 0 20px;
+      border-radius: 18px;
+      background:
+        radial-gradient(circle at right 12%, rgba(201, 151, 77, 0.17), transparent 30%),
+        #122033;
+      color: #f8fafc;
+      box-shadow: 0 14px 34px rgba(15, 23, 42, 0.16);
+      overflow: hidden;
+    }
+
+    .gate::after {
+      content: "";
+      position: absolute;
+      right: 16px;
+      top: 14px;
+      bottom: 14px;
+      width: 2px;
+      border-radius: 999px;
+      background: rgba(201, 151, 77, 0.72);
+    }
+
+    .gate-label {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 57px;
+      height: 28px;
+      padding: 0 11px;
+      border-radius: 999px;
+      background: rgba(201, 151, 77, 0.16);
+      color: #e1bc79;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+    }
+
+    .gate-text {
+      min-width: 0;
+      margin: 0;
+      color: #f8fafc;
+      font-size: 16px;
+      line-height: 1.35;
+      font-weight: 800;
+      letter-spacing: 0.01em;
+    }
+
+    .gate-text strong {
+      color: #e5c384;
+      font-weight: 800;
+    }
+
+    .gate-mark {
+      width: 28px;
+      color: rgba(229, 195, 132, 0.72);
+      font-size: 20px;
+      text-align: center;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .track-card {
+        transition: none;
+      }
+    }
+
+    @media print {
+      html, body {
+        width: 1280px;
+        height: 720px;
+      }
+
+      .track-card:hover {
+        transform: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="slide">
+    <header class="header">
+      <div>
+        <div class="eyebrow">Signal Narrative</div>
+        <h1 class="title">方向 B / C / D：扩场景、交出去、降带宽</h1>
+        <p class="subtitle">三条线并行推进：复制能力｜交付能力｜带宽效率</p>
+      </div>
+      <div class="page-tag">17/18</div>
+    </header>
+    <main class="content">
+      <section class="track-card b" aria-labelledby="track-b-title">
+        <div class="track-head">
+          <div class="route-badge" aria-hidden="true">B</div>
+          <h2 class="track-name" id="track-b-title">扩场景</h2>
+          <div class="track-label">领域迁移 SOP｜可复制</div>
+        </div>
+
+        <div class="track-body">
+          <ol class="sop-list" aria-label="领域迁移七步流程">
+            <li data-step="01">定界</li>
+            <li data-step="02">split config</li>
+            <li data-step="03">官方特征</li>
+            <li data-step="04">GT 对账</li>
+            <li data-step="05">特征固化</li>
+            <li data-step="06">防护网</li>
+            <li data-step="07">接线</li>
+          </ol>
+        </div>
+
+        <div class="acceptance">
+          <div class="acceptance-label">验收判据</div>
+          <div class="acceptance-main">跑通第二个场景</div>
+          <div class="acceptance-note">SOP 从“能用”到“可复制”的唯一验收</div>
+        </div>
+      </section>
+
+      <section class="track-card c" aria-labelledby="track-c-title">
+        <div class="track-head">
+          <div class="route-badge" aria-hidden="true">C</div>
+          <h2 class="track-name" id="track-c-title">交出去</h2>
+          <div class="track-label">嵌入式集成｜可交付</div>
+        </div>
+
+        <div class="track-body">
+          <div class="capability-matrix" aria-label="八项嵌入式交付能力">
+            <div class="capability-item">ABI 版本化</div>
+            <div class="capability-item">契约文档</div>
+            <div class="capability-item">告警分级</div>
+            <div class="capability-item">背压参数化</div>
+            <div class="capability-item">构建对齐</div>
+            <div class="capability-item">兼容矩阵</div>
+            <div class="capability-item">自检产品化</div>
+            <div class="capability-item">第三方验收</div>
+          </div>
+        </div>
+
+        <div class="acceptance">
+          <div class="acceptance-label">验收判据</div>
+          <div class="acceptance-main">第三方在干净环境按文档即可跑出 <span class="code-chip">PASS / FAIL</span> 清单</div>
+        </div>
+      </section>
+
+      <section class="track-card d" aria-labelledby="track-d-title">
+        <div class="track-head">
+          <div class="route-badge" aria-hidden="true">D</div>
+          <h2 class="track-name" id="track-d-title">降带宽</h2>
+          <div class="track-label">f16 → int8｜可持续降本</div>
+        </div>
+
+        <div class="track-body">
+          <div class="metric-row" aria-label="输入侧性能由45.41毫秒降至0.34毫秒，提升133倍">
+            <div class="metric">
+              <div class="metric-value">45.41 ms</div>
+              <div class="metric-type">f16</div>
+            </div>
+            <div class="metric-arrow" aria-hidden="true">→</div>
+            <div class="metric">
+              <div class="metric-value int8">0.34 ms</div>
+              <div class="metric-type">INT8</div>
+            </div>
+            <div class="speedup-chip">133×</div>
+          </div>
+
+          <div class="tradeoff">
+            <span class="tradeoff-icon" aria-hidden="true">⇄</span>
+            <span>QAT 不能同时兼得：更高准确度 + 更低 INT8 输入延时</span>
+          </div>
+        </div>
+
+        <div class="acceptance">
+          <div class="acceptance-label">验收判据</div>
+          <div class="acceptance-split">
+            <div>
+              <div class="acceptance-main">输入张量 <span class="code-chip">dtype = INT8</span></div>
+              <div class="acceptance-note">构建日志 InputOperator 自证</div>
+            </div>
+            <div>
+              <div class="acceptance-main">三轨全量 F1 不劣</div>
+              <div class="acceptance-note">精度约束同步成立</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="gate" aria-label="D 路线硬闸门">
+        <div class="gate-label">GATE</div>
+        <p class="gate-text">D 的硬闸门：只有 <strong>toolkit 自己完成全图 INT8 量化</strong>，输入才能真正停在 INT8。</p>
+        <div class="gate-mark" aria-hidden="true">▥</div>
+      </aside>
+    </main>
+    <footer class="footer">
+      <span>Editorial Light Master</span>
+      <span>17</span>
+    </footer>
+  </div>
+</body>
+</html>
