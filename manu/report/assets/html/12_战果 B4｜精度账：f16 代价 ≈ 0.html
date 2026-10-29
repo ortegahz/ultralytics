@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>战果 B4｜精度账：f16 代价 ≈ 0，打包的账单独算</title>
+  <style>
+    html, body {
+      width: 1280px;
+      height: 720px;
+      margin: 0;
+      overflow: hidden;
+      font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+      background:
+        radial-gradient(circle at top right, rgba(188, 147, 72, 0.18), transparent 32%),
+        linear-gradient(180deg, #f7f5ef 0%, #f4f6f9 100%);
+      color: #122033;
+    }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .slide {
+      width: 1180px;
+      height: 620px;
+      display: grid;
+      grid-template-rows: 110px 1fr 70px;
+      gap: 18px;
+      padding: 28px 30px;
+      border-radius: 28px;
+      background: rgba(255, 255, 255, 0.84);
+      box-shadow: 0 24px 80px rgba(15, 23, 42, 0.12);
+      border: 1px solid rgba(18, 32, 51, 0.08);
+    }
+    .header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(18, 32, 51, 0.12);
+      padding-bottom: 14px;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(201, 151, 77, 0.12);
+      color: #7d5a22;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .title {
+      margin: 14px 0 0;
+      font-size: 38px;
+      line-height: 1.08;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+    .subtitle {
+      margin: 8px 0 0;
+      color: #4b5b70;
+      font-size: 15px;
+      line-height: 1.4;
+    }
+    .page-tag {
+      align-self: start;
+      padding: 10px 14px;
+      border-radius: 14px;
+      background: #122033;
+      color: #f8fafc;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+    }
+    .content {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 18px;
+      min-height: 0;
+    }
+    .panel {
+      min-height: 0;
+      border-radius: 24px;
+      background: rgba(255, 255, 255, 0.82);
+      border: 1px solid rgba(18, 32, 51, 0.08);
+      box-shadow: 0 14px 36px rgba(15, 23, 42, 0.08);
+      padding: 22px;
+    }
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 8px;
+      color: #5a6879;
+      font-size: 12px;
+      border-top: 1px solid rgba(18, 32, 51, 0.1);
+    }
+
+    /* 内容区 */
+    .logic-panel,
+    .test-panel {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .section-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .section-heading h2 {
+      margin: 0;
+      color: #122033;
+      font-size: 18px;
+      line-height: 1.25;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .section-kicker {
+      flex-shrink: 0;
+      padding: 5px 9px;
+      border-radius: 999px;
+      background: rgba(201, 151, 77, 0.12);
+      color: #7d5a22;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+
+    .verdict {
+      position: relative;
+      padding: 13px 16px 13px 18px;
+      border-radius: 16px;
+      background:
+        linear-gradient(90deg, rgba(201, 151, 77, 0.13), rgba(201, 151, 77, 0.045));
+      border: 1px solid rgba(201, 151, 77, 0.2);
+      overflow: hidden;
+    }
+
+    .verdict::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 4px;
+      background: #c9974d;
+    }
+
+    .verdict-label {
+      margin: 0 0 4px;
+      color: #7d5a22;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+    }
+
+    .verdict strong {
+      display: block;
+      color: #122033;
+      font-size: 21px;
+      line-height: 1.35;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .verdict strong em {
+      color: #7d5a22;
+      font-style: normal;
+    }
+
+    .evidence {
+      display: grid;
+      grid-template-columns: 0.92fr 1.08fr;
+      gap: 9px;
+      margin-top: 9px;
+    }
+
+    .evidence-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      min-width: 0;
+      padding: 10px 11px;
+      border-radius: 14px;
+      background: rgba(244, 246, 249, 0.72);
+      border: 1px solid rgba(18, 32, 51, 0.07);
+    }
+
+    .evidence-index {
+      display: grid;
+      flex: 0 0 25px;
+      width: 25px;
+      height: 25px;
+      place-items: center;
+      border-radius: 8px;
+      background: #122033;
+      color: #f8fafc;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .evidence-item p {
+      margin: 0;
+      color: #4b5b70;
+      font-size: 12px;
+      line-height: 1.48;
+    }
+
+    .evidence-item p strong {
+      color: #122033;
+      font-weight: 800;
+    }
+
+    .golden-strip,
+    .dedup-note {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      border-radius: 13px;
+      margin-top: 9px;
+    }
+
+    .golden-strip {
+      padding: 9px 12px;
+      background: rgba(201, 151, 77, 0.08);
+      border: 1px solid rgba(201, 151, 77, 0.16);
+    }
+
+    .strip-label {
+      flex-shrink: 0;
+      color: #7d5a22;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+    }
+
+    .strip-value {
+      color: #334256;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.35;
+      font-weight: 700;
+    }
+
+    .strip-value strong {
+      color: #122033;
+    }
+
+    .dedup-note {
+      padding: 9px 12px;
+      background: rgba(244, 246, 249, 0.72);
+      border: 1px solid rgba(18, 32, 51, 0.08);
+    }
+
+    .dedup-symbol {
+      color: #7d5a22;
+      font-size: 16px;
+      font-weight: 800;
+    }
+
+    .dedup-note p {
+      margin: 0;
+      color: #4b5b70;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .dedup-note strong {
+      color: #122033;
+    }
+
+    .ledger {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1.15fr;
+      align-items: center;
+      gap: 8px;
+      margin-top: auto;
+      padding: 10px 12px;
+      border-radius: 15px;
+      background: #122033;
+      color: #f8fafc;
+      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+    }
+
+    .ledger-item {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      white-space: nowrap;
+    }
+
+    .ledger-item span {
+      color: rgba(248, 250, 252, 0.66);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .ledger-item strong {
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 15px;
+      font-weight: 800;
+    }
+
+    .ledger-item.pack strong {
+      color: #e6bd77;
+    }
+
+    .ledger-item.total strong {
+      font-size: 16px;
+    }
+
+    .ledger-operator {
+      color: rgba(248, 250, 252, 0.56);
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .zero-pill {
+      padding: 3px 7px;
+      border-radius: 999px;
+      background: rgba(201, 151, 77, 0.18);
+      color: #f2d6a7;
+      font-size: 10px;
+      font-weight: 800;
+    }
+
+    .test-heading {
+      margin-bottom: 8px;
+    }
+
+    .test-heading h2 {
+      font-size: 17px;
+    }
+
+    .test-heading .section-kicker {
+      background: rgba(18, 32, 51, 0.07);
+      color: #4b5b70;
+    }
+
+    .arm-chain {
+      display: grid;
+      grid-template-rows: 78px 32px 78px 32px 78px;
+      min-height: 0;
+      flex: 1;
+    }
+
+    .metric-card {
+      position: relative;
+      display: grid;
+      grid-template-columns: 48px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 11px;
+      padding: 10px 12px 10px 10px;
+      border-radius: 16px;
+      background: rgba(244, 246, 249, 0.76);
+      border: 1px solid rgba(18, 32, 51, 0.08);
+      overflow: hidden;
+    }
+
+    .metric-card::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 4px;
+      background: #8995a5;
+    }
+
+    .metric-card.arm-b::before {
+      background: #c9974d;
+    }
+
+    .metric-card.arm-c::before {
+      background: #122033;
+    }
+
+    .arm-id {
+      display: grid;
+      width: 40px;
+      height: 40px;
+      place-items: center;
+      border-radius: 12px;
+      background: rgba(18, 32, 51, 0.08);
+      color: #122033;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 18px;
+      font-weight: 800;
+    }
+
+    .metric-copy {
+      min-width: 0;
+    }
+
+    .metric-name {
+      margin: 0;
+      color: #122033;
+      font-size: 13px;
+      line-height: 1.25;
+      font-weight: 800;
+    }
+
+    .metric-mode {
+      margin: 4px 0 0;
+      color: #657286;
+      font-size: 11px;
+      line-height: 1.3;
+    }
+
+    .metric-result {
+      text-align: right;
+    }
+
+    .metric-result strong {
+      display: block;
+      color: #122033;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 21px;
+      line-height: 1;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+    }
+
+    .metric-result span {
+      display: inline-block;
+      margin-top: 5px;
+      padding: 3px 7px;
+      border-radius: 999px;
+      background: rgba(18, 32, 51, 0.07);
+      color: #5a6879;
+      font-size: 10px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .arm-b .metric-result span {
+      background: rgba(201, 151, 77, 0.13);
+      color: #7d5a22;
+    }
+
+    .delta-link {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: #5a6879;
+    }
+
+    .delta-link::before {
+      content: "";
+      position: absolute;
+      left: 25px;
+      right: 25px;
+      top: 50%;
+      height: 1px;
+      background: rgba(18, 32, 51, 0.13);
+    }
+
+    .delta-label {
+      position: relative;
+      z-index: 1;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #fff;
+      border: 1px solid rgba(18, 32, 51, 0.1);
+      font-size: 10px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .delta-label strong {
+      margin-left: 4px;
+      font-family: "SFMono-Regular", Consolas, monospace;
+    }
+
+    .delta-link.pack strong {
+      color: #9a6d26;
+    }
+
+    .delta-link.quant strong {
+      color: #122033;
+    }
+
+    .delta-arrow {
+      position: absolute;
+      right: 33px;
+      top: calc(50% - 3px);
+      width: 7px;
+      height: 7px;
+      border-top: 1px solid #7b8796;
+      border-right: 1px solid #7b8796;
+      transform: rotate(45deg);
+      background: #fff;
+    }
+
+    .panel {
+      transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+    }
+
+    .panel:hover {
+      transform: translateY(-2px);
+      border-color: rgba(18, 32, 51, 0.14);
+      box-shadow: 0 18px 44px rgba(15, 23, 42, 0.10);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .panel {
+        transition: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="slide">
+    <header class="header">
+      <div>
+        <div class="eyebrow">战果 B4 · 精度归因</div>
+        <h1 class="title">战果 B4｜精度账：f16 代价 ≈ 0，打包的账单独算</h1>
+        <p class="subtitle">同图对照 · 7 臂重算 · 口径现场抽取</p>
+      </div>
+      <div class="page-tag">12 / 19</div>
+    </header>
+
+    <main class="content">
+      <section class="panel logic-panel" aria-labelledby="logic-title">
+        <div class="section-heading">
+          <h2 id="logic-title">没有 B 臂，不能把总差值算成量化损失</h2>
+          <span class="section-kicker">归因边界</span>
+        </div>
+
+        <div class="verdict">
+          <p class="verdict-label">CORRECTION · 先纠偏</p>
+          <strong>
+            A 与 C 的 −0.002139 是<em>“打包＋量化”合计</em>，不是量化损失
+          </strong>
+        </div>
+
+        <div class="evidence">
+          <article class="evidence-item">
+            <span class="evidence-index">01</span>
+            <p><strong>7 个 arm 全部重算</strong><br />统一使用同一个打分器，避免评分口径漂移。</p>
+          </article>
+
+          <article class="evidence-item">
+            <span class="evidence-index">02</span>
+            <p><strong>B 臂完成隔离</strong><br />PC f32＋同一画布＋同一次前向。</p>
+          </article>
+        </div>
+
+        <div class="golden-strip">
+          <span class="strip-label">T2 黄金池</span>
+          <span class="strip-value">
+            A / B / C F1 =
+            <strong>0.998949 / 0.999790 / 0.999790</strong>
+            · 完全相同
+          </span>
+        </div>
+
+        <div class="dedup-note">
+          <span class="dedup-symbol">⇒</span>
+          <p>
+            <strong>dedup_radius 768</strong> ＞ 帧内任意两点距离；
+            <strong>每帧只留最高分候选</strong>
+          </p>
+        </div>
+
+        <div class="ledger" aria-label="端到端精度损失账本">
+          <div class="ledger-item pack">
+            <span>打包</span>
+            <strong>−0.002668</strong>
+          </div>
+          <span class="ledger-operator">＋</span>
+          <div class="ledger-item">
+            <span>量化</span>
+            <strong>+0.000529</strong>
+            <span class="zero-pill">≈ 0</span>
+          </div>
+          <span class="ledger-operator">＝</span>
+          <div class="ledger-item total">
+            <span>总账</span>
+            <strong>−0.002139</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel test-panel" aria-labelledby="test-title">
+        <div class="section-heading test-heading">
+          <h2 id="test-title">T3 盲测｜11,810 帧</h2>
+          <span class="section-kicker">A → B → C</span>
+        </div>
+
+        <div class="arm-chain">
+          <article class="metric-card arm-a">
+            <div class="arm-id">A</div>
+            <div class="metric-copy">
+              <p class="metric-name">PC f32</p>
+              <p class="metric-mode">逐尺度 3 次</p>
+            </div>
+            <div class="metric-result">
+              <strong>0.897694</strong>
+              <span>冻结基准</span>
+            </div>
+          </article>
+
+          <div class="delta-link pack" aria-label="从 A 到 B，打包造成负向变化 0.002668">
+            <span class="delta-label">打包<strong>−0.002668</strong></span>
+            <span class="delta-arrow" aria-hidden="true"></span>
+          </div>
+
+          <article class="metric-card arm-b">
+            <div class="arm-id">B</div>
+            <div class="metric-copy">
+              <p class="metric-name">PC f32</p>
+              <p class="metric-mode">拼图 1 次</p>
+            </div>
+            <div class="metric-result">
+              <strong>0.895025</strong>
+              <span>隔离打包损失</span>
+            </div>
+          </article>
+
+          <div class="delta-link quant" aria-label="从 B 到 C，f16 量化净变化正 0.000529">
+            <span class="delta-label">f16 量化<strong>+0.000529</strong></span>
+            <span class="delta-arrow" aria-hidden="true"></span>
+          </div>
+
+          <article class="metric-card arm-c">
+            <div class="arm-id">C</div>
+            <div class="metric-copy">
+              <p class="metric-name">板端 f16</p>
+              <p class="metric-mode">拼图 1 次</p>
+            </div>
+            <div class="metric-result">
+              <strong>0.895555</strong>
+              <span>交付产物</span>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Editorial Light Master</span>
+      <span>12</span>
+    </footer>
+  </div>
+</body>
+</html>

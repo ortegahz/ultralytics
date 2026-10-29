@@ -161,6 +161,16 @@ int main(int argc, char** argv) {
   // shipped behaviour (a live stream wants the freshest data).
   Check(c.gmc_input_drop_policy == 0,
         "config_defaults: gmc_input_drop_policy == 0 (evict the oldest)");
+    // v10: the three-stage decoupled pipeline.  The DEFAULT is the FUSED
+    // worker of v9 -- it is the certified arm, so the default run has to stay
+    // comparable with the history.
+    Check(c.decoupled_stages == 0, "config_defaults: decoupled_stages == 0 (the fused worker)");
+    Check(c.buffer_a_depth == 3, "config_defaults: buffer_a_depth == 3");
+    Check(c.buffer_b_depth == 3, "config_defaults: buffer_b_depth == 3");
+    Check(c.pre_threads == 0, "config_defaults: pre_threads == 0 (auto = npu_workers)");
+    Check(c.buf_a_mode == 0, "config_defaults: buf_a_mode == 0 (DMA)");
+    Check(c.pre_affinity == nullptr, "config_defaults: pre_affinity is NULL");
+    Check(c.npu_stage_affinity == nullptr, "config_defaults: npu_stage_affinity is NULL");
   }
 
   // ---- 2. create() rejects a bad version / a missing model ----------------
@@ -438,6 +448,231 @@ int main(int argc, char** argv) {
   fprintf(stderr, "[i] rolling feature md5 over %d frames: %s\n", n, hex ? hex : "(null)");
 
   mosaic_pipeline_destroy(p);
+
+  // ---- 9. THE DECOUPLED THREE-STAGE PIPELINE (v10) --------------------------
+  //
+  // Stage 1 (pre-process) -> Buffer A -> Stage 2 (NPU) -> Buffer B ->
+  // Stage 3 (post-process), with the two bounded buffers in between.
+  //
+  // It runs AFTER the main pipeline is destroyed and BEFORE the fault
+  // injection case, because the board tolerates exactly TWO RKNN contexts and
+  // each pipeline holds both of them.
+  //
+  // WHAT IT PROVES:
+  //   * the pipeline comes up with the three stages and the two buffers,
+  //   * a frame pushed in comes back out with ITS OWN id (the physical frame
+  //     number travels through the Buffer A slot),
+  //   * the bounded buffers did not throw everything away, and
+  //   * Stage 2 really ran (its wall clock is non-zero).
+  {
+    MosaicPipelineConfig c;
+    mosaic_pipeline_config_defaults(&c);
+    c.model_path = model.c_str();
+    c.kernel_dir = kernel_dir.c_str();
+    c.sequence = sequence.c_str();
+    c.decoupled_stages = 1;
+    c.buffer_a_depth = 3;
+    c.buffer_b_depth = 3;
+    c.pre_affinity = "6-7";
+    char err[256] = {0};
+    MosaicPipeline* pd = mosaic_pipeline_create(&c, err, sizeof(err));
+    Check(pd != nullptr, "decoupled: the pipeline was created");
+    if (pd) {
+      MosaicPipelineConfig eff;
+      Check(mosaic_pipeline_effective_config(pd, &eff) == 0,
+            "decoupled: effective_config is readable");
+      Check(eff.decoupled_stages == 1, "decoupled: decoupled_stages == 1");
+      Check(eff.buffer_a_depth == 3, "decoupled: buffer_a_depth == 3");
+      Check(eff.buffer_b_depth == 3, "decoupled: buffer_b_depth == 3");
+      // The stages are PAIRED 1:1: every NPU service owns its own Buffer A
+      // and its own RKNN context, and a slot may only be bound to the context
+      // that created it.  So the Stage 1 thread count is forced to the NPU
+      // worker count, whatever was asked for.
+      Check(eff.pre_threads == eff.npu_workers,
+            "decoupled: pre_threads is forced to npu_workers (the stages are paired 1:1)");
+
+      // FOUR frames, pushed one at a time.  The batch is 1 for the same reason
+      // as in the main case: the collector must not wait for a frame the
+      // scheduler skipped.
+      const int kDecFrames = 4;
+      std::vector<int64_t> pushed_ids;
+      for (int i = 0; i < kDecFrames && i < n; ++i) {
+        const cv::Mat img = cv::imread(frames[i], cv::IMREAD_GRAYSCALE);
+        if (img.empty()) {
+          fprintf(stderr, "[FATAL] cannot read %s\n", frames[i].c_str());
+          break;
+        }
+        const int64_t rc = mosaic_pipeline_push(pd, img.data, img.cols, img.rows);
+        if (rc < 0) {
+          fprintf(stderr, "[FAIL] decoupled push returned %lld for frame %d\n", (long long)rc, i);
+          ++g_fail;
+          break;
+        }
+        pushed_ids.push_back(rc);
+      }
+      Check(pushed_ids.size() == (size_t)kDecFrames || pushed_ids.size() == (size_t)n,
+            "decoupled: the frames were accepted");
+
+      // The flush JOINS every worker, so after it returns no further result
+      // can arrive -- and the collector cannot block for ever, which is what
+      // makes this test safe even if the bounded buffers dropped a frame.
+      Check(mosaic_pipeline_flush(pd) == 0, "decoupled: flush returns 0");
+      int got = 0;
+      bool dec_ids_ok = true;
+      for (;;) {
+        int64_t fid = -1;
+        MosaicDet dets[256];
+        const int32_t nd = mosaic_pipeline_collect(pd, &fid, dets, 256);
+        if (nd < 0) break;
+        ++got;
+        // The frame id must be one of the pushed ones: the physical frame
+        // number travels with the Buffer A slot all the way to the result.
+        bool known = false;
+        for (int64_t id : pushed_ids)
+          if (id == fid) known = true;
+        if (!known) dec_ids_ok = false;
+      }
+      Check(got > 0, "decoupled: at least one frame came back");
+      Check(dec_ids_ok, "decoupled: every result carries a pushed frame id");
+
+      MosaicPipelineTiming td;
+      Check(mosaic_pipeline_get_timing(pd, &td) == 0, "decoupled: get_timing returns 0");
+      // Stage 2 really ran: without it there would be no result at all.
+      Check(td.stage2_ms > 0.0, "decoupled: Stage 2 (the NPU) did some work");
+      Check(td.stage1_ms > 0.0, "decoupled: Stage 1 (the pre-process) did some work");
+      // The bounded buffers may throw frames away -- that is their job -- but
+      // they must not throw EVERYTHING away, otherwise the pipeline is a black
+      // hole.  A drop always consumes exactly one GMC group, so the drop sum
+      // can never exceed the group count.
+      const int64_t dec_drops = td.bufA_dropped + td.bufA_full_drops + td.bufB_dropped;
+      Check(dec_drops <= td.gmc_groups_done,
+            "decoupled: the bounded buffers dropped at most one frame per GMC group");
+      // "did not drop EVERYTHING" is the check above ("at least one frame came
+      // back"): the drop sum on its own cannot say it, because a pipeline that
+      // drops nothing has a drop sum of 0 too.
+      // THE FRAME ACCOUNTING INVARIANT of the decoupled mode:
+      //   expected results = gmc_groups_done - features_dropped
+      //                     - bufA_dropped - bufA_full_drops
+      //                     - detections_dropped
+      // Buffer B's losses are ALREADY inside detections_dropped (a lost
+      // heatmap IS a lost detection), so they are not subtracted twice.
+      Check(td.gmc_groups_done - td.features_dropped - td.bufA_dropped -
+                td.bufA_full_drops - td.detections_dropped == td.frames,
+            "decoupled: the GMC group count minus the three drop points is the result count");
+      mosaic_pipeline_destroy(pd);
+    }
+  }
+
+  // ---- 9b. THE BUFFER A DEPTH'S CLAMP (the CANON22 trap) --------------------
+  //
+  // THE TRAP THIS PINS DOWN: the clamp table's ceiling for buffer_a_depth used
+  // to be 8, and an out-of-range request FALLS BACK to the reference default
+  // (3) instead of being clamped to the boundary.  So the board arm CANON22,
+  // which asked for --buffer-a-depth 16, silently ran a depth-3 pipeline: the
+  // library printed "[WARN] buffer_a_depth = 16 is out of range [1, 8]" and
+  // went on with 3 slots.  The deep-Buffer-A experiment had therefore never
+  // actually been run, and the drop it was meant to fix (1567 lost groups in
+  // Buffer A) kept happening.
+  //
+  // TWO promises are pinned here:
+  //   * a depth INSIDE the range survives -- 16 stays 16, and
+  //   * a GARBAGE depth still falls back to the reference default -- 999
+  //     becomes 3, because a garbage value must not silently reshape the
+  //     pipeline into a shape nobody asked for.
+  //
+  // The probe runs in the DECOUPLED mode on purpose: that is the mode the
+  // board arms use, and the depth is what decides how many Buffer A slots are
+  // allocated (16 slots x 2 services x 2,457,600 B = 78.7 MB of DMA), so a
+  // silent fold-back would also shrink the ring.
+  {
+    // THE PROBE'S CREATE IS THE ONLY RISKY OPERATION IN THIS BLOCK, so it is
+    // fenced in three ways.
+    //
+    // (1) ONE NPU WORKER PER PROBE.  The probe asks for ONE service, so it
+    //     opens ONE RKNN context instead of two: the depth-16 ring is then
+    //     16 x 2,457,600 B = 39.3 MB of DMA instead of 78.7 MB, and the
+    //     board's "exactly two contexts" budget is left alone.
+    //
+    // (2) NO CREATE AFTER A FAILED CREATE.  mosaic_pipeline_create()'s
+    //     failure path releases only the service that failed and destroys the
+    //     services it had ALREADY opened WITHOUT releasing their contexts
+    //     (mosaic::Session has no destructor), so a create that fails after
+    //     the first service leaks that context for ever -- and a SECOND
+    //     create then stacks two more contexts on top of the leak.  That is
+    //     the board's "failed to submit, needs a power cycle" shape.  So the
+    //     garbage-depth probe is only created when the depth-16 probe's
+    //     CREATE succeeded.
+    //
+    // (3) EVERY PROMISE IS ALWAYS REPORTED.  Both semantic promises (16
+    //     survives the clamp table, 999 falls back to 3) are checked in EVERY
+    //     branch, so the report never silently loses one: a skipped check
+    //     would show 106 passed instead of 108 and the coverage would
+    //     degrade unnoticed.  A promise that could not be taken is reported
+    //     as a FAILURE with the reason -- never as a skip.
+    auto probe_depth = [&](int32_t depth, int32_t* out, bool* created) -> bool {
+      MosaicPipelineConfig c;
+      mosaic_pipeline_config_defaults(&c);
+      c.model_path = model.c_str();
+      c.kernel_dir = kernel_dir.c_str();
+      c.sequence = sequence.c_str();
+      c.decoupled_stages = 1;
+      c.buffer_a_depth = depth;
+      c.pre_affinity = "6-7";
+      // (1) ONE RKNN context per probe, not two.
+      c.npu_workers = 1;
+      char err[256] = {0};
+      MosaicPipeline* pp = mosaic_pipeline_create(&c, err, sizeof(err));
+      if (!pp) {
+        fprintf(stderr, "[FATAL] the depth probe (%d) could not create a pipeline: %s\n",
+                (int)depth, err);
+        if (created) *created = false;
+        return false;
+      }
+      if (created) *created = true;
+      MosaicPipelineConfig eff;
+      const int rc = mosaic_pipeline_effective_config(pp, &eff);
+      if (out) *out = eff.buffer_a_depth;
+      mosaic_pipeline_destroy(pp);
+      return rc == 0;
+    };
+
+    int32_t eff_depth = 0;
+    bool created16 = false;
+    const bool ok16 = probe_depth(16, &eff_depth, &created16);
+    Check(ok16, "buf_a_depth: the depth-16 pipeline was created");
+    if (ok16) {
+      Check(eff_depth == 16,
+            "buf_a_depth: a requested depth of 16 SURVIVES the clamp table (it is not folded back to 3)");
+    } else {
+      Check(false,
+            "buf_a_depth: a requested depth of 16 SURVIVES the clamp table -- NOT VERIFIED: the "
+            "depth-16 create FAILED, and a create after a failed create stacks RKNN contexts on a "
+            "leak (the board then needs a power cycle), so the probe does not create again");
+    }
+
+    // THE GARBAGE-DEPTH PROBE.  It is created ONLY when the depth-16 create
+    // SUCCEEDED (rule (2)): a create after a failed create is what leaks.
+    // In the "the 16 promise did not hold" case the create DID succeed -- it
+    // is the promise that failed -- so the garbage probe is tried on its own
+    // here and it gets its own verdict.
+    bool created999 = false;
+    const bool ok999 = created16 ? probe_depth(999, &eff_depth, &created999) : false;
+    if (created16) {
+      Check(ok999, "buf_a_depth: the garbage-depth pipeline was created");
+    } else {
+      Check(false,
+            "buf_a_depth: the garbage-depth pipeline was created -- NOT ATTEMPTED: the depth-16 "
+            "create FAILED, and a create after a failed create stacks RKNN contexts on a leak");
+    }
+    if (ok999) {
+      Check(eff_depth == 3,
+            "buf_a_depth: a garbage depth falls back to the reference default (3)");
+    } else {
+      Check(false,
+            "buf_a_depth: a garbage depth falls back to the reference default (3) -- NOT VERIFIED: "
+            "no pipeline was created for the garbage depth (see the note above)");
+    }
+  }
 
   // ---- 8. a FATAL error must ABORT the pipeline, not wedge it ---------------
   // This is the path that used to hang a whole board: the error was recorded

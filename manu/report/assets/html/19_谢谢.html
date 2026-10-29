@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>红外弱小无人机检测算法工程化阶段汇报</title>
+  <style>
+    :root {
+      --font-sans: "Microsoft YaHei", "PingFang SC", sans-serif;
+      --ink: #122033;
+      --text-secondary: #4b5b70;
+      --text-muted: #5a6879;
+      --gold: #7d5a22;
+      --gold-bright: #c9974d;
+      --gold-wash: rgba(201, 151, 77, 0.12);
+      --border-subtle: rgba(18, 32, 51, 0.08);
+      --border-default: rgba(18, 32, 51, 0.10);
+      --border-strong: rgba(18, 32, 51, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+      background:
+        radial-gradient(circle at top right, rgba(188, 147, 72, 0.18), transparent 32%),
+        linear-gradient(180deg, #f7f5ef 0%, #f4f6f9 100%);
+      color: #122033;
+    }
+
+    body {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .slide {
+      width: 1180px;
+      height: 620px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      padding: 28px 30px;
+      border-radius: 28px;
+      background: rgba(255, 255, 255, 0.84);
+      box-shadow: 0 24px 80px rgba(15, 23, 42, 0.12);
+      border: 1px solid rgba(18, 32, 51, 0.08);
+    }
+
+    .header {
+      height: 110px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(18, 32, 51, 0.12);
+      padding-bottom: 14px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(201, 151, 77, 0.12);
+      color: #7d5a22;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: #c9974d;
+      box-shadow: 0 0 0 3px rgba(201, 151, 77, 0.14);
+    }
+
+    .title {
+      margin: 14px 0 0;
+      font-size: 38px;
+      line-height: 1.08;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+
+    .subtitle {
+      margin: 8px 0 0;
+      color: #4b5b70;
+      font-size: 15px;
+      line-height: 1.4;
+    }
+
+    .page-tag {
+      align-self: start;
+      padding: 10px 14px;
+      border-radius: 14px;
+      background: #122033;
+      color: #f8fafc;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+    }
+
+    .content {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 18px;
+    }
+
+    .footer {
+      height: 70px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 8px;
+      color: #5a6879;
+      font-size: 12px;
+      border-top: 1px solid rgba(18, 32, 51, 0.1);
+    }
+
+    .hero-card {
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 27px 30px 24px;
+      border-radius: 24px;
+      color: #f8fafc;
+      background:
+        radial-gradient(circle at 92% 12%, rgba(201, 151, 77, 0.20), transparent 34%),
+        linear-gradient(145deg, #17283c 0%, #0e1a29 68%, #101d2d 100%);
+      border: 1px solid rgba(18, 32, 51, 0.16);
+      box-shadow: 0 14px 36px rgba(15, 23, 42, 0.14);
+      isolation: isolate;
+    }
+
+    .hero-card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      opacity: 0.10;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.18) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.18) 1px, transparent 1px);
+      background-size: 36px 36px;
+      mask-image: linear-gradient(to bottom, transparent, #000 45%, transparent);
+    }
+
+    .hero-card::after {
+      content: "";
+      position: absolute;
+      right: -74px;
+      top: -74px;
+      width: 190px;
+      height: 190px;
+      z-index: -1;
+      border: 1px solid rgba(201, 151, 77, 0.25);
+      border-radius: 50%;
+      box-shadow:
+        0 0 0 22px rgba(201, 151, 77, 0.035),
+        0 0 0 46px rgba(201, 151, 77, 0.025);
+    }
+
+    .hero-kicker {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #d8c18f;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+    }
+
+    .hero-kicker::before {
+      content: "";
+      width: 24px;
+      height: 1px;
+      background: rgba(201, 151, 77, 0.85);
+    }
+
+    .hero-title {
+      margin: 10px 0 0;
+      max-width: 520px;
+      font-size: clamp(30px, 2.55vw, 36px);
+      line-height: 1.16;
+      font-weight: 800;
+      letter-spacing: -0.035em;
+    }
+
+    .hero-summary {
+      margin: 15px 0 0;
+      max-width: 570px;
+      color: rgba(248, 250, 252, 0.82);
+      font-size: clamp(16px, 1.25vw, 19px);
+      line-height: 1.62;
+      font-weight: 500;
+    }
+
+    .hero-summary strong {
+      color: #e5c788;
+      font-weight: 800;
+    }
+
+    .pipeline {
+      margin-top: 17px;
+      display: grid;
+      grid-template-columns: 1fr 34px 1.42fr 34px 1fr;
+      align-items: stretch;
+      gap: 6px;
+    }
+
+    .pipeline-node {
+      min-height: 67px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 9px 12px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 15px;
+      background: rgba(255, 255, 255, 0.055);
+      text-align: center;
+    }
+
+    .pipeline-node.core {
+      border-color: rgba(201, 151, 77, 0.40);
+      background: rgba(201, 151, 77, 0.10);
+    }
+
+    .pipeline-node strong {
+      font-size: 13px;
+      line-height: 1.25;
+    }
+
+    .pipeline-node small {
+      margin-top: 5px;
+      color: rgba(248, 250, 252, 0.58);
+      font-size: 10px;
+      line-height: 1.2;
+      letter-spacing: 0.04em;
+    }
+
+    .pipeline-arrow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #c9974d;
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    .value-chips {
+      margin-top: 15px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(201, 151, 77, 0.22);
+      background: rgba(201, 151, 77, 0.10);
+      color: #e6d5aa;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .chip::before {
+      content: "";
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: #c9974d;
+    }
+
+    .hero-bottom {
+      margin-top: 16px;
+      padding-top: 14px;
+      border-top: 1px solid rgba(255, 255, 255, 0.10);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+    }
+
+    .hero-bottom strong {
+      color: #f8fafc;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .hero-bottom span {
+      color: rgba(248, 250, 252, 0.50);
+      font-size: 10px;
+      white-space: nowrap;
+    }
+
+    .insights {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .insight-card {
+      position: relative;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 48px minmax(0, 1fr);
+      align-items: center;
+      gap: 13px;
+      padding: 13px 15px;
+      overflow: hidden;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.82);
+      border: 1px solid rgba(18, 32, 51, 0.08);
+      box-shadow: 0 10px 28px rgba(15, 23, 42, 0.07);
+      transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+    }
+
+    .insight-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(18, 32, 51, 0.14);
+      box-shadow: 0 14px 34px rgba(15, 23, 42, 0.10);
+    }
+
+    .insight-card::after {
+      content: "";
+      position: absolute;
+      top: 14px;
+      bottom: 14px;
+      left: 0;
+      width: 3px;
+      border-radius: 0 4px 4px 0;
+      background: #c9974d;
+    }
+
+    .icon-wrap {
+      width: 48px;
+      height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 15px;
+      background: rgba(201, 151, 77, 0.11);
+      color: #7d5a22;
+    }
+
+    .icon-wrap svg {
+      width: 25px;
+      height: 25px;
+      stroke: currentColor;
+      stroke-width: 1.6;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .insight-body {
+      min-width: 0;
+    }
+
+    .insight-label {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      color: #7d5a22;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .insight-label::before {
+      content: "";
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: #c9974d;
+    }
+
+    .insight-title {
+      margin: 4px 0 0;
+      color: #122033;
+      font-size: clamp(15px, 1.15vw, 17px);
+      line-height: 1.25;
+      font-weight: 800;
+    }
+
+    .insight-detail {
+      margin: 5px 0 0;
+      color: #5a6879;
+      font-size: clamp(11px, 0.92vw, 13px);
+      line-height: 1.48;
+    }
+
+    .metric {
+      color: #9a702d;
+      font-size: 1.42em;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .detail-list {
+      margin: 5px 0 0;
+      padding: 0;
+      list-style: none;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px 12px;
+      color: #5a6879;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .detail-list li {
+      position: relative;
+      padding-left: 10px;
+    }
+
+    .detail-list li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0.58em;
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: rgba(201, 151, 77, 0.78);
+    }
+
+    :focus-visible {
+      outline: 2px solid rgba(201, 151, 77, 0.55);
+      outline-offset: 3px;
+    }
+
+    @media (max-width: 1280px), (max-height: 720px) {
+      .slide {
+        transform: scale(0.92);
+        transform-origin: center center;
+      }
+    }
+
+    @media (max-width: 1050px), (max-height: 620px) {
+      .slide {
+        transform: scale(0.82);
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .insight-card {
+        transition: none;
+      }
+
+      .insight-card:hover {
+        transform: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="slide">
+    <header class="header">
+      <div>
+        <div class="eyebrow">RK3588 REALTIME PIPELINE</div>
+        <h1 class="title">谢谢</h1>
+        <p class="subtitle">GMC 性能优化 × NPU 算子适配 · 工程化阶段汇报</p>
+      </div>
+      <div class="page-tag">19/19</div>
+    </header>
+
+    <main class="content">
+      <section class="hero-card" aria-labelledby="hero-title">
+        <div>
+          <div class="hero-kicker">STAGE CLOSING · 阶段成果收束</div>
+          <h2 class="hero-title" id="hero-title">谢谢聆听，敬请指正</h2>
+          <p class="hero-summary">
+            把一条 PC 上的算法图，变成 <strong>RK3588</strong> 上可并行、可量化、可验收的
+            <strong>实时管线</strong>。
+          </p>
+
+          <div class="pipeline" aria-label="从PC算法图到RK3588实时管线的迁移路径">
+            <div class="pipeline-node">
+              <strong>PC 算法图</strong>
+              <small>原始计算链路</small>
+            </div>
+            <div class="pipeline-arrow" aria-hidden="true">→</div>
+            <div class="pipeline-node core">
+              <strong>GMC 优化 × NPU 适配</strong>
+              <small>双核心工程化攻关</small>
+            </div>
+            <div class="pipeline-arrow" aria-hidden="true">→</div>
+            <div class="pipeline-node">
+              <strong>RK3588 实时管线</strong>
+              <small>板卡端稳定运行</small>
+            </div>
+          </div>
+
+          <div class="value-chips" aria-label="阶段成果特征">
+            <span class="chip">可并行</span>
+            <span class="chip">可量化</span>
+            <span class="chip">可验收</span>
+            <span class="chip">可复现</span>
+          </div>
+        </div>
+
+        <div class="hero-bottom">
+          <strong>9 个工作汇报点｜聚焦 GMC × NPU 两大核心难题</strong>
+          <span>算法攻坚组 · 工程化阶段汇报</span>
+        </div>
+      </section>
+
+      <aside class="insights" aria-label="三条带走的话">
+        <article class="insight-card">
+          <div class="icon-wrap" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M4 5h16l-5.5 6v5l-5 3v-8L4 5Z" />
+              <path d="M8 8h8" />
+            </svg>
+          </div>
+          <div class="insight-body">
+            <div class="insight-label">难题一 · GMC</div>
+            <h3 class="insight-title">三段成本，三招打</h3>
+            <p class="insight-detail">OpenCL 搬走 <span class="metric">77.4%</span> 计算成本</p>
+            <ul class="detail-list">
+              <li>锚点级联砍拟合</li>
+              <li>纯函数缓存去重复</li>
+            </ul>
+          </div>
+        </article>
+
+        <article class="insight-card">
+          <div class="icon-wrap" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <rect x="7" y="7" width="10" height="10" rx="2" />
+              <path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3" />
+              <path d="m10 12 1.4 1.4L14.5 10" />
+            </svg>
+          </div>
+          <div class="insight-body">
+            <div class="insight-label">难题二 · NPU</div>
+            <h3 class="insight-title">算子回退清零</h3>
+            <p class="insight-detail">形状决定代价，不可用 FLOPs 外推</p>
+            <ul class="detail-list">
+              <li>同图对照才算精度账</li>
+            </ul>
+          </div>
+        </article>
+
+        <article class="insight-card">
+          <div class="icon-wrap" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M12 3 20 6v5c0 5-3.3 8.4-8 10-4.7-1.6-8-5-8-10V6l8-3Z" />
+              <path d="m8.5 12 2.2 2.2 4.8-5" />
+            </svg>
+          </div>
+          <div class="insight-body">
+            <div class="insight-label">方法论 · 工程纪律</div>
+            <h3 class="insight-title">板卡实测是地基</h3>
+            <p class="insight-detail">静默失效优先于崩溃，位精确是入场券</p>
+            <ul class="detail-list">
+              <li>静默失效优先</li>
+              <li>位精确验收</li>
+              <li>板卡实测</li>
+            </ul>
+          </div>
+        </article>
+      </aside>
+    </main>
+
+    <footer class="footer">
+      <span>汇报团队：算法攻坚组　｜　复杂背景下红外弱小无人机检测 · 工程化阶段汇报</span>
+      <span>19</span>
+    </footer>
+  </div>
+</body>
+</html>

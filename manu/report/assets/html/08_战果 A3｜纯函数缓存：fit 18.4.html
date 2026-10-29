@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Editorial Light Master</title>
+  <style>
+    :root {
+      --ink: #122033;
+      --text: #4b5b70;
+      --muted: #5a6879;
+      --gold: #c9974d;
+      --gold-deep: #7d5a22;
+      --gold-wash: rgba(201, 151, 77, 0.14);
+      --green: #39775a;
+      --green-wash: rgba(74, 145, 105, 0.11);
+      --orange: #b86d32;
+      --orange-wash: rgba(203, 125, 62, 0.11);
+      --blue: #557a9d;
+      --blue-wash: rgba(85, 122, 157, 0.12);
+      --panel: rgba(255, 255, 255, 0.82);
+      --border: rgba(18, 32, 51, 0.08);
+    }
+
+    html, body {
+      width: 1280px;
+      height: 720px;
+      margin: 0;
+      overflow: hidden;
+      font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+      background:
+        radial-gradient(circle at top right, rgba(188, 147, 72, 0.18), transparent 32%),
+        linear-gradient(180deg, #f7f5ef 0%, #f4f6f9 100%);
+      color: #122033;
+    }
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+
+    .slide {
+      width: 1180px;
+      height: 620px;
+      display: grid;
+      grid-template-rows: 110px 1fr 70px;
+      gap: 18px;
+      padding: 28px 30px;
+      border-radius: 28px;
+      background: rgba(255, 255, 255, 0.84);
+      box-shadow: 0 24px 80px rgba(15, 23, 42, 0.12);
+      border: 1px solid rgba(18, 32, 51, 0.08);
+      aspect-ratio: 1180 / 620;
+    }
+
+    .header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(18, 32, 51, 0.12);
+      padding-bottom: 14px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(201, 151, 77, 0.12);
+      color: #7d5a22;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .title {
+      margin: 14px 0 0;
+      font-size: 38px;
+      line-height: 1.08;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+
+    .subtitle {
+      margin: 8px 0 0;
+      color: #4b5b70;
+      font-size: 15px;
+      line-height: 1.4;
+    }
+
+    .page-tag {
+      align-self: start;
+      padding: 10px 14px;
+      border-radius: 14px;
+      background: #122033;
+      color: #f8fafc;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+    }
+
+    .content {
+      display: grid;
+      grid-template-columns: 1.78fr 1fr;
+      grid-template-rows: minmax(0, 1fr) 42px;
+      gap: 12px 18px;
+      min-height: 0;
+    }
+
+    .panel {
+      min-height: 0;
+      border-radius: 24px;
+      background: rgba(255, 255, 255, 0.82);
+      border: 1px solid rgba(18, 32, 51, 0.08);
+      box-shadow: 0 14px 36px rgba(15, 23, 42, 0.08);
+      padding: 22px;
+    }
+
+    .analysis-panel {
+      display: grid;
+      grid-template-rows: 126px minmax(0, 1fr);
+      gap: 12px;
+    }
+
+    .section-kicker {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 9px;
+    }
+
+    .section-kicker h2 {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.25;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+    }
+
+    .section-kicker .signal {
+      flex: 0 0 auto;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: var(--gold-wash);
+      color: var(--gold-deep);
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .profile-wrap {
+      position: relative;
+    }
+
+    .profile-bar {
+      display: flex;
+      width: 100%;
+      height: 45px;
+      overflow: hidden;
+      border-radius: 12px;
+      border: 1px solid rgba(18, 32, 51, 0.08);
+      background: #edf0f3;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    }
+
+    .profile-segment {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 0;
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .profile-segment.pyramid {
+      width: 3.2%;
+      padding: 0;
+      background: #8fa2b4;
+      color: #ffffff;
+    }
+
+    .profile-segment.corner {
+      width: 65.8%;
+      background:
+        linear-gradient(90deg, rgba(255,255,255,0.18), transparent 35%),
+        var(--gold);
+      color: #233247;
+      justify-content: flex-start;
+      padding-left: 16px;
+    }
+
+    .profile-segment.other {
+      width: 30.9%;
+      background: #e2e6eb;
+      color: #536274;
+    }
+
+    .profile-legend {
+      display: grid;
+      grid-template-columns: 1fr 1.8fr 1fr;
+      gap: 8px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .legend-dot {
+      width: 8px;
+      height: 8px;
+      flex: 0 0 auto;
+      border-radius: 3px;
+      background: #8fa2b4;
+    }
+
+    .legend-item:nth-child(2) .legend-dot {
+      background: var(--gold);
+    }
+
+    .legend-item:nth-child(3) .legend-dot {
+      background: #dfe4e9;
+    }
+
+    .cache-panel {
+      position: relative;
+      padding: 14px 15px 12px;
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(250, 248, 243, 0.92), rgba(255, 255, 255, 0.72));
+      border: 1px solid rgba(201, 151, 77, 0.22);
+    }
+
+    .cache-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .cache-head h3 {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.2;
+      font-weight: 800;
+    }
+
+    .cache-key {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 9px;
+      border-radius: 999px;
+      background: var(--gold-wash);
+      color: var(--gold-deep);
+      font-size: 11px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .cache-key::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--gold);
+      box-shadow: 0 0 0 3px rgba(201, 151, 77, 0.14);
+    }
+
+    .flow-grid {
+      display: grid;
+      grid-template-columns: 1fr 16px 1fr 16px 1.18fr 16px 1.18fr 16px 0.8fr;
+      align-items: center;
+      gap: 0;
+    }
+
+    .flow-node {
+      min-width: 0;
+      padding: 8px 4px;
+      text-align: center;
+      border-radius: 11px;
+      border: 1px solid rgba(18, 32, 51, 0.10);
+      background: rgba(255, 255, 255, 0.88);
+      color: #33445a;
+      font-size: 11px;
+      font-weight: 800;
+      line-height: 1.2;
+    }
+
+    .flow-node.cached {
+      position: relative;
+      border-color: rgba(201, 151, 77, 0.34);
+      background: rgba(201, 151, 77, 0.11);
+      color: var(--gold-deep);
+    }
+
+    .flow-node.cached::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: -6px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      transform: translateX(-50%);
+      background: var(--gold);
+      box-shadow: 0 0 0 3px rgba(201, 151, 77, 0.13);
+    }
+
+    .flow-node.output {
+      background: var(--ink);
+      border-color: var(--ink);
+      color: #ffffff;
+    }
+
+    .flow-arrow {
+      color: #99a5b2;
+      font-size: 16px;
+      font-weight: 800;
+      text-align: center;
+      line-height: 1;
+    }
+
+    .cache-bottom {
+      display: grid;
+      grid-template-columns: 1fr 1fr auto;
+      align-items: center;
+      gap: 10px;
+      margin-top: 10px;
+      padding-top: 9px;
+      border-top: 1px solid rgba(18, 32, 51, 0.08);
+    }
+
+    .path-note {
+      color: var(--text);
+      font-size: 10.5px;
+      line-height: 1.35;
+    }
+
+    .path-note strong {
+      color: var(--ink);
+    }
+
+    .ablation {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      white-space: nowrap;
+      font-size: 10.5px;
+      font-weight: 700;
+      color: var(--muted);
+    }
+
+    .ablation span {
+      padding: 4px 7px;
+      border-radius: 8px;
+      border: 1px solid rgba(18, 32, 51, 0.10);
+      background: rgba(255,255,255,0.72);
+    }
+
+    .ablation .full {
+      border-color: rgba(201, 151, 77, 0.28);
+      background: var(--gold-wash);
+      color: var(--gold-deep);
+    }
+
+    .evidence-panel {
+      display: grid;
+      grid-template-rows: 82px 68px 68px 52px;
+      gap: 8px;
+      padding: 14px;
+    }
+
+    .metric-card {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 10px 13px;
+      border-radius: 16px;
+      border: 1px solid rgba(18, 32, 51, 0.08);
+      background: rgba(255, 255, 255, 0.72);
+    }
+
+    .metric-card.dark {
+      position: relative;
+      overflow: hidden;
+      border-color: var(--ink);
+      background:
+        radial-gradient(circle at 92% 16%, rgba(201, 151, 77, 0.28), transparent 42%),
+        var(--ink);
+      color: #ffffff;
+    }
+
+    .metric-card.dark::after {
+      content: "";
+      position: absolute;
+      right: -18px;
+      bottom: -38px;
+      width: 104px;
+      height: 104px;
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 50%;
+    }
+
+    .metric-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+    }
+
+    .dark .metric-label {
+      color: rgba(255,255,255,0.68);
+    }
+
+    .metric-value {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      margin-top: 3px;
+      font-size: 23px;
+      line-height: 1;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--ink);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .dark .metric-value {
+      color: #ffffff;
+    }
+
+    .metric-value .arrow {
+      color: var(--gold);
+      font-size: 20px;
+    }
+
+    .metric-value .unit {
+      font-size: 12px;
+      letter-spacing: 0;
+    }
+
+    .metric-note {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 10.5px;
+      line-height: 1.2;
+    }
+
+    .dark .metric-note {
+      color: rgba(255,255,255,0.68);
+    }
+
+    .speedup {
+      position: absolute;
+      right: 12px;
+      top: 13px;
+      z-index: 1;
+      padding: 6px 9px;
+      border-radius: 10px;
+      background: rgba(201, 151, 77, 0.20);
+      border: 1px solid rgba(201, 151, 77, 0.28);
+      color: #f2d29c;
+      font-size: 18px;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .throughput .metric-value {
+      font-size: 21px;
+    }
+
+    .throughput .arrow {
+      color: var(--gold-deep);
+    }
+
+    .identity-card {
+      border-color: rgba(74, 145, 105, 0.20);
+      background: var(--green-wash);
+    }
+
+    .identity-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .identity-row .metric-value {
+      margin-top: 4px;
+      color: #275b43;
+      font-size: 20px;
+    }
+
+    .verified-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      flex: 0 0 auto;
+      padding: 5px 7px;
+      border-radius: 999px;
+      background: rgba(74, 145, 105, 0.14);
+      color: var(--green);
+      font-size: 10px;
+      font-weight: 800;
+    }
+
+    .verified-badge svg {
+      width: 13px;
+      height: 13px;
+    }
+
+    .cost-card {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 11px;
+      border-radius: 14px;
+      border: 1px solid rgba(203, 125, 62, 0.18);
+      background: var(--orange-wash);
+    }
+
+    .cost-title {
+      font-size: 10.5px;
+      font-weight: 800;
+      color: var(--orange);
+    }
+
+    .cost-value {
+      margin-top: 2px;
+      font-size: 16px;
+      line-height: 1;
+      font-weight: 800;
+      color: #75401f;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .cost-stability {
+      padding-left: 8px;
+      border-left: 1px solid rgba(203, 125, 62, 0.22);
+      color: #8a5a39;
+      font-size: 10px;
+      line-height: 1.35;
+      text-align: right;
+    }
+
+    .migration-note {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      min-width: 0;
+      padding: 7px 13px;
+      border-radius: 14px;
+      border: 1px solid rgba(203, 125, 62, 0.18);
+      background: linear-gradient(90deg, rgba(203, 125, 62, 0.11), rgba(201, 151, 77, 0.06));
+    }
+
+    .warning-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+      width: 24px;
+      height: 24px;
+      border-radius: 8px;
+      background: rgba(203, 125, 62, 0.14);
+      color: var(--orange);
+      font-size: 14px;
+      font-weight: 900;
+    }
+
+    .warning-text {
+      min-width: 0;
+      color: #704521;
+      font-size: 11.5px;
+      line-height: 1.35;
+      font-weight: 700;
+    }
+
+    .warning-formula {
+      flex: 0 0 auto;
+      margin-left: auto;
+      padding-left: 12px;
+      border-left: 1px solid rgba(203, 125, 62, 0.20);
+      color: #8a5a39;
+      font-size: 10.5px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 8px;
+      color: #5a6879;
+      font-size: 12px;
+      border-top: 1px solid rgba(18, 32, 51, 0.1);
+    }
+
+    @media (max-width: 1279px), (max-height: 719px) {
+      html, body {
+        width: 100%;
+        height: 100%;
+      }
+
+      .slide {
+        transform: scale(0.92);
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        scroll-behavior: auto !important;
+        animation: none !important;
+        transition: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="slide">
+    <header class="header">
+      <div>
+        <div class="eyebrow">A3 / BOTTLENECK REVISION</div>
+        <h1 class="title">战果 A3｜纯函数缓存：fit 18.46 → 3.94 ms，位精确</h1>
+        <p class="subtitle">从“只缓存金字塔”升级为“三项按绝对帧号缓存”</p>
+      </div>
+      <div class="page-tag">08/19</div>
+    </header>
+
+    <main class="content">
+      <section class="panel analysis-panel" aria-label="耗时归因与缓存机制">
+        <div class="profile-wrap">
+          <div class="section-kicker">
+            <h2>真正的主瓶颈｜角点检测 65.8%</h2>
+            <span class="signal">推翻既有假设</span>
+          </div>
+
+          <div class="profile-bar" role="img" aria-label="耗时构成：金字塔构建3.2%，角点检测65.8%，其他计算30.9%">
+            <div class="profile-segment pyramid"></div>
+            <div class="profile-segment corner">角点检测 65.8%</div>
+            <div class="profile-segment other">其余计算 30.9%</div>
+          </div>
+
+          <div class="profile-legend">
+            <div class="legend-item">
+              <span class="legend-dot"></span>
+              <span>金字塔构建 <strong>3.2%</strong></span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-dot"></span>
+              <span>同为单帧纯函数，却在每帧 fit 中重复计算约 <strong>3.25 次</strong></span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-dot"></span>
+              <span>其他 / 推算</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="cache-panel">
+          <div class="cache-head">
+            <h3>统一缓存方案｜覆盖三项纯函数</h3>
+            <span class="cache-key">缓存键：绝对帧号</span>
+          </div>
+
+          <div class="flow-grid" aria-label="输入帧经过resize、角点检测、金字塔构建后进入拟合">
+            <div class="flow-node">输入帧</div>
+            <div class="flow-arrow" aria-hidden="true">→</div>
+            <div class="flow-node cached">resize</div>
+            <div class="flow-arrow" aria-hidden="true">→</div>
+            <div class="flow-node cached">角点检测</div>
+            <div class="flow-arrow" aria-hidden="true">→</div>
+            <div class="flow-node cached">金字塔构建</div>
+            <div class="flow-arrow" aria-hidden="true">→</div>
+            <div class="flow-node output">fit</div>
+          </div>
+
+          <div class="cache-bottom">
+            <div class="path-note"><strong>命中：</strong>直接读取三项结果</div>
+            <div class="path-note"><strong>未命中：</strong>重算完整链路</div>
+            <div class="ablation" aria-label="消融结果">
+              <span>角点单项 2.14×</span>
+              <span class="full">三项全开 5.15×</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel evidence-panel" aria-label="关键性能指标">
+        <article class="metric-card dark">
+          <div class="metric-label">
+            <span>生产环境 · fit</span>
+            <span>性能收益</span>
+          </div>
+          <div class="metric-value">
+            <span>18.46</span>
+            <span class="arrow">→</span>
+            <span>3.94</span>
+            <span class="unit">ms</span>
+          </div>
+          <div class="metric-note">单次拟合耗时，生产环境实测</div>
+          <div class="speedup">4.68×</div>
+        </article>
+
+        <article class="metric-card throughput">
+          <div class="metric-label">
+            <span>端到端吞吐</span>
+            <span>↑ 2.38×</span>
+          </div>
+          <div class="metric-value">
+            <span>49.5</span>
+            <span class="arrow">→</span>
+            <span>117.6</span>
+            <span class="unit">fps</span>
+          </div>
+        </article>
+
+        <article class="metric-card identity-card">
+          <div class="metric-label">
+            <span>输出一致性</span>
+            <span>Bitwise Identical</span>
+          </div>
+          <div class="identity-row">
+            <div class="metric-value">MD5 逐位相同</div>
+            <span class="verified-badge" aria-label="验证通过">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 2.8 20 6v5.7c0 4.7-3.2 8-8 9.5-4.8-1.5-8-4.8-8-9.5V6l8-3.2Z" stroke="currentColor" stroke-width="1.8"/>
+                <path d="m8.5 12.1 2.2 2.2 4.8-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              已验证
+            </span>
+          </div>
+        </article>
+
+        <article class="cost-card" aria-label="优化代价边界">
+          <div>
+            <div class="cost-title">代价边界｜平移误差</div>
+            <div class="cost-value">0.00 → 5.44 px</div>
+          </div>
+          <div class="cost-stability">旋转 / 缩放<br><strong>几乎不变</strong></div>
+        </article>
+      </aside>
+
+      <section class="migration-note" aria-label="迁移限制与自检要求">
+        <span class="warning-icon" aria-hidden="true">!</span>
+        <div class="warning-text">引用任何加速比前，必须先报告该序列的点数 / 纹理水平，否则不可迁移。</div>
+        <div class="warning-formula">收益 = 占比 × 命中率｜保留运行时自检</div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Editorial Light Master</span>
+      <span>8</span>
+    </footer>
+  </div>
+</body>
+</html>

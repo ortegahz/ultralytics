@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Editorial Light Master</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 1280px;
+      height: 720px;
+      margin: 0;
+      overflow: hidden;
+      font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+      background:
+        radial-gradient(circle at top right, rgba(188, 147, 72, 0.18), transparent 32%),
+        linear-gradient(180deg, #f7f5ef 0%, #f4f6f9 100%);
+      color: #122033;
+    }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .slide {
+      width: 1180px;
+      height: 620px;
+      display: grid;
+      grid-template-rows: 110px 1fr 70px;
+      gap: 18px;
+      padding: 28px 30px;
+      border-radius: 28px;
+      background: rgba(255, 255, 255, 0.84);
+      box-shadow: 0 24px 80px rgba(15, 23, 42, 0.12);
+      border: 1px solid rgba(18, 32, 51, 0.08);
+    }
+    .header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(18, 32, 51, 0.12);
+      padding-bottom: 14px;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(201, 151, 77, 0.12);
+      color: #7d5a22;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .title {
+      margin: 14px 0 0;
+      font-size: 38px;
+      line-height: 1.08;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+    .subtitle {
+      margin: 8px 0 0;
+      color: #4b5b70;
+      font-size: 15px;
+      line-height: 1.4;
+    }
+    .page-tag {
+      align-self: start;
+      padding: 10px 14px;
+      border-radius: 14px;
+      background: #122033;
+      color: #f8fafc;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+    }
+    .content {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 18px;
+      min-height: 0;
+    }
+    .panel {
+      min-height: 0;
+      border-radius: 24px;
+      background: rgba(255, 255, 255, 0.82);
+      border: 1px solid rgba(18, 32, 51, 0.08);
+      box-shadow: 0 14px 36px rgba(15, 23, 42, 0.08);
+      padding: 22px;
+    }
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 8px;
+      color: #5a6879;
+      font-size: 12px;
+      border-top: 1px solid rgba(18, 32, 51, 0.1);
+    }
+
+    :root {
+      --ink: #122033;
+      --muted: #5a6879;
+      --gold: #7d5a22;
+      --gold-soft: rgba(201, 151, 77, 0.12);
+      --gold-bar: #c99b4d;
+      --green: #4d8877;
+      --green-soft: rgba(77, 136, 119, 0.1);
+      --border: rgba(18, 32, 51, 0.08);
+    }
+
+    .content {
+      grid-template-columns: minmax(0, 1.72fr) minmax(0, 1fr);
+    }
+
+    .panel {
+      overflow: hidden;
+      transition:
+        transform 180ms ease,
+        border-color 180ms ease,
+        box-shadow 180ms ease;
+      animation: content-in 360ms ease both;
+    }
+
+    .panel:hover {
+      transform: translateY(-2px);
+      border-color: rgba(18, 32, 51, 0.14);
+      box-shadow: 0 18px 44px rgba(15, 23, 42, 0.10);
+    }
+
+    .analysis-panel {
+      display: grid;
+      grid-template-rows: 190px minmax(0, 1fr);
+      gap: 12px;
+      padding: 16px 18px;
+    }
+
+    .section-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 9px;
+    }
+
+    .section-heading h2 {
+      margin: 0;
+      font-size: clamp(16px, 1.55vw, 19px);
+      line-height: 1.2;
+      font-weight: 800;
+      letter-spacing: -0.015em;
+    }
+
+    .section-heading p {
+      margin: 0;
+      color: var(--muted);
+      font-size: clamp(10px, 0.88vw, 12px);
+      line-height: 1.35;
+    }
+
+    .ratio-badge {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: baseline;
+      gap: 7px;
+      padding: 6px 10px;
+      border-radius: 12px;
+      background: var(--gold-soft);
+      color: var(--gold);
+      white-space: nowrap;
+    }
+
+    .ratio-badge strong {
+      font-size: clamp(20px, 2vw, 27px);
+      line-height: 1;
+      letter-spacing: -0.04em;
+    }
+
+    .ratio-badge span {
+      font-size: clamp(9px, 0.78vw, 11px);
+      font-weight: 700;
+    }
+
+    .thread-chart {
+      display: grid;
+      grid-template-rows: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .thread-row {
+      display: grid;
+      grid-template-columns: 68px minmax(0, 1fr);
+      align-items: center;
+      gap: 9px;
+      min-height: 0;
+    }
+
+    .thread-label {
+      color: var(--muted);
+      font-size: clamp(10px, 0.86vw, 12px);
+      font-weight: 700;
+      line-height: 1.35;
+    }
+
+    .thread-label strong {
+      display: block;
+      margin-top: 2px;
+      color: var(--ink);
+      font-size: clamp(11px, 0.95vw, 13px);
+    }
+
+    .lane-stack {
+      display: grid;
+      gap: 6px;
+    }
+
+    .lane {
+      display: grid;
+      grid-template-columns: 68px minmax(0, 1fr);
+      align-items: center;
+      gap: 8px;
+      min-height: 24px;
+    }
+
+    .lane-name {
+      color: var(--muted);
+      font-size: clamp(9px, 0.74vw, 11px);
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .track {
+      position: relative;
+      height: 24px;
+      border-radius: 8px;
+      background: rgba(18, 32, 51, 0.055);
+      overflow: hidden;
+    }
+
+    .track.short {
+      width: 81.5%;
+    }
+
+    .segment {
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: clamp(9px, 0.76vw, 11px);
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+
+    .segment.npu {
+      width: 67.7%;
+      background: var(--ink);
+    }
+
+    .segment.contention {
+      width: 32.3%;
+      background:
+        repeating-linear-gradient(
+          135deg,
+          rgba(255, 255, 255, 0.12) 0 5px,
+          transparent 5px 10px
+        ),
+        var(--gold-bar);
+      color: #fffdf8;
+    }
+
+    .segment.parallel-npu {
+      width: 83.1%;
+      background: var(--ink);
+    }
+
+    .segment.parallel-cpu {
+      width: 16.9%;
+      background: var(--green);
+    }
+
+    .chart-note {
+      position: absolute;
+      right: 6px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted);
+      font-size: clamp(8px, 0.68vw, 10px);
+      font-weight: 700;
+    }
+
+    .evidence-band {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 7px;
+      padding: 11px 13px;
+      border-radius: 17px;
+      background:
+        linear-gradient(135deg, rgba(77, 136, 119, 0.085), rgba(255, 255, 255, 0.62));
+      border: 1px solid rgba(77, 136, 119, 0.2);
+    }
+
+    .evidence-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .evidence-head h3 {
+      margin: 0;
+      font-size: clamp(13px, 1.1vw, 15px);
+      font-weight: 800;
+    }
+
+    .evidence-status {
+      padding: 5px 9px;
+      border-radius: 999px;
+      background: var(--green);
+      color: #fff;
+      font-size: clamp(9px, 0.74vw, 11px);
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .evidence-grid {
+      display: grid;
+      grid-template-columns: 1.35fr 0.8fr 1fr;
+      align-items: stretch;
+      min-height: 0;
+    }
+
+    .evidence-item {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 4px 12px;
+      min-width: 0;
+    }
+
+    .evidence-item + .evidence-item {
+      border-left: 1px solid rgba(77, 136, 119, 0.18);
+    }
+
+    .evidence-item span {
+      color: var(--muted);
+      font-size: clamp(9px, 0.74vw, 11px);
+      line-height: 1.3;
+    }
+
+    .evidence-item strong {
+      margin-top: 4px;
+      color: var(--ink);
+      font-size: clamp(12px, 1.05vw, 15px);
+      line-height: 1.25;
+      font-weight: 800;
+    }
+
+    .pipeline-panel {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto auto;
+      gap: 9px;
+      padding: 16px 18px;
+    }
+
+    .pipeline-heading {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .pipeline-heading h2 {
+      margin: 0;
+      font-size: clamp(16px, 1.55vw, 19px);
+      line-height: 1.2;
+      font-weight: 800;
+    }
+
+    .pipeline-heading p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: clamp(9px, 0.75vw, 11px);
+    }
+
+    .micro-tag {
+      padding: 5px 8px;
+      border-radius: 999px;
+      background: var(--gold-soft);
+      color: var(--gold);
+      font-size: clamp(8px, 0.68vw, 10px);
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .bar-chart {
+      position: relative;
+      display: grid;
+      align-content: center;
+      gap: 8px;
+      padding: 16px 0 2px;
+      min-height: 0;
+    }
+
+    .ceiling-line {
+      position: absolute;
+      top: 8px;
+      right: 0;
+      bottom: 13px;
+      width: 1px;
+      background: rgba(201, 151, 77, 0.48);
+    }
+
+    .ceiling-line::before {
+      content: "14.93 fps 上限";
+      position: absolute;
+      top: -9px;
+      right: 0;
+      color: var(--gold);
+      font-size: clamp(8px, 0.66vw, 10px);
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .bar-row {
+      display: grid;
+      grid-template-columns: 72px minmax(0, 1fr) 53px;
+      align-items: center;
+      gap: 7px;
+      min-height: 0;
+    }
+
+    .bar-label {
+      color: var(--muted);
+      font-size: clamp(9px, 0.72vw, 11px);
+      font-weight: 700;
+      line-height: 1.2;
+    }
+
+    .bar-track {
+      height: 20px;
+      border-radius: 7px;
+      background: rgba(18, 32, 51, 0.055);
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      height: 100%;
+      border-radius: 7px;
+      background: linear-gradient(90deg, rgba(18, 32, 51, 0.74), rgba(18, 32, 51, 0.92));
+      animation: grow-bar 520ms ease both;
+      transform-origin: left center;
+    }
+
+    .bar-fill.gold {
+      background: linear-gradient(90deg, rgba(201, 151, 77, 0.58), rgba(201, 151, 77, 0.86));
+    }
+
+    .bar-fill.green {
+      background: linear-gradient(90deg, rgba(77, 136, 119, 0.72), rgba(77, 136, 119, 0.96));
+    }
+
+    .bar-value {
+      color: var(--ink);
+      font-size: clamp(10px, 0.86vw, 12px);
+      font-weight: 800;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .gain-summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 9px 11px;
+      border-radius: 14px;
+      background: var(--green-soft);
+      border: 1px solid rgba(77, 136, 119, 0.18);
+    }
+
+    .gain-summary span {
+      color: #416f61;
+      font-size: clamp(9px, 0.75vw, 11px);
+      font-weight: 700;
+    }
+
+    .gain-summary strong {
+      color: var(--green);
+      font-size: clamp(18px, 1.8vw, 24px);
+      line-height: 1;
+      letter-spacing: -0.035em;
+    }
+
+    .floor-note {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(18, 32, 51, 0.08);
+      color: var(--muted);
+      font-size: clamp(8px, 0.68vw, 10px);
+      line-height: 1.35;
+    }
+
+    .floor-note strong {
+      color: var(--ink);
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    @keyframes content-in {
+      from {
+        opacity: 0;
+        transform: translateY(6px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes grow-bar {
+      from {
+        transform: scaleX(0);
+      }
+      to {
+        transform: scaleX(1);
+      }
+    }
+
+    :focus-visible {
+      outline: 2px solid rgba(201, 151, 77, 0.55);
+      outline-offset: 3px;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .panel,
+      .bar-fill {
+        animation: none;
+        transition: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="slide">
+    <header class="header">
+      <div>
+        <div class="eyebrow">Signal Narrative</div>
+        <h1 class="title">底座 1｜并行结构：先分清「算法慢」还是「被抢慢」</h1>
+        <p class="subtitle">先拆线程争抢，再谈算法优化</p>
+      </div>
+      <div class="page-tag">13/19</div>
+    </header>
+    <main class="content">
+      <section class="panel analysis-panel" aria-label="线程争抢归因与等价性证据">
+        <div>
+          <div class="section-heading">
+            <div>
+              <h2>同一线程发生串行争抢，独立线程恢复时间重叠</h2>
+              <p>NPU 硬件计算仅 59.96 ms，其余耗时来自同线程 CPU letterbox</p>
+            </div>
+            <div class="ratio-badge" aria-label="letterbox 阶段耗时比 2.3 倍">
+              <strong>2.3×</strong>
+              <span>28.60 → 12.23 ms</span>
+            </div>
+          </div>
+
+          <div class="thread-chart" role="img" aria-label="共享 NPU 线程与独立 CPU 线程耗时对比">
+            <div class="thread-row">
+              <div class="thread-label">
+                共享 NPU 线程
+                <strong>串行占用 88.56 ms</strong>
+              </div>
+              <div class="lane-stack">
+                <div class="lane">
+                  <span class="lane-name">同一线程</span>
+                  <div class="track">
+                    <div class="segment npu">NPU 计算 · 59.96 ms</div>
+                    <div class="segment contention">CPU letterbox · 28.60 ms</div>
+                    <span class="chart-note">NPU 等待 / 空转</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="thread-row">
+              <div class="thread-label">
+                CPU 独立线程
+                <strong>阶段耗时可重叠</strong>
+              </div>
+              <div class="lane-stack">
+                <div class="lane">
+                  <span class="lane-name">NPU</span>
+                  <div class="track short">
+                    <div class="segment parallel-npu">59.96 ms</div>
+                  </div>
+                </div>
+                <div class="lane">
+                  <span class="lane-name">CPU</span>
+                  <div class="track short">
+                    <div class="segment parallel-cpu">12.23 ms</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <section class="evidence-band" aria-label="迁移等价性证据">
+          <div class="evidence-head">
+            <h3>纯搬运 / 纯计算迁移：零差异证据已闭环</h3>
+            <span class="evidence-status">等价性白送｜无需重验精度</span>
+          </div>
+          <div class="evidence-grid">
+            <div class="evidence-item">
+              <span>heatmap + offset</span>
+              <strong>1070/1070 逐字节一致</strong>
+            </div>
+            <div class="evidence-item">
+              <span>检出 TSV</span>
+              <strong>0 行差异</strong>
+            </div>
+            <div class="evidence-item">
+              <span>哈希 · 6 档</span>
+              <strong>全为 d5e81977</strong>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <section class="panel pipeline-panel" aria-label="三级流水线性能收益">
+        <div class="pipeline-heading">
+          <div>
+            <h2>三级流水线收益</h2>
+            <p>逐级释放性能，逼近理论天花板</p>
+          </div>
+          <span class="micro-tag">算法慢还是被抢慢</span>
+        </div>
+
+        <div class="bar-chart" role="img" aria-label="流水线从 5.74 提升至 14.07 帧每秒">
+          <div class="ceiling-line" aria-hidden="true"></div>
+
+          <div class="bar-row">
+            <span class="bar-label">去落盘</span>
+            <div class="bar-track">
+              <div class="bar-fill gold" style="width: 38.3%;"></div>
+            </div>
+            <span class="bar-value">5.74→8.16</span>
+          </div>
+
+          <div class="bar-row">
+            <span class="bar-label">并行 2 级</span>
+            <div class="bar-track">
+              <div class="bar-fill" style="width: 67.7%;"></div>
+            </div>
+            <span class="bar-value">10.15</span>
+          </div>
+
+          <div class="bar-row">
+            <span class="bar-label">并行 3 级</span>
+            <div class="bar-track">
+              <div class="bar-fill green" style="width: 93.8%;"></div>
+            </div>
+            <span class="bar-value">14.07</span>
+          </div>
+        </div>
+
+        <div class="gain-summary">
+          <span>累计吞吐提升</span>
+          <strong>2.45×</strong>
+        </div>
+
+        <div class="floor-note">
+          <span>硬地板｜rknn 60.77 + dequant 2.75 + peaks 0.35 ms</span>
+          <strong>14.07 fps</strong>
+        </div>
+      </section>
+    </main>
+    <footer class="footer">
+      <span>Editorial Light Master</span>
+      <span>13</span>
+    </footer>
+  </div>
+</body>
+</html>

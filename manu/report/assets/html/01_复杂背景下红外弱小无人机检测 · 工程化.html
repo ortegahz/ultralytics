@@ -5,267 +5,173 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>复杂背景下红外弱小无人机检测 · 工程化阶段汇报</title>
 </head>
-<body style="width:100%;height:100%;position:relative;overflow:hidden;margin:0;font-family:'Microsoft YaHei','PingFang SC',sans-serif;color:#122033;background:radial-gradient(circle at top right,rgba(188,147,72,0.18),transparent 32%),linear-gradient(180deg,#f7f5ef 0%,#f4f6f9 100%);display:flex;align-items:center;justify-content:center;">
-  <div class="slide" style="box-sizing:border-box;width:min(1180px,calc(100vw - 32px),calc((100vh - 32px) * 1.9032));aspect-ratio:1180 / 620;display:grid;grid-template-rows:110px minmax(0,1fr) 70px;gap:18px;padding:28px 30px;border-radius:28px;background:rgba(255,255,255,0.84);box-shadow:0 24px 80px rgba(15,23,42,0.12);border:1px solid rgba(18,32,51,0.08);overflow:hidden;position:relative;">
-    <header class="header" style="box-sizing:border-box;min-width:0;display:flex;align-items:end;justify-content:space-between;border-bottom:1px solid rgba(18,32,51,0.12);padding-bottom:14px;flex-shrink:0;">
-      <div style="min-width:0;">
-        <div class="eyebrow" style="display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:rgba(201,151,77,0.12);color:#7d5a22;font-size:clamp(10px,0.94vw,12px);font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">
-          Signal Narrative
+<body style="width:100%;height:100%;margin:0;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;font-family:'Microsoft YaHei','PingFang SC',sans-serif;background:radial-gradient(circle at top right,rgba(188,147,72,0.18),transparent 32%),linear-gradient(180deg,#f7f5ef 0%,#f4f6f9 100%);color:#122033;">
+  <div class="slide" style="width:1180px;height:620px;display:grid;grid-template-rows:110px 1fr 70px;gap:18px;padding:28px 30px;border-radius:28px;background:rgba(255,255,255,0.84);box-shadow:0 24px 80px rgba(15,23,42,0.12);border:1px solid rgba(18,32,51,0.08);overflow:hidden;position:relative;">
+    <header class="header" style="display:flex;align-items:end;justify-content:space-between;border-bottom:1px solid rgba(18,32,51,0.12);padding-bottom:14px;flex-shrink:0;min-width:0;">
+      <div style="min-width:0;flex:1;">
+        <div class="eyebrow" style="display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:rgba(201,151,77,0.12);color:#7d5a22;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">
+          ALGORITHM ENGINEERING · RK3588
         </div>
-        <h1 class="title" style="margin:14px 0 0;font-size:clamp(25px,2.97vw,38px);line-height:1.08;font-weight:800;letter-spacing:-0.03em;white-space:nowrap;">
-          复杂背景下红外弱小无人机检测 · 工程化阶段汇报
-        </h1>
-        <p class="subtitle" style="margin:8px 0 0;color:#4b5b70;font-size:clamp(12px,1.17vw,15px);line-height:1.4;white-space:nowrap;">
-          从“能跑”到“可交付”——RK3588 实时管线的构建与验证
-        </p>
+        <h1 class="title" style="margin:14px 0 0;font-size:38px;line-height:1.08;font-weight:800;letter-spacing:-0.03em;white-space:nowrap;">复杂背景下红外弱小无人机检测 · 工程化阶段汇报</h1>
+        <p class="subtitle" style="margin:8px 0 0;color:#4b5b70;font-size:15px;line-height:1.4;">从“能跑”到“可交付”——RK3588 实时管线的构建与验证</p>
       </div>
-      <div class="page-tag" style="align-self:start;padding:10px 14px;border-radius:14px;background:#122033;color:#f8fafc;font-size:clamp(10px,0.94vw,12px);font-weight:700;letter-spacing:0.06em;flex-shrink:0;">
-        01/18
-      </div>
+      <div class="page-tag" style="align-self:start;padding:10px 14px;border-radius:14px;background:#122033;color:#f8fafc;font-size:12px;font-weight:700;letter-spacing:0.06em;flex-shrink:0;margin-left:20px;">01/09</div>
     </header>
 
-    <main class="content" style="box-sizing:border-box;display:grid;grid-template-columns:0.83fr 1.17fr;gap:18px;min-height:0;overflow:hidden;">
-      <section class="panel" style="box-sizing:border-box;min-height:0;min-width:0;border-radius:24px;background:rgba(255,255,255,0.82);border:1px solid rgba(18,32,51,0.08);box-shadow:0 14px 36px rgba(15,23,42,0.08);padding:clamp(18px,1.9vw,22px);display:flex;flex-direction:column;justify-content:space-between;overflow:hidden;position:relative;">
-        <div style="position:absolute;right:-54px;top:-64px;width:170px;height:170px;border-radius:50%;background:radial-gradient(circle,rgba(188,147,72,0.18) 0%,rgba(188,147,72,0.04) 48%,transparent 72%);pointer-events:none;"></div>
-
-        <div style="position:relative;z-index:1;">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
-            <span style="display:inline-flex;align-items:center;gap:8px;padding:7px 11px;border-radius:999px;background:rgba(201,151,77,0.12);color:#7d5a22;font-size:clamp(9px,0.78vw,11px);font-weight:700;letter-spacing:0.08em;">
-              <span style="width:6px;height:6px;border-radius:50%;background:#b89348;box-shadow:0 0 0 4px rgba(184,147,72,0.12);"></span>
-              CORE THESIS
-            </span>
-            <span style="font-size:clamp(9px,0.78vw,11px);color:#7b8795;letter-spacing:0.08em;">EDGE DEPLOYMENT</span>
-          </div>
-
-          <div style="margin-top:clamp(18px,2.2vw,26px);font-size:clamp(20px,2.25vw,29px);line-height:1.36;font-weight:800;letter-spacing:-0.025em;color:#122033;">
-            把一条 PC 上的算法图，变成 RK3588 上
-            <span style="position:relative;display:inline-block;color:#7d5a22;">
-              可并行、可量化、可验收
-              <span style="position:absolute;left:0;right:0;bottom:-6px;height:5px;border-radius:999px;background:linear-gradient(90deg,rgba(188,147,72,0.5),rgba(188,147,72,0.08));"></span>
-            </span>
-            的实时管线。
-          </div>
-
-          <p style="margin:clamp(18px,2.15vw,26px) 0 0;padding-left:13px;border-left:2px solid rgba(188,147,72,0.5);font-size:clamp(11px,1vw,13px);line-height:1.65;color:#5a6879;">
-            以工程化交付为判断基准，将算法验证推进到
-            <strong style="color:#122033;">稳定运行、性能可测、接口可用</strong>
-            的边缘端闭环。
-          </p>
+    <main class="content" style="display:grid;grid-template-columns:1.3fr 0.9fr;gap:30px;min-height:0;flex:1;overflow:hidden;">
+      <section style="min-height:0;display:flex;flex-direction:column;justify-content:center;padding:6px 0 4px;position:relative;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:24px;">
+          <span style="width:28px;height:2px;background:#c9974d;display:block;"></span>
+          <span style="font-size:12px;font-weight:700;letter-spacing:0.12em;color:#7d5a22;">工程化目标</span>
         </div>
 
-        <div style="position:relative;z-index:1;margin-top:18px;">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:13px;">
-            <span style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:rgba(18,32,51,0.055);color:#122033;font-size:clamp(10px,0.86vw,12px);font-weight:700;">
-              <span style="width:7px;height:7px;border-radius:50%;background:#b89348;"></span>
-              并行
-            </span>
-            <span style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:rgba(18,32,51,0.055);color:#122033;font-size:clamp(10px,0.86vw,12px);font-weight:700;">
-              <span style="width:7px;height:7px;border-radius:50%;background:#b89348;"></span>
-              量化
-            </span>
-            <span style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:rgba(18,32,51,0.055);color:#122033;font-size:clamp(10px,0.86vw,12px);font-weight:700;">
-              <span style="width:7px;height:7px;border-radius:50%;background:#b89348;"></span>
-              验收
-            </span>
+        <div aria-label="从PC算法图到RK3588实时管线" style="display:flex;flex-direction:column;gap:17px;">
+          <div style="font-size:clamp(23px,2.15vw,31px);line-height:1.25;font-weight:650;color:#5a6879;letter-spacing:-0.02em;">
+            PC 上能运行的
+            <span style="display:inline-block;margin-left:8px;padding:2px 11px;border:1px solid rgba(18,32,51,0.12);border-radius:10px;background:rgba(255,255,255,0.68);font-size:0.78em;font-weight:700;color:#4b5b70;">算法图</span>
           </div>
 
-          <div style="box-sizing:border-box;display:grid;grid-template-columns:1fr auto 1.25fr;align-items:center;gap:9px;padding:12px 13px;border-radius:16px;background:linear-gradient(135deg,rgba(18,32,51,0.06),rgba(255,255,255,0.5));border:1px solid rgba(18,32,51,0.08);">
-            <div>
-              <div style="font-size:clamp(9px,0.72vw,11px);color:#7b8795;letter-spacing:0.06em;">SOURCE</div>
-              <div style="margin-top:3px;font-size:clamp(10px,0.86vw,12px);font-weight:700;color:#122033;">PC 算法图</div>
-            </div>
-            <div style="width:36px;height:1px;background:linear-gradient(90deg,#b89348,#122033);position:relative;">
-              <span style="position:absolute;right:-1px;top:-3px;border-left:6px solid #122033;border-top:3.5px solid transparent;border-bottom:3.5px solid transparent;"></span>
-            </div>
-            <div>
-              <div style="font-size:clamp(9px,0.72vw,11px);color:#7b8795;letter-spacing:0.06em;">TARGET</div>
-              <div style="margin-top:3px;font-size:clamp(10px,0.86vw,12px);font-weight:700;color:#122033;">RK3588 实时管线</div>
-            </div>
+          <div style="display:flex;align-items:center;gap:13px;color:#c9974d;">
+            <span style="display:block;width:46px;height:1px;background:linear-gradient(90deg,rgba(201,151,77,0.15),#c9974d);"></span>
+            <svg width="25" height="25" viewBox="0 0 25 25" aria-hidden="true" style="flex-shrink:0;">
+              <path d="M12.5 4v16M5 13h15M7.2 7.8l10.6 10.6M17.8 7.8 7.2 18.4" fill="none" stroke="#c9974d" stroke-width="1.2" stroke-linecap="round"/>
+              <path d="m9.6 5.3 2.9-2.8 2.9 2.8M9.6 19.7l2.9 2.8 2.9-2.8M4.7 10.4 2 13.3l2.7 2.9M20.3 10.4l2.7 2.9-2.7 2.9" fill="none" stroke="#c9974d" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span style="font-size:11px;font-weight:700;letter-spacing:0.14em;">ENGINEERING SHIFT</span>
           </div>
 
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding-top:12px;border-top:1px solid rgba(18,32,51,0.08);font-size:clamp(9px,0.78vw,11px);color:#5a6879;">
-            <span>汇报团队：算法攻坚组</span>
-            <span style="color:#7d5a22;font-weight:700;letter-spacing:0.04em;">ENGINEERING PHASE</span>
+          <div style="font-size:clamp(27px,2.55vw,38px);line-height:1.22;font-weight:800;color:#122033;letter-spacing:-0.035em;max-width:610px;">
+            RK3588 上可
+            <span style="color:#8a682f;">并行</span>、可
+            <span style="color:#8a682f;">量化</span>、可
+            <span style="color:#8a682f;">验收</span>的
+            <br />实时管线
           </div>
+        </div>
+
+        <div style="height:1px;background:linear-gradient(90deg,rgba(18,32,51,0.15),rgba(18,32,51,0.03));margin:27px 0 20px;"></div>
+
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <span style="display:inline-flex;align-items:center;padding:7px 12px;border-radius:999px;background:rgba(201,151,77,0.12);color:#7d5a22;font-size:12px;font-weight:700;letter-spacing:0.04em;">可并行</span>
+          <span style="display:inline-flex;align-items:center;padding:7px 12px;border-radius:999px;background:rgba(201,151,77,0.12);color:#7d5a22;font-size:12px;font-weight:700;letter-spacing:0.04em;">可量化</span>
+          <span style="display:inline-flex;align-items:center;padding:7px 12px;border-radius:999px;background:rgba(201,151,77,0.12);color:#7d5a22;font-size:12px;font-weight:700;letter-spacing:0.04em;">可验收</span>
+          <span style="margin-left:auto;font-size:12px;color:#5a6879;letter-spacing:0.03em;">汇报团队 · 算法攻坚组</span>
         </div>
       </section>
 
-      <section class="panel" style="box-sizing:border-box;min-height:0;min-width:0;border-radius:24px;background:rgba(255,255,255,0.82);border:1px solid rgba(18,32,51,0.08);box-shadow:0 14px 36px rgba(15,23,42,0.08);padding:clamp(18px,1.9vw,22px);display:flex;flex-direction:column;overflow:hidden;position:relative;">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-shrink:0;margin-bottom:13px;">
-          <div style="display:flex;align-items:center;gap:9px;">
-            <span style="width:8px;height:8px;border-radius:50%;background:#b89348;box-shadow:0 0 0 5px rgba(184,147,72,0.11);"></span>
-            <span style="font-size:clamp(10px,0.86vw,12px);font-weight:800;letter-spacing:0.09em;color:#122033;">INFRARED DETECTION FIELD</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:8px;font-size:clamp(9px,0.72vw,11px);color:#7b8795;">
-            <span style="width:5px;height:5px;border-radius:50%;background:#b89348;"></span>
-            RK3588 · LIVE PIPELINE
-          </div>
-        </div>
-
-        <div style="box-sizing:border-box;position:relative;flex:1;min-height:0;overflow:hidden;border-radius:19px;background:#101c2b;border:1px solid rgba(18,32,51,0.16);box-shadow:inset 0 0 0 1px rgba(255,255,255,0.035),0 14px 30px rgba(15,23,42,0.12);">
-          <svg viewBox="0 0 680 245" preserveAspectRatio="xMidYMid slice" role="img" aria-labelledby="infrared-title infrared-desc" style="display:block;width:100%;height:100%;">
-            <title id="infrared-title">红外弱小目标检测场景示意</title>
-            <desc id="infrared-desc">深色红外监控画面中，复杂背景与建筑轮廓之上存在一个橙红色微弱目标，检测框准确锁定目标。</desc>
+      <section class="panel" aria-label="红外弱小目标检测与RK3588边缘部署概念示意" style="min-height:0;border-radius:24px;background:rgba(255,255,255,0.82);border:1px solid rgba(18,32,51,0.08);box-shadow:0 14px 36px rgba(15,23,42,0.08);padding:12px;overflow:hidden;position:relative;">
+        <div style="width:100%;height:100%;border-radius:16px;overflow:hidden;position:relative;background:#101925;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.07);">
+          <svg viewBox="0 0 430 380" preserveAspectRatio="xMidYMid slice" width="100%" height="100%" role="img" aria-labelledby="cover-visual-title cover-visual-desc">
+            <title id="cover-visual-title">红外弱小无人机检测与RK3588部署概念示意</title>
+            <desc id="cover-visual-desc">复杂红外背景中的小型无人机被检测框锁定，并通过数据流连接到RK3588芯片。</desc>
             <defs>
               <linearGradient id="thermal-bg" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0" stop-color="#14293a" />
-                <stop offset="0.52" stop-color="#0c1825" />
-                <stop offset="1" stop-color="#1b2931" />
+                <stop offset="0" stop-color="#111722"/>
+                <stop offset="0.48" stop-color="#20232a"/>
+                <stop offset="1" stop-color="#0d1721"/>
               </linearGradient>
-              <radialGradient id="thermal-haze">
-                <stop offset="0" stop-color="#d47b45" stop-opacity="0.26" />
-                <stop offset="1" stop-color="#d47b45" stop-opacity="0" />
+              <radialGradient id="hot-target" cx="50%" cy="45%" r="60%">
+                <stop offset="0" stop-color="#fff8dc"/>
+                <stop offset="0.28" stop-color="#ffbe63"/>
+                <stop offset="0.62" stop-color="#d94b28"/>
+                <stop offset="1" stop-color="#6f1f1f" stop-opacity="0"/>
               </radialGradient>
-              <radialGradient id="target-glow">
-                <stop offset="0" stop-color="#fff4c9" />
-                <stop offset="0.2" stop-color="#ffad5b" />
-                <stop offset="0.55" stop-color="#ef6b3b" stop-opacity="0.8" />
-                <stop offset="1" stop-color="#ef6b3b" stop-opacity="0" />
+              <radialGradient id="warm-cloud" cx="45%" cy="40%" r="65%">
+                <stop offset="0" stop-color="#9c4029" stop-opacity="0.38"/>
+                <stop offset="1" stop-color="#2b1719" stop-opacity="0"/>
               </radialGradient>
-              <pattern id="scan-grid" width="28" height="28" patternUnits="userSpaceOnUse">
-                <path d="M 28 0 L 0 0 0 28" fill="none" stroke="#b9d1db" stroke-opacity="0.055" stroke-width="1" />
+              <linearGradient id="scan" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0" stop-color="#ef6a3a" stop-opacity="0"/>
+                <stop offset="0.5" stop-color="#ef6a3a" stop-opacity="0.48"/>
+                <stop offset="1" stop-color="#ef6a3a" stop-opacity="0"/>
+              </linearGradient>
+              <pattern id="thermal-grid" width="28" height="28" patternUnits="userSpaceOnUse">
+                <path d="M28 0H0V28" fill="none" stroke="#9eb0bd" stroke-opacity="0.055" stroke-width="1"/>
               </pattern>
-              <filter id="soft-noise" x="-20%" y="-20%" width="140%" height="140%">
-                <feTurbulence type="fractalNoise" baseFrequency="0.72" numOctaves="3" seed="11" result="noise" />
-                <feColorMatrix in="noise" type="saturate" values="0" result="mono" />
-                <feComponentTransfer in="mono" result="faded">
-                  <feFuncA type="table" tableValues="0 0.15" />
-                </feComponentTransfer>
-                <feBlend in="SourceGraphic" in2="faded" mode="screen" />
+              <filter id="soft-glow" x="-100%" y="-100%" width="300%" height="300%">
+                <feGaussianBlur stdDeviation="7" result="blur"/>
+                <feMerge>
+                  <feMergeNode in="blur"/>
+                  <feMergeNode in="SourceGraphic"/>
+                </feMerge>
               </filter>
-              <filter id="target-blur" x="-300%" y="-300%" width="600%" height="600%">
-                <feGaussianBlur stdDeviation="7" />
-              </filter>
-              <clipPath id="scene-clip">
-                <rect x="0" y="0" width="680" height="245" rx="18" />
-              </clipPath>
             </defs>
 
-            <g clip-path="url(#scene-clip)">
-              <rect width="680" height="245" fill="url(#thermal-bg)" />
-              <ellipse cx="132" cy="178" rx="185" ry="120" fill="url(#thermal-haze)" opacity="0.45" />
-              <ellipse cx="560" cy="60" rx="150" ry="95" fill="url(#thermal-haze)" opacity="0.24" />
-              <rect width="680" height="245" fill="url(#scan-grid)" />
+            <rect width="430" height="380" fill="url(#thermal-bg)"/>
+            <rect width="430" height="380" fill="url(#thermal-grid)"/>
+            <ellipse cx="225" cy="183" rx="180" ry="135" fill="url(#warm-cloud)"/>
 
-              <g opacity="0.52">
-                <path d="M0 202 L62 173 L106 189 L144 151 L184 181 L222 157 L270 197 L315 170 L358 198 L412 166 L463 193 L509 151 L557 186 L612 166 L680 205 L680 245 L0 245 Z" fill="#243541" />
-                <rect x="18" y="108" width="76" height="88" rx="4" fill="#20313d" />
-                <rect x="30" y="121" width="18" height="14" fill="#b8d1d8" opacity="0.1" />
-                <rect x="56" y="121" width="20" height="14" fill="#b8d1d8" opacity="0.08" />
-                <rect x="30" y="146" width="18" height="14" fill="#b8d1d8" opacity="0.08" />
-                <rect x="56" y="146" width="20" height="14" fill="#b8d1d8" opacity="0.12" />
-                <rect x="92" y="76" width="66" height="121" rx="3" fill="#1d2e39" />
-                <rect x="104" y="91" width="14" height="16" fill="#c6dbe0" opacity="0.08" />
-                <rect x="127" y="91" width="14" height="16" fill="#c6dbe0" opacity="0.12" />
-                <rect x="104" y="117" width="14" height="16" fill="#c6dbe0" opacity="0.07" />
-                <rect x="127" y="117" width="14" height="16" fill="#c6dbe0" opacity="0.1" />
-                <rect x="598" y="82" width="67" height="117" rx="3" fill="#1c2d38" />
-                <rect x="611" y="98" width="16" height="13" fill="#d7e5e8" opacity="0.1" />
-                <rect x="635" y="98" width="16" height="13" fill="#d7e5e8" opacity="0.06" />
-                <rect x="611" y="122" width="16" height="13" fill="#d7e5e8" opacity="0.07" />
-                <rect x="635" y="122" width="16" height="13" fill="#d7e5e8" opacity="0.11" />
+            <path d="M0 274C43 252 78 259 113 274c36 16 66 9 95-7 39-21 70-18 103 3 33 22 73 24 119 5v105H0Z" fill="#1a2026" opacity="0.92"/>
+            <path d="M0 300c48-18 83-8 118 9 37 18 72 17 105 1 38-18 77-16 111 5 29 18 58 18 96 4" fill="none" stroke="#864131" stroke-opacity="0.34" stroke-width="2"/>
+            <path d="M0 327c55-15 89-7 126 11 34 17 63 15 97 2 40-16 72-14 108 4 32 16 63 15 99 2" fill="none" stroke="#a45a3d" stroke-opacity="0.2" stroke-width="1"/>
+            <path d="M30 212c35-28 72-33 104-14 21 12 36 10 57-4" fill="none" stroke="#b85d38" stroke-opacity="0.16" stroke-width="2"/>
+            <path d="M267 97c25-18 53-21 81-8 23 10 43 8 64-4" fill="none" stroke="#c16b43" stroke-opacity="0.15" stroke-width="2"/>
+
+            <rect x="18" y="49" width="394" height="288" rx="14" fill="none" stroke="#e7edf1" stroke-opacity="0.1"/>
+            <path d="M18 76h394" stroke="url(#scan)" stroke-width="2"/>
+            <path d="M18 305h394" stroke="url(#scan)" stroke-width="1"/>
+
+            <g transform="translate(0 4)">
+              <ellipse cx="248" cy="168" rx="46" ry="43" fill="url(#hot-target)" opacity="0.48" filter="url(#soft-glow)"/>
+              <g transform="translate(248 164)">
+                <path d="M-19-4h38M-7-4l-8-13M7-4l8-13M-7 2l-8 13M7 2l8 13" stroke="#ffc46c" stroke-width="2" stroke-linecap="round"/>
+                <ellipse cx="-15" cy="-17" rx="9" ry="3" fill="none" stroke="#ffc46c" stroke-width="1.4"/>
+                <ellipse cx="15" cy="-17" rx="9" ry="3" fill="none" stroke="#ffc46c" stroke-width="1.4"/>
+                <ellipse cx="-15" cy="15" rx="9" ry="3" fill="none" stroke="#ffc46c" stroke-width="1.4"/>
+                <ellipse cx="15" cy="15" rx="9" ry="3" fill="none" stroke="#ffc46c" stroke-width="1.4"/>
+                <rect x="-7" y="-6" width="14" height="11" rx="3" fill="#fff1c2"/>
               </g>
+            </g>
 
-              <g fill="none" stroke="#a8c6d1" stroke-opacity="0.11" stroke-width="1">
-                <path d="M0 211 C94 195 172 220 262 206 S431 188 518 202 S611 217 680 196" />
-                <path d="M0 229 C105 214 186 236 282 220 S461 207 542 220 S626 231 680 216" />
-                <path d="M274 0 L246 245" />
-                <path d="M417 0 L451 245" />
+            <g fill="none" stroke="#ffb24d" stroke-width="1.5">
+              <rect x="206" y="123" width="84" height="82" rx="3"/>
+              <path d="M206 133h-8v-8h8M281 125h8v8h-8M290 195v8h-8v-8M215 203h-8v-8h8"/>
+              <path d="M206 164h-46" stroke-dasharray="3 4" opacity="0.65"/>
+              <path d="M290 164h54" stroke-dasharray="3 4" opacity="0.65"/>
+            </g>
+
+            <g>
+              <rect x="344" y="137" width="50" height="50" rx="8" fill="#172332" stroke="#5eb9ca" stroke-opacity="0.76"/>
+              <rect x="353" y="146" width="32" height="32" rx="4" fill="#10202b" stroke="#5eb9ca" stroke-opacity="0.42"/>
+              <path d="M359 154h20v16h-20z" fill="none" stroke="#76c8d7" stroke-width="1" opacity="0.62"/>
+              <g stroke="#5eb9ca" stroke-width="1.5" stroke-linecap="round">
+                <path d="M349 151h-7M349 162h-7M349 173h-7M395 151h-7M395 162h-7M395 173h-7"/>
+                <path d="M359 141v-6M369 141v-6M379 141v-6M359 183v6M369 183v6M379 183v6"/>
               </g>
+              <text x="369" y="166" text-anchor="middle" fill="#a8e1e9" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="8" font-weight="700">NPU</text>
+              <text x="369" y="202" text-anchor="middle" fill="#b9cad5" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="10" font-weight="700">RK3588</text>
+            </g>
 
-              <g opacity="0.34" fill="#d7e2e4">
-                <circle cx="46" cy="69" r="1.4" />
-                <circle cx="75" cy="48" r="1.1" />
-                <circle cx="113" cy="54" r="1.6" />
-                <circle cx="177" cy="32" r="1.1" />
-                <circle cx="227" cy="54" r="1.3" />
-                <circle cx="290" cy="33" r="1.5" />
-                <circle cx="341" cy="48" r="1" />
-                <circle cx="393" cy="24" r="1.4" />
-                <circle cx="457" cy="53" r="1.1" />
-                <circle cx="526" cy="31" r="1.4" />
-                <circle cx="583" cy="48" r="1.2" />
-                <circle cx="642" cy="28" r="1.5" />
+            <g font-family="Microsoft YaHei, PingFang SC, sans-serif">
+              <rect x="28" y="60" width="116" height="28" rx="8" fill="#0e1721" fill-opacity="0.76" stroke="#ffffff" stroke-opacity="0.1"/>
+              <circle cx="42" cy="74" r="4" fill="#ff7847"/>
+              <text x="54" y="78" fill="#dbe4e9" font-size="10" font-weight="700">红外场景示意</text>
+              <text x="207" y="217" fill="#ffbf66" font-size="9" font-weight="700">WEAK TARGET</text>
+              <text x="206" y="233" fill="#aebbc5" font-size="8">目标检测链路 / 概念示意</text>
+            </g>
+
+            <g transform="translate(27 295)">
+              <rect width="142" height="39" rx="10" fill="#111c28" fill-opacity="0.88" stroke="#74c4d1" stroke-opacity="0.25"/>
+              <g transform="translate(13 11)">
+                <rect width="17" height="17" rx="4" fill="#244653"/>
+                <path d="M4 12V7m4 5V4m4 8V6m4 6V8" stroke="#76cbd8" stroke-width="1.3" stroke-linecap="round"/>
               </g>
-
-              <g opacity="0.25" filter="url(#soft-noise)">
-                <rect width="680" height="245" fill="#b6d0d5" />
-              </g>
-
-              <g opacity="0.15" stroke="#d5e3e5" stroke-width="1">
-                <path d="M0 12 H680" />
-                <path d="M0 28 H680" />
-                <path d="M0 44 H680" />
-                <path d="M0 60 H680" />
-              </g>
-
-              <path d="M404 94 C430 111 435 132 427 151" fill="none" stroke="#b89348" stroke-width="1.2" stroke-dasharray="4 5" opacity="0.72" />
-              <circle cx="403" cy="92" r="3" fill="#b89348" opacity="0.82">
-                <animate attributeName="r" values="2.4;3.8;2.4" dur="2.4s" repeatCount="indefinite" />
-              </circle>
-
-              <ellipse cx="432" cy="157" rx="25" ry="21" fill="#ef6b3b" opacity="0.28" filter="url(#target-blur)" />
-              <circle cx="432" cy="157" r="14" fill="url(#target-glow)">
-                <animate attributeName="r" values="12.5;15;12.5" dur="2.2s" repeatCount="indefinite" />
-              </circle>
-              <circle cx="432" cy="157" r="3.8" fill="#ffe3a0" />
-
-              <g fill="none" stroke="#ef8a4f" stroke-width="1.5">
-                <path d="M401 136 V130 H407" />
-                <path d="M457 136 V130 H451" />
-                <path d="M401 178 V184 H407" />
-                <path d="M457 178 V184 H451" />
-                <rect x="404" y="133" width="50" height="48" stroke-opacity="0.28" stroke-dasharray="3 4" />
-              </g>
-
-              <g transform="translate(465 125)">
-                <rect width="104" height="30" rx="7" fill="#101c2b" fill-opacity="0.86" stroke="#ef8a4f" stroke-opacity="0.42" />
-                <circle cx="13" cy="15" r="3" fill="#ef8a4f" />
-                <text x="23" y="13" fill="#f8fafc" font-size="9" font-weight="700" font-family="Microsoft YaHei, PingFang SC, sans-serif">WEAK TARGET</text>
-                <text x="23" y="24" fill="#efaa78" font-size="8" font-family="Microsoft YaHei, PingFang SC, sans-serif">LOCKED / TRACKING</text>
-              </g>
-
-              <g transform="translate(18 18)">
-                <rect width="126" height="27" rx="8" fill="#101c2b" fill-opacity="0.78" stroke="#b89348" stroke-opacity="0.3" />
-                <circle cx="13" cy="13.5" r="3" fill="#b89348" />
-                <text x="23" y="17" fill="#e8edf0" font-size="9" font-weight="700" letter-spacing="0.6" font-family="Microsoft YaHei, PingFang SC, sans-serif">RK3588 EDGE</text>
-              </g>
-
-              <g opacity="0.5" fill="none" stroke="#91aeb9" stroke-width="1">
-                <path d="M596 217 H658" />
-                <path d="M596 213 V221" />
-                <path d="M658 213 V221" />
-              </g>
-              <text x="603" y="209" fill="#a8bbc3" font-size="8" font-family="Microsoft YaHei, PingFang SC, sans-serif">FIELD OF VIEW</text>
+              <text x="39" y="16" fill="#8fa3b2" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="8">EDGE DEPLOYMENT</text>
+              <text x="39" y="30" fill="#e6eef2" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="10" font-weight="700">实时推理 · 稳定交付</text>
             </g>
           </svg>
 
-          <div style="position:absolute;left:13px;bottom:12px;display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:999px;background:rgba(16,28,43,0.82);border:1px solid rgba(255,255,255,0.09);font-size:clamp(8px,0.7vw,10px);color:#dce5e8;letter-spacing:0.06em;">
-            <span style="width:5px;height:5px;border-radius:50%;background:#ef8a4f;box-shadow:0 0 0 4px rgba(239,138,79,0.12);"></span>
-            COMPLEX BACKGROUND / WEAK INFRARED TARGET
-          </div>
-        </div>
-
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px;margin-top:12px;flex-shrink:0;">
-          <div style="padding:10px 11px;border-radius:13px;background:rgba(18,32,51,0.045);border:1px solid rgba(18,32,51,0.07);">
-            <div style="font-size:clamp(8px,0.68vw,10px);color:#7b8795;letter-spacing:0.05em;">DEPLOYMENT</div>
-            <div style="margin-top:4px;font-size:clamp(10px,0.86vw,12px);font-weight:700;color:#122033;">RK3588 边缘端</div>
-          </div>
-          <div style="padding:10px 11px;border-radius:13px;background:rgba(18,32,51,0.045);border:1px solid rgba(18,32,51,0.07);">
-            <div style="font-size:clamp(8px,0.68vw,10px);color:#7b8795;letter-spacing:0.05em;">DELIVERY</div>
-            <div style="margin-top:4px;font-size:clamp(10px,0.86vw,12px);font-weight:700;color:#122033;">实时处理闭环</div>
-          </div>
-          <div style="padding:10px 11px;border-radius:13px;background:rgba(201,151,77,0.09);border:1px solid rgba(201,151,77,0.14);">
-            <div style="font-size:clamp(8px,0.68vw,10px);color:#8b7448;letter-spacing:0.05em;">FOCUS</div>
-            <div style="margin-top:4px;font-size:clamp(10px,0.86vw,12px);font-weight:700;color:#7d5a22;">弱小目标检测</div>
+          <div style="position:absolute;right:12px;top:12px;display:flex;align-items:center;gap:7px;padding:7px 10px;border-radius:999px;background:rgba(13,20,29,0.76);border:1px solid rgba(255,255,255,0.1);color:#c3d0d8;font-size:9px;font-weight:700;letter-spacing:0.08em;">
+            <span style="width:6px;height:6px;border-radius:50%;background:#61c4d1;box-shadow:0 0 0 3px rgba(97,196,209,0.12);"></span>
+            LIVE PIPELINE
           </div>
         </div>
       </section>
     </main>
 
-    <footer class="footer" style="box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;padding:0 8px;color:#5a6879;font-size:clamp(10px,0.94vw,12px);border-top:1px solid rgba(18,32,51,0.1);flex-shrink:0;">
+    <footer class="footer" style="display:flex;align-items:center;justify-content:space-between;padding:0 8px;color:#5a6879;font-size:12px;border-top:1px solid rgba(18,32,51,0.1);flex-shrink:0;">
       <span>Editorial Light Master</span>
-      <span>01</span>
+      <span>1</span>
     </footer>
   </div>
 </body>

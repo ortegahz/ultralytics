@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>底座 2｜从 demo 到“契约成立”：端到端库交付</title>
+</head>
+<body style="width:100%;height:100%;position:relative;overflow:hidden;margin:0;font-family:'Microsoft YaHei','PingFang SC',sans-serif;background:radial-gradient(circle at top right,rgba(188,147,72,0.18),transparent 32%),linear-gradient(180deg,#f7f5ef 0%,#f4f6f9 100%);color:#122033;display:flex;align-items:center;justify-content:center;">
+  <div class="slide" id="slide" style="box-sizing:border-box;width:1180px;height:620px;aspect-ratio:1180/620;display:flex;flex-direction:column;flex-shrink:0;padding:28px 30px;border-radius:28px;background:rgba(255,255,255,0.84);box-shadow:0 24px 80px rgba(15,23,42,0.12);border:1px solid rgba(18,32,51,0.08);transform-origin:center center;overflow:hidden;">
+    <header class="header" style="height:110px;flex-shrink:0;display:flex;align-items:flex-end;justify-content:space-between;border-bottom:1px solid rgba(18,32,51,0.12);padding-bottom:14px;">
+      <div>
+        <div class="eyebrow" style="display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:rgba(201,151,77,0.12);color:#7d5a22;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">Signal Narrative</div>
+        <h1 class="title" style="margin:14px 0 0;font-size:38px;line-height:1.08;font-weight:800;letter-spacing:-0.03em;white-space:nowrap;">底座 2｜从 demo 到“契约成立”：端到端库交付</h1>
+        <p class="subtitle" style="margin:8px 0 0;color:#4b5b70;font-size:15px;line-height:1.4;">纯 C ABI × 错误路径验证 × 跨架构交付 × 吞吐验收</p>
+      </div>
+      <div class="page-tag" style="align-self:flex-start;flex-shrink:0;padding:10px 14px;border-radius:14px;background:#122033;color:#f8fafc;font-size:12px;font-weight:700;letter-spacing:0.06em;">14/19</div>
+    </header>
+
+    <main class="content main-content" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:10px;padding-top:0;">
+      <div style="min-height:0;flex:1;display:grid;grid-template-columns:1.15fr 0.85fr;gap:18px;">
+        <section class="panel" style="box-sizing:border-box;min-height:0;overflow:hidden;border-radius:24px;background:rgba(255,255,255,0.82);border:1px solid rgba(18,32,51,0.08);box-shadow:0 14px 36px rgba(15,23,42,0.08);padding:16px 18px;display:flex;flex-direction:column;gap:10px;">
+          <div style="min-height:48px;display:flex;align-items:center;gap:12px;padding:9px 13px;border-radius:16px;background:linear-gradient(90deg,rgba(201,151,77,0.16),rgba(201,151,77,0.06));border:1px solid rgba(201,151,77,0.18);">
+            <span style="flex-shrink:0;padding:5px 8px;border-radius:999px;background:#122033;color:#f8fafc;font-size:9px;font-weight:700;letter-spacing:0.08em;">DELIVERY CONTRACT</span>
+            <strong style="font-size:18px;line-height:1.2;font-weight:800;white-space:nowrap;">demo 跑通 ≠ 库契约成立</strong>
+            <span style="margin-left:auto;font-size:11px;color:#5a6879;white-space:nowrap;">纯 C ABI · 专门验证错误路径</span>
+          </div>
+
+          <section aria-label="端到端服务链路" style="min-height:0;display:flex;flex-direction:column;gap:8px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+              <h2 style="margin:0;font-size:14px;font-weight:800;letter-spacing:-0.01em;">端到端服务链路</h2>
+              <span style="font-size:10px;color:#7d5a22;font-weight:700;">丢帧点必须前移到 GMC 之下</span>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 16px 1fr 16px 1fr 16px 1fr 16px 1fr 16px 1fr;align-items:center;gap:0;">
+              <div style="min-height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px;border-radius:14px;background:#f1f4f8;border:1px solid rgba(18,32,51,0.08);text-align:center;">
+                <span style="font-size:12px;font-weight:700;">相机队列</span>
+                <span style="margin-top:2px;font-size:9px;color:#5a6879;">采集入口</span>
+              </div>
+              <div style="text-align:center;color:#9aa6b4;font-size:17px;font-weight:800;">›</div>
+              <div style="min-height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px;border-radius:14px;background:#f8eeee;border:1px solid rgba(157,72,72,0.22);text-align:center;">
+                <span style="font-size:12px;font-weight:800;color:#8f3f3f;">GMC 服务</span>
+                <span style="margin-top:2px;font-size:9px;color:#a65c5c;">跨帧对齐</span>
+              </div>
+              <div style="text-align:center;color:#9aa6b4;font-size:17px;font-weight:800;">›</div>
+              <div style="min-height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px;border-radius:14px;background:rgba(201,151,77,0.10);border:1px solid rgba(201,151,77,0.20);text-align:center;">
+                <span style="font-size:12px;font-weight:700;">特征缓冲</span>
+                <span style="margin-top:2px;font-size:9px;color:#7d5a22;">Frame buffer</span>
+              </div>
+              <div style="text-align:center;color:#9aa6b4;font-size:17px;font-weight:800;">›</div>
+              <div style="min-height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px;border-radius:14px;background:#122033;border:1px solid #122033;text-align:center;">
+                <span style="font-size:13px;font-weight:800;color:#f8fafc;">NPU×2</span>
+                <span style="margin-top:2px;font-size:9px;color:rgba(248,250,252,0.66);">双上下文</span>
+              </div>
+              <div style="text-align:center;color:#9aa6b4;font-size:17px;font-weight:800;">›</div>
+              <div style="min-height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px;border-radius:14px;background:rgba(201,151,77,0.10);border:1px solid rgba(201,151,77,0.20);text-align:center;">
+                <span style="font-size:12px;font-weight:700;">热图缓冲</span>
+                <span style="margin-top:2px;font-size:9px;color:#7d5a22;">Heatmap</span>
+              </div>
+              <div style="text-align:center;color:#9aa6b4;font-size:17px;font-weight:800;">›</div>
+              <div style="min-height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px;border-radius:14px;background:#f1f4f8;border:1px solid rgba(18,32,51,0.08);text-align:center;">
+                <span style="font-size:12px;font-weight:700;">POST</span>
+                <span style="margin-top:2px;font-size:9px;color:#5a6879;">结果交付</span>
+              </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <div style="display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:12px;background:rgba(157,72,72,0.08);border:1px solid rgba(157,72,72,0.15);">
+                <span style="flex-shrink:0;padding:3px 6px;border-radius:999px;background:rgba(157,72,72,0.12);color:#8f3f3f;font-size:9px;font-weight:800;">GMC 丢 1 帧</span>
+                <span style="font-size:11px;font-weight:700;color:#773b3b;">后续每帧失配</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:12px;background:rgba(201,151,77,0.09);border:1px solid rgba(201,151,77,0.16);">
+                <span style="flex-shrink:0;padding:3px 6px;border-radius:999px;background:rgba(201,151,77,0.14);color:#7d5a22;font-size:9px;font-weight:800;">NPU 跳 1 帧</span>
+                <span style="font-size:11px;font-weight:700;color:#6d5428;">仅损失一次检测</span>
+              </div>
+            </div>
+          </section>
+
+          <section aria-label="真实缺陷修复" style="min-height:0;flex:1;display:flex;flex-direction:column;gap:6px;padding-top:2px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+              <h2 style="margin:0;font-size:13px;font-weight:800;">异常路径专项修复</h2>
+              <span style="padding:4px 8px;border-radius:999px;background:#122033;color:#f8fafc;font-size:9px;font-weight:800;letter-spacing:0.06em;">5 DEFECTS FIXED</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 22px 0.78fr;align-items:center;gap:0;border:1px solid rgba(18,32,51,0.08);border-radius:12px;overflow:hidden;">
+              <div style="padding:7px 10px;background:rgba(241,244,248,0.74);font-family:Consolas,'Courier New',monospace;font-size:10px;font-weight:700;">Mat::operator= 浅拷贝</div>
+              <div style="text-align:center;color:#9aa6b4;font-size:14px;font-weight:800;">→</div>
+              <div style="padding:7px 10px;background:rgba(157,72,72,0.07);color:#8f3f3f;font-size:10px;font-weight:800;">悬垂指针</div>
+              <div style="padding:7px 10px;background:rgba(241,244,248,0.74);font-family:Consolas,'Courier New',monospace;font-size:10px;font-weight:700;">config_defaults 漏 5 字段</div>
+              <div style="text-align:center;color:#9aa6b4;font-size:14px;font-weight:800;">→</div>
+              <div style="padding:7px 10px;background:rgba(157,72,72,0.07);color:#8f3f3f;font-size:10px;font-weight:800;">门限读取栈垃圾</div>
+            </div>
+          </section>
+        </section>
+
+        <section class="panel" aria-label="交付与性能验收" style="box-sizing:border-box;min-height:0;overflow:hidden;border-radius:24px;background:rgba(255,255,255,0.82);border:1px solid rgba(18,32,51,0.08);box-shadow:0 14px 36px rgba(15,23,42,0.08);padding:14px;display:grid;grid-template-rows:0.88fr 1.18fr 1fr;gap:9px;">
+          <article style="min-height:0;padding:10px 12px;border-radius:16px;background:linear-gradient(135deg,rgba(18,32,51,0.055),rgba(255,255,255,0.72));border:1px solid rgba(18,32,51,0.08);display:flex;flex-direction:column;justify-content:center;">
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+              <span style="font-size:10px;font-weight:800;color:#5a6879;letter-spacing:0.05em;">跨架构交付</span>
+              <span style="padding:3px 7px;border-radius:999px;background:rgba(201,151,77,0.12);color:#7d5a22;font-size:9px;font-weight:800;">纯 C ABI</span>
+            </div>
+            <div style="margin-top:4px;font-family:Consolas,'Courier New',monospace;font-size:16px;font-weight:800;letter-spacing:-0.02em;">libmosaic_pipeline.a</div>
+            <div style="margin-top:5px;display:flex;align-items:center;gap:6px;">
+              <span style="padding:3px 7px;border-radius:8px;background:rgba(18,32,51,0.07);font-family:Consolas,'Courier New',monospace;font-size:9px;font-weight:700;">HOST</span>
+              <span style="color:#9aa6b4;font-size:10px;">+</span>
+              <span style="padding:3px 7px;border-radius:8px;background:rgba(18,32,51,0.07);font-family:Consolas,'Courier New',monospace;font-size:9px;font-weight:700;">aarch64</span>
+              <span style="margin-left:auto;color:#536b57;font-size:10px;font-weight:800;">编译通过</span>
+            </div>
+          </article>
+
+          <article style="min-height:0;padding:10px 12px;border-radius:16px;background:rgba(201,151,77,0.065);border:1px solid rgba(201,151,77,0.16);display:flex;flex-direction:column;justify-content:center;">
+            <div style="display:flex;align-items:flex-end;justify-content:space-between;">
+              <div>
+                <div style="font-size:10px;font-weight:800;color:#5a6879;">当前最优吞吐</div>
+                <div style="margin-top:1px;font-size:29px;line-height:1;font-weight:800;letter-spacing:-0.04em;color:#122033;">14.838 <span style="font-size:12px;letter-spacing:0;">fps</span></div>
+              </div>
+              <div style="text-align:right;">
+                <div style="font-size:20px;line-height:1;font-weight:800;color:#7d5a22;">97.2%</div>
+                <div style="margin-top:3px;font-size:9px;color:#7d5a22;">硬件占用</div>
+              </div>
+            </div>
+            <div style="position:relative;height:7px;margin-top:9px;border-radius:999px;background:#dfe3e8;overflow:hidden;">
+              <div style="width:97.2%;height:100%;border-radius:999px;background:linear-gradient(90deg,#b8873d,#d1aa68);"></div>
+            </div>
+            <div style="margin-top:5px;display:flex;justify-content:space-between;font-size:9px;color:#5a6879;">
+              <span>已接近饱和</span>
+              <span>天花板 ≈ 15.3–15.6 fps</span>
+            </div>
+          </article>
+
+          <article style="min-height:0;padding:10px 12px;border-radius:16px;background:rgba(18,32,51,0.045);border:1px solid rgba(18,32,51,0.08);display:flex;flex-direction:column;justify-content:center;">
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+              <span style="font-size:10px;font-weight:800;color:#5a6879;">核心性能杠杆</span>
+              <span style="font-size:25px;line-height:1;font-weight:800;color:#122033;">1.84×</span>
+            </div>
+            <div style="margin-top:6px;display:flex;align-items:center;justify-content:center;gap:9px;">
+              <span style="padding:5px 8px;border-radius:10px;background:rgba(255,255,255,0.82);border:1px solid rgba(18,32,51,0.08);font-family:Consolas,'Courier New',monospace;font-size:10px;font-weight:700;">NPU ×1</span>
+              <span style="color:#9aa6b4;font-size:15px;font-weight:800;">→</span>
+              <span style="padding:5px 8px;border-radius:10px;background:#122033;color:#f8fafc;font-family:Consolas,'Courier New',monospace;font-size:10px;font-weight:700;">NPU ×2</span>
+            </div>
+            <div style="margin-top:6px;text-align:center;font-family:Consolas,'Courier New',monospace;font-size:12px;font-weight:800;color:#7d5a22;">7.984 → 14.654 fps</div>
+          </article>
+        </section>
+      </div>
+
+      <aside aria-label="性能风险提示" style="height:43px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 14px;border-radius:16px;background:#122033;color:#f8fafc;box-shadow:0 10px 24px rgba(15,23,42,0.12);">
+        <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+          <span style="flex-shrink:0;padding:4px 8px;border-radius:999px;background:rgba(248,250,252,0.12);font-size:9px;font-weight:800;letter-spacing:0.06em;">性能瓶颈</span>
+          <span style="font-size:11px;white-space:nowrap;">NPU 线程同线程串行</span>
+          <code style="padding:3px 6px;border-radius:6px;background:rgba(248,250,252,0.10);font-family:Consolas,'Courier New',monospace;font-size:10px;color:#dbe4ef;">upload</code>
+          <span style="font-size:11px;">与</span>
+          <code style="padding:3px 6px;border-radius:6px;background:rgba(248,250,252,0.10);font-family:Consolas,'Courier New',monospace;font-size:10px;color:#dbe4ef;">rknn_run</code>
+          <span style="font-size:11px;">抢核 ⇒</span>
+          <strong style="font-family:Consolas,'Courier New',monospace;font-size:12px;color:#f0c987;">130.98 ms/帧/线程</strong>
+        </div>
+        <span style="flex-shrink:0;margin-left:12px;padding:5px 9px;border-radius:999px;background:rgba(201,151,77,0.22);color:#f0c987;font-size:9px;font-weight:800;">后续优化：上传与推理并行化</span>
+      </aside>
+    </main>
+
+    <footer class="footer" style="height:70px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 8px;color:#5a6879;font-size:12px;border-top:1px solid rgba(18,32,51,0.1);">
+      <span>Editorial Light Master</span>
+      <span>14</span>
+    </footer>
+  </div>
+
+  <script>
+    (() => {
+      const slide = document.getElementById('slide');
+      const resize = () => {
+        const scale = Math.min(window.innerWidth / 1220, window.innerHeight / 660, 1);
+        slide.style.transform = `scale(${scale})`;
+      };
+      window.addEventListener('resize', resize, { passive: true });
+      resize();
+    })();
+  </script>
+</body>
+</html>

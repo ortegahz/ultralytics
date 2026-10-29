@@ -705,6 +705,12 @@ struct NpuCtx {
   bool input_nchw = false;   // the model's input tensor layout
   int input_zp = 0;
   rknn_tensor_mem* io_mem = nullptr;
+  // The queried INPUT tensor attribute, kept so a caller can bind ANY
+  // pre-allocated buffer to this context with rknn_set_io_mem().  The
+  // DECOUPLED pipeline needs exactly that: the pre-process stage writes the
+  // widened fp16 straight into a Buffer A slot and the NPU stage binds that
+  // slot to its own context, one slot per frame.
+  rknn_tensor_attr in_attr;
 };
 
 enum class InputMode {
@@ -713,7 +719,14 @@ enum class InputMode {
               // runtime a FLOAT16 buffer, so the runtime only COPIES instead
               // of widening.  Same numbers, a fraction of the host time.
   kIoMemNchw,
-  kIoMemNhwc
+  kIoMemNhwc,
+  // APPENDED (v10).  The same widened fp16 buffer as kSetF16, but handed over
+  // with pass_through=1: the runtime performs NO conversion and NO copy of
+  // the layout, it takes the bytes as they are.  That is only legal when the
+  // buffer already IS the model's layout (NHWC fp16 for our model), so the
+  // mode refuses an NCHW model instead of silently feeding garbage.
+  // Used by the host-memory arm of the decoupled pipeline (buf_a_mode=1).
+  kSetF16Pt
 };
 enum class CanvasMode { kMosaic, kSingle };
 
@@ -970,25 +983,17 @@ struct Session {
   std::vector<rknn_output> outs;
   PostWorkspace post;
   std::vector<uint16_t> f16_tmp;
-  std::vector<uint16_t> f16_nchw;   // transpose scratch for the NCHW upload
+  // The transpose scratch for the NCHW upload.  It is MUTABLE because the
+  // widening helper takes a const Session (the pre-process stage only ever
+  // reads the canvas) and still needs a scratch buffer for the NCHW path.
+  mutable std::vector<uint16_t> f16_nchw;   // transpose scratch for the NCHW upload
 };
 
-// ---------------------------------------------------------------------------
-// InitSession: load the model, open the RKNN context, allocate the RGA
-// buffers, fill the canvas background and lay out the tiles.
-//
-// The body is the code that used to live inline in main(); it is moved here
-// verbatim so the two binaries cannot drift.
-// ---------------------------------------------------------------------------
-bool InitSession(Session* s, const std::string& model_path, CanvasMode mode,
-                 const std::vector<int>& only_tiles, bool have_tiles, InputMode im) {
-  s->opt.model = model_path;
-  s->opt.canvas_mode = mode;
-  s->opt.input_mode = im;
-  s->opt.tiles = only_tiles;
-  s->have_tiles = have_tiles;
-
-  // ---- tiles --------------------------------------------------------------
+// The tile layout.  Shared by both entry points, so the canvas can never be
+// composed with a different tile set than the one the model was checked
+// against.  VERBATIM from the original InitSession.
+inline bool LayoutTiles(Session* s, CanvasMode mode, const std::vector<int>& only_tiles,
+                        bool have_tiles) {
   if (mode == CanvasMode::kMosaic) {
     // tag, x, y, w, h
     s->tiles.push_back({0, 0, 0, 640, 512, true});      // native, 1:1
@@ -1010,6 +1015,77 @@ bool InitSession(Session* s, const std::string& model_path, CanvasMode mode,
     fprintf(stderr, "[FATAL] --tiles selected no tile at all\n");
     return false;
   }
+  return true;
+}
+
+// The RGA buffers and the canvas background.  Shared by both entry points.
+// VERBATIM from the original InitSession.
+inline bool AllocCanvasBuffers(Session* s) {
+  if (!BufAlloc(&s->canvas, kCanvas, kCanvas, kRgaFmt) || !BufAlloc(&s->pat, 4, 4, kRgaFmt) ||
+      !BufAlloc(&s->stage, kSrcW, kSrcH, kRgaFmt)) {
+    fprintf(stderr, "[FATAL] RGA buffer allocation failed\n");
+    return false;
+  }
+  if (!CheckBudget(s->canvas, "canvas") || !CheckBudget(s->pat, "pat") ||
+      !CheckBudget(s->stage, "stage")) {
+    return false;
+  }
+  // The canvas background is frame-invariant -> filled ONCE.  imfill() only
+  // supports RGBA, so the RGB_888 canvas is filled with memset.
+  memset(s->canvas.data, kPad, s->canvas.size);
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// InitCanvasOnly: the CANVAS half of InitSession, WITHOUT an RKNN context.
+//
+// WHY: the decoupled pipeline runs the pre-process stage (RGA compose + the
+// u8->fp16 widening) in its own thread, and that thread owns its own canvas.
+// The board tolerates exactly TWO RKNN contexts, so the pre-process stage may
+// NOT open a third one -- it only needs somewhere to compose into.
+//
+// It lays out the tiles, refuses an empty tile selection, allocates the RGA
+// buffers and fills the canvas background.  It NEVER touches s->npu, so the
+// session it returns has no context and must never be handed to PrepareFrame
+// or RunFrame (those do touch s->npu).
+// ---------------------------------------------------------------------------
+inline bool InitCanvasOnly(Session* s, const std::string& model_path, CanvasMode mode,
+                            const std::vector<int>& only_tiles, bool have_tiles) {
+  if (!s) return false;
+  s->opt.model = model_path;
+  s->opt.canvas_mode = mode;
+  s->opt.tiles = only_tiles;
+  s->have_tiles = have_tiles;
+  if (!LayoutTiles(s, mode, only_tiles, have_tiles)) return false;
+  if (!AllocCanvasBuffers(s)) return false;
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// InitSession: load the model, open the RKNN context, allocate the RGA
+// buffers, fill the canvas background and lay out the tiles.
+//
+// The body is the code that used to live inline in main(); it is moved here
+// verbatim so the two binaries cannot drift.
+//
+// v10: the body is split, but InitSession KEEPS ITS ORIGINAL SEQUENCE AND
+// ITS ORIGINAL OUTPUT.  The canvas work lives in LayoutTiles() and
+// AllocCanvasBuffers() so that InitCanvasOnly() can share it, and the two
+// helpers are called from exactly the places the inline code used to be:
+// the tiles before the NPU context is opened, the RGA buffers after the
+// input tensor is bound.  A reader of the log sees the same lines in the
+// same order as before.
+// ---------------------------------------------------------------------------
+bool InitSession(Session* s, const std::string& model_path, CanvasMode mode,
+                 const std::vector<int>& only_tiles, bool have_tiles, InputMode im) {
+  s->opt.model = model_path;
+  s->opt.canvas_mode = mode;
+  s->opt.input_mode = im;
+  s->opt.tiles = only_tiles;
+  s->have_tiles = have_tiles;
+
+  // ---- tiles --------------------------------------------------------------
+  if (!LayoutTiles(s, mode, only_tiles, have_tiles)) return false;
 
   // ---- NPU ----------------------------------------------------------------
   std::vector<uint8_t> model;
@@ -1038,6 +1114,10 @@ bool InitSession(Session* s, const std::string& model_path, CanvasMode mode,
   memset(&in_attr, 0, sizeof(in_attr));
   in_attr.index = 0;
   rknn_query(s->npu.ctx, RKNN_QUERY_INPUT_ATTR, &in_attr, sizeof(in_attr));
+  // Keep the queried input attribute.  The decoupled pipeline binds a
+  // DIFFERENT buffer to this context for every frame (a Buffer A slot) with
+  // rknn_set_io_mem(), and that call needs the attribute.
+  s->npu.in_attr = in_attr;
   if (in_attr.fmt == RKNN_TENSOR_NCHW) {
     s->npu.in_c = (int)in_attr.dims[1];
     s->npu.in_h = (int)in_attr.dims[2];
@@ -1111,18 +1191,7 @@ bool InitSession(Session* s, const std::string& model_path, CanvasMode mode,
   }
 
   // ---- RGA buffers --------------------------------------------------------
-  if (!BufAlloc(&s->canvas, kCanvas, kCanvas, kRgaFmt) || !BufAlloc(&s->pat, 4, 4, kRgaFmt) ||
-      !BufAlloc(&s->stage, kSrcW, kSrcH, kRgaFmt)) {
-    fprintf(stderr, "[FATAL] RGA buffer allocation failed\n");
-    return false;
-  }
-  if (!CheckBudget(s->canvas, "canvas") || !CheckBudget(s->pat, "pat") ||
-      !CheckBudget(s->stage, "stage")) {
-    return false;
-  }
-  // The canvas background is frame-invariant -> filled ONCE.  imfill() only
-  // supports RGBA, so the RGB_888 canvas is filled with memset.
-  memset(s->canvas.data, kPad, s->canvas.size);
+  if (!AllocCanvasBuffers(s)) return false;
 
   s->post.native_map.assign((size_t)kSrcW * kSrcH, 0.0f);
   return true;
@@ -1185,14 +1254,20 @@ struct FrameOut {
 // heatmap, and two Sessions must never share it.
 // ---------------------------------------------------------------------------
 
-// ---- stage 1: RGA compose + upload ----------------------------------------
-bool PrepareFrame(Session* s, const uint8_t* rgb, int w, int h, FrameOut* out) {
+// ---- stage 1a: RGA compose (NO NPU ACCESS) ---------------------------------
+//
+// v10: this is the first half of the old PrepareFrame, split out so the
+// decoupled pipeline can run the composition in the PRE-PROCESS thread.  That
+// thread owns a canvas-only session (no RKNN context), so this function must
+// NOT touch s->npu -- it does not, and it never did: the old code only
+// reached s->npu in the upload section, which stayed in PrepareFrame.
+//
+// The body below is the old section 1, VERBATIM.
+bool ComposeFrame(Session* s, const uint8_t* rgb, int w, int h, FrameOut* out) {
   if (w != kSrcW || h != kSrcH) {
     fprintf(stderr, "[FATAL] expected %dx%d, got %dx%d\n", kSrcW, kSrcH, w, h);
     return false;
   }
-
-  NpuCtx& npu = s->npu;
 
   // ---- 1. RGA: import + improcess ----------------------------------------
   const uint8_t* src_pixels = rgb;
@@ -1270,6 +1345,75 @@ bool PrepareFrame(Session* s, const uint8_t* rgb, int w, int h, FrameOut* out) {
     }
   }
   if (!rga_ok) return false;
+  return true;
+}
+
+// ---- stage 1b: widen the canvas into the caller's fp16 buffer --------------
+//
+// v10.  Widen the u8 canvas into an fp16 NHWC buffer (the DMA slot of
+// Buffer A).  Uses EXACTLY the same call as the io-mem path so the bytes are
+// identical: u8_to_f16(s->canvas.data, dst, elems, 1.0f).
+//
+// WHY THE BYTES MUST MATCH BIT FOR BIT: the acceptance criterion of the
+// whole pipeline is a per-frame md5, so this function may not "improve" the
+// widening.  Every integer 0..255 is exactly representable in fp16, which is
+// why u8_to_f16_int is the closed form and there is no rounding to argue
+// about.
+bool WidenCanvasToF16(const Session* s, uint16_t* dst, size_t elems) {
+  if (!s || !dst) return false;
+  if (s->npu.input_nchw) {
+    // The model's own layout is NCHW, so the NHWC canvas has to be
+    // transposed -- the same transpose the io-mem NCHW path does.
+    s->f16_nchw.resize(elems);
+    u8_to_f16(s->canvas.data, s->f16_nchw.data(), elems, 1.0f);
+    nhwc_to_nchw_f16(s->f16_nchw.data(), dst, kCanvas, kSrcC);
+  } else {
+    u8_to_f16(s->canvas.data, dst, elems, 1.0f);
+  }
+  return true;
+}
+
+// ---- hand an fp16 NHWC buffer to the runtime with pass_through=1 ----------
+//
+// v10.  pass_through=1 means the runtime does NO conversion and NO layout
+// fix-up: the bytes we hand over ARE the tensor.  That is only legal when
+// the buffer already is the model's layout, so this helper REFUSES an NCHW
+// model instead of silently feeding the runtime a transposed buffer.
+//
+// It is the single definition of the pass-through upload, shared by the
+// kSetF16Pt input mode and by the host-memory arm of the decoupled pipeline,
+// so the two can never drift apart.
+inline bool SetF16PassThrough(NpuCtx* npu, const uint16_t* buf, size_t elems) {
+  if (!npu || !npu->ctx || !buf) return false;
+  if (npu->input_nchw) {
+    fprintf(stderr,
+            "[FATAL] the pass-through fp16 upload needs an NHWC model; this one is NCHW\n");
+    return false;
+  }
+  rknn_input in{};
+  in.index = 0;
+  in.pass_through = 1;
+  in.fmt = RKNN_TENSOR_NHWC;
+  in.type = RKNN_TENSOR_FLOAT16;
+  in.size = (uint32_t)(elems * sizeof(uint16_t));
+  in.buf = (void*)buf;
+  if (rknn_inputs_set(npu->ctx, 1, &in) != 0) {
+    fprintf(stderr, "[FATAL] rknn_inputs_set (pass-through fp16) failed\n");
+    return false;
+  }
+  return true;
+}
+
+// ---- stage 1c: upload ------------------------------------------------------
+//
+// v10: PrepareFrame is now ComposeFrame + the upload section.  The upload
+// section is the old one, VERBATIM: the fused pipeline still calls
+// PrepareFrame, so its numbers, its bytes and its timing buckets are
+// unchanged.
+bool PrepareFrame(Session* s, const uint8_t* rgb, int w, int h, FrameOut* out) {
+  if (!ComposeFrame(s, rgb, w, h, out)) return false;
+
+  NpuCtx& npu = s->npu;
 
   // ---- 2. upload ----------------------------------------------------------
   const size_t canvas_elems = s->canvas.size;
@@ -1306,6 +1450,18 @@ bool PrepareFrame(Session* s, const uint8_t* rgb, int w, int h, FrameOut* out) {
       fprintf(stderr, "[FATAL] rknn_inputs_set failed\n");
       return false;
     }
+  } else if (s->opt.input_mode == InputMode::kSetF16Pt) {
+    // v10.  The same widened buffer as kSetF16, but handed over with
+    // pass_through=1: the runtime takes the bytes as they are.  This is the
+    // host-memory arm of the decoupled pipeline -- the counterpart of
+    // binding a Buffer A DMA slot with rknn_set_io_mem().
+    if (npu.input_nchw) {
+      fprintf(stderr, "[FATAL] the pass-through fp16 upload needs an NHWC model\n");
+      return false;
+    }
+    s->f16_tmp.resize(canvas_elems);
+    if (!WidenCanvasToF16(s, s->f16_tmp.data(), canvas_elems)) return false;
+    if (!SetF16PassThrough(&npu, s->f16_tmp.data(), canvas_elems)) return false;
   } else if (s->opt.input_mode == InputMode::kSet) {
     // The default path: a plain uint8 NHWC upload, structurally identical
     // to the certified single-scale board arm (the runtime does the

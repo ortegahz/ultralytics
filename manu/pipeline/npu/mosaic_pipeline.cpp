@@ -225,10 +225,129 @@ struct MosaicPipeline {
   std::condition_variable cv_feat;        // a feature arrived
 
   // ---- SERVICE: NPU ------------------------------------------------------
+  // v10: BUFFER A -- the ring of NPU-ready slots between Stage 1 and Stage 2.
+  //
+  // A slot holds ONE model input, already widened to fp16, so the hand-off
+  // between the two stages is an INTEGER (the slot id) and costs 0.00 ms of
+  // copying: Stage 1 writes the NEON output straight into the slot's memory.
+  //
+  // THE SLOT STATE MACHINE.  Every transition happens under buf_a->m, so no
+  // stage can ever see a half-written slot:
+  //
+  //   kSlotFree     the slot is free, Stage 1 may write into it
+  //   kSlotReady    Stage 1 has filled it, Stage 2 may take it
+  //   kSlotInflight the slot is OWNED: either Stage 1 is writing into it or
+  //                 Stage 2 has it bound to its context
+  //
+  // WHY INFLIGHT COVERS BOTH ROLES: Stage 1 must be sure that the slot it is
+  // about to write is not being read by Stage 2, and Stage 2 must be sure that
+  // the slot it is about to bind is not being written.  One "owned" state
+  // covers both, and the owner is unambiguous because the slot is marked
+  // INFLIGHT under the ring's own lock, which is what makes the cross-service
+  // delivery safe: whichever Stage 1 thread takes the slot owns it until it
+  // publishes it as READY.
+  enum { kSlotFree = 0, kSlotReady = 1, kSlotInflight = 2 };
+  struct BufferA {
+    struct Slot {
+      rknn_tensor_mem* mem = nullptr;  // the DMA slot (the DMA arm)
+      uint8_t* virt = nullptr;         // its host-visible address
+      std::vector<uint16_t> host;      // the host arm's copy of the same slot
+      uint32_t bytes = 0;              // the slot's byte size
+      int state = kSlotFree;
+      int64_t frame_id = 0;            // the camera's PHYSICAL frame number
+    };
+    std::vector<Slot> slots;
+    std::deque<int> ready;      // the READY slot ids, oldest first
+    std::mutex m;
+    std::condition_variable cv;
+    rknn_context owner_ctx = 0;  // the context that created the mems
+    size_t elems = 0;            // the fp16 elements one slot holds
+    // THE MODEL'S INPUT SIZE IN BYTES (without the stride padding).  It is the
+    // size the host arm has to declare in rknn_input.size, because with
+    // pass_through=1 the runtime reads exactly that many bytes.
+    size_t tensor_bytes = 0;
+  };
+
   struct NpuService {
     std::unique_ptr<mosaic::Session> sess;
     std::thread th;
     int index = 0;   // its position in the service list (for the core list)
+    // v10: the DECOUPLED arm.  The Buffer A ring's MEMORY belongs to THIS
+    // service and to nobody else: a slot's memory was created by THIS
+    // service's context and rknn_set_io_mem binds it to the same context, so
+    // there is never a cross-context binding.  The WRITER of a slot does not
+    // have to be this service's Stage 1 thread any more -- the cross-service
+    // delivery picks the service with room (see pick_target) -- but the
+    // bytes in a slot are still read back by THIS service's Stage 2, with
+    // THIS service's context.
+    std::unique_ptr<BufferA> buf_a;
+    // Stage 1's own canvas-only session: it composes into its OWN canvas and
+    // has NO RKNN context (the board tolerates exactly two, and the NPU
+    // services already use both).
+    std::unique_ptr<mosaic::Session> pre_sess;
+    std::thread pre_th;
+    // v10 diagnostics: WHAT THIS SERVICE ACTUALLY DID.
+    //
+    // The two services run the SAME model at the SAME cost (121.9 ms/frame
+    // each on the board), so their frame counts SHOULD match.  If they do
+    // not, the Stage 1 -> Stage 2 pairing is feeding them unevenly -- which
+    // is what the per-core hardware load points at (core0 mean 83.45% vs
+    // core1 mean 41.28% on CANON21).
+    //
+    // THEY LIVE HERE, AND NOT IN THE PUBLIC TIMING STRUCT, because they are
+    // per SERVICE: the public ABI is frozen at version 10, and a new field
+    // in MosaicPipelineTiming would bump it.
+    //
+    // THE LOCK: the two drop counters are written by whichever Stage 1
+    // thread wrote into THIS service's ring -- which, since the cross-service
+    // delivery, is not necessarily THIS service's own Stage 1 thread -- and
+    // read by its Stage 2 thread when that thread exits.  The two overlap
+    // while an abort tears the pipeline down, so they are guarded by m_time,
+    // like every other counter in this class.
+    int64_t frames_run = 0;       // frames this service handed to rknn_run
+    int64_t bufA_reclaimed = 0;   // frames this service's ring dropped (oldest READY)
+    int64_t bufA_full_drops = 0;  // frames this service could not take (all slots INFLIGHT)
+    //
+    // v11 diagnostics: THE SERVICE'S OWN NPU CAPACITY.
+    //
+    // stage2_busy_ms is the wall clock this service's Stage 2 thread spent
+    // INSIDE rknn_run, accumulated over every forward it ran.  It is the very
+    // same quantity as the global timing.run_ms / timing.npu_busy_ms (they
+    // are fo.run, which RunFrame measures with now_ms() around the rknn_run
+    // call, mosaic_core.h), but kept PER SERVICE: the global buckets merge the
+    // two services, and the whole point of this counter is to tell them
+    // apart.
+    //
+    // WHY IT IS NEEDED: the two services do NOT have the same capacity.  On
+    // CANON29 service 0's NPU core was busy 84.47% of the time and service
+    // 1's only 55.82%, so a 1:1 feed leaves service 1 idle ~44% of the time
+    // and pushes service 0 into its ring's overflow -- which is exactly what
+    // was measured (all 850 Buffer A reclaims on service 0's ring, none on
+    // service 1's).  The capacity estimate w_i = frames_run / stage2_busy_ms
+    // (frames per millisecond of NPU time) is what turns that observation
+    // into a delivery ratio; see pick_target.
+    //
+    // THE LOCK: frames_run and stage2_busy_ms are written by THIS service's
+    // Stage 2 thread and READ by the Stage 1 threads (they compute w_i), so
+    // they are guarded by m_time -- the same lock that already guards the two
+    // drop counters.
+    int64_t stage2_busy_ms = 0;
+    // THE EXACT ACCUMULATOR: one rknn_run is a FRACTIONAL number of
+    // milliseconds, so the sum is kept in a double and the int64 above is its
+    // rounded mirror.  Truncating every frame's fraction would bias the
+    // capacity estimate of the two services by a fraction of a percent.
+    double stage2_busy_acc_ms = 0.0;
+    // v11: THE FRAMES STAGE 1 DELIVERED INTO THIS SERVICE'S RING.
+    //
+    // It counts every frame Stage 1 WROTE into this service's Buffer A --
+    // including the ones the ring later reclaimed -- so next to frames_run
+    // (the frames the service ACTUALLY ran) it says how much work was
+    // OFFERED to this service, and the difference between the two is the
+    // service's own loss.
+    //
+    // THE LOCK: written by whichever Stage 1 thread wrote into THIS ring, so
+    // it is guarded by m_time like the two drop counters.
+    int64_t frames_delivered = 0;
   };
   std::vector<std::unique_ptr<NpuService>> npus;
 
@@ -237,6 +356,12 @@ struct MosaicPipeline {
   // service is pinned to cpus[N % cpus.size()].
   std::vector<int> gmc_cpus;
   std::vector<int> npu_cpus;
+  // v10: the decoupled stages' core lists.  pre_cpus carries Stage 1 AND
+  // Stage 3 (both are CPU work of the same family); npu_stage_cpus carries
+  // Stage 2.  The NPU stage's list FOLLOWS the pre list unless it was given
+  // its own.
+  std::vector<int> pre_cpus;
+  std::vector<int> npu_stage_cpus;
   // The GMC engines' core GROUPS (one group per engine, ';'-separated in the
   // config).  A group is a set of cores the engine's own thread AND its
   // anchor workers are spread over.  Empty = the engines are placed by
@@ -298,6 +423,11 @@ struct MosaicPipeline {
   std::atomic<bool> ingest_done{false};
   std::atomic<bool> gmc_done{false};
   std::atomic<bool> feat_done{false};
+  // v10: HOW MANY STAGE 1 THREADS ARE STILL RUNNING.  It is the signal Stage 2
+  // waits for before it may conclude that no slot will ever arrive again: a
+  // Stage 1 thread may still be composing a frame that has not reached the
+  // ring yet, so "the ring is empty" alone does NOT mean "the work is over".
+  std::atomic<int> pre_active{0};
 
   // The rolling MD5 over the PRE-ENCODE channel planes -- the same object and
   // the same recipe as the reference implementation's --md5-out.  It is
@@ -335,6 +465,10 @@ struct MosaicPipeline {
   size_t queue_depth = 8;
   size_t jitter_depth = 8;
   size_t input_depth = 8;
+  // v10: THE DEPTH OF BUFFER B (the heat queue) IN THE DECOUPLED MODE.  The
+  // fused mode keeps using queue_depth (8), so the certified arm does not
+  // move; the decoupled mode uses buffer_b_depth (3 by default).
+  size_t heat_depth = 8;
   // The ENGINE JOB QUEUE's depth.  It is NOT queue_depth: queue_depth sizes
   // the queues BETWEEN the services (the heat queue), while this one sizes
   // the queue of frames an engine has been ASSIGNED but has not computed yet.
@@ -386,6 +520,12 @@ struct MosaicPipeline {
     cv_guard.notify_all();
     cv_art.notify_all();
     cv_out.notify_all();
+    // v10: the Buffer A rings.  Stage 2 waits on their condition variable, so
+    // an abort has to wake it -- otherwise the join in the destroy path would
+    // never return.
+    for (auto& svc : npus) {
+      if (svc->buf_a) svc->buf_a->cv.notify_all();
+    }
   }
 
   // A PER-FRAME error: this frame is rejected, the stream keeps running.
@@ -860,6 +1000,772 @@ struct MosaicPipeline {
   }
 
   // -------------------------------------------------------------------------
+  // v10: THE TARGET OF A STAGE 1 FRAME.
+  //
+  // WHY THE FRAME IS NOT PINNED TO "MY" SERVICE ANY MORE: Stage 1 used to
+  // be PAIRED 1:1 with the NPU services -- thread i fed service i -- and on
+  // the board that pairing turned "whose NPU is faster" into a POSITIVE
+  // FEEDBACK LOOP.  CANON23 measured service 0 running 3616 frames against
+  // service 1's 2223 (1.63 : 1), the per-core NPU load at 85.13% : 44.48%,
+  // and ALL 1328 Buffer A drops on service 0's ring while service 1's ring
+  // was never even full.  The mechanism is mechanical: both Stage 1 threads
+  // pull from the SAME feature queue, each writes only into ITS OWN ring,
+  // and a thread whose ring is full throws the frame away (or overwrites its
+  // own oldest READY frame).  The service whose NPU is fast therefore keeps
+  // taking frames from the shared queue, so it stays fast -- and the other
+  // service starves.
+  //
+  // v11: THE ROTATION FIXED THE FRAME SPLIT, NOT THE CAPACITY SPLIT.  A
+  // round-robin cursor over the services (the rule v10 ended with) delivered
+  // CANON29 at a PERFECT 1.000:1 frame balance -- 3136 frames to service 0
+  // and 3135 to service 1 -- and it still lost 850 frames to the rings and
+  // still ran at 13.245 fps against a 15.04 fps supply.  The reason: the two
+  // services do NOT have the same capacity.  In the same run service 0's NPU
+  // core was busy 84.47% of the time and service 1's only 55.82%, and ALL
+  // 850 Buffer A reclaims landed on service 0's ring (service 1: 0).  A 1:1
+  // feed hands the slow service exactly as many frames as the fast one, so
+  // the fast service idles ~44% of the time while the slow one overflows.
+  // Balancing the FRAMES is therefore the wrong invariant; balancing the
+  // CAPACITY is the right one -- hence the capacity-weighted rule below.
+  //
+  // So the frame now goes to the service that CAN take it:
+  //
+  //   * a service with a FREE slot is a candidate, and among the candidates
+  //     the one with the highest CAPACITY-WEIGHTED score wins:
+  //         score_i = w_i / (served_i + 1)
+  //     where w_i is that service's MEASURED capacity (frames per millisecond
+  //     of NPU time: frames_run / stage2_busy_ms) and served_i is how many
+  //     frames this Stage 1 thread has already handed to it.  This is the
+  //     standard weighted-fair-queueing rule, and it settles at
+  //     served_i PROPORTIONAL TO w_i -- so every service is fed at its OWN
+  //     rate: the slow one is offered fewer frames and stops overflowing,
+  //     the fast one is offered more and stops idling.  When the two
+  //     services have the SAME capacity the scores tie and the rule
+  //     degenerates to 1:1 (the rotation it replaced), so a symmetric board
+  //     behaves exactly as before.
+  //   * if NO service has a FREE slot, the OLDEST READY frame is reclaimed
+  //     ("drop the oldest, keep the newest"), and it is taken from the
+  //     service holding the LONGEST READY queue -- that is where the stalest
+  //     pending frame sits.
+  //   * if every slot of every ring is IN FLIGHT there is nothing to
+  //     reclaim and the frame itself is dropped.  The stage NEVER waits: a
+  //     wait here would push the back-pressure back into the GMC.
+  //
+  // WHY A SLOT MAY BELONG TO ANOTHER SERVICE: the slot's memory was created
+  // by rknn_create_mem() with the OWNING service's context, and
+  // rknn_set_io_mem() requires the memory to be bound to the context that
+  // owns it -- not that the thread that WROTE the bytes belongs to that
+  // service.  Stage 2 still binds the slot with its OWN (owning) context, so
+  // the ctx/memory pairing is exactly as strict as it was; only the WRITER
+  // moved.
+  // -------------------------------------------------------------------------
+  //
+  // THE STATE OF ONE RING, as the target selection sees it.
+  struct RingProbe {
+    size_t ready = 0;       // the READY queue's length
+    size_t free_slots = 0;  // the slots that are FREE
+    size_t inflight = 0;    // the slots that are IN FLIGHT
+  };
+
+  // Snapshot ONE ring.
+  //
+  // THE LOCK: only THIS ring's lock is taken, and it is released before the
+  // next ring is looked at.  TWO RING LOCKS ARE NEVER HELD AT THE SAME TIME:
+  // a thread holding ring A while waiting for ring B, against another
+  // thread holding ring B while waiting for ring A, would hang the whole
+  // pipeline.  One lock at a time also keeps the file's global lock order
+  // ({m_feat, m_heat, buf_a->m} -> m_time) intact: this function takes
+  // buf_a->m and NOTHING else.
+  RingProbe probe_ring(BufferA* ba) {
+    RingProbe rp;
+    if (!ba) return rp;
+    std::lock_guard<std::mutex> lk(ba->m);
+    rp.ready = ba->ready.size();
+    for (const BufferA::Slot& sl : ba->slots) {
+      if (sl.state == kSlotFree) ++rp.free_slots;
+      else if (sl.state == kSlotInflight) ++rp.inflight;
+    }
+    return rp;
+  }
+
+  // WHICH SERVICE TAKES THE FRAME.
+  //
+  // THE INPUTS ARE THE OBSERVATION, NOT THE FEEDER'S STATE: the caller hands
+  // in the ring snapshot, the measured capacity of every service and the
+  // number of frames it has already handed to each of them.  The function is
+  // a PURE FUNCTION of (probe, capacity, served): no clock, no random, no
+  // hidden state.  That is what makes a run reproducible -- the same input
+  // sequence and the same configuration produce the same sequence of choices,
+  // so the same frames are dropped in the same places.  (The capacity is a
+  // clock reading, but it is passed IN: the reading is taken by the caller,
+  // once per attempt, so the function itself stays pure.)
+  //
+  // The cases differ in what happens when the rings move under us, so the
+  // case travels with the choice:
+  //
+  //   kCaseFree    the snapshot saw a FREE slot somewhere.  A loss may
+  //                still be avoidable (the target can lose its FREE slot to
+  //                the other Stage 1 thread in between), so the selection is
+  //                retried with a fresh snapshot.
+  //   kCaseReclaim the snapshot saw NO free slot anywhere.  The oldest READY
+  //                frame goes, and that is the designed behaviour.
+  //   kCaseDrop    every slot of every ring was IN FLIGHT: the frame itself
+  //                is dropped.
+  enum { kCaseFree = 1, kCaseReclaim = 2, kCaseDrop = 3 };
+  struct TargetChoice {
+    NpuService* svc = nullptr;
+    int case_id = kCaseDrop;
+    // THE INDEX OF THE CHOSEN SERVICE, so the caller can update the delivery
+    // tally (served) of exactly that service.
+    int svc_index = -1;
+  };
+
+  // THE MEASURED CAPACITY OF EVERY SERVICE, in frames per millisecond.
+  //
+  //   w_i = (frames_run + 1) / (stage2_busy_ms + 1)
+  //
+  // frames_run is the number of forwards the service really ran and
+  // stage2_busy_ms is the wall clock it spent inside rknn_run, so w_i is the
+  // service's OWN throughput: how many frames it retires per millisecond of
+  // NPU time.  It is the measured version of "this service is half as fast as
+  // that one".
+  //
+  // THE +1s: they keep the estimate finite and non-zero before the service
+  // has run anything (both counters are 0 -> w_i = 1), so two fresh services
+  // compare EQUAL and the rule degenerates to the 1:1 rotation until the
+  // board has said otherwise.  That is the safe direction: the rule starts
+  // from the old behaviour and only tilts once it has evidence.
+  //
+  // THE LOCK: the two counters are written by the service's own Stage 2
+  // thread, so the snapshot is taken under m_time -- the same lock that
+  // already guards the per-service drop counters.  It is taken ONCE for all
+  // the services, so the whole snapshot is consistent, and NO ring lock is
+  // held at the same time (the file's lock order {m_feat, m_heat, buf_a->m}
+  // -> m_time stays intact: only m_time is taken here).
+  void snapshot_capacities(std::vector<double>& w) {
+    w.assign(npus.size(), 1.0);
+    std::lock_guard<std::mutex> lt(m_time);
+    for (size_t i = 0; i < npus.size(); ++i) {
+      const NpuService* s = npus[i].get();
+      w[i] = (double)(s->frames_run + 1) / (double)(s->stage2_busy_ms + 1);
+    }
+  }
+
+  TargetChoice pick_target(const std::vector<RingProbe>& probe,
+                           const std::vector<double>& w,
+                           const std::vector<int64_t>& served) {
+    TargetChoice tc;
+    const size_t n = probe.size() < npus.size() ? probe.size() : npus.size();
+    // PASS 1: a service that can take the frame as it is.  Among those, the
+    // one with the highest CAPACITY-WEIGHTED score takes it.
+    //
+    // WHY THE OLD "SHORTEST READY QUEUE" RULE WAS BIASED: it picked the
+    // service whose READY queue was shortest -- that is the service that had
+    // just drained a frame and could swallow the next one soonest.  That is
+    // a POSITIVE FEEDBACK LOOP, and it is self-reinforcing in the wrong
+    // direction:
+    //   * the FAST service keeps its READY queue empty, so it keeps winning
+    //     the comparison;
+    //   * the SLOW service's queue is not long either (it is consuming, just
+    //     at a lower rate), so it LOSES the tie, and the tie was broken by
+    //     the LOWER service index;
+    //   * so the same service kept being fed, and the other one starved.
+    // The measured result was a service 0 / service 1 frame split of 1.63:1,
+    // and cross-service delivery only narrowed it to 1.52:1 -- the bias was
+    // in the RULE, not in the delivery.  THE CONCLUSION STILL STANDS: the
+    // rule has to follow the service that can CONSUME the most, not the one
+    // that happens to be empty right now.
+    //
+    // THE ROTATION WAS NOT ENOUGH EITHER: it made the FRAME SPLIT perfect
+    // (1.000:1 on CANON29) but left the CAPACITY split uneven (84.47% vs
+    // 55.82% of the NPU core), so the slow service still overflowed its ring
+    // and the fast one still idled.  Balancing the FRAMES is the wrong
+    // invariant -- balancing the CAPACITY is the right one, and that is
+    // what the rule below does.
+    //
+    // THE CAPACITY-WEIGHTED RULE: score_i = w_i / (served_i + 1), the
+    // standard "virtual finish time" form of weighted fair queueing.  It is
+    // a capacity divided by the load already put on that capacity, so:
+    //   * a service that has been fed LESS has the higher score, and the
+    //     feed evens out towards the capacity ratio;
+    //   * at equal load the service with the HIGHER capacity has the higher
+    //     score, so the frames tilt towards the faster service -- which is
+    //     the whole point: the fast service is the one that can retire them
+    //     without overflowing its ring;
+    //   * the two effects balance at served_i proportional to w_i, so every
+    //     service's ring is offered exactly what that service can consume.
+    // A TIE (equal scores) keeps the LOWER service index, so the choice
+    // stays deterministic.
+    //
+    // EVERY CANDIDATE IS STILL VISITED: a service that has room is NEVER
+    // skipped, so the frame is never lost for want of a target -- the same
+    // STRICT form of "whoever has room takes it" the rotation gave.
+    size_t chosen = n;
+    double best_score = 0.0;
+    for (size_t i = 0; i < n; ++i) {
+      if (!npus[i]->buf_a || probe[i].free_slots == 0) continue;
+      const double score = w[i] / (double)(served[i] + 1);
+      // STRICTLY greater: a tie keeps the LOWER index (the loop runs upwards).
+      if (chosen == n || score > best_score) {
+        chosen = i;
+        best_score = score;
+      }
+    }
+    if (chosen < n) {
+      tc.svc = npus[chosen].get();
+      tc.svc_index = (int)chosen;
+      tc.case_id = kCaseFree;
+      return tc;
+    }
+    // PASS 2: nobody can take the frame without a loss.  The OLDEST READY
+    // frame is reclaimed, and it comes from the service holding the LONGEST
+    // READY queue -- that is where the stalest pending frame sits.  A tie
+    // keeps the LOWER service index.
+    //
+    // THE CAPACITY WEIGHT DOES NOT APPLY HERE: this path means the frame is
+    // lost anyway, so there is nothing to balance -- and the "oldest first,
+    // keep the newest" rule must stay DETERMINISTIC in exactly the way it
+    // was.
+    size_t best = n;
+    for (size_t i = 0; i < n; ++i) {
+      if (!npus[i]->buf_a || probe[i].ready == 0) continue;
+      if (best == n || probe[i].ready > probe[best].ready) best = i;
+    }
+    if (best < n) {
+      tc.svc = npus[best].get();
+      tc.svc_index = (int)best;
+      tc.case_id = kCaseReclaim;
+      return tc;
+    }
+    // PASS 3: every slot of every ring is IN FLIGHT.  The frame itself is
+    // dropped, and it is charged to the MOST LOADED service (the one with
+    // the most slots in flight) so that the per-service counters keep
+    // saying something true.  A tie keeps the LOWER service index.
+    best = n;
+    for (size_t i = 0; i < n; ++i) {
+      if (!npus[i]->buf_a) continue;
+      if (best == n || probe[i].inflight > probe[best].inflight) best = i;
+    }
+    if (best >= n) best = 0;  // no service at all: cannot happen (npu_workers >= 1)
+    tc.svc = npus[best].get();
+    tc.svc_index = (int)best;
+    tc.case_id = kCaseDrop;
+    return tc;
+  }
+
+  // -------------------------------------------------------------------------
+  // v10: STAGE 1 -- THE PRE-PROCESS THREAD.
+  //
+  // It takes a feature, composes the mosaic canvas with the RGA, widens the
+  // canvas to fp16 and writes the result STRAIGHT INTO a Buffer A slot.  Only
+  // an INTEGER crosses the thread boundary (the slot id), so the hand-off
+  // costs nothing.
+  //
+  // THE TWO RULES THIS THREAD LIVES BY:
+  //
+  //   1. IT NEVER WAITS FOR THE BUFFER.  If no slot is free, the OLDEST READY
+  //      slot is reclaimed -- that frame is lost (bufA_dropped++) -- and if
+  //      there is not even a READY slot to reclaim, the frame ITSELF is dropped
+  //      (bufA_full_drops++) and the thread moves on to the next frame.  A
+  //      wait here would push the back-pressure back into the GMC, and the
+  //      GMC is the producer the whole pipeline depends on.
+  //   2. IT NEVER WAITS FOR THE GMC EITHER.  It waits for a FEATURE, and that
+  //      is a CONSUMER waiting for work: the GMC never waits for this thread.
+  //
+  // The only thing this thread ever waits for is a feature to arrive.
+  // -------------------------------------------------------------------------
+  void pre_loop(size_t pre_index, mosaic::Session* psess) {
+    // The pre-process stage gets its OWN cores: the whole point of the split
+    // is that the upload bucket is no longer inflated by the NPU stage and
+    // the GMC fighting for the same CPU and memory bandwidth.
+    if (!pre_cpus.empty()) {
+      const int cpu = pre_cpus[pre_index % pre_cpus.size()];
+      if (mosaic::PinCurrentThreadToCpu(cpu))
+        fprintf(stderr, "[i] Stage 1 (pre) service %zu pinned to core %d\n", pre_index, cpu);
+    } else {
+      fprintf(stderr, "[i] Stage 1 (pre) service %zu is not pinned (no pre_affinity)\n", pre_index);
+    }
+    // THE SERVICE THIS THREAD USED TO FEED.  It does not feed ONE service
+    // any more: the frame goes to whichever service has room (see
+    // pick_target above), so the drop counters below belong to the service
+    // whose RING the frame is ACTUALLY written into.
+    //
+    // psess -- this thread's OWN canvas-only session, the one without an
+    // RKNN context -- stays exactly as it was: the CANVAS is Stage 1's
+    // private work area (compose + widen read from it) and the SLOT is the
+    // target service's.  The canvas is never shared with the target's own
+    // Stage 1 session, so two threads never compose into the same bytes.
+    //
+    // THE RETRY BOUND: the rings move under us (Stage 2 frees slots, the
+    // other Stage 1 thread takes them), so the selection is retried a
+    // BOUNDED number of times.  A loss that only exists because the target
+    // lost its FREE slot in between is then avoided, and the frame is
+    // dropped only when NO service has room at all.
+    const int kTargetAttempts = 4;
+    // THE DELIVERY TALLY, AND WHOSE IT IS: it is a STACK LOCAL, so it belongs
+    // to THIS Stage 1 thread alone -- one tally per Stage 1 thread, all of
+    // them starting at 0, and no thread can see or touch another's.  It is
+    // NOT a member and NOT per service: the tally answers "how much have I
+    // already handed to this service", which is a property of the FEEDER,
+    // not of the receiver.
+    //
+    // served[i] is the number of frames THIS THREAD has written into service
+    // i's Buffer A, and it is the denominator of the capacity-weighted score
+    // (see pick_target): score_i = w_i / (served_i + 1).
+    //
+    // IT IS NOT SHARED ON PURPOSE: the score only needs the LOCAL load of the
+    // feeder that is making the choice, and a private tally needs no lock at
+    // all.  The two threads' tallies add up to the per-service
+    // frames_delivered counter, which is the global view of the same fact.
+    std::vector<int64_t> served(npus.size(), 0);
+    // THE MEASURED CAPACITY SNAPSHOT, refreshed before every attempt.
+    std::vector<double> cap;
+    std::vector<RingProbe> probe(npus.size());
+    mosaic::FrameOut fo;
+    for (;;) {
+      FeatureItem fi;
+      {
+        const auto t_wait0 = std::chrono::steady_clock::now();
+        std::unique_lock<std::mutex> lk(m_feat);
+        cv_feat.wait(lk, [this] { return !feat_q.empty() || abort || gmc_done; });
+        const double waited =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_wait0)
+                .count();
+        {
+          // The wait is accounted in its OWN bucket: npu_wait_ms keeps the
+          // fused meaning, so the certified arm's numbers do not move.
+          std::lock_guard<std::mutex> lt(m_time);
+          timing.stage1_wait_ms += waited;
+        }
+        if (abort) break;
+        if (feat_q.empty()) {
+          // The GMC is done and its queue is empty: this stage is over.  The
+          // engines published every feature before gmc_done was set, so
+          // nothing is lost here.
+          if (gmc_done) break;
+          continue;
+        }
+        fi = std::move(feat_q.front());
+        feat_q.pop_front();
+      }
+
+      // ---- take a slot (NEVER WAITS) -------------------------------------
+      int slot_id = -1;
+      bool drop_frame = false;
+      uint8_t* slot_virt = nullptr;
+      uint16_t* slot_host = nullptr;
+      bool slot_is_dma = false;
+      // THE RING THAT TAKES THIS FRAME.  It is NOT necessarily the ring of
+      // the service this thread used to be paired with: the frame goes to
+      // the service that has room (pick_target above).
+      BufferA* tba = nullptr;
+      bool settled = false;
+      // THE SERVICE THIS FRAME IS GOING TO, AND ITS INDEX: they are set
+      // when the take settles, and they are what the delivery bookkeeping
+      // below (frames_delivered, served) is charged to.
+      NpuService* target_svc = nullptr;
+      int target_index = -1;
+      for (int attempt = 0; attempt < kTargetAttempts; ++attempt) {
+        // ---- PASS 1: the snapshot.  ONE ring lock at a time, released at
+        // once: two ring locks are never held together, so the rings cannot
+        // deadlock against each other.
+        for (size_t i = 0; i < npus.size(); ++i) probe[i] = probe_ring(npus[i]->buf_a.get());
+        // THE MEASURED CAPACITY OF EVERY SERVICE, refreshed for this
+        // attempt: one consistent snapshot of (frames_run, stage2_busy_ms)
+        // under m_time.  It is a clock reading, so it is taken HERE and
+        // handed in -- pick_target itself stays a pure function.
+        snapshot_capacities(cap);
+        // ---- PASS 2: the choice -------------------------------------------
+        const TargetChoice tc = pick_target(probe, cap, served);
+        BufferA* cba = tc.svc ? tc.svc->buf_a.get() : nullptr;
+        if (!cba) {
+          // DEFENSIVE AND UNREACHABLE: every service of the decoupled mode
+          // owns a Buffer A ring, and pre_loop only runs in that mode.  The
+          // frame is dropped (and counted) rather than written nowhere.
+          drop_frame = true;
+          settled = true;
+          std::lock_guard<std::mutex> lt(m_time);
+          timing.bufA_full_drops += 1;
+          npus[pre_index]->bufA_full_drops += 1;
+          break;
+        }
+        // A loss is only avoidable when the snapshot saw a FREE slot
+        // SOMEWHERE: then the target may have lost its slot to the other
+        // Stage 1 thread in between, and a fresh snapshot can find the
+        // frame another home.  In the "no free slot anywhere" case the loss
+        // is the designed behaviour ("drop the oldest READY"), so it is not
+        // retried.
+        const bool may_retry = (tc.case_id == kCaseFree) && (attempt + 1 < kTargetAttempts);
+        // ---- PASS 3: the take.  ONLY the target's ring lock is held here,
+        // and the ring is MUTATED only when the outcome is final -- so a
+        // retried attempt leaves the ring exactly as it found it.
+        {
+          std::lock_guard<std::mutex> lk(cba->m);
+          int cslot = -1;
+          for (size_t i = 0; i < cba->slots.size(); ++i) {
+            if (cba->slots[i].state == kSlotFree) {
+              cslot = (int)i;
+              break;
+            }
+          }
+          if (cslot >= 0) {
+            // A FREE slot: take it.  No frame is lost.
+            cba->slots[cslot].state = kSlotInflight;
+            // The slot's addresses are captured UNDER THE LOCK, so the write
+            // below cannot be aimed at a slot that changed hands in between.
+            slot_id = cslot;
+            slot_virt = cba->slots[cslot].virt;
+            slot_host = cba->slots[cslot].host.data();
+            slot_is_dma = cba->slots[cslot].mem != nullptr;
+            tba = cba;
+            target_svc = tc.svc;
+            target_index = tc.svc_index;
+            settled = true;
+          } else if (!may_retry) {
+            if (!cba->ready.empty()) {
+              // No FREE slot.  Reclaim the OLDEST READY one: Stage 2 did not
+              // take it in time, so that frame is lost -- but this stage
+              // keeps running.
+              slot_id = cba->ready.front();
+              cba->ready.pop_front();
+              cba->slots[slot_id].state = kSlotInflight;
+              slot_virt = cba->slots[slot_id].virt;
+              slot_host = cba->slots[slot_id].host.data();
+              slot_is_dma = cba->slots[slot_id].mem != nullptr;
+              tba = cba;
+              // THE FRAME IS GOING TO THIS SERVICE'S RING, so this service is
+              // the one the delivery bookkeeping below is charged to.
+              target_svc = tc.svc;
+              target_index = tc.svc_index;
+              std::lock_guard<std::mutex> lt(m_time);
+              timing.bufA_dropped += 1;
+              // THE PER-SERVICE HALF OF THAT LOSS: it is charged to the
+              // service whose ring dropped its oldest READY slot -- the
+              // service this frame is ACTUALLY written into.  The two
+              // services' numbers must add up to timing.bufA_dropped, and a
+              // difference BETWEEN them is the whole point of counting them.
+              tc.svc->bufA_reclaimed += 1;
+              settled = true;
+            } else {
+              // Every slot of this ring is in flight: there is nothing to
+              // reclaim, so THIS frame is dropped.  The stage does NOT wait
+              // -- waiting here is exactly the back-pressure this design
+              // forbids.
+              drop_frame = true;
+              tba = cba;
+              std::lock_guard<std::mutex> lt(m_time);
+              timing.bufA_full_drops += 1;
+              // ... and THIS service could not take the frame at all.
+              tc.svc->bufA_full_drops += 1;
+              settled = true;
+            }
+          }
+          // else: the target has no FREE slot, but the snapshot said that
+          // SOME service had one -- so the target lost its slot to the
+          // other Stage 1 thread in between.  The ring was NOT touched; the
+          // selection is redone with a fresh snapshot.
+        }
+        if (settled) break;
+      }
+      if (drop_frame) continue;
+      if (slot_id < 0) {
+        // DEFENSIVE, AND UNREACHABLE: the retry is switched off on the last
+        // attempt, so the take always settles there.  If it ever did not, the
+        // frame is dropped AND counted, so that "the per-service counters
+        // add up to the global ones" still holds.
+        std::lock_guard<std::mutex> lt(m_time);
+        timing.bufA_full_drops += 1;
+        npus[pre_index]->bufA_full_drops += 1;
+        continue;
+      }
+
+      // ---- compose + widen, straight into the slot ------------------------
+      const double c0 = mosaic::now_ms();
+      if (!mosaic::ComposeFrame(psess, fi.rgb.data(), width, height, &fo)) {
+        set_error("ComposeFrame failed (Stage 1)");
+        break;
+      }
+      const double c1 = mosaic::now_ms();
+      // The widening's OUTPUT IS the slot's bytes: the NEON kernel writes
+      // straight into the DMA memory, so there is no copy in between.  This is
+      // the SAME u8_to_f16 call the io-mem path uses, so the bytes are
+      // identical and the per-frame md5 is unchanged.
+      uint16_t* dst = slot_is_dma ? (uint16_t*)slot_virt : slot_host;
+      if (!mosaic::WidenCanvasToF16(psess, dst, psess->canvas.size)) {
+        set_error("WidenCanvasToF16 failed (Stage 1)");
+        break;
+      }
+      const double c2 = mosaic::now_ms();
+
+      // ---- publish the slot ------------------------------------------------
+      // Into the TARGET service's ring: its Stage 2 thread is the one that
+      // waits on that ring's condition variable.
+      {
+        std::lock_guard<std::mutex> lk(tba->m);
+        tba->slots[slot_id].state = kSlotReady;
+        // The camera's PHYSICAL frame number travels with the slot, so the
+        // result can be named even though the frame crossed two stages.
+        tba->slots[slot_id].frame_id = fi.id;
+        tba->ready.push_back(slot_id);
+      }
+      tba->cv.notify_all();
+      const double c3 = mosaic::now_ms();
+      {
+        std::lock_guard<std::mutex> lt(m_time);
+        timing.stage1_ms += c3 - c0;
+        timing.bufA_upload_ms += c2 - c1;
+        // The RGA buckets are the SAME ones the fused mode fills, so the two
+        // arms can be compared directly.
+        timing.rga_import_ms += fo.rga_import;
+        timing.rga_improcess_ms += fo.rga_improcess;
+        // THE DELIVERY IS NOW COMPLETE: the frame's bytes are in the target
+        // service's ring, so that service has been OFFERED one more frame.
+        // It is counted here -- and not when the slot was merely claimed --
+        // because this is the moment the frame really landed in the ring.
+        // A frame that the ring later reclaims is STILL counted: this counter
+        // says how much was offered, frames_run says how much was retired,
+        // and the difference between the two is the service's own loss.
+        if (target_svc) target_svc->frames_delivered += 1;
+      }
+      // THE FEEDER'S OWN TALLY: the frame went to this service, so this
+      // thread's served count for it goes up by one.  It is the denominator
+      // of the capacity-weighted score (pick_target), and it is a stack
+      // local, so it needs no lock.
+      if (target_svc && target_index >= 0) served[(size_t)target_index] += 1;
+    }
+    // This stage is over: tell the Stage 2 threads that no new slot can
+    // arrive, so they can leave once their ring is empty.
+    pre_active.fetch_sub(1, std::memory_order_relaxed);
+    for (auto& s : npus) {
+      if (s->buf_a) s->buf_a->cv.notify_all();
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // v10: STAGE 2 -- THE NPU STAGE.
+  //
+  // It takes a READY slot out of Buffer A, binds it to its own context with
+  // rknn_set_io_mem, runs the model and reads the outputs back.  It does NO
+  // CPU work of its own: the canvas was composed and widened by Stage 1, and
+  // the back-projection belongs to Stage 3.
+  //
+  // THE ORDER OF THE RKNN CALLS IS NOT NEGOTIABLE:
+  //   * rknn_set_io_mem comes BEFORE rknn_run, because the input tensor has
+  //     to point at THIS frame's slot when the model runs;
+  //   * the slot goes back to FREE only AFTER rknn_outputs_get has copied
+  //     the outputs out, because until then the runtime still owns it.
+  // -------------------------------------------------------------------------
+  void npu_stage_loop(NpuService* svc) {
+    // Stage 2 gets its own cores, so the runtime's driver-side work (the
+    // copy and the dequant) does not land on the GMC's cores nor on the
+    // pre-process stage's.
+    if (!npu_stage_cpus.empty()) {
+      const int cpu = npu_stage_cpus[(size_t)svc->index % npu_stage_cpus.size()];
+      if (mosaic::PinCurrentThreadToCpu(cpu))
+        fprintf(stderr, "[i] Stage 2 (NPU) service %d pinned to core %d\n", svc->index, cpu);
+    }
+    mosaic::Session& sess = *svc->sess;
+    BufferA* buf_a = svc->buf_a.get();
+    mosaic::FrameOut fo;
+    for (;;) {
+      int slot_id = -1;
+      int64_t frame_id = 0;
+      {
+        const auto t_wait0 = std::chrono::steady_clock::now();
+        std::unique_lock<std::mutex> lk(buf_a->m);
+        buf_a->cv.wait(lk, [this, buf_a] {
+          return !buf_a->ready.empty() || abort ||
+                 (pre_active.load(std::memory_order_relaxed) == 0 && gmc_done);
+        });
+        const double waited =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_wait0)
+                .count();
+        {
+          std::lock_guard<std::mutex> lt(m_time);
+          timing.stage2_wait_ms += waited;
+        }
+        if (abort) break;
+        if (buf_a->ready.empty()) {
+          // The ring is empty.  If every Stage 1 thread is gone, no slot will
+          // ever arrive again and this stage is over; otherwise a slot may
+          // still be on its way, so wait for it.
+          if (pre_active.load(std::memory_order_relaxed) == 0) break;
+          continue;
+        }
+        slot_id = buf_a->ready.front();
+        buf_a->ready.pop_front();
+        buf_a->slots[slot_id].state = kSlotInflight;
+        frame_id = buf_a->slots[slot_id].frame_id;
+      }
+
+      // ---- bind the slot to THIS context, THEN run -------------------------
+      const double s0 = mosaic::now_ms();
+      bool bound = true;
+      if (buf_a->slots[slot_id].mem) {
+        // The DMA arm: the slot IS the input tensor's memory.
+        if (rknn_set_io_mem(sess.npu.ctx, buf_a->slots[slot_id].mem, &sess.npu.in_attr) != 0) {
+          fprintf(stderr, "[FATAL] rknn_set_io_mem failed (Stage 2)\n");
+          bound = false;
+        }
+      } else {
+        // The host arm: the same fp16 NHWC bytes, handed over with
+        // pass_through=1, so the runtime does no conversion at all.  The
+        // declared size is the MODEL's tensor size, not the slot's capacity.
+        if (!mosaic::SetF16PassThrough(&sess.npu, buf_a->slots[slot_id].host.data(),
+                                       buf_a->tensor_bytes / sizeof(uint16_t))) {
+          bound = false;
+        }
+      }
+      if (!bound) {
+        {
+          std::lock_guard<std::mutex> lk(buf_a->m);
+          buf_a->slots[slot_id].state = kSlotFree;
+        }
+        buf_a->cv.notify_all();
+        set_error("binding the Buffer A slot failed (Stage 2)");
+        break;
+      }
+
+      // ---- stage 2: rknn_run + outputs -----------------------------------
+      std::vector<float> hm;
+      if (!mosaic::RunFrame(&sess, &hm, &fo)) {
+        {
+          std::lock_guard<std::mutex> lk(buf_a->m);
+          buf_a->slots[slot_id].state = kSlotFree;
+        }
+        buf_a->cv.notify_all();
+        set_error("RunFrame failed (Stage 2)");
+        break;
+      }
+      // THE FRAME WAS REALLY RUN: rknn_run returned 0 and the outputs came
+      // back (RunFrame does run + outputs_get + dequant in one go).  This is
+      // the service's own tally, and it is what makes the two services
+      // comparable -- they run the same model at the same cost, so their
+      // tallies SHOULD match.
+      const double s1 = mosaic::now_ms();
+      {
+        // THE PER-SERVICE COUNTERS, AND THEIR LOCK: they are READ by the
+        // Stage 1 threads (the capacity estimate w_i), so they are written
+        // under m_time -- the same lock that already guards the two drop
+        // counters.
+        std::lock_guard<std::mutex> lt(m_time);
+        ++svc->frames_run;
+        // THE SERVICE'S OWN NPU BUSY TIME.  fo.run is the wall clock of the
+        // rknn_run call ITSELF: RunFrame takes it with now_ms() around
+        // rknn_run (mosaic_core.h), which is exactly the measurement the
+        // global timing.run_ms / timing.npu_busy_ms buckets use.  Kept per
+        // service, it is the denominator of the capacity estimate w_i, and
+        // it is what says "this service is the slow one".
+        //
+        // The sum is kept in a double (one rknn_run is a FRACTIONAL number of
+        // milliseconds) and the int64 counter is its rounded mirror.
+        svc->stage2_busy_acc_ms += fo.run;
+        svc->stage2_busy_ms = (int64_t)std::llround(svc->stage2_busy_acc_ms);
+      }
+      // The slot goes back to FREE only NOW: the outputs have been read out,
+      // so the runtime is done with it and Stage 1 may write over it.
+      {
+        std::lock_guard<std::mutex> lk(buf_a->m);
+        buf_a->slots[slot_id].state = kSlotFree;
+      }
+      buf_a->cv.notify_all();
+      {
+        std::lock_guard<std::mutex> lk(m_time);
+        timing.stage2_ms += s1 - s0;
+        timing.run_ms += fo.run;
+        timing.outputs_ms += fo.outputs;
+        // The NPU's own busy time: the numerator of the utilisation.
+        timing.npu_busy_ms += fo.run;
+        // One sample per forward pass: the distribution of the SINGLE
+        // rknn_run, which is what the NPU core mask is judged on.
+        rknn_run_samples.push_back(fo.run);
+        if (fo.run > timing.rknn_run_max_ms) timing.rknn_run_max_ms = fo.run;
+      }
+
+      HeatItem hi;
+      // The camera's PHYSICAL frame number, carried through the slot.
+      hi.id = frame_id;
+      hi.sess = &sess;
+      hi.hm = std::move(hm);
+      {
+        // BUFFER B: the same rule as the fused mode -- the inference does not
+        // wait for the back-projection.  A heatmap the post stage cannot take
+        // in time is dropped (its detection is lost, the GMC registration is
+        // untouched).
+        std::lock_guard<std::mutex> lk(m_heat);
+        if (heat_q.size() >= heat_depth) {
+          heat_q.pop_front();
+          std::lock_guard<std::mutex> lt(m_time);
+          timing.detections_dropped += 1;
+          // The same loss, counted under the name of the buffer that made it.
+          timing.bufB_dropped += 1;
+        }
+        heat_q.push_back(std::move(hi));
+      }
+      cv_heat.notify_all();
+    }
+    // THE SERVICE'S OWN TALLY, PRINTED ON EVERY EXIT PATH.  The loop above
+    // leaves through a break in four places -- the abort, the normal drain
+    // (the ring is empty and no Stage 1 thread is left) and the two error
+    // paths -- and they ALL land here, so this is the ONE place that has to
+    // be right: the line is printed whether the pipeline ran to the end or
+    // was torn down.
+    //
+    // WHY IT MATTERS: the two services run the same model at the same cost,
+    // so their frame counts should match.  If they do not, the Stage 1 ->
+    // Stage 2 pairing is feeding them unevenly, and this line says WHICH
+    // one is starving and WHICH one is throwing frames away -- the question
+    // the board's per-core NPU load raised.
+    //
+    // v11: THE LINE ALSO CARRIES THE CAPACITY.  frames_delivered is what
+    // Stage 1 offered this service and frames_run is what it retired, so
+    // the two together say whether the service is the bottleneck (offered
+    // more than it ran) or the one that is starving (ran everything it was
+    // offered).  stage2_busy_ms is the wall clock the service spent inside
+    // rknn_run, and w_i = frames_run / stage2_busy_ms is its measured
+    // capacity in frames per millisecond -- the number the capacity-weighted
+    // delivery rule (pick_target) divides by.
+    //
+    // THE FIELD NAMES AND THEIR MEANING ARE FROZEN: the board's analysis
+    // scripts parse frames_run, bufA_reclaimed and bufA_full_drops, so
+    // those three keep their names and their meaning.  The two new fields
+    // are APPENDED, so an old parser still reads the same numbers in the
+    // same places.
+    {
+      // The counters are read under m_time: the two drop counters and
+      // frames_delivered are written by this service's Stage 1 thread, which
+      // is still running when an abort tears this thread down.
+      std::lock_guard<std::mutex> lt(m_time);
+      fprintf(stderr,
+              "[i] Buffer A service %d: frames_run=%lld frames_delivered=%lld "
+              "stage2_busy_ms=%lld bufA_reclaimed=%lld bufA_full_drops=%lld\n",
+              svc->index, (long long)svc->frames_run, (long long)svc->frames_delivered,
+              (long long)svc->stage2_busy_ms, (long long)svc->bufA_reclaimed,
+              (long long)svc->bufA_full_drops);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // v10: free a service's Buffer A slots.
+  //
+  // The slots are destroyed with the context that CREATED them, so this has
+  // to run BEFORE ReleaseSession() takes the context down.
+  // -------------------------------------------------------------------------
+  void free_buffer_a(NpuService* svc) {
+    if (!svc || !svc->buf_a) return;
+    for (auto& sl : svc->buf_a->slots) {
+      if (sl.mem) rknn_destroy_mem(svc->buf_a->owner_ctx, sl.mem);
+    }
+    svc->buf_a.reset();
+  }
+
+  // The same, for EVERY service: the error path of create() tears the
+  // pipeline down by hand, and the slots have to go with their contexts.
+  void free_all_buffer_a() {
+    for (auto& s : npus) free_buffer_a(s.get());
+  }
+
+  // -------------------------------------------------------------------------
   // SERVICE NPU: RGA compose + upload + rknn_run + outputs.
   //
   // One independent service per RKNN context.  The board tolerates exactly
@@ -867,6 +1773,14 @@ struct MosaicPipeline {
   // the NPU), hence npu_workers is clamped to 2.
   // -------------------------------------------------------------------------
   void npu_loop(NpuService* svc) {
+    // v10: THE FUSED ARM AND THE DECOUPLED ARM ARE DIFFERENT FUNCTIONS ON
+    // PURPOSE.  The fused arm below is the v9 code, UNCHANGED, character for
+    // character: it is the certified arm and it has to stay comparable.  The
+    // decoupled arm is npu_stage_loop(), which does no CPU work at all.
+    if (cfg.decoupled_stages) {
+      npu_stage_loop(svc);
+      return;
+    }
     // The NPU service spends most of its wall time blocked on the NPU
     // hardware, but the driver does copy and dequant work on the CPU: give it
     // its own core so it never steals the GMC engines' cores.
@@ -958,8 +1872,14 @@ struct MosaicPipeline {
     // The POST stage shares the NPU services' cores: the NPU service is
     // blocked on the hardware most of the time, so those cores are mostly
     // idle -- but the POST stage must never land on a GMC engine's core.
-    if (!npu_cpus.empty()) {
-      const int cpu = npu_cpus[post_index % npu_cpus.size()];
+    //
+    // v10: in the DECOUPLED mode the POST stage belongs to the PRE-PROCESS
+    // core group instead.  The NPU stage has a group of its own, and the
+    // back-projection is CPU work of the same family as the composition, so
+    // the two belong together and away from the GMC.
+    const std::vector<int>& post_cpus = cfg.decoupled_stages ? pre_cpus : npu_cpus;
+    if (!post_cpus.empty()) {
+      const int cpu = post_cpus[post_index % post_cpus.size()];
       if (mosaic::PinCurrentThreadToCpu(cpu))
         fprintf(stderr, "[i] POST service %zu pinned to core %d\n", post_index, cpu);
     }
@@ -1233,6 +2153,18 @@ void mosaic_pipeline_config_defaults(MosaicPipelineConfig* cfg) {
   cfg->npu_affinity = nullptr;
   cfg->gmc_affinity = nullptr;
   cfg->cpu_affinity = nullptr;
+  // ---- v10: the three-stage decoupled pipeline -----------------------------
+  // The DEFAULT is the FUSED worker of v9: it is the certified arm and it has
+  // to stay comparable, so the split is strictly opt-in.
+  cfg->decoupled_stages = 0;
+  cfg->buffer_a_depth = 3;  // 3 slots x 2,457,600 B = ~7 MB of DMA memory
+  cfg->buffer_b_depth = 3;  // 3 heatmaps
+  cfg->pre_threads = 0;     // 0 = AUTO (= npu_workers); forced to npu_workers
+                            // in the decoupled mode anyway (the stages are
+                            // paired 1:1)
+  cfg->buf_a_mode = 0;      // 0 = DMA (rknn_create_mem), 1 = host memory
+  cfg->pre_affinity = nullptr;
+  cfg->npu_stage_affinity = nullptr;  // NULL = follow pre_affinity
 }
 
 MosaicPipeline* mosaic_pipeline_create(const MosaicPipelineConfig* cfg, char* errbuf,
@@ -1358,6 +2290,39 @@ MosaicPipeline* mosaic_pipeline_create(const MosaicPipelineConfig* cfg, char* er
       // 1 = core 0, 2 = core 1, 4 = core 2, 3 = 0+1, 6 = 1+2, 5 = 0+2,
       // 7 = all three.  Anything else is a typo and falls back to 0.
       {"npu_core_mask", &cfg_s.npu_core_mask, 0, 7, 0},
+      // ---- v10: the decoupled pipeline's knobs ------------------------------
+      // The fused worker is the DEFAULT: the split is strictly opt-in, because
+      // the fused arm is the certified one and the two have to stay
+      // comparable.
+      {"decoupled_stages", &cfg_s.decoupled_stages, 0, 1, 0},
+      // THE TWO BOUNDED BUFFERS.
+      //
+      // Buffer A's ceiling is 64, NOT 8.  The old argument ("deeper than 8
+      // buys nothing, the NPU is 100+ ms per frame, so a deeper ring only
+      // delays the loss") was WRONG, and the board measurements say so: with
+      // 3 slots the decoupled arm CANON21 dropped 1567 of 7195 GMC groups,
+      // and EVERY one of those losses was in Buffer A (bufA_dropped), while
+      // the NPU stage was only 72.6% busy and spent 254 s waiting for work.
+      // The NPU's own capacity (2 services / 121.9 ms per frame = 16.4 fps)
+      // is ABOVE the GMC's supply (15.22 groups/s), so the stage was never
+      // the bottleneck -- a 3-slot ring simply cannot hold the GMC's burst:
+      // the fit tail (~200 ms, max ~700 ms) is followed by a catch-up burst
+      // of 10+ frames, and the ring overflows inside that burst.
+      //
+      // The cost of the depth is MEMORY, not accuracy.  One slot is
+      // 2,457,600 B and every NPU service owns its own ring, so D slots cost
+      // D x 2,457,600 B x npu_workers: D=16 is 78.7 MB on the board, D=32 is
+      // 157 MB, D=64 is 315 MB.  64 is the ceiling that still fits
+      // comfortably in this board's 7.9 GB.
+      //
+      // Buffer B keeps its 1..8 ceiling: the heatmap ring measured
+      // bufB_dropped=0, so it is NOT the bottleneck and widening it would buy
+      // nothing but memory.
+      {"buffer_a_depth", &cfg_s.buffer_a_depth, 1, 64, 3},
+      {"buffer_b_depth", &cfg_s.buffer_b_depth, 1, 8, 3},
+      // Where the Buffer A slots live.  0 = DMA (the recommended arm), 1 =
+      // host memory (the A/B arm).
+      {"buf_a_mode", &cfg_s.buf_a_mode, 0, 1, 0},
   };
   for (Knob& k : knobs) {
     if (*k.v < k.lo || *k.v > k.hi) {
@@ -1365,6 +2330,41 @@ MosaicPipeline* mosaic_pipeline_create(const MosaicPipelineConfig* cfg, char* er
               k.name, (int)*k.v, (int)k.lo, (int)k.hi, (int)k.dflt);
       *k.v = k.dflt;
     }
+  }
+  // -------------------------------------------------------------------------
+  // v10: THE PRE-PROCESS THREAD COUNT.
+  //
+  // It is handled OUTSIDE the clamp table because 0 is a magic value there
+  // (0 = AUTO) and because in the decoupled mode the count is FORCED to
+  // npu_workers anyway.
+  //
+  // WHY IT IS FORCED: the stages still run ONE Stage 1 THREAD PER NPU
+  // SERVICE.  The frames themselves are NOT pinned any more -- the
+  // cross-service delivery hands each frame to the service whose Buffer A
+  // ring has room (pick_target in pre_loop) -- but the THREAD COUNT is kept
+  // at one per service on purpose: every service keeps a dedicated feeding
+  // thread, and the Stage 1 / Stage 2 core placement stays one-to-one, so
+  // the change is confined to "who receives the frame" and nothing else
+  // moves.
+  if (cfg_s.pre_threads < 0 || cfg_s.pre_threads > 4) {
+    fprintf(stderr, "[WARN] pre_threads = %d is out of range [0, 4]; using AUTO\n",
+            (int)cfg_s.pre_threads);
+    cfg_s.pre_threads = 0;
+  }
+  if (cfg_s.decoupled_stages) {
+    if (cfg_s.pre_threads == 0) {
+      cfg_s.pre_threads = cfg_s.npu_workers;  // AUTO
+    } else if (cfg_s.pre_threads != cfg_s.npu_workers) {
+      fprintf(stderr,
+              "[WARN] pre_threads=%d was requested, but the decoupled stages run ONE Stage 1 "
+              "THREAD PER NPU SERVICE (one dedicated feeding thread per service, and a 1:1 "
+              "Stage 1 / Stage 2 core placement): forcing pre_threads=%d\n",
+              (int)cfg_s.pre_threads, (int)cfg_s.npu_workers);
+      cfg_s.pre_threads = cfg_s.npu_workers;
+    }
+  } else {
+    // The fused worker does the pre-processing itself, so the knob is moot.
+    cfg_s.pre_threads = 0;
   }
   if (cfg_s.gmc_gate_min > cfg_s.gmc_gate_max) {
     fprintf(stderr, "[WARN] gmc_gate_min(%d) > gmc_gate_max(%d); using the reference defaults\n",
@@ -1374,8 +2374,22 @@ MosaicPipeline* mosaic_pipeline_create(const MosaicPipelineConfig* cfg, char* er
   }
   cfg_s.gmc_pyr_cache = cfg_s.gmc_pyr_cache ? 1 : 0;
   if (cfg_s.gmc_prealloc_pad < 0) cfg_s.gmc_prealloc_pad = 0;
-  if (cfg_s.input_mode < 0 || cfg_s.input_mode > MOSAIC_INPUT_IO_MEM_NHWC)
+  if (cfg_s.input_mode < 0 || cfg_s.input_mode > MOSAIC_INPUT_SET_F16_PT)
     cfg_s.input_mode = MOSAIC_INPUT_SET;
+  // v10: in the DECOUPLED mode the input tensor is bound PER FRAME (to a
+  // Buffer A slot), so the session must not pre-bind an io-mem buffer, and
+  // the upload path is decided by buf_a_mode and not by input_mode.  The
+  // knob's value is kept in the config so the caller's request stays visible,
+  // but the session is opened in the plain 'set' mode (which allocates no
+  // io-mem buffer).
+  if (cfg_s.decoupled_stages) {
+    fprintf(stderr,
+            "[i] decoupled stages: the input_mode knob (%d) is IGNORED -- the upload path is "
+            "buf_a_mode=%d (%s)\n",
+            (int)cfg_s.input_mode, (int)cfg_s.buf_a_mode,
+            cfg_s.buf_a_mode == 0 ? "DMA slot bound with rknn_set_io_mem"
+                                  : "host buffer handed over with pass_through=1");
+  }
   // -------------------------------------------------------------------------
   // THE OPPORTUNISTIC SCHEDULER NEEDS EXACTLY ONE GMC ENGINE.
   //
@@ -1488,6 +2502,36 @@ MosaicPipeline* mosaic_pipeline_create(const MosaicPipelineConfig* cfg, char* er
       fprintf(stderr, "[WARN] npu_affinity '%s' parsed to an empty list; ignored\n",
               safe_cfg->npu_affinity);
   }
+  // ---- v10: the decoupled stages' core lists ------------------------------
+  // The pre-process group carries Stage 1 AND Stage 3; the NPU stage gets a
+  // group of its own, or follows the pre-process one when it was not given
+  // one.  The GMC keeps its own group (--gmc-affinity-group), so the three
+  // stages can never land on each other's cores.
+  //
+  // The FUSED mode does NOT read these lists: it keeps the NPU/POST cores it
+  // has always used, so the certified arm stays comparable.  That is also why
+  // the list is not even parsed there -- printing "Pre/Post services -> cores
+  // 6-7" in the fused mode would be a lie: the POST stage stays on the NPU
+  // services' cores.
+  if (safe_cfg->decoupled_stages) {
+    if (safe_cfg->pre_affinity && *safe_cfg->pre_affinity) {
+      if (mosaic::ParseCpuList(safe_cfg->pre_affinity, &p->pre_cpus))
+        fprintf(stderr, "[i] Pre/Post services -> cores %s\n", safe_cfg->pre_affinity);
+      else
+        fprintf(stderr, "[WARN] pre_affinity '%s' parsed to an empty list; ignored\n",
+                safe_cfg->pre_affinity);
+    }
+    if (safe_cfg->npu_stage_affinity && *safe_cfg->npu_stage_affinity) {
+      if (mosaic::ParseCpuList(safe_cfg->npu_stage_affinity, &p->npu_stage_cpus))
+        fprintf(stderr, "[i] NPU stage services -> cores %s\n", safe_cfg->npu_stage_affinity);
+      else
+        fprintf(stderr, "[WARN] npu_stage_affinity '%s' parsed to an empty list; ignored\n",
+                safe_cfg->npu_stage_affinity);
+    } else {
+      // NULL == follow the pre-process group.
+      p->npu_stage_cpus = p->pre_cpus;
+    }
+  }
 
   // ---- the GMC engines ----------------------------------------------------
   // The per-engine core GROUPS are parsed HERE, before the engines are built:
@@ -1590,9 +2634,15 @@ MosaicPipeline* mosaic_pipeline_create(const MosaicPipelineConfig* cfg, char* er
   for (int i = 0; i < safe_cfg->npu_workers; ++i) {
     auto svc = std::unique_ptr<MosaicPipeline::NpuService>(new MosaicPipeline::NpuService());
     svc->sess.reset(new mosaic::Session());
+    // v10: in the decoupled mode the session is opened WITHOUT an io-mem
+    // buffer: the input tensor is bound per frame, to a Buffer A slot.
+    const mosaic::InputMode sess_im =
+        safe_cfg->decoupled_stages
+            ? mosaic::InputMode::kSet
+            : static_cast<mosaic::InputMode>(safe_cfg->input_mode);
     if (!mosaic::InitSession(svc->sess.get(), safe_cfg->model_path,
                              static_cast<mosaic::CanvasMode>(safe_cfg->canvas_mode), {}, false,
-                             static_cast<mosaic::InputMode>(safe_cfg->input_mode))) {
+                             sess_im)) {
       mosaic::ReleaseSession(svc->sess.get());
       delete p;
       return fail("InitSession failed (NPU service)");
@@ -1630,6 +2680,93 @@ MosaicPipeline* mosaic_pipeline_create(const MosaicPipelineConfig* cfg, char* er
     if (safe_cfg->min_area > 0) svc->sess->min_area = safe_cfg->min_area;
     if (safe_cfg->max_detections > 0) svc->sess->max_detections = safe_cfg->max_detections;
     svc->index = (int)p->npus.size();
+
+    // ---- v10: THE DECOUPLED ARM OF THIS SERVICE ---------------------------
+    if (safe_cfg->decoupled_stages) {
+      // Stage 1's own canvas-only session.  It has NO RKNN context: the board
+      // tolerates exactly two and the NPU services already use both.  It
+      // composes into its OWN canvas, so the two stages never share a buffer.
+      svc->pre_sess.reset(new mosaic::Session());
+      if (!mosaic::InitCanvasOnly(svc->pre_sess.get(), safe_cfg->model_path,
+                                  static_cast<mosaic::CanvasMode>(safe_cfg->canvas_mode), {},
+                                  false)) {
+        p->free_all_buffer_a();
+        mosaic::ReleaseSession(svc->pre_sess.get());
+        mosaic::ReleaseSession(svc->sess.get());
+        delete p;
+        return fail("InitCanvasOnly failed (Stage 1)");
+      }
+
+      // The Buffer A ring.  Its slots are created by THIS service's context,
+      // so a slot is only ever bound to the context that owns it.
+      svc->buf_a.reset(new MosaicPipeline::BufferA());
+      MosaicPipeline::BufferA* ba = svc->buf_a.get();
+      ba->owner_ctx = svc->sess->npu.ctx;
+      // The slot must hold a WHOLE model input.  The model's own attribute is
+      // the authority; the fallback is the 640x640x3 fp16 tensor.
+      //
+      // TWO SIZES, and they are not the same thing:
+      //   tensor_bytes  the input tensor's real size.  It is what the host arm
+      //                 has to declare, because pass_through=1 makes the
+      //                 runtime read exactly that many bytes.
+      //   bytes         the size of the DMA slot.  It is size_with_stride when
+      //                 the runtime asks for a strided buffer, because that is
+      //                 what the io-mem path allocates too.
+      ba->tensor_bytes = svc->sess->npu.in_attr.size;
+      if (ba->tensor_bytes == 0)
+        ba->tensor_bytes =
+            (size_t)(mosaic::kCanvas * mosaic::kCanvas * mosaic::kSrcC * sizeof(uint16_t));
+      uint32_t bytes = svc->sess->npu.in_attr.size_with_stride
+                           ? svc->sess->npu.in_attr.size_with_stride
+                           : svc->sess->npu.in_attr.size;
+      if (bytes == 0) bytes = (uint32_t)ba->tensor_bytes;
+      ba->elems = bytes / sizeof(uint16_t);
+      // The canvas is u8 and the slot is fp16, so the slot needs exactly two
+      // bytes per canvas element.  A slot that is too small would silently
+      // truncate the input, so it is a FATAL, not a clamp.
+      const size_t canvas_elems = svc->pre_sess->canvas.size;
+      if (ba->elems < canvas_elems || ba->tensor_bytes < canvas_elems * sizeof(uint16_t)) {
+        fprintf(stderr,
+                "[FATAL] the Buffer A slot holds %zu fp16 elements (the model's tensor is %zu B) "
+                "but the canvas needs %zu\n",
+                ba->elems, ba->tensor_bytes, canvas_elems);
+        p->free_all_buffer_a();
+        p->free_buffer_a(svc.get());
+        mosaic::ReleaseSession(svc->pre_sess.get());
+        mosaic::ReleaseSession(svc->sess.get());
+        delete p;
+        return fail("the Buffer A slot is too small for the canvas");
+      }
+      for (int k = 0; k < safe_cfg->buffer_a_depth; ++k) {
+        MosaicPipeline::BufferA::Slot sl;
+        sl.bytes = bytes;
+        if (safe_cfg->buf_a_mode == 0) {
+          // The DMA arm: a pre-allocated, contiguous, DMA-capable buffer that
+          // the runtime can read the input tensor from directly.
+          sl.mem = rknn_create_mem(ba->owner_ctx, bytes);
+          if (!sl.mem) {
+            fprintf(stderr, "[FATAL] rknn_create_mem(%u) failed (Buffer A)\n", bytes);
+            p->free_all_buffer_a();
+            p->free_buffer_a(svc.get());
+            mosaic::ReleaseSession(svc->pre_sess.get());
+            mosaic::ReleaseSession(svc->sess.get());
+            delete p;
+            return fail("rknn_create_mem failed (Buffer A)");
+          }
+          sl.virt = (uint8_t*)sl.mem->virt_addr;
+        } else {
+          // The host arm: the same fp16 bytes in ordinary memory.  The buffer
+          // is exactly the model's tensor, because pass_through=1 makes the
+          // runtime read in.size bytes out of it.
+          sl.host.assign(ba->tensor_bytes / sizeof(uint16_t), 0);
+        }
+        ba->slots.push_back(std::move(sl));
+      }
+      fprintf(stderr,
+              "[i] NPU service %d: Buffer A with %d slot(s) of %u B (%zu fp16 elements), mode=%s\n",
+              i, (int)safe_cfg->buffer_a_depth, bytes, ba->elems,
+              safe_cfg->buf_a_mode == 0 ? "DMA" : "host");
+    }
     p->npus.push_back(std::move(svc));
   }
 
@@ -1641,12 +2778,27 @@ MosaicPipeline* mosaic_pipeline_create(const MosaicPipelineConfig* cfg, char* er
 
   p->timing.wall_ms = mosaic::now_ms();
 
+  // v10: THE DEPTH OF BUFFER B.  The fused mode keeps the queue_depth (8) it
+  // has always used, so the certified arm does not move; the decoupled mode
+  // uses buffer_b_depth.
+  p->heat_depth = safe_cfg->decoupled_stages ? (size_t)safe_cfg->buffer_b_depth
+                                             : (size_t)safe_cfg->queue_depth;
+
   // ---- start the services -------------------------------------------------
   p->ingest_thread = std::thread([p] { p->ingest_loop(); });
   for (auto& e : p->engines) {
     MosaicPipeline::Engine* ep = e.get();
     const size_t ei = (size_t)(&e - &p->engines[0]);
     ep->th = std::thread([p, ep, ei] { p->engine_loop(ep, ei); });
+  }
+  // v10: the Stage 1 threads start BEFORE the Stage 2 threads, so a slot is
+  // never published before its consumer exists.
+  if (safe_cfg->decoupled_stages) {
+    for (auto& svc : p->npus) {
+      MosaicPipeline::NpuService* sp = svc.get();
+      p->pre_active.fetch_add(1, std::memory_order_relaxed);
+      sp->pre_th = std::thread([p, sp] { p->pre_loop((size_t)sp->index, sp->pre_sess.get()); });
+    }
   }
   for (auto& svc : p->npus) {
     MosaicPipeline::NpuService* sp = svc.get();
@@ -1670,6 +2822,18 @@ MosaicPipeline* mosaic_pipeline_create(const MosaicPipelineConfig* cfg, char* er
           safe_cfg->input_queue, safe_cfg->gmc_pyr_cache, safe_cfg->gmc_gate_shift / 1000.0,
           safe_cfg->gmc_deadline_ms, p->ring_slack, p->gmc_job_depth,
           safe_cfg->gmc_anchor_threads);
+  // v10: the decoupled stages' effective configuration, on its OWN line so the
+  // line above stays exactly as it was.
+  fprintf(stderr,
+          "[i] decoupled stages: decoupled=%d buffer_a=%d buffer_b=%d pre_threads=%d "
+          "buf_a_mode=%d pre_affinity=%s npu_stage_affinity=%s\n",
+          (int)safe_cfg->decoupled_stages, (int)safe_cfg->buffer_a_depth,
+          (int)safe_cfg->buffer_b_depth, (int)safe_cfg->pre_threads,
+          (int)safe_cfg->buf_a_mode,
+          (safe_cfg->pre_affinity && *safe_cfg->pre_affinity) ? safe_cfg->pre_affinity : "(inherit)",
+          (safe_cfg->npu_stage_affinity && *safe_cfg->npu_stage_affinity)
+              ? safe_cfg->npu_stage_affinity
+              : "(follow pre_affinity)");
   return p;
 }
 
@@ -1881,6 +3045,23 @@ int32_t mosaic_pipeline_flush(MosaicPipeline* p) {
                                : "  (every history read came from the private snapshot)",
                  snap_ms);
   }
+  // v10: THE STAGE 1 THREADS STOP FIRST, THEN THE NPU STAGE.
+  //
+  // The order matters: a Stage 1 thread publishes into a Buffer A ring, and
+  // the ring's slots are bound to the NPU context.  Stopping the NPU stage
+  // first could leave a Stage 1 thread writing into a ring whose consumer is
+  // gone -- and, worse, binding a slot to a context that is about to be
+  // destroyed.
+  if (p->cfg.decoupled_stages) {
+    for (auto& svc : p->npus) {
+      if (svc->pre_th.joinable()) svc->pre_th.join();
+    }
+    // Stage 2's exit condition is "every Stage 1 thread is gone AND my ring
+    // is empty"; its condition variable has to be woken so it can see that.
+    for (auto& svc : p->npus) {
+      if (svc->buf_a) svc->buf_a->cv.notify_all();
+    }
+  }
   for (auto& svc : p->npus) {
     if (svc->th.joinable()) svc->th.join();
   }
@@ -2034,9 +3215,24 @@ void mosaic_pipeline_destroy(MosaicPipeline* p) {
   for (auto& e : p->engines) {
     if (e->th.joinable()) e->th.join();
   }
+  // v10: the Stage 1 threads stop BEFORE the NPU stage (see the same block in
+  // flush()), so a Stage 1 thread can never bind a slot to a context that is
+  // about to be destroyed.
+  for (auto& svc : p->npus) {
+    if (svc->pre_th.joinable()) svc->pre_th.join();
+  }
   for (auto& svc : p->npus) {
     if (svc->th.joinable()) svc->th.join();
+  }
+  // The Buffer A slots are destroyed with THEIR OWN context, which is still
+  // alive at this point -- rknn_destroy_mem needs the context that created
+  // the memory.
+  for (auto& svc : p->npus) {
+    p->free_buffer_a(svc.get());
+  }
+  for (auto& svc : p->npus) {
     if (svc->sess) mosaic::ReleaseSession(svc->sess.get());
+    if (svc->pre_sess) mosaic::ReleaseSession(svc->pre_sess.get());
   }
   for (auto& t : p->post_threads) {
     if (t.joinable()) t.join();

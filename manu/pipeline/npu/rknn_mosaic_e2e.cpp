@@ -223,6 +223,26 @@ struct Options {
   //   iomem_nchw  as above but NCHW.  KNOWN BROKEN for this model (the NCHW
   //              padding path is wrong): do not use it.
   std::string input_mode;
+  // ---- v10: THE THREE-STAGE DECOUPLED PIPELINE ----------------------------
+  // 0 = the FUSED worker (Stage 1 + Stage 2 in one thread): the certified arm,
+  // and the default, so the historical runs stay comparable.
+  // 1 = the three-stage pipeline: Stage 1 (pre-process) -> Buffer A ->
+  // Stage 2 (NPU) -> Buffer B -> Stage 3 (post-process).
+  int decoupled_stages = 0;
+  // Buffer A: the ring of NPU-ready slots between Stage 1 and Stage 2.
+  int buffer_a_depth = 3;
+  // Buffer B: the ring of raw heatmaps between Stage 2 and Stage 3.
+  int buffer_b_depth = 3;
+  // The Stage 1 thread count.  0 = AUTO (= npu_workers).  In the decoupled mode
+  // it is FORCED to npu_workers, because the stages are paired 1:1.
+  int pre_threads = 0;
+  // Where Buffer A's slots live: 0 = DMA (rknn_create_mem), 1 = host memory.
+  std::string buf_a_mode = "dma";
+  // The core list for Stage 1 AND Stage 3.  Empty = the library's own default
+  // ("6-7").
+  std::string pre_affinity = "6-7";
+  // The core list for Stage 2.  Empty = follow pre_affinity.
+  std::string npu_stage_affinity;
 };
 
 void PrintUsage(const char* argv0) {
@@ -335,6 +355,52 @@ void PrintUsage(const char* argv0) {
           "                                lets the engines starve and the camera\n"
           "                                queue overflow (which breaks the GMC\n"
           "                                registration chain).\n"
+          "          [--decoupled-stages 0|1]  0 (the DEFAULT) = the FUSED worker of\n"
+          "                                v9: the RGA compose, the upload and the\n"
+          "                                rknn_run all happen in ONE thread.  That is\n"
+          "                                the certified arm, so the default run\n"
+          "                                stays comparable with the history.\n"
+          "                                1 = the THREE-STAGE pipeline:\n"
+          "                                  Stage 1 (pre-process, own cores):\n"
+          "                                    RGA compose + the u8->fp16 widening,\n"
+          "                                    written STRAIGHT into a Buffer A slot\n"
+          "                                  Buffer A: a bounded ring of NPU-ready\n"
+          "                                    slots; on overflow the OLDEST ready\n"
+          "                                    slot is reclaimed (never a wait)\n"
+          "                                  Stage 2 (NPU, own cores): bind the slot\n"
+          "                                    + rknn_run + outputs, no CPU work\n"
+          "                                  Buffer B: a bounded ring of heatmaps\n"
+          "                                  Stage 3 (post): back-projection + NMS\n"
+          "          [--buffer-a-depth N]    Buffer A's depth in slots (1..64,\n"
+          "                                default 3).  Each slot holds one model\n"
+          "                                input (2,457,600 B), so 3 is ~7 MB;\n"
+          "                                D=16 is ~78.7 MB and D=64 ~315 MB\n"
+          "                                on the board (both NPU services).\n"
+          "          [--buffer-b-depth N]    Buffer B's depth in heatmaps (1..8,\n"
+          "                                default 3).  On overflow the OLDEST\n"
+          "                                heatmap is dropped.\n"
+          "          [--pre-threads N]       the Stage 1 thread count.  0 (the\n"
+          "                                default) = AUTO = npu_workers.  In the\n"
+          "                                decoupled mode the count is FORCED to\n"
+          "                                npu_workers: the stages are paired 1:1,\n"
+          "                                because every NPU service owns its own\n"
+          "                                Buffer A and its own RKNN context.\n"
+          "          [--buf-a-mode dma|host] where Buffer A's slots live.  dma (the\n"
+          "                                default) = rknn_create_mem, contiguous\n"
+          "                                DMA memory the runtime reads the input\n"
+          "                                tensor from (zero-copy hand-off).\n"
+          "                                host = ordinary memory, handed over\n"
+          "                                with pass_through=1 (the A/B arm).\n"
+          "          [--pre-affinity LIST]   pin Stage 1 AND Stage 3 to these\n"
+          "                                cores (default \"6-7\").  The upload\n"
+          "                                bucket is not a fixed cost: it was\n"
+          "                                inflated by the CPU and memory-bandwidth\n"
+          "                                contention with the GMC, so the split\n"
+          "                                gives it a core group of its own.\n"
+          "          [--npu-stage-affinity LIST]\n"
+          "                                pin Stage 2 (the NPU) to these cores.\n"
+          "                                Empty (the default) = follow\n"
+          "                                --pre-affinity.\n"
           "\n"
           "  raw-root   DIR   directory holding <sequence>/frame_%%06d.jpg\n"
           "  sequence   NAME  sequence to run\n"
@@ -465,6 +531,14 @@ int main(int argc, char** argv) {
     else if (a == "--npu-core-mask" && i + 1 < argc) opt.npu_core_mask = atoi(argv[++i]);
     else if (a == "--fault-inject-at" && i + 1 < argc) opt.fault_inject_at = atoi(argv[++i]);
     else if (a == "--input-mode" && i + 1 < argc) opt.input_mode = argv[++i];
+    // ---- v10: the decoupled pipeline's flags ------------------------------
+    else if (a == "--decoupled-stages" && i + 1 < argc) opt.decoupled_stages = atoi(argv[++i]);
+    else if (a == "--buffer-a-depth" && i + 1 < argc) opt.buffer_a_depth = atoi(argv[++i]);
+    else if (a == "--buffer-b-depth" && i + 1 < argc) opt.buffer_b_depth = atoi(argv[++i]);
+    else if (a == "--pre-threads" && i + 1 < argc) opt.pre_threads = atoi(argv[++i]);
+    else if (a == "--buf-a-mode" && i + 1 < argc) opt.buf_a_mode = argv[++i];
+    else if (a == "--pre-affinity" && i + 1 < argc) opt.pre_affinity = argv[++i];
+    else if (a == "--npu-stage-affinity" && i + 1 < argc) opt.npu_stage_affinity = argv[++i];
     else {
       fprintf(stderr, "[FATAL] unknown option: %s\n", argv[i]);
       PrintUsage(argv[0]);
@@ -574,6 +648,22 @@ int main(int argc, char** argv) {
   cfg.gmc_affinity_group =
       opt.gmc_affinity_group.empty() ? nullptr : opt.gmc_affinity_group.c_str();
   cfg.npu_affinity = opt.npu_affinity.empty() ? nullptr : opt.npu_affinity.c_str();
+  // ---- v10: the decoupled pipeline ----------------------------------------
+  // The knobs are passed through as they are; the library clamps them (and
+  // reports what it applied through mosaic_pipeline_effective_config()).
+  cfg.decoupled_stages = opt.decoupled_stages;
+  cfg.buffer_a_depth = opt.buffer_a_depth;
+  cfg.buffer_b_depth = opt.buffer_b_depth;
+  cfg.pre_threads = opt.pre_threads;
+  if (opt.buf_a_mode == "dma") cfg.buf_a_mode = 0;
+  else if (opt.buf_a_mode == "host") cfg.buf_a_mode = 1;
+  else {
+    fprintf(stderr, "[FATAL] unknown --buf-a-mode '%s' (dma|host)\n", opt.buf_a_mode.c_str());
+    return 2;
+  }
+  cfg.pre_affinity = opt.pre_affinity.empty() ? nullptr : opt.pre_affinity.c_str();
+  cfg.npu_stage_affinity =
+      opt.npu_stage_affinity.empty() ? nullptr : opt.npu_stage_affinity.c_str();
 
   // The output root must exist before the TSV is written (the library never
   // touches the filesystem outside the two optional dumps).
@@ -763,8 +853,19 @@ int main(int argc, char** argv) {
   // (processed_frames.csv), not in the results.
   MosaicPipelineTiming tm_probe;
   mosaic_pipeline_get_timing(pipe, &tm_probe);
-  const int64_t expect = tm_probe.gmc_groups_done - tm_probe.features_dropped -
-                         tm_probe.detections_dropped;
+  // The expected number of results.
+  //
+  // v10: in the DECOUPLED mode there are TWO more places where a frame can be
+  // lost between the GMC group and the result: Buffer A (Stage 1's ring) and
+  // Buffer B (the heatmap ring).  Buffer B's losses are ALREADY counted in
+  // detections_dropped, so only Buffer A's two counters are added here --
+  // counting them twice would under-count the results.
+  int64_t expect = tm_probe.gmc_groups_done - tm_probe.features_dropped -
+                   tm_probe.detections_dropped;
+  if (opt.decoupled_stages) {
+    expect -= tm_probe.bufA_dropped + tm_probe.bufA_full_drops;
+    if (expect < 0) expect = 0;
+  }
   // The last results are delivered by the callback after the flush.
   // The wait is TIMED for the same reason as the producer's: a pipeline that
   // never delivers the last results must not hang the demo.
@@ -1123,6 +1224,42 @@ int main(int argc, char** argv) {
   fprintf(tf, "gmc_window_blocks=%lld\n", (long long)tm.gmc_window_blocks);
   fprintf(tf, "gmc_space_blocks=%lld\n", (long long)tm.gmc_space_blocks);
     fprintf(tf, "fps=%.3f\n", tm.wall_ms > 0 ? 1000.0 * (double)tm.frames / tm.wall_ms : 0.0);
+    // -----------------------------------------------------------------------
+    // v10: THE THREE-STAGE DECOUPLED PIPELINE.
+    //
+    // APPENDED, so every line above keeps its meaning and its position: the
+    // history scripts read them and must not have to care whether this run was
+    // fused or decoupled.  In the FUSED mode all the counters below are 0
+    // (the fused worker reports into the old buckets).
+    // -----------------------------------------------------------------------
+    fprintf(tf, "decoupled_stages=%d\n", (int)eff_cfg.decoupled_stages);
+    fprintf(tf, "buffer_a_depth=%d\n", (int)eff_cfg.buffer_a_depth);
+    fprintf(tf, "buffer_b_depth=%d\n", (int)eff_cfg.buffer_b_depth);
+    fprintf(tf, "pre_threads=%d\n", (int)eff_cfg.pre_threads);
+    fprintf(tf, "buf_a_mode=%d\n", (int)eff_cfg.buf_a_mode);
+    fprintf(tf, "pre_affinity=%s\n",
+            (eff_cfg.pre_affinity && *eff_cfg.pre_affinity) ? eff_cfg.pre_affinity : "(inherit)");
+    fprintf(tf, "npu_stage_affinity=%s\n",
+            (eff_cfg.npu_stage_affinity && *eff_cfg.npu_stage_affinity)
+                ? eff_cfg.npu_stage_affinity
+                : "(follow pre_affinity)");
+    // The stage timings, in TOTAL ms over the whole run.
+    fprintf(tf, "stage1_ms=%.3f\n", tm.stage1_ms);
+    fprintf(tf, "stage1_wait_ms=%.3f\n", tm.stage1_wait_ms);
+    fprintf(tf, "stage2_ms=%.3f\n", tm.stage2_ms);
+    fprintf(tf, "stage2_wait_ms=%.3f\n", tm.stage2_wait_ms);
+    fprintf(tf, "bufA_upload_ms=%.3f\n", tm.bufA_upload_ms);
+    // The bounded buffers' losses.  bufB_dropped is ALSO counted in
+    // detections_dropped (a lost heatmap IS a lost detection).
+    fprintf(tf, "bufA_dropped=%lld\n", (long long)tm.bufA_dropped);
+    fprintf(tf, "bufA_full_drops=%lld\n", (long long)tm.bufA_full_drops);
+    fprintf(tf, "bufB_dropped=%lld\n", (long long)tm.bufB_dropped);
+    // The NPU's own busy time, and its utilisation against the wall clock.
+    fprintf(tf, "npu_busy_ms=%.3f\n", tm.npu_busy_ms);
+    {
+      const double denom = tm.wall_ms * (double)(eff_cfg.npu_workers > 0 ? eff_cfg.npu_workers : 1);
+      fprintf(tf, "npu_util_pct=%.3f\n", denom > 0 ? 100.0 * tm.npu_busy_ms / denom : 0.0);
+    }
     fclose(tf);
   }
   fprintf(stderr,

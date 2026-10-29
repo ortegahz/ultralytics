@@ -4,905 +4,170 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>方向 A｜Lite GMC / No-GMC：解开硬保证与可对账的互斥</title>
-  <style>
-    html, body {
-      width: 1280px;
-      height: 720px;
-      margin: 0;
-      overflow: hidden;
-      font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
-      background:
-        radial-gradient(circle at top right, rgba(188, 147, 72, 0.18), transparent 32%),
-        linear-gradient(180deg, #f7f5ef 0%, #f4f6f9 100%);
-      color: #122033;
-    }
-    body {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .slide {
-      width: 1180px;
-      height: 620px;
-      display: grid;
-      grid-template-rows: 110px 1fr 70px;
-      gap: 18px;
-      padding: 28px 30px;
-      border-radius: 28px;
-      background: rgba(255, 255, 255, 0.84);
-      box-shadow: 0 24px 80px rgba(15, 23, 42, 0.12);
-      border: 1px solid rgba(18, 32, 51, 0.08);
-    }
-    .header {
-      display: flex;
-      align-items: end;
-      justify-content: space-between;
-      border-bottom: 1px solid rgba(18, 32, 51, 0.12);
-      padding-bottom: 14px;
-    }
-    .eyebrow {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
-      border-radius: 999px;
-      background: rgba(201, 151, 77, 0.12);
-      color: #7d5a22;
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-    .title {
-      margin: 14px 0 0;
-      font-size: 38px;
-      line-height: 1.08;
-      font-weight: 800;
-      letter-spacing: -0.03em;
-    }
-    .subtitle {
-      margin: 8px 0 0;
-      color: #4b5b70;
-      font-size: 15px;
-      line-height: 1.4;
-    }
-    .page-tag {
-      align-self: start;
-      padding: 10px 14px;
-      border-radius: 14px;
-      background: #122033;
-      color: #f8fafc;
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.06em;
-    }
-    .content {
-      display: grid;
-      grid-template-columns: 1.15fr 0.85fr;
-      gap: 18px;
-      min-height: 0;
-    }
-    .footer {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0 8px;
-      color: #5a6879;
-      font-size: 12px;
-      border-top: 1px solid rgba(18, 32, 51, 0.1);
-    }
-
-    .content,
-    .content * {
-      box-sizing: border-box;
-    }
-
-    .content {
-      grid-template-columns: 1fr;
-      grid-template-rows: 54px minmax(0, 1fr) 54px 40px;
-      gap: 9px;
-    }
-
-    .kpi-strip {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1.15fr 1.15fr;
-      gap: 10px;
-      min-height: 0;
-    }
-
-    .kpi-card {
-      position: relative;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      min-width: 0;
-      padding: 8px 13px;
-      overflow: hidden;
-      border-radius: 16px;
-      background: rgba(255, 255, 255, 0.76);
-      border: 1px solid rgba(18, 32, 51, 0.08);
-      box-shadow: 0 8px 22px rgba(15, 23, 42, 0.055);
-    }
-
-    .kpi-card.primary {
-      background:
-        linear-gradient(135deg, rgba(201, 151, 77, 0.16), rgba(255, 255, 255, 0.82) 62%);
-      border-color: rgba(201, 151, 77, 0.25);
-    }
-
-    .kpi-card.secondary {
-      background: rgba(244, 246, 249, 0.9);
-    }
-
-    .kpi-value {
-      flex: 0 0 auto;
-      color: #122033;
-      font-size: 22px;
-      line-height: 1;
-      font-weight: 800;
-      letter-spacing: -0.04em;
-      white-space: nowrap;
-    }
-
-    .kpi-card.primary .kpi-value {
-      color: #7d5a22;
-    }
-
-    .kpi-copy {
-      min-width: 0;
-      color: #4b5b70;
-      font-size: 11.5px;
-      line-height: 1.25;
-    }
-
-    .kpi-copy strong {
-      display: block;
-      margin-bottom: 2px;
-      color: #122033;
-      font-size: 12px;
-      font-weight: 700;
-    }
-
-    .main-cluster {
-      display: grid;
-      grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
-      gap: 12px;
-      min-height: 0;
-    }
-
-    .panel {
-      min-height: 0;
-      border-radius: 24px;
-      background: rgba(255, 255, 255, 0.82);
-      border: 1px solid rgba(18, 32, 51, 0.08);
-      box-shadow: 0 14px 36px rgba(15, 23, 42, 0.08);
-      padding: 22px;
-    }
-
-    .flow-panel {
-      position: relative;
-      padding: 14px 16px;
-      overflow: hidden;
-    }
-
-    .flow-panel::before {
-      position: absolute;
-      top: -48px;
-      right: -44px;
-      width: 150px;
-      height: 150px;
-      border: 1px solid rgba(201, 151, 77, 0.13);
-      border-radius: 50%;
-      content: "";
-      pointer-events: none;
-    }
-
-    .section-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      margin-bottom: 10px;
-    }
-
-    .section-title {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin: 0;
-      color: #122033;
-      font-size: 14px;
-      line-height: 1.2;
-      font-weight: 800;
-    }
-
-    .section-title::before {
-      width: 4px;
-      height: 16px;
-      border-radius: 999px;
-      background: #c9974d;
-      content: "";
-    }
-
-    .mini-tag {
-      display: inline-flex;
-      align-items: center;
-      padding: 4px 8px;
-      border-radius: 999px;
-      background: rgba(201, 151, 77, 0.12);
-      color: #7d5a22;
-      font-size: 10.5px;
-      font-weight: 700;
-      white-space: nowrap;
-    }
-
-    .flow-track {
-      display: grid;
-      grid-template-columns: 1fr 18px 1.12fr 18px 1.18fr 18px 0.92fr;
-      align-items: stretch;
-      gap: 0;
-    }
-
-    .flow-node {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      min-width: 0;
-      min-height: 48px;
-      padding: 7px 8px;
-      border-radius: 13px;
-      background: rgba(244, 246, 249, 0.88);
-      border: 1px solid rgba(18, 32, 51, 0.09);
-      text-align: center;
-    }
-
-    .flow-node.gate {
-      background: rgba(201, 151, 77, 0.14);
-      border-color: rgba(201, 151, 77, 0.32);
-    }
-
-    .flow-node.decision {
-      background: #122033;
-      border-color: #122033;
-      color: #f8fafc;
-    }
-
-    .node-code {
-      margin-bottom: 2px;
-      color: #7d5a22;
-      font-size: 9.5px;
-      line-height: 1;
-      font-weight: 800;
-      letter-spacing: 0.08em;
-    }
-
-    .decision .node-code {
-      color: rgba(248, 250, 252, 0.66);
-    }
-
-    .node-main {
-      font-size: 12px;
-      line-height: 1.2;
-      font-weight: 700;
-      white-space: nowrap;
-    }
-
-    .node-note {
-      margin-top: 3px;
-      color: #5a6879;
-      font-size: 9.5px;
-      line-height: 1.15;
-      white-space: nowrap;
-    }
-
-    .decision .node-note {
-      color: rgba(248, 250, 252, 0.68);
-    }
-
-    .flow-arrow {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: rgba(18, 32, 51, 0.36);
-      font-size: 17px;
-      font-weight: 700;
-    }
-
-    .branch-wrap {
-      position: relative;
-      margin-top: 9px;
-      padding-top: 8px;
-    }
-
-    .branch-wrap::before {
-      position: absolute;
-      top: 0;
-      left: 50%;
-      width: 1px;
-      height: 8px;
-      background: rgba(18, 32, 51, 0.18);
-      content: "";
-    }
-
-    .branch-grid {
-      position: relative;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-    }
-
-    .branch-grid::before {
-      position: absolute;
-      top: -1px;
-      left: 25%;
-      right: 25%;
-      height: 1px;
-      background: rgba(18, 32, 51, 0.18);
-      content: "";
-    }
-
-    .branch-card {
-      position: relative;
-      display: grid;
-      grid-template-columns: auto 1fr;
-      align-items: center;
-      gap: 9px;
-      min-width: 0;
-      min-height: 51px;
-      padding: 7px 10px;
-      border-radius: 14px;
-      border: 1px solid rgba(18, 32, 51, 0.09);
-      background: rgba(244, 246, 249, 0.74);
-    }
-
-    .branch-card.identity {
-      background: rgba(67, 126, 101, 0.09);
-      border-color: rgba(67, 126, 101, 0.22);
-    }
-
-    .branch-icon {
-      display: grid;
-      place-items: center;
-      width: 30px;
-      height: 30px;
-      border-radius: 10px;
-      background: rgba(18, 32, 51, 0.07);
-      color: #4b5b70;
-      font-size: 15px;
-      font-weight: 800;
-    }
-
-    .identity .branch-icon {
-      background: rgba(67, 126, 101, 0.13);
-      color: #3f745f;
-    }
-
-    .branch-copy {
-      min-width: 0;
-    }
-
-    .branch-title {
-      margin-bottom: 2px;
-      color: #122033;
-      font-size: 12px;
-      font-weight: 800;
-      white-space: nowrap;
-    }
-
-    .branch-desc {
-      color: #5a6879;
-      font-size: 10px;
-      line-height: 1.25;
-    }
-
-    .identity .branch-title {
-      color: #35664f;
-    }
-
-    .flow-footnote {
-      margin: 7px 0 0;
-      color: #5a6879;
-      font-size: 10.5px;
-      line-height: 1.2;
-      text-align: center;
-    }
-
-    .benefit-panel {
-      display: grid;
-      grid-template-rows: 1fr 1fr;
-      gap: 9px;
-      padding: 12px;
-      min-width: 0;
-    }
-
-    .benefit-card {
-      min-height: 0;
-      padding: 9px 11px;
-      border-radius: 15px;
-      border: 1px solid rgba(18, 32, 51, 0.08);
-      background: rgba(244, 246, 249, 0.64);
-    }
-
-    .benefit-card:last-child {
-      background: rgba(201, 151, 77, 0.08);
-      border-color: rgba(201, 151, 77, 0.2);
-    }
-
-    .card-label {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      margin-bottom: 5px;
-      color: #4b5b70;
-      font-size: 10.5px;
-      font-weight: 700;
-    }
-
-    .delta {
-      padding: 2px 6px;
-      border-radius: 999px;
-      background: rgba(201, 151, 77, 0.12);
-      color: #7d5a22;
-      font-size: 9.5px;
-      font-weight: 800;
-      white-space: nowrap;
-    }
-
-    .chart-area {
-      display: grid;
-      grid-template-columns: 1fr 84px;
-      gap: 10px;
-      height: 51px;
-    }
-
-    .bar-chart {
-      display: flex;
-      align-items: end;
-      justify-content: center;
-      gap: 22px;
-      height: 51px;
-      padding: 0 7px 14px;
-      border-bottom: 1px solid rgba(18, 32, 51, 0.12);
-    }
-
-    .bar-item {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: end;
-      height: 49px;
-      gap: 2px;
-    }
-
-    .bar {
-      width: 30px;
-      min-height: 5px;
-      border-radius: 6px 6px 2px 2px;
-      background: #aeb9c7;
-    }
-
-    .bar.highlight {
-      background: linear-gradient(180deg, #d0a65e, #b5843c);
-    }
-
-    .bar-value {
-      color: #4b5b70;
-      font-size: 9px;
-      line-height: 1;
-      font-weight: 700;
-      white-space: nowrap;
-    }
-
-    .bar-name {
-      position: absolute;
-      margin-top: 36px;
-      color: #5a6879;
-      font-size: 9px;
-      line-height: 1;
-    }
-
-    .metric-readout {
-      display: flex;
-      flex-direction: column;
-      align-items: flex-end;
-      justify-content: center;
-      text-align: right;
-    }
-
-    .metric-big {
-      color: #122033;
-      font-size: 22px;
-      line-height: 1;
-      font-weight: 800;
-      letter-spacing: -0.04em;
-    }
-
-    .metric-unit {
-      margin-top: 4px;
-      color: #5a6879;
-      font-size: 9.5px;
-      line-height: 1.2;
-    }
-
-    .f1-line {
-      margin-top: 3px;
-      color: #7d5a22;
-      font-size: 10px;
-      font-weight: 700;
-    }
-
-    .bottleneck-row {
-      display: grid;
-      grid-template-columns: 88px 1fr;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .bottleneck-number {
-      color: #122033;
-      font-size: 21px;
-      line-height: 1;
-      font-weight: 800;
-      letter-spacing: -0.035em;
-      white-space: nowrap;
-    }
-
-    .bottleneck-number span {
-      display: block;
-      margin-top: 3px;
-      color: #5a6879;
-      font-size: 9px;
-      font-weight: 500;
-      letter-spacing: 0;
-    }
-
-    .progress-wrap {
-      min-width: 0;
-    }
-
-    .progress-track {
-      position: relative;
-      height: 9px;
-      overflow: hidden;
-      border-radius: 999px;
-      background: rgba(18, 32, 51, 0.08);
-    }
-
-    .progress-fill {
-      width: 99.9%;
-      height: 100%;
-      border-radius: inherit;
-      background: linear-gradient(90deg, rgba(201, 151, 77, 0.6), #b9873f);
-    }
-
-    .progress-labels {
-      display: flex;
-      justify-content: space-between;
-      margin-top: 4px;
-      color: #5a6879;
-      font-size: 9px;
-      line-height: 1;
-    }
-
-    .progress-labels strong {
-      color: #7d5a22;
-      font-size: 11px;
-    }
-
-    .evidence-strip {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 10px;
-      min-height: 0;
-    }
-
-    .evidence-card {
-      display: grid;
-      grid-template-columns: 78px 1fr;
-      align-items: center;
-      gap: 10px;
-      min-width: 0;
-      padding: 7px 11px;
-      border-radius: 15px;
-      background: rgba(255, 255, 255, 0.76);
-      border: 1px solid rgba(18, 32, 51, 0.08);
-      box-shadow: 0 7px 20px rgba(15, 23, 42, 0.045);
-    }
-
-    .evidence-title {
-      color: #122033;
-      font-size: 11px;
-      font-weight: 800;
-      line-height: 1.25;
-    }
-
-    .evidence-title span {
-      display: block;
-      margin-top: 3px;
-      color: #7d5a22;
-      font-size: 9.5px;
-      font-weight: 700;
-    }
-
-    .evidence-data {
-      min-width: 0;
-      color: #4b5b70;
-      font-size: 9.5px;
-      line-height: 1.35;
-      white-space: nowrap;
-    }
-
-    .evidence-data strong {
-      color: #122033;
-      font-weight: 800;
-    }
-
-    .risk-strip {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      min-width: 0;
-      padding: 7px 13px;
-      border-radius: 14px;
-      background: rgba(201, 151, 77, 0.13);
-      border: 1px solid rgba(201, 151, 77, 0.25);
-      color: #684914;
-      font-size: 11.5px;
-      line-height: 1.3;
-    }
-
-    .risk-icon {
-      display: grid;
-      flex: 0 0 auto;
-      place-items: center;
-      width: 24px;
-      height: 24px;
-      border-radius: 8px;
-      background: rgba(201, 151, 77, 0.2);
-      color: #8a5b19;
-      font-size: 14px;
-      font-weight: 800;
-    }
-
-    .risk-strip strong {
-      color: #5c4012;
-      font-weight: 800;
-    }
-
-    @media (prefers-reduced-motion: no-preference) {
-      .kpi-card,
-      .evidence-card,
-      .flow-node,
-      .branch-card {
-        transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
-      }
-      .kpi-card:hover,
-      .evidence-card:hover {
-        transform: translateY(-2px);
-        border-color: rgba(18, 32, 51, 0.15);
-        box-shadow: 0 10px 26px rgba(15, 23, 42, 0.07);
-      }
-    }
-
-    @media print {
-      html, body {
-        width: 1280px;
-        height: 720px;
-      }
-      .slide {
-        print-color-adjust: exact;
-        -webkit-print-color-adjust: exact;
-      }
-    }
-  </style>
 </head>
-<body>
-  <div class="slide">
-    <header class="header">
-      <div>
-        <div class="eyebrow">Signal Narrative</div>
-        <h1 class="title">方向 A｜Lite GMC / No-GMC：解开硬保证与可对账的互斥</h1>
-        <p class="subtitle">内容门控保等价，算法替换释放吞吐。</p>
+<body style="width:100%;height:100%;margin:0;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;font-family:'Microsoft YaHei','PingFang SC',sans-serif;background:radial-gradient(circle at top right,rgba(188,147,72,0.18),transparent 32%),linear-gradient(180deg,#f7f5ef 0%,#f4f6f9 100%);color:#122033;">
+  <div class="slide" style="width:1180px;height:620px;display:grid;grid-template-rows:110px 1fr 70px;gap:18px;padding:28px 30px;border-radius:28px;background:rgba(255,255,255,0.84);box-shadow:0 24px 80px rgba(15,23,42,0.12);border:1px solid rgba(18,32,51,0.08);box-sizing:border-box;overflow:hidden;flex-shrink:0;">
+    <header class="header" style="display:flex;align-items:end;justify-content:space-between;border-bottom:1px solid rgba(18,32,51,0.12);padding-bottom:14px;box-sizing:border-box;min-width:0;flex-shrink:0;">
+      <div style="min-width:0;">
+        <div class="eyebrow" style="display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:rgba(201,151,77,0.12);color:#7d5a22;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">
+          Direction A · Engineering Decision
+        </div>
+        <h1 class="title" style="margin:14px 0 0;font-size:38px;line-height:1.08;font-weight:800;letter-spacing:-0.03em;white-space:nowrap;">方向 A｜Lite GMC / No-GMC：解开硬保证与可对账的互斥</h1>
+        <p class="subtitle" style="margin:8px 0 0;color:#4b5b70;font-size:15px;line-height:1.4;">内容判据替代墙钟判据：Lite GMC 接近“免费”，Native 保留为可对账基线</p>
       </div>
-      <div class="page-tag">16/18</div>
+      <div class="page-tag" style="align-self:start;padding:10px 14px;border-radius:14px;background:#122033;color:#f8fafc;font-size:12px;font-weight:700;letter-spacing:0.06em;flex-shrink:0;">16/19</div>
     </header>
 
-    <main class="content">
-      <section class="kpi-strip" aria-label="核心量化结论">
-        <article class="kpi-card primary">
-          <div class="kpi-value">2.39×</div>
-          <div class="kpi-copy">
-            <strong>吞吐提升</strong>
-            6.156 → 14.704 fps
+    <main class="content" style="display:grid;grid-template-columns:1.15fr 0.85fr;gap:18px;min-height:0;overflow:hidden;">
+      <section class="panel" aria-label="Lite GMC 推荐路径与优化策略" style="min-height:0;border-radius:24px;background:rgba(255,255,255,0.82);border:1px solid rgba(18,32,51,0.08);box-shadow:0 14px 36px rgba(15,23,42,0.08);padding:16px 18px;box-sizing:border-box;display:grid;grid-template-rows:92px 1fr;gap:12px;overflow:hidden;">
+        <section aria-label="Lite GMC 核心收益" style="display:grid;grid-template-columns:0.85fr 1.15fr;gap:12px;min-height:0;">
+          <div style="padding:11px 14px;border-radius:16px;background:rgba(201,151,77,0.09);border:1px solid rgba(201,151,77,0.18);box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;">
+            <div style="font-size:12px;font-weight:700;color:#7d5a22;letter-spacing:0.05em;">语义代价 · ΔF1</div>
+            <div style="margin-top:2px;font-size:30px;line-height:1;font-weight:800;color:#9a641f;letter-spacing:-0.04em;">−0.000195</div>
+            <div style="margin-top:5px;font-size:12px;color:#6f5a3d;">近零损失，但仍是精度代价</div>
           </div>
-        </article>
-
-        <article class="kpi-card primary">
-          <div class="kpi-value">−0.000195</div>
-          <div class="kpi-copy">
-            <strong>F1 变化</strong>
-            语义切换几乎免费
+          <div style="padding:11px 14px;border-radius:16px;background:rgba(47,125,92,0.08);border:1px solid rgba(47,125,92,0.16);box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;">
+            <div style="font-size:12px;font-weight:700;color:#2f755b;letter-spacing:0.05em;">吞吐收益 · 推荐主路线</div>
+            <div style="display:flex;align-items:baseline;gap:12px;margin-top:2px;">
+              <div style="font-size:30px;line-height:1;font-weight:800;color:#276f53;letter-spacing:-0.04em;">2.39×</div>
+              <div style="font-size:17px;line-height:1.2;font-weight:800;color:#122033;">6.156 → 14.704 fps</div>
+            </div>
+            <div style="margin-top:5px;font-size:12px;color:#49685b;">性能收益显著，语义代价接近可忽略</div>
           </div>
-        </article>
+        </section>
 
-        <article class="kpi-card secondary">
-          <div class="kpi-value">21 + 21</div>
-          <div class="kpi-copy">
-            <strong>恒等场景跳过</strong>
-            拟合与 warp 全部跳过
-          </div>
-        </article>
-
-        <article class="kpi-card secondary">
-          <div class="kpi-value">61.71 ms</div>
-          <div class="kpi-copy">
-            <strong>下一主瓶颈</strong>
-            删除 GMC 后残余 99.9%
-          </div>
-        </article>
-      </section>
-
-      <section class="main-cluster">
-        <article class="panel flow-panel" aria-label="A1 恒等门控分流机制">
-          <div class="section-head">
-            <h2 class="section-title">A1 内容门控：以等价判据替代墙钟判据</h2>
-            <span class="mini-tag">只拟合 1 个矩阵 · ≈1.8 ms</span>
-          </div>
-
-          <div class="flow-track" aria-label="主流程">
-            <div class="flow-node">
-              <span class="node-code">INPUT</span>
-              <span class="node-main">输入帧组</span>
-              <span class="node-note">22 帧</span>
+        <section aria-label="A1 A2 A3 优化路径" style="min-height:0;display:grid;grid-template-rows:1fr 52px 34px;gap:8px;overflow:hidden;">
+          <article style="min-height:0;border-radius:18px;padding:12px 14px;box-sizing:border-box;background:linear-gradient(135deg,rgba(201,151,77,0.12),rgba(255,255,255,0.74));border:1px solid rgba(201,151,77,0.24);display:grid;grid-template-columns:150px 1fr 104px;gap:12px;align-items:center;overflow:hidden;">
+            <div>
+              <div style="display:inline-flex;padding:5px 9px;border-radius:999px;background:#122033;color:#f8fafc;font-size:12px;font-weight:700;">A1 · 优先落地</div>
+              <div style="margin-top:7px;font-size:17px;line-height:1.15;font-weight:800;color:#122033;">恒等门控</div>
+              <div style="margin-top:4px;font-size:12px;line-height:1.35;color:#66583f;">内容判据替代墙钟判据</div>
             </div>
 
-            <div class="flow-arrow" aria-hidden="true">→</div>
-
-            <div class="flow-node gate">
-              <span class="node-code">A1</span>
-              <span class="node-main">内容门控</span>
-              <span class="node-note">净位移判定</span>
-            </div>
-
-            <div class="flow-arrow" aria-hidden="true">→</div>
-
-            <div class="flow-node">
-              <span class="node-code">ESTIMATE</span>
-              <span class="node-main">拟合 1 个矩阵</span>
-              <span class="node-note">≈1.8 ms</span>
-            </div>
-
-            <div class="flow-arrow" aria-hidden="true">→</div>
-
-            <div class="flow-node decision">
-              <span class="node-code">DECISION</span>
-              <span class="node-main">身份判定</span>
-              <span class="node-note">内容分支</span>
-            </div>
-          </div>
-
-          <div class="branch-wrap">
-            <div class="branch-grid">
-              <div class="branch-card identity">
-                <div class="branch-icon" aria-hidden="true">≈</div>
-                <div class="branch-copy">
-                  <div class="branch-title">近恒等｜恒等等价</div>
-                  <div class="branch-desc"><strong>warp(I,I) ≡ I</strong>，跳过 21 拟合 + 21 warp</div>
-                </div>
+            <div style="display:grid;grid-template-columns:1fr 26px 1fr 26px 1fr;gap:3px;align-items:center;min-width:0;">
+              <div style="padding:9px 7px;border-radius:12px;background:rgba(255,255,255,0.9);border:1px solid rgba(18,32,51,0.10);text-align:center;box-shadow:0 5px 14px rgba(15,23,42,0.05);">
+                <div style="font-size:11px;color:#68778a;">仅拟合</div>
+                <div style="margin-top:3px;font-size:16px;font-weight:800;color:#122033;">1 个矩阵</div>
+                <div style="margin-top:2px;font-size:11px;color:#7d5a22;">≈ 1.8 ms</div>
               </div>
-
-              <div class="branch-card">
-                <div class="branch-icon" aria-hidden="true">↺</div>
-                <div class="branch-copy">
-                  <div class="branch-title">未通过｜兼容回退</div>
-                  <div class="branch-desc">保留原 GMC 路径，保证兼容与可对账</div>
-                </div>
+              <div style="text-align:center;font-size:19px;color:#9a641f;">→</div>
+              <div style="padding:9px 7px;border-radius:12px;background:rgba(255,255,255,0.9);border:1px solid rgba(18,32,51,0.10);text-align:center;box-shadow:0 5px 14px rgba(15,23,42,0.05);">
+                <div style="font-size:11px;color:#68778a;">判断</div>
+                <div style="margin-top:3px;font-size:15px;font-weight:800;color:#122033;">近恒等？</div>
+              </div>
+              <div style="text-align:center;font-size:19px;color:#9a641f;">→</div>
+              <div style="padding:9px 7px;border-radius:12px;background:rgba(47,125,92,0.1);border:1px solid rgba(47,125,92,0.2);text-align:center;">
+                <div style="font-size:11px;color:#2f755b;">命中</div>
+                <div style="margin-top:3px;font-family:Consolas,monospace;font-size:13px;font-weight:800;color:#276f53;">warp(I,I)≡I</div>
               </div>
             </div>
-          </div>
 
-          <p class="flow-footnote">门控以内容而非墙钟决定是否计算：少算，但不牺牲等价性与对账基线。</p>
-        </article>
-
-        <aside class="panel benefit-panel" aria-label="收益与瓶颈拆解">
-          <article class="benefit-card">
-            <div class="card-label">
-              <span>Lite GMC vs No-GMC</span>
-              <span class="delta">F1 几乎不变</span>
-            </div>
-
-            <div class="chart-area">
-              <div class="bar-chart" aria-label="吞吐量由 6.156 fps 提升至 14.704 fps">
-                <div class="bar-item">
-                  <span class="bar-value">6.156</span>
-                  <span class="bar" style="height: 17px;"></span>
-                </div>
-                <div class="bar-item">
-                  <span class="bar-value">14.704</span>
-                  <span class="bar highlight" style="height: 40px;"></span>
-                </div>
+            <div style="align-self:stretch;display:flex;flex-direction:column;justify-content:center;gap:7px;">
+              <div style="padding:10px 8px;border-radius:12px;background:rgba(18,32,51,0.94);color:#f8fafc;text-align:center;box-shadow:0 8px 18px rgba(15,23,42,0.13);">
+                <div style="font-size:11px;color:#cbd5e1;">跳过全量 GMC</div>
+                <div style="margin-top:3px;font-size:17px;font-weight:800;">−21 FIT</div>
+                <div style="margin-top:2px;font-size:17px;font-weight:800;">−21 WARP</div>
               </div>
+              <div style="text-align:center;font-size:11px;line-height:1.35;color:#68778a;">未命中则继续<br />完整 GMC 路径</div>
+            </div>
+          </article>
 
-              <div class="metric-readout">
-                <div class="metric-big">2.39×</div>
-                <div class="metric-unit">吞吐量提升</div>
-                <div class="f1-line">ΔF1 −0.000195</div>
+          <article style="display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:0;">
+            <div style="padding:8px 11px;border-radius:14px;background:rgba(18,32,51,0.045);border:1px solid rgba(18,32,51,0.08);box-sizing:border-box;display:flex;align-items:center;gap:10px;overflow:hidden;">
+              <div style="width:34px;height:34px;flex-shrink:0;border-radius:12px;background:rgba(18,32,51,0.08);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#36516e;">A2</div>
+              <div style="min-width:0;">
+                <div style="font-size:13px;font-weight:800;color:#122033;">GMC-Net 可微替换</div>
+                <div style="margin-top:3px;font-size:11px;color:#68778a;">降低拟合成本，作为后续优化项</div>
+              </div>
+            </div>
+            <div style="padding:8px 11px;border-radius:14px;background:rgba(18,32,51,0.045);border:1px solid rgba(18,32,51,0.08);box-sizing:border-box;display:flex;align-items:center;gap:10px;overflow:hidden;">
+              <div style="width:34px;height:34px;flex-shrink:0;border-radius:12px;background:rgba(18,32,51,0.08);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#36516e;">A3</div>
+              <div style="min-width:0;">
+                <div style="font-size:13px;font-weight:800;color:#122033;">Median 优化</div>
+                <div style="margin-top:3px;font-size:11px;color:#68778a;">残留 <b style="color:#9a641f;">61.71 ms · 99.9%</b></div>
               </div>
             </div>
           </article>
 
-          <article class="benefit-card">
-            <div class="card-label">
-              <span>删除 GMC 后残余时间</span>
-              <span class="delta">A2 / A3 主目标</span>
-            </div>
-
-            <div class="bottleneck-row">
-              <div class="bottleneck-number">
-                61.71 ms
-                <span>剩余主瓶颈</span>
-              </div>
-
-              <div class="progress-wrap">
-                <div class="progress-track" aria-label="残余时间占比 99.9%">
-                  <div class="progress-fill"></div>
-                </div>
-                <div class="progress-labels">
-                  <span>可微 GMC-Net + median</span>
-                  <strong>99.9%</strong>
-                </div>
-              </div>
-            </div>
-          </article>
-        </aside>
+          <aside aria-label="A1 门限实验前置条件" style="padding:0 12px;border-left:3px solid #c9974d;background:rgba(201,151,77,0.10);border-radius:0 10px 10px 0;display:flex;align-items:center;justify-content:space-between;gap:12px;box-sizing:border-box;overflow:hidden;">
+            <div style="font-size:12px;line-height:1.35;font-weight:700;color:#6d5126;">A1 门禁：先测净位移幅度分布，再确定门限</div>
+            <div style="font-size:11px;line-height:1.25;color:#7d6a4e;white-space:nowrap;">分布未测出前不得预设阈值</div>
+          </aside>
+        </section>
       </section>
 
-      <section class="evidence-strip" aria-label="辅助量化证据">
-        <article class="evidence-card">
-          <div class="evidence-title">
-            已知基线
-            <span>Baseline</span>
+      <section class="panel" aria-label="基线定位与免费提速证据" style="min-height:0;border-radius:24px;background:rgba(255,255,255,0.82);border:1px solid rgba(18,32,51,0.08);box-shadow:0 14px 36px rgba(15,23,42,0.08);padding:16px;box-sizing:border-box;display:grid;grid-template-rows:136px 1fr 1fr;gap:10px;overflow:hidden;">
+        <section aria-label="Native No-GMC Lite GMC 基线对比" style="min-height:0;border-radius:18px;padding:11px 12px;box-sizing:border-box;background:rgba(255,255,255,0.7);border:1px solid rgba(18,32,51,0.08);overflow:hidden;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;">
+            <div style="font-size:14px;font-weight:800;color:#122033;">路径定位</div>
+            <div style="font-size:11px;color:#2f755b;font-weight:700;">推荐 Lite GMC</div>
           </div>
-          <div class="evidence-data">
-            <strong>Native</strong> 183.32 ms · F1 0.9062<br />
-            <strong>No-GMC</strong> 61.78 ms · ΔF1 −0.0054
+
+          <div style="display:grid;gap:5px;">
+            <div style="display:grid;grid-template-columns:5px 66px 1fr 84px;gap:8px;align-items:center;min-height:29px;">
+              <div style="width:5px;height:25px;border-radius:999px;background:#36516e;"></div>
+              <div style="font-size:12px;font-weight:800;color:#122033;">Native</div>
+              <div style="font-size:11px;color:#59697b;">183.32 ms｜F1 0.9062｜22 拟合 / 21 warp</div>
+              <div style="font-size:11px;text-align:right;font-weight:700;color:#36516e;">可对账基线</div>
+            </div>
+            <div style="display:grid;grid-template-columns:5px 66px 1fr 84px;gap:8px;align-items:center;min-height:29px;">
+              <div style="width:5px;height:25px;border-radius:999px;background:#d08a45;"></div>
+              <div style="font-size:12px;font-weight:800;color:#122033;">No-GMC</div>
+              <div style="font-size:11px;color:#59697b;">61.78 ms｜0.34×｜ΔF1 −0.0054</div>
+              <div style="font-size:11px;text-align:right;font-weight:700;color:#b66f2f;">消融参照</div>
+            </div>
+            <div style="display:grid;grid-template-columns:5px 66px 1fr 84px;gap:8px;align-items:center;min-height:29px;padding:0 6px;border-radius:9px;background:rgba(47,125,92,0.08);">
+              <div style="width:5px;height:25px;border-radius:999px;background:#2f7d5c;"></div>
+              <div style="font-size:12px;font-weight:800;color:#122033;">Lite GMC</div>
+              <div style="font-size:11px;color:#49685b;">14.704 fps｜ΔF1 −0.000195</div>
+              <div style="font-size:11px;text-align:right;font-weight:800;color:#2f755b;">推荐主线</div>
+            </div>
+          </div>
+        </section>
+
+        <article aria-label="GMC 两级缓存指标" style="min-height:0;border-radius:18px;padding:11px 13px;box-sizing:border-box;background:linear-gradient(135deg,rgba(18,32,51,0.055),rgba(255,255,255,0.72));border:1px solid rgba(18,32,51,0.08);display:grid;grid-template-rows:auto 1fr;gap:6px;overflow:hidden;">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div style="font-size:14px;font-weight:800;color:#122033;">GMC 两级缓存</div>
+            <div style="font-size:10px;color:#68778a;padding:3px 7px;border-radius:999px;background:rgba(18,32,51,0.06);">免费提速</div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:7px;align-items:center;">
+            <div style="text-align:center;">
+              <div style="font-size:21px;line-height:1;font-weight:800;color:#36516e;">22 帧</div>
+              <div style="margin-top:4px;font-size:10px;color:#68778a;">单次读取恒定</div>
+            </div>
+            <div style="text-align:center;border-left:1px solid rgba(18,32,51,0.09);border-right:1px solid rgba(18,32,51,0.09);">
+              <div style="font-size:18px;line-height:1;font-weight:800;color:#7d5a22;">+7.19</div>
+              <div style="margin-top:4px;font-size:10px;color:#68778a;">MiB / 引擎</div>
+            </div>
+            <div style="text-align:center;">
+              <div style="font-size:18px;line-height:1;font-weight:800;color:#122033;">0.45–0.48</div>
+              <div style="margin-top:4px;font-size:10px;color:#68778a;">ms / 帧</div>
+            </div>
           </div>
         </article>
 
-        <article class="evidence-card">
-          <div class="evidence-title">
-            GMC 两级缓存
-            <span>免费提速</span>
+        <article aria-label="GMC 多引擎指标" style="min-height:0;border-radius:18px;padding:11px 13px;box-sizing:border-box;background:linear-gradient(135deg,rgba(47,125,92,0.08),rgba(255,255,255,0.74));border:1px solid rgba(47,125,92,0.16);display:grid;grid-template-rows:auto 1fr;gap:6px;overflow:hidden;">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div style="font-size:14px;font-weight:800;color:#122033;">GMC 多引擎</div>
+            <div style="font-size:10px;font-weight:800;color:#36516e;padding:3px 8px;border-radius:999px;background:rgba(54,81,110,0.10);border:1px solid rgba(54,81,110,0.13);">逐位一致</div>
           </div>
-          <div class="evidence-data">
-            <strong>恒定 22 帧</strong> · +7.19 MiB/引擎<br />
-            0.45–0.48 ms/帧
-          </div>
-        </article>
-
-        <article class="evidence-card">
-          <div class="evidence-title">
-            GMC 多引擎
-            <span>逐位一致</span>
-          </div>
-          <div class="evidence-data">
-            <strong>247.50 → 151.03</strong> ms/帧<br />
-            1.64× 并行加速
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+            <div>
+              <div style="font-size:11px;color:#68778a;">wall / 帧</div>
+              <div style="margin-top:3px;font-size:20px;line-height:1;font-weight:800;color:#122033;">247.50</div>
+            </div>
+            <div style="font-size:21px;color:#2f755b;">→</div>
+            <div>
+              <div style="font-size:11px;color:#68778a;">优化后</div>
+              <div style="margin-top:3px;font-size:20px;line-height:1;font-weight:800;color:#276f53;">151.03 ms</div>
+            </div>
+            <div style="padding:7px 10px;border-radius:11px;background:rgba(47,125,92,0.11);color:#276f53;font-size:19px;font-weight:800;">1.64×</div>
           </div>
         </article>
-      </section>
-
-      <section class="risk-strip" aria-label="A1 阈值决策约束">
-        <span class="risk-icon" aria-hidden="true">!</span>
-        <div>
-          <strong>A1 前置实验：</strong>先测净位移幅度分布，再定门限；分布未测出前禁止预设阈值。
-        </div>
       </section>
     </main>
 
-    <footer class="footer">
+    <footer class="footer" style="display:flex;align-items:center;justify-content:space-between;padding:0 8px;color:#5a6879;font-size:12px;border-top:1px solid rgba(18,32,51,0.1);box-sizing:border-box;flex-shrink:0;">
       <span>Editorial Light Master</span>
       <span>16</span>
     </footer>

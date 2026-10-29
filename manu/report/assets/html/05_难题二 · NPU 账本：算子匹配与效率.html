@@ -3,169 +3,163 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>难题二 · NPU 账本：算子匹配与效率反直觉</title>
+  <title>Editorial Light Master</title>
 </head>
-<body style="width:100%;height:100%;margin:0;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;font-family:'Microsoft YaHei','PingFang SC',sans-serif;color:#122033;background:radial-gradient(circle at top right,rgba(188,147,72,0.18),transparent 32%),linear-gradient(180deg,#f7f5ef 0%,#f4f6f9 100%);">
-  <div class="slide" style="width:1180px;height:620px;display:grid;grid-template-rows:110px 1fr 70px;gap:18px;padding:28px 30px;border-radius:28px;background:rgba(255,255,255,0.84);box-shadow:0 24px 80px rgba(15,23,42,0.12);border:1px solid rgba(18,32,51,0.08);overflow:hidden;">
-    <header class="header" style="display:flex;align-items:end;justify-content:space-between;border-bottom:1px solid rgba(18,32,51,0.12);padding-bottom:14px;">
-      <div>
-        <div class="eyebrow" style="display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:rgba(201,151,77,0.12);color:#7d5a22;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">Signal Narrative</div>
-        <h1 class="title" style="margin:14px 0 0;font-size:38px;line-height:1.08;font-weight:800;letter-spacing:-0.03em;">难题二 · NPU 账本：算子匹配与效率反直觉</h1>
-        <p class="subtitle" style="margin:8px 0 0;color:#4b5b70;font-size:15px;line-height:1.4;">问题不在算力，而在算子落点、计算路径与输入闸门</p>
+<body style="width:1280px;height:720px;margin:0;overflow:hidden;font-family:'Microsoft YaHei','PingFang SC',sans-serif;background:radial-gradient(circle at top right, rgba(188, 147, 72, 0.18), transparent 32%),linear-gradient(180deg, #f7f5ef 0%, #f4f6f9 100%);color:#122033;display:flex;align-items:center;justify-content:center;">
+  <div class="slide" style="box-sizing:border-box;width:1180px;height:620px;display:grid;grid-template-rows:110px 1fr 70px;gap:18px;padding:28px 30px;border-radius:28px;background:rgba(255, 255, 255, 0.84);box-shadow:0 24px 80px rgba(15, 23, 42, 0.12);border:1px solid rgba(18, 32, 51, 0.08);">
+    <header class="header" style="box-sizing:border-box;flex-shrink:0;display:flex;align-items:end;justify-content:space-between;border-bottom:1px solid rgba(18, 32, 51, 0.12);padding-bottom:14px;">
+      <div style="min-width:0;">
+        <div class="eyebrow" style="display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:rgba(201, 151, 77, 0.12);color:#7d5a22;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">Signal Narrative</div>
+        <h1 class="title" style="margin:14px 0 0;font-size:38px;line-height:1.08;font-weight:800;letter-spacing:-0.03em;white-space:nowrap;">难题二 · NPU 账本：算子匹配与效率反直觉</h1>
+        <p class="subtitle" style="margin:8px 0 0;color:#4b5b70;font-size:15px;line-height:1.4;">NPU 不是“算得慢”，而是“算的东西和算的方式都不对”</p>
       </div>
-      <div class="page-tag" style="align-self:start;padding:10px 14px;border-radius:14px;background:#122033;color:#f8fafc;font-size:12px;font-weight:700;letter-spacing:0.06em;">PAGE 05</div>
+      <div class="page-tag" style="align-self:start;padding:10px 14px;border-radius:14px;background:#122033;color:#f8fafc;font-size:12px;font-weight:700;letter-spacing:0.06em;">05/19</div>
     </header>
 
-    <main class="content" style="display:grid;grid-template-rows:1fr 64px;grid-template-columns:0.38fr 0.62fr;gap:12px 18px;min-height:0;">
+    <main class="content" style="box-sizing:border-box;min-height:0;display:grid;grid-template-columns:0.78fr 1.22fr;grid-template-rows:1fr 60px;gap:12px 18px;">
+      <section class="panel" aria-label="NPU 系统性错配核心判断" style="box-sizing:border-box;min-height:0;overflow:hidden;border-radius:24px;background:#122033;border:1px solid rgba(255,255,255,0.08);box-shadow:0 14px 36px rgba(15, 23, 42, 0.12);padding:18px 20px;color:#f8fafc;display:flex;flex-direction:column;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+          <span style="display:inline-flex;align-items:center;gap:7px;padding:5px 9px;border-radius:999px;background:rgba(201,151,77,0.15);color:#e3c181;font-size:11px;font-weight:700;letter-spacing:0.08em;">核心判断</span>
+          <span style="font-family:Consolas,'Courier New',monospace;font-size:10px;color:rgba(248,250,252,0.48);letter-spacing:0.08em;">NPU / SYSTEM MISMATCH</span>
+        </div>
 
-      <section class="panel verdict-panel" aria-label="NPU 性能账本核心判断" style="position:relative;min-height:0;overflow:hidden;border-radius:24px;background:#122033;border:1px solid rgba(18,32,51,0.08);box-shadow:0 14px 36px rgba(15,23,42,0.14);padding:18px 20px;color:#f8fafc;">
-        <svg aria-hidden="true" viewBox="0 0 360 250" style="position:absolute;right:-54px;top:20px;width:310px;height:220px;opacity:0.13;pointer-events:none;">
-          <g fill="none" stroke="#c9974d" stroke-width="1.3">
-            <rect x="83" y="62" width="122" height="88" rx="14"></rect>
-            <rect x="104" y="83" width="80" height="46" rx="7"></rect>
-            <path d="M103 83H84M103 106H84M103 129H84M184 83h37M184 106h37M184 129h37"></path>
-            <path d="M129 62V42h30v20M129 150v20h30v-20"></path>
-            <path d="M61 106h23M221 106h47"></path>
-            <circle cx="48" cy="106" r="6" fill="#c9974d" stroke="none"></circle>
-            <circle cx="274" cy="106" r="6" fill="#c9974d" stroke="none"></circle>
-          </g>
-          <g fill="#c9974d">
-            <rect x="113" y="93" width="11" height="7" rx="2"></rect>
-            <rect x="129" y="93" width="11" height="7" rx="2"></rect>
-            <rect x="145" y="93" width="11" height="7" rx="2"></rect>
-            <rect x="113" y="105" width="11" height="7" rx="2"></rect>
-            <rect x="129" y="105" width="11" height="7" rx="2"></rect>
-            <rect x="145" y="105" width="11" height="7" rx="2"></rect>
-          </g>
-        </svg>
+        <h2 style="margin:13px 0 12px;font-size:23px;line-height:1.35;font-weight:800;letter-spacing:-0.025em;">
+          不是“算得慢”，而是<br />
+          <span style="color:#e8b878;">算的东西</span>和<span style="color:#e8b878;">算的方式</span>都不对
+        </h2>
 
-        <div style="position:relative;z-index:1;display:flex;flex-direction:column;height:100%;">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px;">
-            <span style="font-size:10px;font-weight:700;letter-spacing:0.14em;color:#d9bc86;">NPU PERFORMANCE LEDGER</span>
-            <span style="padding:3px 8px;border:1px solid rgba(201,151,77,0.38);border-radius:999px;color:#e6cf9f;font-size:9px;font-weight:700;letter-spacing:0.08em;">3 笔真实成本</span>
-          </div>
-
-          <blockquote style="margin:0;font-size:clamp(22px,2.15vw,28px);line-height:1.27;font-weight:800;letter-spacing:-0.035em;max-width:365px;">
-            NPU 不是“算得慢”<br>
-            是<span style="color:#e6bf76;">“算的东西</span><br>
-            和<span style="color:#e6bf76;">算的方式</span>都不对”
-          </blockquote>
-
-          <div style="display:grid;gap:7px;margin-top:auto;padding-top:10px;">
-            <div style="display:grid;grid-template-columns:28px 76px 1fr;align-items:center;min-height:34px;padding:6px 8px;border-radius:12px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.08);">
-              <span style="font-size:10px;font-weight:800;color:#d9bc86;">01</span>
-              <strong style="font-size:13px;line-height:1;">算子落错</strong>
-              <span style="font-size:11px;color:#c8d1dc;line-height:1.25;">CPU 静默回退</span>
+        <div style="display:grid;grid-template-rows:repeat(3,1fr);gap:7px;min-height:0;flex:1;">
+          <article style="display:grid;grid-template-columns:30px 1fr;align-items:center;gap:9px;padding:7px 9px;border-radius:13px;background:rgba(255,255,255,0.055);border:1px solid rgba(255,255,255,0.075);">
+            <span style="font-family:Consolas,'Courier New',monospace;font-size:11px;font-weight:700;color:#d8b06f;">01</span>
+            <div>
+              <div style="font-size:12px;font-weight:700;color:#f8fafc;">算子落点</div>
+              <div style="margin-top:2px;font-size:11px;line-height:1.35;color:rgba(248,250,252,0.68);"><strong style="color:#f3a66f;">1 个算子</strong> 静默落到 CPU</div>
             </div>
-            <div style="display:grid;grid-template-columns:28px 76px 1fr;align-items:center;min-height:34px;padding:6px 8px;border-radius:12px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.08);">
-              <span style="font-size:10px;font-weight:800;color:#d9bc86;">02</span>
-              <strong style="font-size:13px;line-height:1;">路径重复</strong>
-              <span style="font-size:11px;color:#c8d1dc;line-height:1.25;">multi-scale × 3 次前向</span>
+          </article>
+
+          <article style="display:grid;grid-template-columns:30px 1fr;align-items:center;gap:9px;padding:7px 9px;border-radius:13px;background:rgba(255,255,255,0.055);border:1px solid rgba(255,255,255,0.075);">
+            <span style="font-family:Consolas,'Courier New',monospace;font-size:11px;font-weight:700;color:#d8b06f;">02</span>
+            <div>
+              <div style="font-size:12px;font-weight:700;color:#f8fafc;">计算路径</div>
+              <div style="margin-top:2px;font-size:11px;line-height:1.35;color:rgba(248,250,252,0.68);"><strong style="color:#f3a66f;">3 次前向</strong> 叠加空间上限</div>
             </div>
-            <div style="display:grid;grid-template-columns:28px 76px 1fr;align-items:center;min-height:34px;padding:6px 8px;border-radius:12px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.08);">
-              <span style="font-size:10px;font-weight:800;color:#d9bc86;">03</span>
-              <strong style="font-size:13px;line-height:1;">输入受限</strong>
-              <span style="font-size:11px;color:#c8d1dc;line-height:1.25;">dtype 成为硬闸门</span>
+          </article>
+
+          <article style="display:grid;grid-template-columns:30px 1fr;align-items:center;gap:9px;padding:7px 9px;border-radius:13px;background:rgba(255,255,255,0.055);border:1px solid rgba(255,255,255,0.075);">
+            <span style="font-family:Consolas,'Courier New',monospace;font-size:11px;font-weight:700;color:#d8b06f;">03</span>
+            <div>
+              <div style="font-size:12px;font-weight:700;color:#f8fafc;">输入格式</div>
+              <div style="margin-top:2px;font-size:11px;line-height:1.35;color:rgba(248,250,252,0.68);"><strong style="color:#f3a66f;">dtype</strong> 决定量化路径</div>
             </div>
-          </div>
+          </article>
         </div>
       </section>
 
-      <section aria-label="三组 NPU 性能硬证据" style="display:grid;grid-template-rows:repeat(3,1fr);gap:9px;min-height:0;">
-
-        <article class="panel" style="display:grid;grid-template-columns:42px minmax(0,1fr) 102px;align-items:center;gap:11px;min-height:0;border-radius:18px;background:rgba(255,255,255,0.82);border:1px solid rgba(18,32,51,0.08);box-shadow:0 10px 26px rgba(15,23,42,0.06);padding:9px 13px;">
-          <div aria-hidden="true" style="width:38px;height:38px;display:flex;align-items:center;justify-content:center;border-radius:13px;background:rgba(202,75,75,0.09);border:1px solid rgba(202,75,75,0.18);">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-              <rect x="4.5" y="4.5" width="15" height="15" rx="3" stroke="#b74d4d" stroke-width="1.6"></rect>
-              <path d="M8 9h8M8 12.5h5M8 16h7" stroke="#b74d4d" stroke-width="1.4" stroke-linecap="round"></path>
-              <circle cx="18" cy="6" r="2.5" fill="#b74d4d"></circle>
-            </svg>
-          </div>
-          <div style="min-width:0;">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;">
-              <span style="font-size:10px;font-weight:800;color:#a28a5c;letter-spacing:0.08em;">01 / 算子匹配</span>
-              <span style="padding:2px 6px;border-radius:999px;background:rgba(202,75,75,0.08);color:#a64343;font-size:9px;font-weight:700;">无异常 · 已偏离</span>
+      <section aria-label="三组工程硬证据" style="box-sizing:border-box;min-height:0;display:grid;grid-template-rows:repeat(3,1fr);gap:9px;">
+        <article class="panel" style="box-sizing:border-box;min-height:0;overflow:hidden;border-radius:20px;background:rgba(255,255,255,0.82);border:1px solid rgba(18,32,51,0.08);box-shadow:0 10px 26px rgba(15,23,42,0.06);padding:10px 14px;display:grid;grid-template-columns:180px 1fr;align-items:center;gap:14px;">
+          <div>
+            <div style="display:flex;align-items:center;gap:7px;margin-bottom:7px;">
+              <span style="font-family:Consolas,'Courier New',monospace;font-size:10px;font-weight:700;color:#9a6c22;">EVIDENCE 01</span>
+              <span style="font-size:12px;font-weight:800;color:#122033;">静默回退</span>
             </div>
-            <h3 style="margin:0;font-size:15px;line-height:1.2;font-weight:800;">“编译通过” ≠ “全在 NPU 上”</h3>
-            <p style="margin:3px 0 0;font-size:11px;line-height:1.35;color:#5a6879;">v1 有 1 个计算算子静默落到 CPU，不抛异常、不改指标。</p>
+            <div style="display:flex;align-items:center;gap:5px;">
+              <span style="padding:5px 8px;border-radius:9px;background:#eef3f8;color:#28516e;font-size:10px;font-weight:800;">NPU</span>
+              <span style="color:#8a97a6;font-size:13px;">→</span>
+              <span style="padding:5px 6px;border-radius:9px;background:#f7f1e7;color:#7d5a22;font-size:9px;font-weight:700;">未匹配</span>
+              <span style="color:#8a97a6;font-size:13px;">→</span>
+              <span style="padding:5px 8px;border-radius:9px;background:#fff0e7;color:#b95c2c;font-size:10px;font-weight:800;border:1px solid rgba(201,105,55,0.2);">CPU</span>
+            </div>
           </div>
-          <div style="text-align:center;padding:7px 8px;border-radius:13px;background:rgba(202,75,75,0.07);border:1px solid rgba(202,75,75,0.12);">
-            <div style="font-size:28px;line-height:1;font-weight:800;color:#b74444;letter-spacing:-0.05em;">1 个</div>
-            <div style="margin-top:3px;font-size:10px;font-weight:800;letter-spacing:0.08em;color:#a64343;">→ CPU</div>
+          <div style="border-left:1px solid rgba(18,32,51,0.1);padding-left:14px;">
+            <div style="font-family:Consolas,'Courier New',monospace;font-size:24px;font-weight:800;color:#b95c2c;line-height:1;">1</div>
+            <div style="margin-top:4px;font-size:11px;line-height:1.4;color:#4b5b70;"><strong style="color:#122033;">编译通过</strong> ≠ 全程运行于 NPU</div>
+            <div style="margin-top:3px;font-size:10px;color:#7b8795;">不抛异常，不改原指标</div>
           </div>
         </article>
 
-        <article class="panel" style="display:grid;grid-template-columns:150px minmax(0,1fr);align-items:center;gap:14px;min-height:0;border-radius:18px;background:rgba(255,255,255,0.82);border:1px solid rgba(18,32,51,0.08);box-shadow:0 10px 26px rgba(15,23,42,0.06);padding:9px 13px;">
-          <div style="min-width:0;">
-            <div style="font-size:10px;font-weight:800;color:#a28a5c;letter-spacing:0.08em;margin-bottom:4px;">02 / 效率路径</div>
-            <h3 style="margin:0;font-size:15px;line-height:1.2;font-weight:800;">收益不与计算量线性相关</h3>
-            <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">
-              <span style="padding:3px 7px;border-radius:999px;background:rgba(201,151,77,0.12);color:#7d5a22;font-size:10px;font-weight:700;">multi-scale × 3</span>
-              <span style="padding:3px 7px;border-radius:999px;background:rgba(18,32,51,0.06);color:#4b5b70;font-size:10px;font-weight:700;">H × W ≤ 16384</span>
+        <article class="panel" style="box-sizing:border-box;min-height:0;overflow:hidden;border-radius:20px;background:rgba(255,255,255,0.82);border:1px solid rgba(18,32,51,0.08);box-shadow:0 10px 26px rgba(15,23,42,0.06);padding:9px 14px;display:grid;grid-template-columns:180px 1fr;align-items:center;gap:14px;">
+          <div>
+            <div style="display:flex;align-items:center;gap:7px;margin-bottom:6px;">
+              <span style="font-family:Consolas,'Courier New',monospace;font-size:10px;font-weight:700;color:#9a6c22;">EVIDENCE 02</span>
+              <span style="font-size:12px;font-weight:800;color:#122033;">效率反直觉</span>
+            </div>
+            <div style="display:grid;gap:5px;">
+              <div style="display:grid;grid-template-columns:36px 1fr 47px;align-items:center;gap:6px;">
+                <span style="font-size:9px;color:#687687;">MAC</span>
+                <span style="height:7px;border-radius:999px;background:rgba(18,32,51,0.07);overflow:hidden;"><span style="display:block;width:15%;height:100%;border-radius:inherit;background:#c08b3e;"></span></span>
+                <strong style="font-family:Consolas,'Courier New',monospace;font-size:10px;color:#7d5a22;text-align:right;">−6.8%</strong>
+              </div>
+              <div style="display:grid;grid-template-columns:36px 1fr 47px;align-items:center;gap:6px;">
+                <span style="font-size:9px;color:#687687;">时延</span>
+                <span style="height:7px;border-radius:999px;background:rgba(18,32,51,0.07);overflow:hidden;"><span style="display:block;width:72%;height:100%;border-radius:inherit;background:#168a7a;"></span></span>
+                <strong style="font-family:Consolas,'Courier New',monospace;font-size:10px;color:#168a7a;text-align:right;">−46.5%</strong>
+              </div>
             </div>
           </div>
-
-          <div style="display:grid;grid-template-columns:1fr 1.25fr;gap:9px;align-items:center;">
-            <div style="padding:7px 10px;border-radius:13px;background:rgba(18,32,51,0.05);border:1px solid rgba(18,32,51,0.06);">
-              <div style="font-size:10px;color:#5a6879;font-weight:700;">MAC</div>
-              <div style="font-size:23px;line-height:1.1;font-weight:800;color:#52647a;letter-spacing:-0.04em;">↓ 6.8%</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;border-left:1px solid rgba(18,32,51,0.1);padding-left:14px;">
+            <div>
+              <div style="font-size:10px;color:#687687;">multi-scale 前向次数</div>
+              <div style="margin-top:2px;font-family:Consolas,'Courier New',monospace;font-size:21px;font-weight:800;color:#122033;">3×</div>
             </div>
-            <div style="position:relative;padding:7px 12px;border-radius:13px;background:rgba(201,151,77,0.13);border:1px solid rgba(201,151,77,0.18);">
-              <div style="font-size:10px;color:#7d5a22;font-weight:700;">真实时延</div>
-              <div style="font-size:30px;line-height:1.05;font-weight:800;color:#9a6c20;letter-spacing:-0.05em;">↓ 46.5%</div>
-              <span style="position:absolute;right:8px;top:6px;font-size:9px;color:#9a6c20;font-weight:700;">非线性感</span>
-            </div>
+            <span style="padding:6px 8px;border-radius:9px;background:#f7f1e7;color:#7d5a22;font-family:Consolas,'Courier New',monospace;font-size:9px;font-weight:800;white-space:nowrap;">H×W ≤ 16384</span>
           </div>
         </article>
 
-        <article class="panel" style="display:grid;grid-template-columns:minmax(0,1fr) 125px;align-items:center;gap:14px;min-height:0;border-radius:18px;background:rgba(255,255,255,0.82);border:1px solid rgba(18,32,51,0.08);box-shadow:0 10px 26px rgba(15,23,42,0.06);padding:9px 13px;">
-          <div style="min-width:0;">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-              <span style="font-size:10px;font-weight:800;color:#a28a5c;letter-spacing:0.08em;">03 / 量化闸门</span>
-              <span style="padding:2px 6px;border-radius:999px;background:rgba(202,75,75,0.08);color:#a64343;font-size:9px;font-weight:700;">dtype 硬约束</span>
+        <article class="panel" style="box-sizing:border-box;min-height:0;overflow:hidden;border-radius:20px;background:rgba(255,255,255,0.82);border:1px solid rgba(18,32,51,0.08);box-shadow:0 10px 26px rgba(15,23,42,0.06);padding:9px 14px;display:grid;grid-template-columns:180px 1fr;align-items:center;gap:14px;">
+          <div>
+            <div style="display:flex;align-items:center;gap:7px;margin-bottom:6px;">
+              <span style="font-family:Consolas,'Courier New',monospace;font-size:10px;font-weight:700;color:#9a6c22;">EVIDENCE 03</span>
+              <span style="font-size:12px;font-weight:800;color:#122033;">输入路径</span>
             </div>
-            <h3 style="margin:0;font-size:15px;line-height:1.2;font-weight:800;">f16 展宽路径 → int8 高效路径</h3>
-            <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
-              <span style="padding:4px 8px;border-radius:9px;background:rgba(18,32,51,0.06);font-size:12px;font-weight:800;color:#52647a;">f16&nbsp; 45.41 ms</span>
-              <span style="color:#a28a5c;font-size:15px;font-weight:800;">→</span>
-              <span style="padding:4px 8px;border-radius:9px;background:rgba(201,151,77,0.13);font-size:12px;font-weight:800;color:#8b621d;">int8&nbsp; 0.34 ms</span>
+            <div style="display:flex;align-items:center;gap:7px;">
+              <div>
+                <div style="font-size:9px;color:#687687;">FP16</div>
+                <div style="font-family:Consolas,'Courier New',monospace;font-size:13px;font-weight:800;color:#b95c2c;">45.41 ms</div>
+              </div>
+              <span style="color:#9aa5b1;font-size:12px;">→</span>
+              <div>
+                <div style="font-size:9px;color:#687687;">INT8</div>
+                <div style="font-family:Consolas,'Courier New',monospace;font-size:13px;font-weight:800;color:#168a7a;">0.34 ms</div>
+              </div>
             </div>
-            <p style="margin:4px 0 0;font-size:10px;line-height:1.3;color:#5a6879;">配置轴封死；QAT 难兼得精度与 INT8 输入时延。</p>
           </div>
-
-          <div style="position:relative;display:flex;align-items:center;justify-content:center;height:58px;border-radius:15px;background:#122033;overflow:hidden;">
-            <div style="position:absolute;width:88px;height:88px;border:1px solid rgba(201,151,77,0.25);border-radius:50%;"></div>
-            <div style="position:absolute;width:58px;height:58px;border:1px solid rgba(201,151,77,0.36);border-radius:50%;"></div>
-            <div style="position:relative;text-align:center;">
-              <div style="font-size:29px;line-height:1;font-weight:800;color:#e6bf76;letter-spacing:-0.055em;">≈133×</div>
-              <div style="margin-top:3px;font-size:9px;font-weight:700;letter-spacing:0.08em;color:#c8d1dc;">时延差</div>
+          <div style="display:grid;grid-template-columns:auto 1fr;align-items:center;gap:11px;border-left:1px solid rgba(18,32,51,0.1);padding-left:14px;">
+            <div style="font-family:Consolas,'Courier New',monospace;font-size:24px;font-weight:800;color:#168a7a;line-height:1;">133×</div>
+            <div>
+              <div style="font-size:11px;line-height:1.35;color:#4b5b70;">输入 <strong style="color:#122033;">dtype</strong> 是量化硬闸门</div>
+              <div style="margin-top:4px;padding-top:4px;border-top:1px solid rgba(18,32,51,0.08);font-size:9.5px;color:#7b8795;">QAT 无法兼得更高精度与 INT8 输入时延</div>
             </div>
           </div>
         </article>
       </section>
 
-      <section aria-label="性能分析结论" style="grid-column:1 / -1;display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:16px;min-height:0;padding:0 22px;border-radius:18px;background:#122033;border:1px solid rgba(18,32,51,0.08);box-shadow:0 12px 30px rgba(15,23,42,0.13);color:#f8fafc;position:relative;overflow:hidden;">
-        <div aria-hidden="true" style="width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:11px;background:rgba(201,151,77,0.14);border:1px solid rgba(201,151,77,0.24);">
-          <svg width="19" height="19" viewBox="0 0 24 24" fill="none">
-            <rect x="4" y="3.5" width="16" height="17" rx="3" stroke="#d9bc86" stroke-width="1.5"></rect>
-            <path d="M8 8h8M8 12h8M8 16h5" stroke="#d9bc86" stroke-width="1.4" stroke-linecap="round"></path>
-          </svg>
+      <section aria-label="工程结论与行动顺序" style="grid-column:1 / 3;box-sizing:border-box;min-height:0;border-radius:18px;background:#122033;border:1px solid rgba(255,255,255,0.08);box-shadow:0 12px 30px rgba(15,23,42,0.1);padding:10px 18px;display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:18px;color:#f8fafc;">
+        <div style="display:flex;align-items:center;gap:9px;white-space:nowrap;">
+          <span style="width:27px;height:27px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;background:rgba(201,151,77,0.16);color:#e3c181;font-size:15px;font-weight:800;">⇒</span>
+          <div>
+            <div style="font-size:9px;font-weight:700;letter-spacing:0.1em;color:rgba(248,250,252,0.48);">ENGINEERING CONCLUSION</div>
+            <div style="margin-top:2px;font-size:14px;font-weight:800;">FLOPs 外推失效</div>
+          </div>
         </div>
-        <div style="font-size:19px;line-height:1.25;font-weight:800;letter-spacing:-0.02em;">
-          <span style="color:#c8d1dc;">FLOPs 外推失效</span>
-          <span style="margin:0 9px;color:#e6bf76;">⇒</span>
-          用 <span style="color:#e6bf76;">RKNN 算子表</span> 定位真正的代价项
+        <div style="display:flex;align-items:center;justify-content:center;gap:9px;min-width:0;">
+          <span style="font-size:13px;color:rgba(248,250,252,0.68);">必须用</span>
+          <strong style="padding:5px 10px;border-radius:9px;background:rgba(201,151,77,0.15);color:#e8c48c;font-size:13px;white-space:nowrap;">RKNN 算子表</strong>
+          <span style="font-size:13px;color:rgba(248,250,252,0.68);">定位真正的代价项</span>
         </div>
-        <div style="display:flex;align-items:center;gap:7px;padding:7px 10px;border-radius:999px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.1);font-size:10px;font-weight:700;color:#d8e0e9;white-space:nowrap;">
-          <span style="width:6px;height:6px;border-radius:50%;background:#e6bf76;"></span>
-          从估算转向逐项对账
+        <div style="display:flex;align-items:center;gap:7px;padding-left:16px;border-left:1px solid rgba(255,255,255,0.1);white-space:nowrap;">
+          <span style="font-size:9px;color:rgba(248,250,252,0.42);">ACTION</span>
+          <span style="font-size:10px;color:#d9e0e8;">查落点</span>
+          <span style="color:#d8b06f;font-size:10px;">→</span>
+          <span style="font-size:10px;color:#d9e0e8;">查输入</span>
+          <span style="color:#d8b06f;font-size:10px;">→</span>
+          <span style="font-size:10px;color:#d9e0e8;">评上限</span>
         </div>
       </section>
     </main>
 
-    <footer class="footer" style="display:flex;align-items:center;justify-content:space-between;padding:0 8px;color:#5a6879;font-size:12px;border-top:1px solid rgba(18,32,51,0.1);">
+    <footer class="footer" style="box-sizing:border-box;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 8px;color:#5a6879;font-size:12px;border-top:1px solid rgba(18, 32, 51, 0.1);">
       <span>Editorial Light Master</span>
-      <span>5</span>
+      <span>05</span>
     </footer>
   </div>
 </body>

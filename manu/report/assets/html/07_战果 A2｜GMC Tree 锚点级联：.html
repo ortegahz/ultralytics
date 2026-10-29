@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>战果 A2｜GMC Tree 锚点级联：拟合 22 → 6.19 次/帧</title>
+</head>
+<body style="width:1280px;height:720px;margin:0;overflow:hidden;font-family:'Microsoft YaHei','PingFang SC',sans-serif;background:radial-gradient(circle at top right,rgba(188,147,72,0.18),transparent 32%),linear-gradient(180deg,#f7f5ef 0%,#f4f6f9 100%);color:#122033;display:flex;align-items:center;justify-content:center;">
+  <div class="slide" style="width:1180px;height:620px;display:grid;grid-template-rows:110px 1fr 70px;gap:18px;padding:28px 30px;border-radius:28px;background:rgba(255,255,255,0.84);box-shadow:0 24px 80px rgba(15,23,42,0.12);border:1px solid rgba(18,32,51,0.08);">
+    <header class="header" style="display:flex;align-items:end;justify-content:space-between;border-bottom:1px solid rgba(18,32,51,0.12);padding-bottom:14px;flex-shrink:0;">
+      <div>
+        <div class="eyebrow" style="display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:rgba(201,151,77,0.12);color:#7d5a22;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">Battle Result A2 · Algorithm Efficiency</div>
+        <h1 class="title" style="margin:14px 0 0;font-size:38px;line-height:1.08;font-weight:800;letter-spacing:-0.03em;">战果 A2｜GMC Tree 锚点级联</h1>
+        <p class="subtitle" style="margin:8px 0 0;color:#4b5b70;font-size:15px;line-height:1.4;">拟合 22 → 6.19 次/帧｜节省 71.9%，精度基本保持，但 warp 仍需执行 22 次/帧</p>
+      </div>
+      <div class="page-tag" style="align-self:start;padding:10px 14px;border-radius:14px;background:#122033;color:#f8fafc;font-size:12px;font-weight:700;letter-spacing:0.06em;">{{ current_page_number }}/{{ total_page_count }}</div>
+    </header>
+
+    <main class="content" style="display:grid;grid-template-columns:1.15fr 0.85fr;grid-template-rows:1fr 58px;gap:10px 18px;min-height:0;flex:1;">
+      <section class="panel" style="grid-column:1;grid-row:1;min-height:0;border-radius:24px;background:rgba(255,255,255,0.82);border:1px solid rgba(18,32,51,0.08);box-shadow:0 14px 36px rgba(15,23,42,0.08);padding:16px 18px;overflow:hidden;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;">
+          <h2 style="margin:0;font-size:15px;line-height:1.25;font-weight:800;letter-spacing:-0.01em;">树状锚点级联：只拟合锚点，其余 lag 缓存连乘</h2>
+          <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border-radius:999px;background:rgba(201,151,77,0.12);color:#7d5a22;font-size:10px;font-weight:700;white-space:nowrap;">cache × transform</span>
+        </div>
+
+        <svg viewBox="0 0 600 153" role="img" aria-labelledby="tree-title tree-desc" style="display:block;width:100%;height:151px;">
+          <title id="tree-title">GMC Tree 锚点级联示意图</title>
+          <desc id="tree-desc">传统 GMC 对二十二个 lag 全部直接拟合；GMC Tree 仅在二、十二、二十二、三十二和四十二五个锚点直接拟合，其余 lag 通过缓存步变换连乘推导，最大链深度为四。</desc>
+
+          <rect x="0" y="2" width="600" height="42" rx="12" fill="#f3f5f8" stroke="rgba(18,32,51,0.08)"/>
+          <text x="13" y="19" fill="#4b5b70" font-size="10.5" font-weight="700">传统 GMC · 全量直接拟合</text>
+          <text x="586" y="19" text-anchor="end" fill="#122033" font-size="11" font-weight="800">22 次 / 帧</text>
+
+          <g transform="translate(14,27)">
+            <rect x="0" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="10" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="20" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="30" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="40" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="50" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="60" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="70" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="80" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="90" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="100" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="110" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="120" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="130" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="140" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="150" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="160" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="170" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="180" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="190" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="200" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="210" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="220" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="230" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="240" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="250" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="260" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="270" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="280" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="290" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="300" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="310" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="320" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="330" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="340" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="350" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="360" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="370" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="380" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="390" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="400" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="410" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="420" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="430" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="440" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="450" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="460" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="470" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="480" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="490" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="500" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="510" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="520" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="530" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="540" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="550" y="0" width="7" height="9" rx="2" fill="#122033"/>
+            <rect x="560" y="0" width="7" height="9" rx="2" fill="#122033"/>
+          </g>
+
+          <rect x="0" y="51" width="600" height="98" rx="12" fill="#fbfaf7" stroke="rgba(201,151,77,0.22)"/>
+          <text x="13" y="70" fill="#7d5a22" font-size="10.5" font-weight="700">GMC Tree · 稀疏锚点拟合</text>
+          <text x="586" y="70" text-anchor="end" fill="#7d5a22" font-size="11" font-weight="800">6.19 次 / 帧</text>
+
+          <path d="M36 115 C120 80, 178 150, 252 115" fill="none" stroke="#aab3bf" stroke-width="2" stroke-dasharray="5 4"/>
+          <path d="M252 115 C330 82, 390 148, 464 115" fill="none" stroke="#aab3bf" stroke-width="2" stroke-dasharray="5 4"/>
+          <path d="M464 115 C505 99, 536 132, 574 115" fill="none" stroke="#aab3bf" stroke-width="2" stroke-dasharray="5 4"/>
+
+          <g fill="#ffffff" stroke="#aab3bf" stroke-width="1.5">
+            <circle cx="36" cy="115" r="5"/><circle cx="80" cy="115" r="5"/><circle cx="126" cy="115" r="5"/><circle cx="171" cy="115" r="5"/>
+            <circle cx="216" cy="115" r="5"/><circle cx="296" cy="115" r="5"/><circle cx="340" cy="115" r="5"/><circle cx="385" cy="115" r="5"/>
+            <circle cx="430" cy="115" r="5"/><circle cx="500" cy="115" r="5"/><circle cx="540" cy="115" r="5"/>
+          </g>
+
+          <g fill="#bc9348" stroke="#8d692f" stroke-width="1.5">
+            <circle cx="36" cy="115" r="8"/><circle cx="252" cy="115" r="8"/><circle cx="464" cy="115" r="8"/>
+            <circle cx="574" cy="115" r="8"/><circle cx="176" cy="115" r="8"/>
+          </g>
+
+          <g fill="#122033" font-size="9.5" font-weight="700" text-anchor="middle">
+            <text x="36" y="141">2</text><text x="176" y="141">12</text><text x="252" y="141">22</text>
+            <text x="464" y="141">32</text><text x="574" y="141">42</text>
+          </g>
+
+          <rect x="210" y="77" width="88" height="17" rx="8.5" fill="#ffffff" stroke="rgba(18,32,51,0.10)"/>
+          <text x="254" y="89" text-anchor="middle" fill="#4b5b70" font-size="8.5" font-weight="700">cache × transform</text>
+          <rect x="453" y="77" width="102" height="17" rx="8.5" fill="#ffffff" stroke="rgba(18,32,51,0.10)"/>
+          <text x="504" y="89" text-anchor="middle" fill="#4b5b70" font-size="8.5" font-weight="700">chain depth ≤ 4</text>
+        </svg>
+
+        <div style="display:grid;grid-template-columns:1.35fr auto 1fr;align-items:center;gap:10px;margin-top:7px;padding:9px 12px;border-radius:14px;background:#122033;color:#f8fafc;">
+          <div style="display:flex;align-items:baseline;gap:7px;white-space:nowrap;">
+            <span style="font-size:25px;line-height:1;font-weight:800;letter-spacing:-0.04em;">22 → 6.19</span>
+            <span style="font-size:10.5px;color:#cbd5e1;">次拟合 / 帧</span>
+          </div>
+          <span style="display:inline-flex;align-items:center;justify-content:center;padding:6px 10px;border-radius:999px;background:rgba(117,211,145,0.15);color:#b9ead0;font-size:12px;font-weight:800;white-space:nowrap;">节省 71.9%</span>
+          <div style="text-align:right;">
+            <div style="font-size:12px;font-weight:700;color:#f8fafc;">warp 仍为 22 次 / 帧</div>
+            <div style="margin-top:2px;font-size:9.5px;color:#aeb9c7;">收益边界：仅减少冗余拟合</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" style="grid-column:2;grid-row:1;min-height:0;border-radius:24px;background:rgba(255,255,255,0.82);border:1px solid rgba(18,32,51,0.08);box-shadow:0 14px 36px rgba(15,23,42,0.08);padding:16px 18px;overflow:hidden;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+          <h2 style="margin:0;font-size:15px;line-height:1.25;font-weight:800;">精度判决</h2>
+          <span style="font-size:9.5px;color:#5a6879;">官方 val · 31,613 帧 / 25,111 GT</span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1.1fr 1fr;align-items:center;gap:12px;padding:10px 11px;border-radius:15px;background:#f4f6f9;border:1px solid rgba(18,32,51,0.07);">
+          <div>
+            <div style="font-size:9.5px;color:#7d5a22;font-weight:700;letter-spacing:0.06em;">CTRL 空对照臂</div>
+            <div style="margin-top:3px;font-size:23px;line-height:1;font-weight:800;letter-spacing:-0.03em;">ΔF1 = +0.0000</div>
+            <div style="margin-top:5px;font-size:9.5px;color:#5a6879;">8 门限｜24 序列全为 0</div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(8,1fr);gap:4px;align-content:center;">
+            <span style="height:15px;border-radius:3px;background:rgba(201,151,77,0.18);"></span>
+            <span style="height:15px;border-radius:3px;background:rgba(201,151,77,0.18);"></span>
+            <span style="height:15px;border-radius:3px;background:rgba(201,151,77,0.18);"></span>
+            <span style="height:15px;border-radius:3px;background:rgba(201,151,77,0.18);"></span>
+            <span style="height:15px;border-radius:3px;background:rgba(201,151,77,0.18);"></span>
+            <span style="height:15px;border-radius:3px;background:rgba(201,151,77,0.18);"></span>
+            <span style="height:15px;border-radius:3px;background:rgba(201,151,77,0.18);"></span>
+            <span style="height:15px;border-radius:3px;background:rgba(201,151,77,0.18);"></span>
+            <div style="grid-column:1/-1;display:flex;justify-content:space-between;margin-top:2px;color:#8a96a5;font-size:8.5px;">
+              <span>threshold × 8</span><span>sequence × 24</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;align-items:center;gap:8px;margin-top:9px;padding:10px 11px;border-radius:15px;background:rgba(255,255,255,0.68);border:1px solid rgba(18,32,51,0.07);">
+          <div>
+            <div style="font-size:9px;color:#5a6879;">Tree F1</div>
+            <div style="margin-top:2px;font-size:21px;line-height:1;font-weight:800;">0.9060</div>
+          </div>
+          <div style="padding-left:10px;border-left:1px solid rgba(18,32,51,0.09);">
+            <div style="font-size:9px;color:#5a6879;">相对 GMC</div>
+            <div style="margin-top:2px;font-size:21px;line-height:1;font-weight:800;color:#8b5d48;">−0.0003</div>
+          </div>
+          <div style="padding-left:10px;border-left:1px solid rgba(18,32,51,0.09);">
+            <div style="font-size:9px;color:#5a6879;">精度保留</div>
+            <div style="margin-top:2px;font-size:21px;line-height:1;font-weight:800;color:#4e8066;">99.6%</div>
+          </div>
+        </div>
+
+        <div style="margin-top:9px;padding:9px 11px 8px;border-radius:15px;background:#fbfaf7;border:1px solid rgba(201,151,77,0.18);">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;">
+            <span style="font-size:9.5px;font-weight:700;color:#7d5a22;">板端三臂 · F1 窄带</span>
+            <span style="display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;background:rgba(117,211,145,0.13);color:#4e8066;font-size:9px;font-weight:700;">差异处于噪声下限内</span>
+          </div>
+
+          <svg viewBox="0 0 400 63" role="img" aria-label="板端三臂 F1 均落在 0.9021 到 0.9025 的窄带内" style="display:block;width:100%;height:57px;">
+            <rect x="42" y="21" width="316" height="20" rx="10" fill="rgba(201,151,77,0.12)"/>
+            <line x1="42" y1="31" x2="358" y2="31" stroke="#c8ced6" stroke-width="1"/>
+            <g fill="#8a96a5" font-size="8.5">
+              <text x="42" y="55" text-anchor="middle">0.9019</text>
+              <text x="121" y="55" text-anchor="middle">0.9021</text>
+              <text x="200" y="55" text-anchor="middle">0.9023</text>
+              <text x="279" y="55" text-anchor="middle">0.9025</text>
+              <text x="358" y="55" text-anchor="middle">0.9027</text>
+            </g>
+            <g stroke="#aeb8c4" stroke-width="1">
+              <line x1="42" y1="20" x2="42" y2="42"/><line x1="121" y1="20" x2="121" y2="42"/>
+              <line x1="200" y1="20" x2="200" y2="42"/><line x1="279" y1="20" x2="279" y2="42"/>
+              <line x1="358" y1="20" x2="358" y2="42"/>
+            </g>
+            <circle cx="135" cy="31" r="6" fill="#122033"/>
+            <circle cx="198" cy="31" r="6" fill="#bc9348"/>
+            <circle cx="262" cy="31" r="6" fill="#6e8aa5"/>
+            <text x="135" y="13" text-anchor="middle" fill="#5a6879" font-size="8.5">A</text>
+            <text x="198" y="13" text-anchor="middle" fill="#5a6879" font-size="8.5">B</text>
+            <text x="262" y="13" text-anchor="middle" fill="#5a6879" font-size="8.5">C</text>
+          </svg>
+        </div>
+      </section>
+
+      <section style="grid-column:1/-1;grid-row:2;min-height:0;display:grid;grid-template-columns:1.25fr 1.4fr auto;align-items:center;gap:14px;padding:8px 14px;border-radius:18px;background:rgba(255,255,255,0.74);border:1px solid rgba(18,32,51,0.08);box-shadow:0 10px 28px rgba(15,23,42,0.05);overflow:hidden;">
+        <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+          <div style="font-size:10px;font-weight:800;color:#4b5b70;white-space:nowrap;">代价分量</div>
+          <div style="display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:10px;background:rgba(201,151,77,0.10);white-space:nowrap;">
+            <span style="font-size:10px;font-weight:700;color:#7d5a22;">TP −1</span>
+            <span style="font-size:10px;color:#8b7350;">→</span>
+            <span style="font-size:11px;font-weight:800;color:#7d5a22;">−0.00002</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:10px;background:rgba(157,91,72,0.10);white-space:nowrap;">
+            <span style="font-size:10px;font-weight:700;color:#8b5d48;">FP +13</span>
+            <span style="font-size:10px;color:#9a6f5d;">→</span>
+            <span style="font-size:11px;font-weight:800;color:#8b5d48;">−0.00025</span>
+          </div>
+          <span style="font-size:9.5px;color:#5a6879;white-space:nowrap;">FP 为主因</span>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:center;gap:7px;min-width:0;">
+          <span style="padding:5px 9px;border-radius:999px;background:rgba(201,151,77,0.12);color:#7d5a22;font-size:9.5px;font-weight:700;white-space:nowrap;">空对照臂</span>
+          <span style="padding:5px 9px;border-radius:999px;background:#122033;color:#f8fafc;font-size:9.5px;font-weight:700;white-space:nowrap;">代数等价性 ≠ 估计量等价性</span>
+          <span style="padding:5px 9px;border-radius:999px;background:rgba(18,32,51,0.07);color:#4b5b70;font-size:9.5px;font-weight:700;white-space:nowrap;">TP/FP 分量拆解</span>
+        </div>
+
+        <div style="text-align:right;padding-left:12px;border-left:1px solid rgba(18,32,51,0.09);">
+          <div style="font-size:9.5px;color:#5a6879;">相邻 lag 描述同一段相机运动</div>
+          <div style="margin-top:2px;font-size:9px;color:#8a96a5;">拟合收益已确认，warp 开销仍待优化</div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer" style="display:flex;align-items:center;justify-content:space-between;padding:0 8px;color:#5a6879;font-size:12px;border-top:1px solid rgba(18,32,51,0.1);flex-shrink:0;">
+      <span>Editorial Light Master</span>
+      <span>{{ current_page_number }}</span>
+    </footer>
+  </div>
+</body>
+</html>

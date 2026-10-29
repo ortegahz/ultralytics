@@ -110,6 +110,46 @@ def parse_gap_frames(gap_log: Path | None, gap_frames: Path | None) -> set[int]:
     return holes
 
 
+def parse_tsv_rows(path: Path, prefix: str) -> dict[int, str]:
+    """-> {frame_id: the detection payload of that frame}.
+
+    The payload is everything AFTER the ``<seq>__<frame_id>`` stem, tab
+    separated: the detection count and then one field group per detection.
+    Two arms agree on a frame iff these payloads are byte-identical -- that is
+    the per-frame evidence that a change in the INPUT path (the upload, the
+    canvas, the tile selection) did not change a single detection.
+    """
+    out: dict[int, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        stem, _, payload = line.partition("\t")
+        fid = int(stem.rsplit("__", 1)[1])
+        if not stem.startswith(prefix):
+            raise ValueError(f"{path}: {stem!r} does not belong to sequence {prefix}")
+        out[fid] = payload
+    return out
+
+
+def compare_detection_streams(arm: dict[int, str], ref: dict[int, str]) -> dict:
+    """Per-frame, byte-exact comparison of two detection streams."""
+    common = sorted(set(arm) & set(ref))
+    identical = [f for f in common if arm[f] == ref[f]]
+    different = [f for f in common if arm[f] != ref[f]]
+    samples = []
+    for f in different[:5]:
+        samples.append({"frame_id": f, "arm": arm[f][:300], "ref": ref[f][:300]})
+    return {
+        "common": len(common),
+        "identical": len(identical),
+        "different": len(different),
+        "only_in_arm": len(set(arm) - set(ref)),
+        "only_in_ref": len(set(ref) - set(arm)),
+        "different_ids": different[:5000],
+        "samples": samples,
+    }
+
+
 def runs_of(sorted_ids: list[int], limit: int = 12) -> list[tuple[int, int]]:
     """Contiguous runs of frame ids, e.g. [1,2,3,7] -> [(1,3),(7,7)]."""
     if not sorted_ids:
@@ -170,6 +210,29 @@ def render_markdown(payload: dict) -> str:
         out.append("```")
         out.append(", ".join(f"{a}..{b}" if a != b else f"{a}" for a, b in runs_of(bit["different_ids"])))
         out.append("```")
+        out.append("")
+
+    det = payload["det_stream"]
+    out.append("## 2b. 检测流逐帧比对（下游输入路径的证据）\n")
+    out.append("> 特征 MD5 覆盖的是 GMC 输出，**位于拼图画布与上传之前**；"
+               "所以 MD5 相同**不能**证明 NPU 吃到的字节相同。"
+               "这里比对的是两臂 TSV 里每一帧的**检测载荷**（检出数 + 每个检出的全部字段），"
+               "逐字节。\n")
+    out.append("| 项 | 值 |")
+    out.append("|:--|--:|")
+    out.append(f"| 两臂共有的检测帧数 | {det['common']} |")
+    out.append(f"| **逐帧完全相同** | **{det['identical']}** |")
+    out.append(f"| **逐帧不同** | **{det['different']}** |")
+    out.append(f"| 只在 arm 里的帧 | {det['only_in_arm']} |")
+    out.append(f"| 只在 ref 里的帧 | {det['only_in_ref']} |")
+    out.append("")
+    if det["samples"]:
+        out.append("**不同帧样例（前 5 帧）**：")
+        out.append("")
+        out.append("| frame_id | arm | ref |")
+        out.append("|--:|:--|:--|")
+        for s in det["samples"]:
+            out.append(f"| {s['frame_id']} | `{s['arm']}` | `{s['ref']}` |")
         out.append("")
 
     if arms:
@@ -293,6 +356,18 @@ def main() -> None:
           f"different={bit['different']}  (clean {clean_identical}/{len(clean)}, "
           f"holed {holed_identical}/{len(holed)})", flush=True)
 
+    # ---- 2b. THE DETECTION STREAM, frame by frame -----------------------------------
+    #
+    # The feature MD5 covers the GMC output, which sits UPSTREAM of the canvas
+    # and of the upload into the NPU.  So an MD5 match says NOTHING about the
+    # input path.  The per-frame comparison of the detection payloads is the
+    # evidence that the NPU actually consumed the same bytes.
+    det_stream = compare_detection_streams(
+        parse_tsv_rows(arm_tsv, prefix), parse_tsv_rows(ref_tsv, prefix))
+    print(f"[DETS] common={det_stream['common']} identical={det_stream['identical']} "
+          f"different={det_stream['different']}  (only_arm {det_stream['only_in_arm']}, "
+          f"only_ref {det_stream['only_in_ref']})", flush=True)
+
     # ---- 3. the merged runtime manifest ----------------------------------------------
     if args.manifest_out:
         manifest = Path(args.manifest_out)
@@ -363,6 +438,9 @@ def main() -> None:
     items.append({"name": "板端自报有洞帧数",
                   "value": str(len(holes)),
                   "ok": True})
+    items.append({"name": "检测流逐帧一致（共同帧）",
+                  "value": f"{det_stream['identical']}/{det_stream['common']}",
+                  "ok": det_stream["different"] == 0})
     if arms:
         d = delta(arms["ref@S"]["metrics"], arms["arm@S"]["metrics"])
         items.append({"name": "ΔF1 = arm@S − ref@S ≥ 0",
@@ -390,6 +468,7 @@ def main() -> None:
             "frame_max": max(S) if S else -1,
         },
         "bit_exact": bit,
+        "det_stream": det_stream,
         "arms": arms,
         "hole_frames": sorted(holes)[:5000],
         "verdict": verdict,

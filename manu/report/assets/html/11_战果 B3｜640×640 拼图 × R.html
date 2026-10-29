@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>战果 B3｜640×640 拼图 × RGA 硬件画布：3 次前向压成 1 次</title>
+</head>
+<body style="width:100%;height:100%;margin:0;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;font-family:'Microsoft YaHei','PingFang SC',sans-serif;background:radial-gradient(circle at top right,rgba(188,147,72,0.18),transparent 32%),linear-gradient(180deg,#f7f5ef 0%,#f4f6f9 100%);color:#122033;">
+  <div class="slide" style="width:1180px;height:620px;display:grid;grid-template-rows:110px 1fr 70px;gap:18px;padding:28px 30px;border-radius:28px;background:rgba(255,255,255,0.84);box-shadow:0 24px 80px rgba(15,23,42,0.12);border:1px solid rgba(18,32,51,0.08);">
+    <header class="header" style="display:flex;align-items:end;justify-content:space-between;border-bottom:1px solid rgba(18,32,51,0.12);padding-bottom:14px;">
+      <div style="min-width:0;">
+        <div class="eyebrow" style="display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:rgba(201,151,77,0.12);color:#7d5a22;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">
+          Engineering Result / B3
+        </div>
+        <h1 class="title" style="margin:10px 0 0;font-size:30px;line-height:1.08;font-weight:800;letter-spacing:-0.03em;white-space:nowrap;">
+          战果 B3｜640×640 拼图 × RGA 硬件画布：<span style="color:#7d5a22;">3 次前向压成 1 次</span>
+        </h1>
+        <p class="subtitle" style="margin:6px 0 0;color:#4b5b70;font-size:15px;line-height:1.4;">
+          形状决定代价｜RGA 硬件画布｜逐帧零 CPU 拷贝
+        </p>
+      </div>
+      <div style="align-self:start;display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
+        <div class="page-tag" style="padding:10px 14px;border-radius:14px;background:#122033;color:#f8fafc;font-size:12px;font-weight:700;letter-spacing:0.06em;">
+          11/19
+        </div>
+        <div style="padding:6px 9px;border:1px solid rgba(18,32,51,0.08);border-radius:10px;background:rgba(255,255,255,0.68);color:#5a6879;font-size:10px;font-weight:700;letter-spacing:0.04em;white-space:nowrap;">
+          SHAPE → COST
+        </div>
+      </div>
+    </header>
+
+    <main class="content" style="display:grid;grid-template-columns:0.72fr 1.28fr;gap:18px;min-height:0;">
+      <section class="panel" style="position:relative;min-height:0;border-radius:24px;background:rgba(255,255,255,0.82);border:1px solid rgba(18,32,51,0.08);box-shadow:0 14px 36px rgba(15,23,42,0.08);padding:18px 20px;overflow:hidden;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+          <div>
+            <div style="font-size:11px;font-weight:700;color:#7d5a22;letter-spacing:0.08em;text-transform:uppercase;">优化前</div>
+            <h2 style="margin:4px 0 0;font-size:20px;line-height:1.25;font-weight:800;letter-spacing:-0.02em;">逐尺度重复前向</h2>
+          </div>
+          <div style="padding:7px 10px;border-radius:12px;background:rgba(75,91,112,0.09);color:#5a6879;font-size:11px;font-weight:700;white-space:nowrap;">
+            PC multi-scale
+          </div>
+        </div>
+
+        <svg viewBox="0 0 360 238" role="img" aria-label="优化前：三个尺度分别执行三次 NPU 前向，约三帧每秒" style="display:block;width:100%;height:218px;margin-top:8px;">
+          <defs>
+            <marker id="arrow-old" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+              <path d="M0,0 L8,4 L0,8 Z" fill="#8996a7"></path>
+            </marker>
+          </defs>
+
+          <text x="8" y="14" fill="#5a6879" font-size="10" font-weight="700">独立输入张量</text>
+          <text x="249" y="14" fill="#5a6879" font-size="10" font-weight="700">重复计算</text>
+
+          <rect x="8" y="30" width="88" height="35" rx="9" fill="#f1f3f6" stroke="rgba(18,32,51,0.12)"></rect>
+          <rect x="14" y="36" width="42" height="23" rx="5" fill="rgba(18,32,51,0.10)"></rect>
+          <text x="63" y="51" fill="#122033" font-size="11" font-weight="700">native</text>
+
+          <rect x="8" y="78" width="88" height="35" rx="9" fill="#f1f3f6" stroke="rgba(18,32,51,0.12)"></rect>
+          <rect x="14" y="84" width="25" height="23" rx="5" fill="rgba(18,32,51,0.08)"></rect>
+          <text x="46" y="99" fill="#122033" font-size="10.5" font-weight="700">thumb160</text>
+
+          <rect x="8" y="126" width="88" height="35" rx="9" fill="#f1f3f6" stroke="rgba(18,32,51,0.12)"></rect>
+          <rect x="14" y="132" width="17" height="23" rx="5" fill="rgba(18,32,51,0.07)"></rect>
+          <text x="39" y="147" fill="#122033" font-size="10.5" font-weight="700">thumb80</text>
+
+          <path d="M98 47 H166 Q178 47 178 59 V91" fill="none" stroke="#8996a7" stroke-width="1.5" marker-end="url(#arrow-old)"></path>
+          <path d="M98 95 H166" fill="none" stroke="#8996a7" stroke-width="1.5" marker-end="url(#arrow-old)"></path>
+          <path d="M98 143 H166 Q178 143 178 131 V102" fill="none" stroke="#8996a7" stroke-width="1.5" marker-end="url(#arrow-old)"></path>
+
+          <rect x="180" y="61" width="92" height="80" rx="18" fill="rgba(75,91,112,0.09)" stroke="rgba(18,32,51,0.12)"></rect>
+          <text x="226" y="91" text-anchor="middle" fill="#122033" font-size="15" font-weight="800">NPU</text>
+          <text x="226" y="111" text-anchor="middle" fill="#5a6879" font-size="10">× 3 次</text>
+          <text x="226" y="128" text-anchor="middle" fill="#8996a7" font-size="9.5">独立前向</text>
+
+          <path d="M274 101 H298" fill="none" stroke="#8996a7" stroke-width="1.5" marker-end="url(#arrow-old)"></path>
+          <rect x="302" y="60" width="50" height="82" rx="13" fill="#eef1f5" stroke="rgba(18,32,51,0.10)"></rect>
+          <text x="327" y="84" text-anchor="middle" fill="#5a6879" font-size="9.5" font-weight="700">结果</text>
+          <text x="327" y="108" text-anchor="middle" fill="#122033" font-size="16" font-weight="800">3</text>
+          <text x="327" y="125" text-anchor="middle" fill="#5a6879" font-size="9.5">次前向</text>
+          <text x="327" y="138" text-anchor="middle" fill="#7d5a22" font-size="9.5" font-weight="700">≈3 fps</text>
+
+          <rect x="8" y="180" width="344" height="48" rx="14" fill="rgba(201,151,77,0.08)" stroke="rgba(201,151,77,0.20)"></rect>
+          <text x="20" y="199" fill="#7d5a22" font-size="10" font-weight="800">支点</text>
+          <text x="54" y="199" fill="#122033" font-size="11" font-weight="700">输入张量固定为 [1,3,640,640]</text>
+          <text x="20" y="216" fill="#5a6879" font-size="10">卷积耗时由形状决定，与像素内容无关</text>
+        </svg>
+      </section>
+
+      <section class="panel" style="position:relative;min-height:0;border-radius:24px;background:rgba(255,255,255,0.82);border:1px solid rgba(18,32,51,0.08);box-shadow:0 14px 36px rgba(15,23,42,0.08);padding:18px 20px;overflow:hidden;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:7px;">
+          <div>
+            <div style="font-size:11px;font-weight:700;color:#7d5a22;letter-spacing:0.08em;text-transform:uppercase;">优化后</div>
+            <h2 style="margin:4px 0 0;font-size:20px;line-height:1.25;font-weight:800;letter-spacing:-0.02em;">三尺度一次装配，一次前向</h2>
+          </div>
+          <div style="display:flex;align-items:center;gap:7px;padding:7px 10px;border-radius:999px;background:rgba(201,151,77,0.10);color:#7d5a22;font-size:10.5px;font-weight:800;white-space:nowrap;">
+            <span style="display:block;width:6px;height:6px;border-radius:50%;background:#c9974d;"></span>
+            3 路输入 · 1 条硬件路径
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:minmax(0,1.32fr) minmax(205px,0.68fr);gap:14px;min-height:0;height:321px;">
+          <div style="position:relative;min-width:0;border-radius:18px;background:linear-gradient(145deg,rgba(247,245,239,0.88),rgba(244,246,249,0.96));border:1px solid rgba(18,32,51,0.08);padding:8px 10px;overflow:hidden;">
+            <div style="position:absolute;top:12px;left:12px;z-index:2;font-family:Consolas,'Courier New',monospace;font-size:10px;color:#5a6879;">
+              INPUT TENSOR · STATIC SHAPE
+            </div>
+
+            <svg viewBox="0 0 430 286" role="img" aria-label="RGA 三路输入一次装配进 640 乘 640 硬件画布，native 占上部，thumb160 与 thumb80 位于左下角" style="display:block;width:100%;height:286px;margin-top:10px;">
+              <defs>
+                <linearGradient id="rgaFill" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="#fffaf0"></stop>
+                  <stop offset="100%" stop-color="#f6ead3"></stop>
+                </linearGradient>
+                <linearGradient id="nativeFill" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="#274766"></stop>
+                  <stop offset="100%" stop-color="#183249"></stop>
+                </linearGradient>
+                <marker id="arrow-new" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                  <path d="M0,0 L8,4 L0,8 Z" fill="#c9974d"></path>
+                </marker>
+                <marker id="arrow-blue" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                  <path d="M0,0 L8,4 L0,8 Z" fill="#244b6b"></path>
+                </marker>
+              </defs>
+
+              <rect x="8" y="36" width="74" height="26" rx="8" fill="#ffffff" stroke="rgba(18,32,51,0.12)"></rect>
+              <rect x="15" y="42" width="28" height="14" rx="3" fill="rgba(18,32,51,0.13)"></rect>
+              <text x="49" y="52" fill="#122033" font-size="9.5" font-weight="700">native</text>
+
+              <rect x="8" y="79" width="74" height="26" rx="8" fill="#ffffff" stroke="rgba(18,32,51,0.12)"></rect>
+              <rect x="15" y="85" width="17" height="14" rx="3" fill="rgba(18,32,51,0.09)"></rect>
+              <text x="39" y="95" fill="#122033" font-size="9.5" font-weight="700">thumb160</text>
+
+              <rect x="8" y="122" width="74" height="26" rx="8" fill="#ffffff" stroke="rgba(18,32,51,0.12)"></rect>
+              <rect x="15" y="128" width="11" height="14" rx="3" fill="rgba(18,32,51,0.07)"></rect>
+              <text x="33" y="138" fill="#122033" font-size="9.5" font-weight="700">thumb80</text>
+
+              <path d="M84 49 H106" fill="none" stroke="#c9974d" stroke-width="1.4" marker-end="url(#arrow-new)"></path>
+              <path d="M84 92 H96 Q106 92 106 82" fill="none" stroke="#c9974d" stroke-width="1.4" marker-end="url(#arrow-new)"></path>
+              <path d="M84 135 H96 Q106 135 106 145" fill="none" stroke="#c9974d" stroke-width="1.4" marker-end="url(#arrow-new)"></path>
+
+              <rect x="109" y="55" width="92" height="76" rx="18" fill="url(#rgaFill)" stroke="rgba(201,151,77,0.52)" stroke-width="1.5"></rect>
+              <text x="155" y="81" text-anchor="middle" fill="#7d5a22" font-size="11" font-weight="800">RGA</text>
+              <text x="155" y="98" text-anchor="middle" fill="#122033" font-size="10.5" font-weight="800">3× improcess</text>
+              <text x="155" y="116" text-anchor="middle" fill="#7d5a22" font-size="9" font-weight="700">缩放 + 落位</text>
+
+              <path d="M203 93 H220" fill="none" stroke="#c9974d" stroke-width="2.2" marker-end="url(#arrow-new)"></path>
+              <text x="212" y="82" text-anchor="middle" fill="#7d5a22" font-size="8.5" font-weight="700">一步到位</text>
+
+              <rect x="225" y="18" width="194" height="194" rx="7" fill="#edf2f6" stroke="#244b6b" stroke-width="2"></rect>
+              <rect x="229" y="22" width="186" height="148.8" rx="4" fill="url(#nativeFill)"></rect>
+              <rect x="229" y="174.8" width="46.5" height="33.2" rx="3" fill="#7e9cb3"></rect>
+              <rect x="279.5" y="174.8" width="23.25" height="16.6" rx="2" fill="#c9974d"></rect>
+
+              <text x="236" y="44" fill="#f8fafc" font-size="11" font-weight="800">native</text>
+              <text x="236" y="61" fill="rgba(248,250,252,0.74)" font-family="Consolas,monospace" font-size="8.5">(0,0,640,512)</text>
+
+              <text x="233" y="190" fill="#122033" font-size="8.5" font-weight="800">thumb160</text>
+              <text x="282" y="185" fill="#122033" font-size="7.5" font-weight="800">thumb80</text>
+
+              <path d="M275 221 H302" fill="none" stroke="#7d5a22" stroke-width="1" stroke-dasharray="3 3"></path>
+              <text x="303" y="224" fill="#5a6879" font-family="Consolas,monospace" font-size="7.5">(0,512,160,128)</text>
+              <path d="M303 237 H331" fill="none" stroke="#7d5a22" stroke-width="1" stroke-dasharray="3 3"></path>
+              <text x="331" y="240" fill="#5a6879" font-family="Consolas,monospace" font-size="7.5">(160,512,80,64)</text>
+
+              <rect x="225" y="226" width="194" height="38" rx="12" fill="#122033"></rect>
+              <text x="242" y="242" fill="rgba(248,250,252,0.68)" font-size="8.5" font-weight="700">640×640 HARDWARE CANVAS</text>
+              <text x="242" y="256" fill="#f8fafc" font-size="10" font-weight="800">静态输入 [1,3,640,640]</text>
+
+              <path d="M321 212 V222" fill="none" stroke="#244b6b" stroke-width="1.6" marker-end="url(#arrow-blue)"></path>
+
+              <rect x="89" y="219" width="112" height="45" rx="12" fill="rgba(255,255,255,0.88)" stroke="rgba(201,151,77,0.28)"></rect>
+              <text x="145" y="237" text-anchor="middle" fill="#7d5a22" font-size="9" font-weight="800">逐帧零 CPU 拷贝</text>
+              <text x="145" y="252" text-anchor="middle" fill="#5a6879" font-size="8.5">硬件完成缩放与落位</text>
+            </svg>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:9px;min-width:0;">
+            <div style="padding:13px 14px;border-radius:17px;background:#122033;color:#f8fafc;box-shadow:0 12px 24px rgba(18,32,51,0.14);">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                <span style="font-size:10px;font-weight:700;color:rgba(248,250,252,0.66);letter-spacing:0.05em;">SERVICE OUTPUT</span>
+                <span style="padding:4px 7px;border-radius:8px;background:rgba(201,151,77,0.20);color:#f3d9a7;font-size:9px;font-weight:800;">1 次 NPU</span>
+              </div>
+              <div style="margin-top:8px;font-size:34px;line-height:1;font-weight:800;letter-spacing:-0.04em;color:#f8fafc;">
+                14.951 <span style="font-size:14px;letter-spacing:0;">fps</span>
+              </div>
+              <div style="margin-top:8px;height:5px;border-radius:999px;background:rgba(248,250,252,0.14);overflow:hidden;">
+                <div style="width:95.9%;height:100%;border-radius:999px;background:linear-gradient(90deg,#c9974d,#f0d39f);"></div>
+              </div>
+              <div style="display:flex;justify-content:space-between;margin-top:6px;color:rgba(248,250,252,0.62);font-size:8.5px;">
+                <span>理论天花板 15.60</span>
+                <span style="color:#f3d9a7;font-weight:800;">损耗 4.1%</span>
+              </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr;gap:8px;">
+              <div style="display:grid;grid-template-columns:auto 1fr;align-items:center;gap:10px;padding:10px 11px;border-radius:14px;background:rgba(46,125,91,0.08);border:1px solid rgba(46,125,91,0.16);">
+                <div style="font-size:18px;line-height:1;font-weight:800;color:#2e7d5b;">0.943</div>
+                <div>
+                  <div style="font-size:9px;font-weight:800;color:#245f47;">ms/帧</div>
+                  <div style="font-size:8.5px;color:#5a6879;margin-top:2px;">拼图装配｜相对 102 ms 可忽略</div>
+                </div>
+              </div>
+
+              <div style="display:grid;grid-template-columns:auto 1fr;align-items:center;gap:10px;padding:10px 11px;border-radius:14px;background:rgba(46,125,91,0.08);border:1px solid rgba(46,125,91,0.16);">
+                <div style="font-size:18px;line-height:1;font-weight:800;color:#2e7d5b;">max = 0</div>
+                <div>
+                  <div style="font-size:9px;font-weight:800;color:#245f47;">字节级一致</div>
+                  <div style="font-size:8.5px;color:#5a6879;margin-top:2px;">native 区与 CPU 参考一致</div>
+                </div>
+              </div>
+            </div>
+
+            <div style="padding:10px 11px;border-radius:14px;background:rgba(201,151,77,0.08);border:1px solid rgba(201,151,77,0.20);">
+              <div style="font-size:8.5px;font-weight:800;color:#7d5a22;letter-spacing:0.05em;">NPU TIME INVARIANT</div>
+              <div style="margin-top:5px;font-family:Consolas,'Courier New',monospace;font-size:10px;line-height:1.45;color:#122033;font-weight:700;">
+                单尺度 NPU 时间<br />≈ 拼图 NPU 时间
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer" style="display:flex;align-items:center;justify-content:space-between;padding:0 8px;color:#5a6879;font-size:12px;border-top:1px solid rgba(18,32,51,0.1);">
+      <span>Editorial Light Master</span>
+      <span>11</span>
+    </footer>
+  </div>
+</body>
+</html>

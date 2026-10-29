@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>战果 B1｜算子回退清零</title>
+  <style>
+    html, body {
+      width: 1280px;
+      height: 720px;
+      margin: 0;
+      overflow: hidden;
+      font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+      background:
+        radial-gradient(circle at top right, rgba(188, 147, 72, 0.18), transparent 32%),
+        linear-gradient(180deg, #f7f5ef 0%, #f4f6f9 100%);
+      color: #122033;
+    }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .slide {
+      width: 1180px;
+      height: 620px;
+      display: grid;
+      grid-template-rows: 110px 1fr 70px;
+      gap: 18px;
+      padding: 28px 30px;
+      border-radius: 28px;
+      background: rgba(255, 255, 255, 0.84);
+      box-shadow: 0 24px 80px rgba(15, 23, 42, 0.12);
+      border: 1px solid rgba(18, 32, 51, 0.08);
+    }
+    .header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(18, 32, 51, 0.12);
+      padding-bottom: 14px;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(201, 151, 77, 0.12);
+      color: #7d5a22;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .title {
+      margin: 14px 0 0;
+      font-size: 38px;
+      line-height: 1.08;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+    .subtitle {
+      margin: 8px 0 0;
+      color: #4b5b70;
+      font-size: 15px;
+      line-height: 1.4;
+    }
+    .page-tag {
+      align-self: start;
+      padding: 10px 14px;
+      border-radius: 14px;
+      background: #122033;
+      color: #f8fafc;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+    }
+    .content {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 18px;
+      min-height: 0;
+    }
+    .panel {
+      min-height: 0;
+      border-radius: 24px;
+      background: rgba(255, 255, 255, 0.82);
+      border: 1px solid rgba(18, 32, 51, 0.08);
+      box-shadow: 0 14px 36px rgba(15, 23, 42, 0.08);
+      padding: 22px;
+    }
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 8px;
+      color: #5a6879;
+      font-size: 12px;
+      border-top: 1px solid rgba(18, 32, 51, 0.1);
+    }
+
+    /* 第 9 页主体：仅修改页眉与页脚之间的内容区域 */
+    .content {
+      grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+      grid-template-rows: minmax(0, 1fr) 64px;
+      gap: 14px 18px;
+    }
+
+    .main-panel,
+    .metric-panel {
+      overflow: visible;
+    }
+
+    .main-panel {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 18px 20px;
+    }
+
+    .section-head,
+    .trial-head,
+    .metric-head,
+    .gate-copy {
+      display: flex;
+      align-items: center;
+    }
+
+    .section-head {
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .section-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: #7d5a22;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+    }
+
+    .section-label::before {
+      content: "";
+      width: 18px;
+      height: 3px;
+      border-radius: 999px;
+      background: rgba(201, 151, 77, 0.72);
+    }
+
+    .tag-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .mini-tag {
+      padding: 4px 8px;
+      border: 1px solid rgba(18, 32, 51, 0.08);
+      border-radius: 999px;
+      background: rgba(244, 246, 249, 0.86);
+      color: #5a6879;
+      font-size: 10px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .risk-statement {
+      margin: 0;
+      color: #27384c;
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1.5;
+    }
+
+    .risk-statement strong {
+      color: #9a5d31;
+    }
+
+    .trial-box {
+      padding: 11px 12px;
+      border: 1px solid rgba(18, 32, 51, 0.08);
+      border-radius: 16px;
+      background:
+        linear-gradient(90deg, rgba(244, 246, 249, 0.92), rgba(255, 255, 255, 0.78));
+    }
+
+    .trial-head {
+      justify-content: space-between;
+      margin-bottom: 9px;
+    }
+
+    .trial-name {
+      font-family: "SFMono-Regular", Consolas, monospace;
+      color: #122033;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .quiet-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: #4b5b70;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .quiet-status::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #b58a4c;
+      box-shadow: 0 0 0 4px rgba(181, 138, 76, 0.12);
+    }
+
+    .pipeline {
+      display: grid;
+      grid-template-columns: 1fr 18px 1.35fr 18px 1fr;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .op-node {
+      min-width: 0;
+      min-height: 42px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 6px 8px;
+      border: 1px solid rgba(18, 32, 51, 0.1);
+      border-radius: 11px;
+      background: rgba(255, 255, 255, 0.8);
+      color: #27384c;
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 1.25;
+      text-align: center;
+    }
+
+    .op-node small {
+      margin-top: 3px;
+      color: #718095;
+      font-size: 9px;
+      font-weight: 500;
+    }
+
+    .op-node.fallback {
+      position: relative;
+      border-color: rgba(181, 112, 61, 0.42);
+      background: rgba(238, 204, 166, 0.28);
+      color: #8b4e25;
+    }
+
+    .op-node.fallback small {
+      color: #9a5d31;
+    }
+
+    .fallback-mark {
+      position: absolute;
+      top: -7px;
+      right: 6px;
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: #a86437;
+      color: #fffaf3;
+      font-size: 8px;
+      letter-spacing: 0.04em;
+    }
+
+    .pipe-arrow {
+      color: #9aa5b3;
+      font-size: 17px;
+      text-align: center;
+    }
+
+    .anchor-card {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 13px;
+      min-height: 70px;
+      padding: 10px 18px;
+      border-radius: 17px;
+      background: #122033;
+      color: #f8fafc;
+      box-shadow: 0 12px 28px rgba(18, 32, 51, 0.16);
+    }
+
+    .anchor-label {
+      color: rgba(248, 250, 252, 0.72);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+
+    .anchor-value {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      white-space: nowrap;
+    }
+
+    .anchor-value .old {
+      color: #dfad77;
+      font-size: 31px;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+    }
+
+    .anchor-value .arrow {
+      color: rgba(248, 250, 252, 0.55);
+      font-size: 21px;
+    }
+
+    .anchor-value .new {
+      color: #ffffff;
+      font-size: 38px;
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: -0.05em;
+    }
+
+    .anchor-note {
+      justify-self: end;
+      padding: 5px 9px;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      color: #dbe7ef;
+      font-size: 9px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .rewrite-row {
+      display: grid;
+      grid-template-columns: 1fr 24px 1.22fr 24px 1fr;
+      align-items: stretch;
+      gap: 5px;
+    }
+
+    .rewrite-node {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 8px 9px;
+      border-radius: 12px;
+      background: rgba(244, 246, 249, 0.9);
+      border: 1px solid rgba(18, 32, 51, 0.08);
+      color: #27384c;
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 1.3;
+      text-align: center;
+    }
+
+    .rewrite-node.new-node {
+      border-color: rgba(201, 151, 77, 0.36);
+      background: rgba(201, 151, 77, 0.1);
+      color: #694a1c;
+    }
+
+    .rewrite-node small {
+      margin-top: 3px;
+      color: #6d7b8d;
+      font-size: 9px;
+      font-weight: 500;
+    }
+
+    .rewrite-arrow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #9aa5b3;
+      font-size: 16px;
+    }
+
+    .metric-panel {
+      display: grid;
+      grid-template-rows: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      padding: 14px;
+    }
+
+    .metric-card {
+      min-height: 0;
+      position: relative;
+      overflow: hidden;
+      padding: 12px 15px;
+      border: 1px solid rgba(18, 32, 51, 0.08);
+      border-radius: 17px;
+      background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(244, 246, 249, 0.9));
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
+    }
+
+    .metric-card::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 72px;
+      height: 72px;
+      border-radius: 0 0 0 72px;
+      background: rgba(201, 151, 77, 0.07);
+      pointer-events: none;
+    }
+
+    .metric-card.primary {
+      border-color: rgba(201, 151, 77, 0.26);
+      background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(239, 224, 198, 0.4));
+    }
+
+    .metric-card.certified {
+      border-color: rgba(55, 125, 104, 0.2);
+      background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(216, 238, 230, 0.48));
+    }
+
+    .metric-head {
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 5px;
+    }
+
+    .metric-label {
+      color: #5a6879;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+
+    .metric-code {
+      color: #9aa5b3;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 8px;
+      font-weight: 700;
+    }
+
+    .metric-value {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      color: #122033;
+      font-size: 26px;
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: -0.04em;
+    }
+
+    .metric-value .from {
+      color: #9a6b45;
+      font-size: 17px;
+    }
+
+    .metric-value .to {
+      color: #122033;
+    }
+
+    .metric-value .unit {
+      color: #5a6879;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    .metric-value .gain {
+      margin-left: auto;
+      padding: 4px 7px;
+      border-radius: 999px;
+      background: rgba(55, 125, 104, 0.1);
+      color: #337563;
+      font-size: 11px;
+      letter-spacing: 0;
+    }
+
+    .metric-value .zero {
+      color: #337563;
+      font-size: 34px;
+    }
+
+    .bar-compare {
+      display: grid;
+      grid-template-columns: 45px 1fr;
+      align-items: center;
+      gap: 7px;
+      margin-top: 8px;
+    }
+
+    .bar-label {
+      color: #718095;
+      font-size: 8px;
+      font-weight: 700;
+    }
+
+    .bar-track {
+      height: 5px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(18, 32, 51, 0.07);
+    }
+
+    .bar-fill {
+      height: 100%;
+      border-radius: inherit;
+    }
+
+    .bar-fill.before {
+      width: 100%;
+      background: rgba(18, 32, 51, 0.23);
+    }
+
+    .bar-fill.after {
+      width: 68.6%;
+      background: #377d68;
+    }
+
+    .metric-foot {
+      margin-top: 6px;
+      color: #718095;
+      font-size: 9px;
+      font-weight: 600;
+    }
+
+    .certified-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .check-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      color: #337563;
+      font-size: 10px;
+      font-weight: 800;
+    }
+
+    .check-badge svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    .gate-bar {
+      grid-column: 1 / -1;
+      min-width: 0;
+      display: grid;
+      grid-template-columns: 42px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 14px;
+      padding: 10px 17px;
+      border-radius: 18px;
+      background: #122033;
+      color: #f8fafc;
+      box-shadow: 0 14px 30px rgba(15, 23, 42, 0.16);
+    }
+
+    .gate-icon {
+      width: 38px;
+      height: 38px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.08);
+      color: #dfad77;
+    }
+
+    .gate-icon svg {
+      width: 22px;
+      height: 22px;
+    }
+
+    .gate-copy {
+      min-width: 0;
+      gap: 10px;
+    }
+
+    .gate-label {
+      flex: 0 0 auto;
+      color: #dfad77;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+    }
+
+    .gate-rule {
+      margin: 0;
+      color: #f8fafc;
+      font-size: 16px;
+      font-weight: 800;
+      line-height: 1.35;
+      letter-spacing: -0.01em;
+    }
+
+    .gate-rule span {
+      color: rgba(248, 250, 252, 0.62);
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    .gate-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 8px 11px;
+      border: 1px solid rgba(255, 255, 255, 0.13);
+      border-radius: 11px;
+      background: rgba(255, 255, 255, 0.07);
+      color: #dce8ef;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 10px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .gate-status::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #78b7a4;
+      box-shadow: 0 0 0 4px rgba(120, 183, 164, 0.12);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="slide">
+    <header class="header">
+      <div>
+        <div class="eyebrow">Battle Result / B1</div>
+        <h1 class="title">战果 B1｜算子回退清零</h1>
+        <p class="subtitle">静默失效的交付硬闸门</p>
+      </div>
+      <div class="page-tag">9/19</div>
+    </header>
+    <main class="content">
+      <section class="panel main-panel" aria-labelledby="main-evidence-title">
+        <div class="section-head">
+          <div class="section-label" id="main-evidence-title">静默失效定位与等效改写</div>
+          <div class="tag-row" aria-label="治理标签">
+            <span class="mini-tag">静默失效治理</span>
+            <span class="mini-tag">位精确等价</span>
+            <span class="mini-tag">板卡实测纪律</span>
+          </div>
+        </div>
+
+        <p class="risk-statement">
+          端侧第一敌人不是崩溃，而是<strong>不抛异常、不改指标</strong>的静默失效。
+        </p>
+
+        <div class="trial-box" aria-label="trial_0474 v1 算子执行位置">
+          <div class="trial-head">
+            <span class="trial-name">trial_0474 v1</span>
+            <span class="quiet-status">RUN OK · METRICS NORMAL</span>
+          </div>
+
+          <div class="pipeline">
+            <div class="op-node">
+              NPU Conv
+              <small>正常执行</small>
+            </div>
+            <div class="pipe-arrow" aria-hidden="true">→</div>
+            <div class="op-node fallback">
+              <span class="fallback-mark">CPU fallback</span>
+              p0_highway/pool
+              <small>Reshape · 无告警</small>
+            </div>
+            <div class="pipe-arrow" aria-hidden="true">→</div>
+            <div class="op-node">
+              NPU Head
+              <small>正常执行</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="anchor-card" aria-label="CPU计算算子由1清零至0">
+          <div class="anchor-label">CPU<br />CALC OPS</div>
+          <div class="anchor-value">
+            <span class="old">1</span>
+            <span class="arrow" aria-hidden="true">→</span>
+            <span class="new">0</span>
+          </div>
+          <div class="anchor-note">回退算子清零</div>
+        </div>
+
+        <div class="rewrite-row" aria-label="布局变换等效改写路径">
+          <div class="rewrite-node">
+            Reshape / 布局变换
+            <small>旧路径</small>
+          </div>
+          <div class="rewrite-arrow" aria-hidden="true">→</div>
+          <div class="rewrite-node new-node">
+            stride-2 depthwise conv
+            <small>算术等效</small>
+          </div>
+          <div class="rewrite-arrow" aria-hidden="true">→</div>
+          <div class="rewrite-node">
+            读窗口，写小图
+            <small>位精确输出</small>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel metric-panel" aria-label="板卡实测关键指标">
+        <article class="metric-card primary">
+          <div class="metric-head">
+            <span class="metric-label">CPU 计算算子</span>
+            <span class="metric-code">CALC OPS ON CPU</span>
+          </div>
+          <div class="metric-value">
+            <span class="from">1</span>
+            <span aria-hidden="true">→</span>
+            <span class="to">0</span>
+            <span class="gain">清零</span>
+          </div>
+          <div class="metric-foot">trial_0474 v1 → 改写版本</div>
+        </article>
+
+        <article class="metric-card">
+          <div class="metric-head">
+            <span class="metric-label">rknn_run 板卡耗时</span>
+            <span class="metric-code">LATENCY</span>
+          </div>
+          <div class="metric-value">
+            <span class="from">151.2</span>
+            <span aria-hidden="true">→</span>
+            <span class="to">103.7</span>
+            <span class="unit">ms</span>
+            <span class="gain">1.46×</span>
+          </div>
+          <div class="bar-compare" aria-label="耗时从151.2毫秒下降至103.7毫秒">
+            <span class="bar-label">BEFORE</span>
+            <div class="bar-track"><div class="bar-fill before"></div></div>
+          </div>
+          <div class="bar-compare" aria-label="改写后耗时为103.7毫秒">
+            <span class="bar-label">AFTER</span>
+            <div class="bar-track"><div class="bar-fill after"></div></div>
+          </div>
+        </article>
+
+        <article class="metric-card certified">
+          <div class="metric-head">
+            <span class="metric-label">精度代价</span>
+            <span class="metric-code">BITWISE</span>
+          </div>
+          <div class="certified-row">
+            <div class="metric-value">
+              <span class="zero">0</span>
+            </div>
+            <span class="check-badge">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 2.8 20 6v5.6c0 4.8-3.1 8.2-8 9.8-4.9-1.6-8-5-8-9.8V6l8-3.2Z" stroke="currentColor" stroke-width="1.8" />
+                <path d="m8.4 12 2.2 2.2 5-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              逐字节相同
+            </span>
+          </div>
+          <div class="metric-foot">输出位模式完全一致</div>
+        </article>
+      </aside>
+
+      <section class="gate-bar" aria-label="交付前硬闸门">
+        <div class="gate-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M12 3 20 6v5.3c0 4.7-3.1 8.1-8 9.7-4.9-1.6-8-5-8-9.7V6l8-3Z" stroke="currentColor" stroke-width="1.8" />
+            <path d="m8.5 12 2.1 2.1 4.9-4.9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </div>
+        <div class="gate-copy">
+          <span class="gate-label">GATE-01</span>
+          <p class="gate-rule">
+            NPU 上板模型必须 0 个 CPU 计算算子
+            <span>，I/O 边界除外</span>
+          </p>
+        </div>
+        <div class="gate-status">PASS / BLOCKED</div>
+      </section>
+    </main>
+    <footer class="footer">
+      <span>Editorial Light Master</span>
+      <span>9</span>
+    </footer>
+  </div>
+</body>
+</html>

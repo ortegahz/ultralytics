@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>战果 A1｜OpenCL 融合内核：warp + median 搬上 GPU</title>
+</head>
+<body style="width:100%;height:100%;margin:0;position:relative;overflow:hidden;font-family:'Microsoft YaHei','PingFang SC',sans-serif;background:radial-gradient(circle at top right,rgba(188,147,72,0.18),transparent 32%),linear-gradient(180deg,#f7f5ef 0%,#f4f6f9 100%);color:#122033;display:flex;align-items:center;justify-content:center;">
+  <div class="slide" style="width:1180px;height:620px;display:grid;grid-template-rows:110px 1fr 70px;gap:18px;padding:28px 30px;border-radius:28px;background:rgba(255,255,255,0.84);box-shadow:0 24px 80px rgba(15,23,42,0.12);border:1px solid rgba(18,32,51,0.08);overflow:hidden;">
+    <header class="header" style="display:flex;align-items:end;justify-content:space-between;border-bottom:1px solid rgba(18,32,51,0.12);padding-bottom:14px;flex-shrink:0;">
+      <div style="min-width:0;">
+        <div class="eyebrow" style="display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:rgba(201,151,77,0.12);color:#7d5a22;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">Signal Narrative</div>
+        <h1 class="title" style="margin:14px 0 0;font-size:38px;line-height:1.08;font-weight:800;letter-spacing:-0.03em;white-space:nowrap;">战果 A1｜OpenCL 融合内核：warp + median 搬上 GPU</h1>
+        <p class="subtitle" style="margin:8px 0 0;color:#4b5b70;font-size:15px;line-height:1.4;">突破 step10 瓶颈：把 CPU 最耗时链路迁至 Mali-G610，并以全枚举验证结果可信</p>
+      </div>
+      <div class="page-tag" style="align-self:start;padding:10px 14px;border-radius:14px;background:#122033;color:#f8fafc;font-size:12px;font-weight:700;letter-spacing:0.06em;flex-shrink:0;">06/19</div>
+    </header>
+
+    <main class="content" style="display:grid;grid-template-columns:1.15fr 0.85fr;gap:18px;min-height:0;flex:1;overflow:hidden;">
+      <section class="panel" style="min-height:0;overflow:hidden;border-radius:24px;background:rgba(255,255,255,0.82);border:1px solid rgba(18,32,51,0.08);box-shadow:0 14px 36px rgba(15,23,42,0.08);padding:18px;display:grid;grid-template-rows:82px 122px 1fr;gap:8px;">
+        <div style="display:grid;grid-template-columns:170px 1fr;gap:14px;align-items:center;">
+          <div style="padding-right:12px;border-right:1px solid rgba(18,32,51,0.10);">
+            <div style="font-size:40px;line-height:1;font-weight:800;letter-spacing:-0.04em;color:#7d5a22;">77.4%</div>
+            <div style="margin-top:6px;font-size:11px;line-height:1.35;color:#5a6879;font-weight:700;">step10 CPU 侧耗时占比<br />瓶颈链路整体卸下</div>
+          </div>
+          <div style="height:100%;display:flex;flex-direction:column;justify-content:center;gap:8px;">
+            <div style="display:flex;align-items:center;gap:9px;">
+              <span style="width:52px;flex-shrink:0;font-size:10px;font-weight:800;color:#4b5b70;">CPU</span>
+              <div style="height:12px;flex:1;border-radius:999px;background:#e8edf3;overflow:hidden;">
+                <div style="width:77.4%;height:100%;border-radius:999px;background:linear-gradient(90deg,#52647a,#34465d);"></div>
+              </div>
+              <span style="font-size:10px;font-weight:800;color:#34465d;">迁出</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:9px;">
+              <span style="width:52px;flex-shrink:0;font-size:10px;font-weight:800;color:#7d5a22;">GPU</span>
+              <div style="height:12px;flex:1;border-radius:999px;background:#f1eadc;overflow:hidden;">
+                <div style="width:100%;height:100%;border-radius:999px;background:linear-gradient(90deg,#c99b57,#9b6f2e);"></div>
+              </div>
+              <span style="font-size:10px;font-weight:800;color:#7d5a22;">接管</span>
+            </div>
+            <div style="font-size:10px;color:#7d5a22;font-weight:700;padding-left:61px;">融合内核一次承接三类重算子</div>
+          </div>
+        </div>
+
+        <div style="min-height:0;padding:11px 12px;border-radius:18px;background:linear-gradient(135deg,rgba(244,246,249,0.94),rgba(247,245,239,0.86));border:1px solid rgba(18,32,51,0.08);display:grid;grid-template-columns:1fr 30px 1.35fr;gap:7px;align-items:center;">
+          <div style="height:100%;padding:9px 10px;border-radius:14px;background:rgba(255,255,255,0.88);border:1px solid rgba(18,32,51,0.10);">
+            <div style="font-size:10px;font-weight:800;letter-spacing:0.08em;color:#5a6879;margin-bottom:7px;">CPU 保留</div>
+            <div style="display:flex;align-items:center;gap:5px;font-size:10px;font-weight:700;color:#34465d;">
+              <span style="padding:5px 6px;border-radius:7px;background:#edf1f5;">Shi-Tomasi</span>
+              <span style="color:#9aa7b6;">→</span>
+              <span style="padding:5px 6px;border-radius:7px;background:#edf1f5;">LK</span>
+              <span style="color:#9aa7b6;">→</span>
+              <span style="padding:5px 6px;border-radius:7px;background:#edf1f5;">RANSAC</span>
+            </div>
+            <div style="margin-top:7px;font-size:9px;color:#6f7d8d;">检测 · 跟踪 · 几何估计</div>
+          </div>
+
+          <div style="display:flex;align-items:center;justify-content:center;color:#a68a59;font-size:23px;font-weight:800;">→</div>
+
+          <div style="height:100%;padding:9px 10px;border-radius:14px;background:#122033;box-shadow:0 10px 22px rgba(18,32,51,0.16);">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;">
+              <span style="font-size:10px;font-weight:800;letter-spacing:0.08em;color:#f3d9a8;">MALI-G610 · OPENCL</span>
+              <span style="font-size:9px;color:#aeb9c6;">融合内核</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
+              <div style="padding:8px 5px;border-radius:9px;background:rgba(201,151,77,0.18);border:1px solid rgba(224,184,118,0.28);text-align:center;color:#fff;font-size:10px;font-weight:800;">warp</div>
+              <div style="padding:8px 5px;border-radius:9px;background:rgba(201,151,77,0.18);border:1px solid rgba(224,184,118,0.28);text-align:center;color:#fff;font-size:10px;font-weight:800;">21 帧 median</div>
+              <div style="padding:8px 5px;border-radius:9px;background:rgba(201,151,77,0.18);border:1px solid rgba(224,184,118,0.28);text-align:center;color:#fff;font-size:10px;font-weight:800;">三通道组装</div>
+            </div>
+            <div style="margin-top:7px;text-align:center;font-size:9px;color:#c9d1dc;">CPU 仅保留检测、跟踪与几何估计</div>
+          </div>
+        </div>
+
+        <div style="min-height:0;padding:11px 12px;border-radius:18px;background:rgba(244,246,249,0.76);border:1px solid rgba(18,32,51,0.08);display:grid;grid-template-rows:1fr auto;gap:8px;">
+          <div style="display:grid;grid-template-columns:1.08fr 0.92fr;gap:10px;align-items:center;">
+            <div style="padding-right:10px;border-right:1px solid rgba(18,32,51,0.10);">
+              <div style="display:flex;align-items:baseline;gap:7px;">
+                <span style="font-size:27px;line-height:1;font-weight:800;letter-spacing:-0.035em;color:#122033;">2,097,152</span>
+                <span style="font-size:15px;font-weight:800;color:#a8b1bd;">/</span>
+                <span style="font-size:19px;line-height:1;font-weight:800;color:#7d5a22;">2,097,152</span>
+              </div>
+              <div style="margin-top:7px;font-size:10px;font-weight:700;color:#4b5b70;">2²¹ 全枚举 · 109 个比较器 · 非抽样</div>
+              <div style="margin-top:7px;height:6px;border-radius:999px;background:#dfe5ec;overflow:hidden;">
+                <div style="width:100%;height:100%;border-radius:999px;background:linear-gradient(90deg,#c99b57,#8b672e);"></div>
+              </div>
+            </div>
+            <div>
+              <div style="font-size:9px;font-weight:800;letter-spacing:0.07em;color:#9b654d;margin-bottom:5px;">公开伪码证伪</div>
+              <div style="font-size:11px;line-height:1.4;font-weight:800;color:#122033;">Batchers 奇偶归并</div>
+              <div style="margin-top:4px;font-size:10px;line-height:1.4;color:#7b5140;">奇数 n 时会静默越界写</div>
+            </div>
+          </div>
+          <div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;">
+              <span style="font-size:9px;font-weight:800;letter-spacing:0.06em;color:#5a6879;">完备验证捕获</span>
+              <span style="font-size:10px;font-weight:800;color:#9b654d;">3 个真缺陷</span>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
+              <div style="padding:6px 7px;border-radius:9px;background:rgba(155,101,77,0.08);border:1px solid rgba(155,101,77,0.13);font-size:9px;font-weight:700;color:#754938;">共享数组</div>
+              <div style="padding:6px 7px;border-radius:9px;background:rgba(155,101,77,0.08);border:1px solid rgba(155,101,77,0.13);font-size:9px;font-weight:700;color:#754938;">1/200 假 FAIL</div>
+              <div style="padding:6px 7px;border-radius:9px;background:rgba(155,101,77,0.08);border:1px solid rgba(155,101,77,0.13);font-size:9px;font-weight:700;color:#754938;">剪枝恢复并非真 undo</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside style="min-height:0;display:grid;grid-template-rows:220px 1fr;gap:12px;overflow:hidden;">
+        <section class="panel" style="min-height:0;overflow:hidden;border-radius:24px;background:rgba(255,255,255,0.82);border:1px solid rgba(18,32,51,0.08);box-shadow:0 14px 36px rgba(15,23,42,0.08);padding:16px;display:grid;grid-template-rows:auto auto 1fr;">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;">
+            <div>
+              <div style="font-size:14px;font-weight:800;color:#122033;">精度验证</div>
+              <div style="margin-top:3px;font-size:9px;color:#7d5a22;font-weight:700;">端到端像素级核验</div>
+            </div>
+            <div style="display:flex;gap:5px;">
+              <div style="padding:5px 7px;border-radius:8px;background:rgba(201,151,77,0.12);text-align:center;">
+                <div style="font-size:12px;font-weight:800;color:#7d5a22;">8</div>
+                <div style="font-size:8px;color:#8b734b;">序列</div>
+              </div>
+              <div style="padding:5px 7px;border-radius:8px;background:rgba(201,151,77,0.12);text-align:center;">
+                <div style="font-size:12px;font-weight:800;color:#7d5a22;">136</div>
+                <div style="font-size:8px;color:#8b734b;">帧</div>
+              </div>
+              <div style="padding:5px 7px;border-radius:8px;background:rgba(201,151,77,0.12);text-align:center;">
+                <div style="font-size:12px;font-weight:800;color:#7d5a22;">4345</div>
+                <div style="font-size:8px;color:#8b734b;">万像素</div>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top:10px;padding:10px 11px;border-radius:14px;background:rgba(49,112,98,0.08);border:1px solid rgba(49,112,98,0.14);display:flex;align-items:center;justify-content:space-between;gap:10px;">
+            <div>
+              <div style="font-size:10px;font-weight:800;color:#347565;">CH0 · 承重门</div>
+              <div style="margin-top:3px;font-size:10px;color:#53736b;">一次性验证 6 类坐标与通道错误</div>
+            </div>
+            <div style="font-size:22px;line-height:1;font-weight:800;color:#286e5d;white-space:nowrap;">Max|Diff| = 0</div>
+          </div>
+
+          <div style="min-height:0;margin-top:9px;display:grid;grid-template-rows:auto 1fr 1fr;gap:6px;">
+            <div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;padding:0 4px;font-size:9px;font-weight:800;color:#7b8795;border-bottom:1px solid rgba(18,32,51,0.08);">
+              <span>通道 / 指标</span><span style="text-align:right;">MAE</span><span style="text-align:right;">结论</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:0 4px;background:rgba(244,246,249,0.72);border-radius:9px;font-size:10px;">
+              <span style="font-weight:800;color:#34465d;">Ch1</span>
+              <span style="font-weight:800;color:#122033;">0.00073</span>
+              <span style="font-size:9px;color:#5a6879;">残余约 600 px</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:0 4px;background:rgba(244,246,249,0.72);border-radius:9px;font-size:10px;">
+              <span style="font-weight:800;color:#34465d;">Ch2</span>
+              <span style="font-weight:800;color:#122033;">0.00033</span>
+              <span style="font-size:9px;color:#5a6879;">残余约 600 px</span>
+            </div>
+            <div style="position:absolute;right:0;bottom:0;font-size:0;"></div>
+            <div style="grid-column:1 / -1;margin-top:-3px;padding:6px 8px;border-radius:8px;background:rgba(201,151,77,0.10);font-size:9px;font-weight:700;color:#7d5a22;display:flex;justify-content:space-between;">
+              <span>Ch1 / Ch2 相对残差</span><span>≈ 1.4e−7</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" style="min-height:0;overflow:hidden;border-radius:24px;background:rgba(244,247,250,0.86);border:1px solid rgba(18,32,51,0.08);box-shadow:0 14px 36px rgba(15,23,42,0.08);padding:14px 16px;display:grid;grid-template-rows:auto auto 1fr;gap:8px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div style="font-size:14px;font-weight:800;color:#122033;">Mali-G610 平台适配</div>
+            <div style="padding:4px 8px;border-radius:999px;background:rgba(201,151,77,0.12);font-size:9px;font-weight:800;color:#7d5a22;">共 7 条 · 关键 4 项</div>
+          </div>
+          <div style="font-size:9px;line-height:1.35;color:#6f7d8d;">其余 3 条按平台适配清单归档，不虚构具体项</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;align-content:stretch;">
+            <div style="padding:8px 9px;border-radius:11px;background:rgba(255,255,255,0.86);border:1px solid rgba(18,32,51,0.08);display:flex;align-items:center;justify-content:space-between;">
+              <span style="font-size:10px;font-weight:700;color:#34465d;">具名标量</span>
+              <span style="width:7px;height:7px;border-radius:50%;background:#c99b57;"></span>
+            </div>
+            <div style="padding:8px 9px;border-radius:11px;background:rgba(255,255,255,0.86);border:1px solid rgba(155,101,77,0.13);display:flex;align-items:center;justify-content:space-between;">
+              <span style="font-size:10px;font-weight:700;color:#754938;">无 FP64</span>
+              <span style="font-size:9px;font-weight:800;color:#9b654d;">限制</span>
+            </div>
+            <div style="padding:8px 9px;border-radius:11px;background:rgba(255,255,255,0.86);border:1px solid rgba(18,32,51,0.08);display:flex;align-items:center;justify-content:space-between;">
+              <span style="font-size:10px;font-weight:700;color:#34465d;">22 × image2d_t</span>
+              <span style="font-size:8px;color:#7b8795;">资源</span>
+            </div>
+            <div style="padding:8px 9px;border-radius:11px;background:rgba(201,151,77,0.12);border:1px solid rgba(201,151,77,0.18);display:flex;align-items:center;justify-content:space-between;">
+              <span style="font-size:10px;font-weight:800;color:#7d5a22;">CL_R8</span>
+              <span style="font-size:9px;font-weight:800;color:#7d5a22;">省 4× 带宽</span>
+            </div>
+          </div>
+        </section>
+      </aside>
+    </main>
+
+    <footer class="footer" style="display:flex;align-items:center;justify-content:space-between;padding:0 8px;color:#5a6879;font-size:12px;border-top:1px solid rgba(18,32,51,0.1);flex-shrink:0;">
+      <span>Editorial Light Master</span>
+      <span>06</span>
+    </footer>
+  </div>
+</body>
+</html>

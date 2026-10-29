@@ -2716,3 +2716,196 @@ GMC 产能 6.25 → 15.89 组/s、交付检测帧 +79.2%、精度仍逐位一致
 | **§18**（专题档） | ⭐ **2026-10-28 第八轮**：**机会主义动态最新帧调度（ABI v9）** + CANON8 实测 + 环深 64 推导 + 子集校验 + 操作事故与恢复 | `manu/memory/MOSAIC_RK3588_20261026.md` | 该文件末尾 |
 | **§五十四**（证伪档） | ⭐ **2026-10-28 第八轮**：**「cadence 是 canonical 主杠杆」被动态调度取代** + 口径作废清单 | `manu/memory/falsified_archive.md` | 该文件末尾 |
 | **§21**（本档） | ⭐ **2026-10-28 第八轮收口**：动态调度 + CANON8 最终交付臂 | **本文档内**（活章节，不入归档） | 见本文件 **§21** |
+
+---
+
+## §22 ⭐ 2026-10-29 第九轮收口：三级解耦流水线（ABI v10）——「CPU 波动隔离防火墙」
+
+| 项 | 内容 |
+|:--|:--|
+| 目标 | 把「CPU 拼图/上传 → NPU 推理」的**串行闭环**拆成三个物理独立阶段，中间加两级有界缓存（Buffer A: DMA 槽位环；Buffer B: 热力图环），做成**「CPU 波动隔离防火墙」**：只要缓存里有货，NPU 就能跑满，外部业务抢占 CPU 不再传导到 NPU 硬件 |
+| 立项取证 | **upload 桶是竞争成本不是固定成本**：CANON12（零代码改动，只把 GMC anchor 线程 4→1）upload 41.5564 → **20.5838 ms** |
+| 代码改动 | `mosaic_core.h`（拆出 `InitCanvasOnly`/`ComposeFrame`，新增 `WidenCanvasToF16`）、`mosaic_pipeline.h`（ABI 9→**10**，配置 +7 / 计时 +9）、`mosaic_pipeline.cpp`（`BufferA` 槽位三态机 + `pre_loop` + `npu_stage_loop`，**融合分支一字未改**）、`rknn_mosaic_e2e.cpp`（+7 CLI、timing +17 行）、`mosaic_api_test.cpp`（+14 断言）。共 **+1132 行** |
+| 编译 | `MOSAIC_NO_DEPLOY=1 bash manu/pipeline/npu/build_mosaic_pipeline_arm64.sh` ⇒ **0 error / 0 warning** |
+| 板卡二进制 | `/root/rknn_mosaic_e2e_v6` md5 `42168d0b310ed08f5d2a5e0013e0cc60`；`/root/mosaic_api_test_v10` md5 `660fc863d2d33d030fb3c3a989e7429a`；`/root/libmosaic_pipeline_v10.a` md5 `5611cbffeac01a47888aecf68ec035e8` |
+| 契约测试 | 板卡 `/root/mosaic_api_test_v10` ⇒ **104 passed / 0 failed / EXIT=0**（含 14 条新增解耦断言） |
+| 精度 | **CANON13 解耦臂：特征 md5 5282/5282 逐位相同、检测流 4641/4641 逐字节相同、ΔF1 = 0.000000、VERDICT PASS**；CANON14 回归臂 7493/7493 + 5277/5277、ΔF1 = 0、PASS ⇒ **解耦对精度零损伤** |
+| 速度 | CANON8 融合 11.194 fps / NPU 硬件占用 58.21%；CANON13 解耦（GMC 4-5/2 worker）9.819 fps；**CANON16 解耦（GMC 4-7/4 worker）11.469 fps、NPU 占用 74.78%、NPU 侧丢帧 2216→0**；**CANON21 解耦（阶段下沉 A55）11.506 fps** |
+| 关键量化 | upload **41.56 → 0.90 ms/帧**（Stage 1 独占核）；Stage 1 = **2.79 ms/帧**、Stage 3 = **12.00 ms/帧 @A76**（@A55 41.60）⇒ 三阶段合计 **≈0.55 核**，而 **GMC 的 4-worker fit 每组吃 ≈186 core-ms（≈3 个 A76 核）** |
+| 核心结论 | ① 精度零损伤；② 收益不是「upload 变快」而是「upload 不再占住 NPU 的线程」（**runtime 在 io-mem 下把 staging 搬进 `rknn_run`，+15~21 ms**）；③ **帧率的第一决定因素是 GMC 的核，不是拆不拆**（同核对照 9.819 vs 9.808 fps）；④ **三个阶段应下沉到小核，4 个 A76 全留给 GMC + NPU** |
+| 处方 | GMC `--gmc-affinity-group 4-7 --gmc-anchor-threads 4`；Stage 1+3 `--pre-affinity 0-3`（A55）；Stage 2 `--npu-stage-affinity 6-7`；外部业务留 A55 剩余核 |
+| 工具 | `manu/pipeline/npu/board/run_arm.sh`（臂执行器 + **NPU 硬件负载采样** `/sys/kernel/debug/rknpu/load` + 突发压占器）、`arms_v10.sh`（臂矩阵）、`publish_and_verify.sh`、`verify_arms.sh` |
+| 专题档 | `manu/memory/MOSAIC_RK3588_20261026.md` **§19** |
+| 证伪档 | `manu/memory/falsified_archive.md` **§五十五**（「upload 是固定成本」「拆分提升帧率」「rknn_run 是纯硬件时间」「io-mem 零拷贝=无搬运」四条被推翻） |
+| 报告 | `manu/pipeline/npu/DECOUPLED_PIPELINE_REPORT.md` **§0.6 + §6.11** |
+| 事故记录 | ① **再次违反部署铁律**（scp 直接覆盖 `/root/mosaic_api_test` 与 `/root/libmosaic_pipeline.a`）：认证 api_test **已按 md5 回灌**（`2a22f56f…`），认证静态库 `d5b7185f…` **不可恢复**（服务器镜像 `out/` 已被 v10 构建覆盖）——**不影响任何已报数字**（历史数字均由板卡可执行二进制产出，`rknn_mosaic_e2e_sweep3` = `6571454f…` 等全部未动）；② 服务器 SSH 间歇超时 ⇒ 板卡 sshfs 读不到帧 ⇒ 实测改用本地 NFS `/mnt/manu/lq_ir_bmp`（与 sshfs 副本三帧 md5 相同）；③ 子集校验 13 帧 FAIL 的根因是 **`--ref-tsv` 与 `--ref-md5` 不是同一次运行**（基准臂自己也 FAIL）；④ 压占器在子 shell 里跑导致 **4 个孤儿 `yes` 污染后续两臂**，已改为 PID 文件 + 开跑前清扫 |
+
+**导航表新增行**（本节）：
+
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|:--|
+| **§19**（专题档） | ⭐ **2026-10-29 第九轮**：**三级解耦流水线（ABI v10）** + upload 竞争成本取证 + 7 臂实测矩阵 + 精度零损伤 + 核账处方 | `manu/memory/MOSAIC_RK3588_20261026.md` | 该文件末尾 |
+| **§五十五**（证伪档） | ⭐ **2026-10-29 第九轮**：**四条旧说法被推翻**（upload 是固定成本 / 拆分提升帧率 / rknn_run 是纯硬件 / io-mem 零拷贝=无搬运） | `manu/memory/falsified_archive.md` | 该文件末尾 |
+| **§22**（本档） | ⭐ **2026-10-29 第九轮收口**：三级解耦 + CANON13/14/16/21 实测 + 核账处方 | **本文档内**（活章节，不入归档） | 见本文件 **§22** |
+
+---
+
+## §23 ⭐⭐ 2026-10-29 第十轮收口：深 Buffer A 的静默作废事故 + 真正的病因是「两个 NPU service 产能失衡」
+
+**一句话**：用户要「Buffer A 深度 3 → 16 ⇒ 丢帧归零 ⇒ +28%」，结果**先翻车**——
+**CANON22 那臂从未以深度 16 运行过**（Knob 表上限 8，且越界语义是「回退参考默认值 3」而非夹到边界），
+**整条深缓冲实验线静默作废**；修好上限后 CANON23 真跑 D=16，**只回收 15% 的丢帧、fps 只 +3.4%、
+延时代价 +86.5%/+287.9%**。加**零 ABI 变更的 per-service 计数**后真相大白：
+**主因不是「环装不下」，而是「两个 NPU service 产能失衡 1.63:1」，100% 的丢帧记在快的那一路头上。**
+处方是**跨 service 投放（「谁有位置谁接单」）**；实现后又发现第一版「ready 最短优先」规则**本身有系统性偏向**
+⇒ 改成**轮转游标**。**四臂精度全部 ΔF1 = 0.000000、PASS。**
+
+| 项 | 内容 |
+|:--|:--|
+| 本轮起因 | 用户要求「Buffer A 深度 3 → 16，吸收 GMC 突发 ⇒ 丢帧归零 ⇒ NPU 平跑 15.2 fps ⇒ 预期 +28%」 |
+| 🔴 事故 | **CANON22 臂从未以深度 16 运行**。根因：`manu/pipeline/npu/mosaic_pipeline.cpp` Knob 表 `{"buffer_a_depth", &cfg_s.buffer_a_depth, 1, 8, 3}`（上限 8，**越界回退参考默认值 3 而非夹到边界**）。板上日志原文：`[WARN] buffer_a_depth = 16 is out of range [1, 8]; using the reference default 3` + `Buffer A with 3 slot(s)` ⇒ 它只是 CANON21（深度 3）的重复（交付 5561 / 11.763 fps / 丢 1561） |
+| 我的责任 | 设计阶段**没逐字核对 clamp 表**；跑完第一臂**没 grep 日志里的 `[WARN]`**（日志里明明有那行） |
+| 处置 | 上限放宽到 **64**（回退语义不变，`mosaic_pipeline.cpp:2141`）；`mosaic_api_test.cpp` §9b 加 **4 条断言**钉死（`16→16`、`999→3`），板卡 `/root/mosaic_api_test_v13` md5 `6cea0100bb0d0e4fbd414e273c83e5eb` 实测 **108 passed / 0 failed**（原 104 + 新 4），深度 16 探针在板上**真实分配了 16 槽 × 2,457,600 B 的 DMA** 并成功；**CANON22 降级为历史留档，深度 16 的唯一口径是 CANON23** |
+| 🔴 铁律教训 | **任何带上限的 CLI 参数，跑完第一臂必须 grep 启动日志里与该参数相关的 `[WARN]` 行。** 这类坑的特征是「**不报错、不崩、数字正常**」——比崩溃危险得多 |
+| 诊断手段 | `mosaic_pipeline.cpp` **内部** `struct NpuService` 加 `frames_run`/`bufA_reclaimed`/`bufA_full_drops` 三个 `int64_t`（`:307-309`），每 service 退出时打印（`:1562-1564`）。**零 ABI 变更**：`MOSAIC_API_VERSION` 仍 10；`MosaicPipelineConfig`/`MosaicPipelineTiming` 字段集合与顺序逐字未变；计数只在内部结构里 |
+| 🔴 真正的病因 | CANON23（D=16）实测 `service 0: frames_run=3616 bufA_reclaimed=1328` / `service 1: frames_run=2223 bufA_reclaimed=0` ⇒ **3616:2223 = 1.63:1**；硬件逐核 **core0 85.13% : core1 44.48% = 1.91:1**（core2 恒 0.00%）；**Σ per-service 丢帧 1328 恰等于全局 `bufA_dropped` 1328**（计数自洽）；慢的那一路 `stage2_wait_ms` 227 s、`features_dropped=0` ⇒ **它在饿，环从不满**。机制：`feat_q` 共享（`:1226` `feat_q.pop_front()`）但 Stage 1 线程死绑写配对 service 的环 ⇒ **谁 NPU 快谁抢走更多帧 ⇒ 正反馈失衡** ⇒ **⇒ 1567 帧丢失的主因不是「环容量不够」，而是「两个 service 产能失衡」。深缓冲修不了失衡。** |
+| 深缓冲的真实收益/代价 | CANON21(D=3) → CANON23(D=16)：交付 5628→**5839**、fps 11.904→**12.311（+3.4%）**、`bufA_dropped` 1567→**1328（−15.3%）**、`npu_util` 72.569%→**75.229%**；**但 e2e 延时 p50 315.6→588.5 ms（+86.5%）、p95 473.3→1835.8 ms（+287.9%）** ⇒ **精度零损伤，但收益只有 +3.4% fps，在实时系统里是亏的** |
+| 处方 | **跨 service 投放（「谁有位置谁接单」）**：合法性已核实（`rknn_set_io_mem` 要求的是**槽位绑定的 ctx**，不要求写入线程属于同一 service ⇒ 跨 service 写槽位**完全合法**；零拷贝/ctx 绑定/`frame_id`/写入字节**全部不变**） |
+| 实现 | `mosaic_pipeline.cpp`（**零 ABI 变更**，`mosaic_pipeline.h` 一字未改 md5 `a6ff89bd9a6ef2a1139c12cce9dbdabc`）：`RingProbe`(`:1002`) / `probe_ring`(`:1017`) / `enum {kCaseFree,kCaseReclaim,kCaseDrop}`(`:1050`) / `TargetChoice`(`:1051`) / `pick_target`(`:1061`)；取槽**三遍**（快照 → 选择 → **只锁目标环**取槽），**≤4 次有界重试**（重试路径只读、不改环、不计数 ⇒ 不双计）；**任何时刻只持一把 `buf_a->m`** ⇒ 死锁不可能；计数记到**实际写入的** service ⇒ 「Σ per-service == 全局」不变量保持 |
+| 两轮修正 | **第一版「ready 最短优先」有系统性偏向**（ready 最短 = 最能消费的那个 ⇒ ready 常为 0 ⇒ 并列按 index 小者 ⇒ **永远偏向 service 0**；实测失衡只从 1.63:1 收到 **1.52:1**）⇒ **第二版改成轮转游标**（per-Stage-1-线程栈局部变量，初值 0，**仅 kCaseFree 选中时**推进 `(chosen+1)%n`；环形扫描保证「谁有位置谁接单」不被违反）。`pick_target` 是 `(probe, cursor)` 的**纯函数** ⇒ **确定性可复现**（仿真复核：两次运行 **7100 次选择逐位相同**） |
+| 独立仿真交叉验证 | 子 Agent 在 `/tmp` 下用 CANON26 实测参数建模（GMC 15.02/s、NPU 121.9 ms/帧、D=3、2 线程）：旧规则在容量不等时 **1.995:1**，与板卡实测 **1.947:1** 几乎重合 ⇒ **根因判定成立**；新规则在等能力下 **1.000:1（3550/3550）、15.015 fps** |
+| 残余 | 轮转**只能消除规则偏向，不能突破硬件产能差**（某 service 真实产能低 ⇒ 它先饱和 ⇒ 扫描跳过它 ⇒ **1.251:1**），这是「谁有位谁接单」的**正确退化** |
+| 四臂矩阵（板卡实测，全部 EXIT=0） | **CANON21**（1:1 配对 D=3，v6）5628 / 11.904 / 丢 1567 / *（v6 无 per-service 计数；同拓扑失衡比在 CANON23 实测 1.63:1）* / busiest2 62.36% / 315.6 / 473.3 ms / PASS（7195/7195、5628/5628、ΔF1=0）<br>**CANON23**（1:1 配对 **D=16 真跑**，v7）**5839 / 12.311** / **1328** / 1.63:1 / 64.81% / **588.5 / 1835.8** / **PASS（7167/7167、5839/5839、ΔF1=0）**<br>**CANON26**（**跨 service 投放** D=3，v8）**6071 / 12.841** / 1032 / **1.52:1** / 68.00% / 357.9 / 477.5 / **PASS（7103/7103、6071/6071、ΔF1=0）**<br>**CANON27**（跨 service 投放 **D=8**，v8）**6207 / 13.112** / **838** / **1.44:1** / 69.70% / 555.0 / 1102.1 / **PASS（7045/7045、6207/6207、ΔF1=0）** |
+| 共同口径 | 四臂全部 `features_dropped=0` / `bufA_full_drops=0` / `bufB_dropped=0`；`stage2_wait_ms` 逐臂 254322.351 → 227987.458 → 193654.205 → 174887.600 |
+| 精度校验命令 | `bash manu/pipeline/npu/board/verify_arms.sh CANON23_dec_a16`（服务器 `huangzhe@192.168.99.40:32222` 跑 `manu/pipeline/npu/ptq/load_and_align_subset.py`，md5 `a05eadda14437c05cb7ccbfb09594d85` **全程未改动**；参考件 `A_gate_step2_nodrop`，`--ref-tsv` **必须**与 `--ref-md5` 同一次运行）；产物 `/mnt/data/siping/ptq_work/surviving_frames/<ARM>.{json,md}` |
+| 跑一臂命令 | `ssh -p 22 root@192.168.0.64 'E2E_BIN=/root/rknn_mosaic_e2e_v9 E2E_TIMEOUT=1500 timeout 1700 /root/psearch/arms_v10.sh /root/rknn_mosaic_e2e_v9 CANON28_dec_rr_d3'`；臂矩阵 `manu/pipeline/npu/board/arms_v10.sh`、runner `manu/pipeline/npu/board/run_arm.sh` |
+| 板卡工具 | `manu/pipeline/npu/board/`：`arms_v10.sh`（臂矩阵）、`run_arm.sh`（臂执行器 + `/sys/kernel/debug/rknpu/load` 逐秒采样 + 压占器）、`speed_table.py`、`verify_arms.sh`、`publish_and_verify.sh`、`scratch/bufa_depth_sim.py`、`scratch/gmc_cadence_real.py` |
+| 本轮踩坑 | ① **压占器必须自己管理子进程 PID**（PID 文件 + 开跑前清扫），不能依赖 EXIT trap 穿透 subshell ⇒ 否则残留 `yes` 污染后续臂（本会话曾污染 CANON21/CANON19 的第一跑，已重跑修正）；② 板卡 `arms_v10.sh` 的 `RUNNER` 必须指向 `run_arm_v2.sh`（有 PID 文件机制）；③ 板卡 sshfs `/mnt/srv2` 读不到帧 ⇒ 用**本地 NFS `/mnt/manu/lq_ir_bmp`**；④ 服务器 SSH 间歇超时 ⇒ 所有 ssh 带重试 |
+| 🔴 CANON28 崩溃归因 | **CANON28（轮转臂，v9）EXIT=139（SIGSEGV）** ⇒ **判决：不是 v9 的锅，是板卡进入驱动中毒状态**。**判决性判别实验**：崩溃后 3 帧健康检查，`rknn_mosaic_e2e_v9`（CANON28 同一个二进制）**EXIT=132（SIGILL）**，而 **`rknn_mosaic_e2e_v8`（CANON26/CANON27 已跑过两次、EXIT=0 的同一个二进制）同样 EXIT=132** ⇒ **v8 也崩 ⇒ 与二进制无关 ⇒ 板卡中毒 ⇒ v9 无辜**。板卡现状：`/dev/rknpu` **不存在**、`/proc/misc` 无 rknpu、`lsmod` 空、platform device `fdab0000.npu` 仍在、dmesg 最后一条驱动事件就是 `RKNPU: soft reset` ⇒ **soft reset 后驱动没重建 `/dev/rknpu` 节点 ⇒ `rknn_init` SIGILL** ⇒ **必须物理断电重启，软件侧无解**（`/sys/kernel/debug/rknpu/reset` 只读、内容 `"on"`；misc 是 `MISC_DYNAMIC_MINOR`，无法手工 mknod）。CANON28 的 GMC 产出**停在 5015 组**（CANON26 是 7103）。⇒ **CANON28 的失败既不证明「轮转规则不可用」也不证明「v9 可用」——它是一个未能完成的臂，轮转效果仍未知** |
+| 🔴 运维硬约束（报告 §7.7 升级为**硬前置条件**） | ① **每个 e2e 调用前必须做 3 帧健康检查**（本次正是靠它发现 v8 也崩，才证明 v9 无辜）；② **调用之间留静置暂停**；③ **绝不并发跑两个 e2e**；④ **一旦出现 SIGILL/SIGSEGV，立即停止一切 e2e 调用，物理断电重启**（软件侧无解）；⑤ **每臂跑完核对 `core2_mean` 是否偏离 `0.00%`**——偏离 0 是 core2 首次被启用的信号，是驱动异常的**前兆指标**（CANON28 `core2_mean=1.35%`/`peak=100%`，而 CANON21/23/26/27 **恒为 0.00%/0.0**）；⑥ **每臂跑完核对 `dmesg` 的 `rga: buffer[0] mm release buffer failed!` 计数**（本会话结束时累计 **406 条**）。本会话累计跑 11 个 e2e 臂后板卡进入中毒状态 |
+| 下一轮做什么 | **板卡物理断电重启后**重跑 **CANON28**（轮转投递，D=3）与 **CANON29**（轮转 + D=8），验证轮转游标能否把 1.63:1 压到 ~1.0:1 —— **本轮 CANON28 已启动但未跑完（板卡中毒，EXIT=139），CANON29 未启动；两臂一律标注「未完成（板卡中毒，待断电后重测）」，本档不写任何猜测数字** |
+| 专题档 | `manu/memory/MOSAIC_RK3588_20261026.md` **§20** |
+| 证伪档 | `manu/memory/falsified_archive.md` **§五十六**（六条旧说法被推翻） |
+| 报告 | `manu/pipeline/npu/DECOUPLED_PIPELINE_REPORT.md` **§6.11.8**（含 §6.11.8.1 事故 / §6.11.8.2 深缓冲实测 / §6.11.8.3 失衡病因 / §6.11.8.4 处方 / §6.11.8.5 跨 service 投放实现） |
+
+**导航表新增行**（本节）：
+
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| **§20**（专题档） | ⭐⭐ **2026-10-29 第十轮**：**clamp 上限静默作废整条深缓冲实验线**（CANON22 从未以 D=16 运行）+ **per-service 计数坐实「两 NPU service 产能失衡 1.63:1」** + 深缓冲真实收益/代价（+3.4% fps vs +86%/+288% 延时）+ **跨 service 投放（谁有位置谁接单）** 两轮修正（ready 最短 → 轮转游标）+ **CANON28 崩溃归因（板卡驱动中毒，v9 无辜，轮转效果待测）** + 四臂实测与精度全绿 | `manu/memory/MOSAIC_RK3588_20261026.md` | 该文件末尾 |
+| **§五十六**（证伪档） | ⭐⭐ **2026-10-29 第十轮**：**六条旧说法被推翻**（「D=3 已经够了，加深只会推迟丢失」「1567 帧是 Buffer A 容量不足造成的」「CANON22 跑出了深度 16 的结果」「1:1 配对是 ctx 绑定安全的必要条件」「ready 最短优先是好规则」「跨 service 写槽位会 INFLIGHT 数据竞争」） | `manu/memory/falsified_archive.md` | 该文件末尾 |
+| **§23**（本档） | ⭐⭐ **2026-10-29 第十轮收口**：深缓冲静默作废事故 + 失衡病因 + 跨 service 投放处方 + 轮转游标 + CANON28 板卡中毒归因 + 运维硬约束 + 四臂矩阵（CANON21/23/26/27 精度全绿） | **本文档内**（活章节，不入归档） | 见本文件 **§23** |
+
+> 📌 专题档 `manu/memory/MOSAIC_RK3588_20261026.md` **§20**；证伪档 `manu/memory/falsified_archive.md` **§五十六**；
+> 报告 `manu/pipeline/npu/DECOUPLED_PIPELINE_REPORT.md` **§6.11.8**。
+
+---
+
+## 24. ⭐⭐⭐ 2026-10-29 第十一轮收口
+
+**一句话**：上一轮「板卡驱动中毒、必须物理断电重启」的判决**被推翻**——真凶是**板卡根分区 ext4 写坏了 >1 MB 的二进制**
+（**md5 全部对不上记录值、字节数全部一致**；小文件与系统库**全部完好**），**同一份二进制 scp 到板上 tmpfs 后 md5 与本地逐字节一致、
+3 帧健康检查 EXIT=0 ⇒ 板卡从未中毒**。板卡复位后 **轮转游标三臂（CANON28/29/30）全部 EXIT=0，失衡 1.63:1 → 1.00:1**；
+**22 帧 md5 差异全部落在启动瞬态（物理帧号 < 84），稳态 7045/7045、7037/7037 逐位相同、F1 与参考臂完全相同**；
+**v11 产能感知投放（WFQ）被证伪**（per-service 计时证明**两 service 等产能：123.6 vs 122.3 ms/帧**，逐核负载差是**驱动动态派发**的产物）
+⇒ **WFQ 无收益（13.124 vs 轮转 D=8 的 13.245，−0.9%）**；**真正的丢帧机制 = burst 突发溢出**
+（消费者合计有 **≈1449 帧空闲产能**却仍丢 **877** 帧）。
+
+### 二十四、【导航锚点】第十一轮主档收口 ⇄ 专题档 §21 ⇄ 证伪档 §五十七
+
+（锚点行：供 `manu/memory/validate_nav_table.py` 的「§编号 → 起始行」表逐条解析。）
+
+| 项 | 内容 |
+|:--|:--|
+| ① 根因翻盘 | **CANON28 崩溃的真凶是 ext4 写坏二进制，不是"驱动中毒"**：板上 4 个大二进制 md5 全变而**字节数全同**（v7 `966fb21b…`/8339256 B、v8 `5cb644cc…`/8343336 B、v9 `5aa53935…`/8343336 B、api_test_v13 `76ab1ef4…`/8315336 B）⇒ 同尺寸不同内容 = 内容损坏；**小文件全好**（`run_arm_v2.sh` `d600a039…`、`speed_table.py` `80518a9d…`、`librknnrt.so` `56e425dc…` 与 NFS 母本逐字节相同） |
+| ② ext4 病根 | 板卡 dmesg：`[ 3.998943] EXT4-fs (mmcblk0p6): warning: mounting fs with errors, running e2fsck is recommended`、`[ 3.999940] Errors on filesystem, clearing orphan list`、`[ 315.195989] error count since last fsck: 4`、`[ 315.196030] initial error at time 1793168552: htree_dirblock_to_tree:1086: inode 410715: block 1589178`、`[15445.587738] systemd-journald: …/system.journal: Journal file corrupted, rotating.` ⇒ **同源先例：2026-10-28 `libOpenCL.so.1.0.0` 的 `.dynamic` 整段清零事故（我们同样 `ldd` 含 `libOpenCL.so.1`）** |
+| ③ 决定性验证 | 本地 `manu/pipeline/npu/out/rknn_mosaic_e2e`（md5 `be1f362129217523bd80483a6890b8ec`）→ scp 到板上 `/tmp`（tmpfs）⇒ 板上 md5 **与本地完全一致**、与板上旧文件 **`cmp` 从第 733953 字节起不同**；用它跑 3 帧健康检查 ⇒ **EXIT=0**、`rknn_run` **117.063 ms/frame**、两个 NPU service 正常建立 ⇒ **板卡从未中毒，不需要物理断电** |
+| ④ 另一个被误读的观测 | 本板 NPU 走 **DRM**（`[drm] Initialized rknpu 0.9.8 20240828 for fdab0000.npu on minor 1`），节点是 **`/dev/dri/card1`**；**`/dev/rknpu` 在本板从来就不存在**（`librknnrt.so` 同时含 `/dev/dri/%s` 与 `/dev/rknpu`，先试前者）⇒ **「`/dev/rknpu` 不存在」不能作为「驱动坏了」的证据** |
+| ⑤ 处方（已执行） | **>1 MB 的二进制一律部署到 `/tmp`（tmpfs）**、版本化命名（`/tmp/rknn_mosaic_e2e_v11`、`/tmp/mosaic_api_test_v14`）、**绝不 scp 到 `/root`**；结果目录也搬 tmpfs（`mount -t tmpfs -o size=1G tmpfs /root/psearch/results`，旧的 ext4 目录改名保留为 `/root/psearch/results_ext4`）——**否则逐位校验读的 TSV / `feature_md5.txt` 也可能是坏的**；板上 `libOpenCL.so.1.0.0` = `e9036376b6f8f59e30522eb43fe410cd`（与本地母本一致，`readelf -d` 动态段正常） |
+| ⑥ 轮转三臂（v9 md5 `be1f362129217523bd80483a6890b8ec`，tmpfs 部署，全部 EXIT=0） | **CANON28**（D=3）fps **12.880** / 交付 6090 / `bufA_dropped` 1039 / per-service **3042 : 3048 = 1.002:1** / 逐核 83.75 : 52.73 / core2 0.00% / 延时 **335.5 / 481.0 ms**<br>**CANON29**（D=8）fps **13.245** / 6271 / 850 / **3136 : 3135 = 1.000:1** / 84.47 : 55.82 / 0.00% / **550.1 / 1096.6 ms**<br>**CANON30**（D=16）fps **13.543** / 6425 / 713 / **3211 : 3214 = 1.001:1** / 84.97 : 58.53 / 0.00% / **715.9 / 2097.7 ms**<br>三臂全部 `features_dropped=0` / `bufA_full_drops=0` / `bufB_dropped=0` |
+| ⑦ 失衡闭环 | **1.63:1**（CANON21 配对）→ **1.52:1**（CANON26 跨投放）→ **1.44:1**（CANON27）→ **1.00:1**（CANON28/29/30）⇒ **轮转游标把「ready 最短优先」这条规则自身的偏向消掉了**；深缓冲边际收益递减且延时陡增：D=3→8→16，fps **+2.8% / +2.2%**，延时 p95 **481 → 1097 → 2098 ms** |
+| ⑧ 22 帧定位 | 严格逐位判据 `VERDICT FAIL`（CANON28 7129/7107/**22 异**；CANON29 7121/7099/**22 异**），但 **@S F1 与参考臂完全相同**（`0.905183 = 0.905183`；`0.907775 = 0.907775`）；**差异帧 = 物理帧号 000036, 000038, …, 000078（连续 22 个偶数帧）** ⇒ 算术自洽：**lag-42 窗口里丢了物理帧 #36**（lag 全偶 ⇒ 只波及同奇偶的组）；GMC 计数器**全干净**（`gmc_void_frames=0`、`gmc_history_gaps=0`、`dropped=0`、`deadline_blows=0`、日志 `0 frames VOIDED`、fallback summary = `clean`）；**差异确定、与臂参数无关**（CANON28 vs CANON29 两次不同深度运行的 **5164 个共有帧 md5 diff = 0**；CANON26 vs CANON27 同样 **diff = 0**）；**稳态（帧号 ≥ 84）CANON28 7045/7045、CANON29 7037/7037 逐位相同（diff = 0）** |
+| ⑨ 新增可复现脚本 | `manu/pipeline/npu/board/scratch/feature_md5_diff_frames.py`（md5 `a221ba94b8116034c2872a531f84bebd`，已同步服务器 `/tmp/pycharm_project_10ae9e2e/manu/pipeline/npu/board/scratch/`）；执行机 `huangzhe@192.168.99.40:32222`：`cd /mnt/data/siping/ptq_work/psearch/results` → `python3 …/feature_md5_diff_frames.py --ref A_gate_step2_nodrop --arms CANON26_dec_xsvc_d3 CANON27_dec_xsvc_d8 CANON28_dec_rr_d3 CANON29_dec_rr_d8 --steady-threshold 84` ⇒ `[VERDICT] PASS -- every arm is bit-identical to the reference on the steady-state frames`，`SCRIPT_EXIT=0` |
+| ⑩ 代码级取证 | per-frame 特征 md5 **在 GMC 侧**算（`manu/pipeline/npu/mosaic_pipeline.cpp:752-768`，哈希 `process_frame()` 的 pre-encode 三平面，**在 Stage 1 之前**）；canvas 每 session 一份、每次合成**全量重写 3 个 tile**，未覆盖的 13.75%（rows 512-575×cols 240-639、rows 576-639×cols 160-639）是 init 时 `memset(kPad=114)` 的常量（`manu/pipeline/npu/mosaic_core.h:1033-1035`、`:72`）⇒ **无 stale**；槽位内容**只由** `WidenCanvasToF16(psess, dst, psess->canvas.size)` 决定（`mosaic_pipeline.cpp:1362`）⇒ **「投给哪个 service」不可能改变送进 NPU 的字节 ⇒ 差异必然在 GMC 侧** |
+| ⑪ v11 WFQ（实现完成但被证伪） | 改动**只在 `manu/pipeline/npu/mosaic_pipeline.cpp`**（**零公开 ABI 变更**：`MOSAIC_API_VERSION` 仍 10，`MosaicPipelineConfig`/`MosaicPipelineTiming` 字段集合与顺序未动；`mosaic_pipeline.h`/`mosaic_api_test.cpp`/`mosaic_core.h` 的 mtime 均早于本轮、**未被动**）；新增 per-service 内部计数 `stage2_busy_ms`（Stage 2 线程花在 `rknn_run` 上的累计墙钟）与 `frames_delivered`（Stage 1 投送进该环的帧数，含后来被回收的），退出打印扩展为 `[i] Buffer A service %d: frames_run=%lld frames_delivered=%lld stage2_busy_ms=%lld bufA_reclaimed=%lld bufA_full_drops=%lld`；新 PASS 1 规则 `w_i=(frames_run_i+1)/(stage2_busy_ms_i+1)`、`served_i`=本 Stage 1 线程已投送帧数、`score_i=w_i/(served_i+1)`，候选（有 FREE 槽）中取 score 最大者、**同分取较小 index**（确定性）；**PASS 2 / PASS 3 与 `may_retry` 逐字未动**；锁纪律不变（`snapshot_capacities()` 在 `:1377`，**不持任何环锁**；取槽只持目标环一把锁 ⇒ 锁序 `{m_feat, m_heat, buf_a->m} → m_time` 不变） |
+| ⑫ v11 构建与实测 | `MOSAIC_NO_DEPLOY=1 bash manu/pipeline/npu/build_mosaic_pipeline_arm64.sh` ⇒ **EXIT=0，0 warning / 0 error**（另用 `-Wall -Wextra -Wshadow` 复核 **0 告警**）；产物 `out/rknn_mosaic_e2e` = `25f19139e1c109765d3da1457eae3b8e`、`out/mosaic_api_test` = `64a32b38673fe5247a8a505e684ba211`；板卡 `api_test` 回归 **EXIT=0**、3 帧健康检查 **EXIT=0**；**CANON32**（WFQ，D=8，EXIT=0）fps **13.124** / 交付 6213 / `bufA_dropped` **877** / GMC 组数 7090 / 延时 **592.5 / 1107.2 ms** / 逐核 85.41 : 53.60 / core2 0.00%；per-service：**service0** delivered **3746** / run **2869** / busy **354497** ms / reclaimed **877**；**service1** delivered **3344** / run **3344** / busy **409081** ms / reclaimed **0** |
+| ⑬ ⭐ 被证伪的假设 | **「逐核 NPU 负载差（84% : 55%）= 两个 service 的产能差」是错的**：per-service 计时证明**每帧 `rknn_run` 耗时几乎相同（123.6 ms vs 122.3 ms，差 1.1%）⇒ 两 service 等产能、对称**；**逐核负载不是 service 归属**——RKNN `AUTO` 核掩码下两个上下文的作业由**驱动动态派发到 3 个 NPU 核**，负载统计**按硬件核计数**；⇒ **WFQ 的出发点建立在错误前提上**（实测也**无收益**：13.124 vs 轮转 D=8 的 13.245，**−0.9%**；投送比从 1.00:1 变成 **1.12:1**，service 0 反多吃 186 帧） |
+| ⑭ ⭐ 真丢帧机制 = burst 突发溢出 | service 0 的 NPU 核只忙 **74.9%**（354497 / 473400 ms）、**空转 25%**，却丢了 **877** 帧；两个 consumer 合计有 **≈1449 帧空闲产能**，合计产能 ≈ 2 × 473400 / 123 ms ≈ **7700 帧 = 16.3 fps**，而 GMC 供给只有 **≈15.0 组/s** ⇒ **消费者有余力却仍丢帧 ⇒ 只能是时间上的突发**（GMC 产出成阵，突发量超过 Buffer A 吸收能力 D，超出部分被回收）；**丢帧 vs 深度：D=3 → 1039；D=8 → 850；D=16 → 713** |
+| ⑮ 量化口径（14+ fps 的约束） | 相机推帧 **11810 帧 / 473.4 s = 24.95 fps**（相机 25 fps 上限）；GMC 组产出 **7090~7129 组 / 473.4 s = ≈15.0 组/s ⇒ 全局天花板**；GMC anchor fit **不是瓶颈**（`gmc_fit` 累计 **353 s**，4 个 anchor 线程 × 473.4 s = **1894 核秒 ⇒ 利用率仅 18.6%**）；NPU **不是瓶颈**（合计产能 ≈16.3 fps，实测有 ≈1449 帧空闲产能）⇒ **14+ fps 的约束是「GMC 的 15.0 组/s 供给」+「Buffer A 的 burst 吸收能力」，不是 NPU、不是失衡、不是拆不拆** |
+| ⑯ 源码同步（铁律〇闭合） | 本地 → 服务器 `huangzhe@192.168.99.40:32222:/tmp/pycharm_project_10ae9e2e/`，md5 逐字一致：`mosaic_pipeline.cpp` = `af92ed49dd04ec2848e6adf1834b4c95`；`board/arms_v10.sh` = `026fd81c3625f1e0ade78fae11e14b98`（⚠️ **本地该文件当前 md5 = `8ec1970d6972382c5e7cecdf4d108de3`，与服务器副本不一致，见专题档 §21.6 注**）；`board/scratch/feature_md5_diff_frames.py` = `a221ba94b8116034c2872a531f84bebd`；`ptq/load_and_align_subset.py` = `a05eadda14437c05cb7ccbfb09594d85`（**全程未改动**）；`manu/data/build_full_median_dataset.py` 仍 `7729e77299f8933faffa73577e8e9400`（**严禁修改**） |
+| ⑰ 板卡产物现状 | `rknn_mosaic_e2e` v9（轮转）`be1f362129217523bd80483a6890b8ec` → `/tmp/rknn_mosaic_e2e_v9`（tmpfs）；v11（WFQ）`25f19139e1c109765d3da1457eae3b8e` → `/tmp/rknn_mosaic_e2e_v11`（tmpfs）；`mosaic_api_test` v14 `64a32b38673fe5247a8a505e684ba211` → `/tmp/mosaic_api_test_v14`（tmpfs）；⚠️ **板上 `/root/` 下的旧副本（v7/v8/v9/api_test_v13）内容已损坏，只能留作对照，不得再使用** |
+| ⑱ 遗留（**需用户**） | ⚠️ **离线 `e2fsck -fp /dev/mmcblk0p6`**（不修会复发）；其余本轮事项已闭合 |
+| 专题档 | `manu/memory/MOSAIC_RK3588_20261026.md` **§21** |
+| 证伪档 | `manu/memory/falsified_archive.md` **§五十七**（六条旧说法被推翻） |
+
+**导航表新增行**（本节；行格式与 §6 导航表一致：`§编号（中文） | 标题 | 文件（相对 `manu/memory/`） | 起始行`，便于 `manu/memory/validate_nav_table.py` 逐条解析；本表在三个档案中**完全一致**）：
+
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 二十一 | 专题档 §21 ⭐⭐⭐ 2026-10-29 第十一轮：根因翻盘（ext4 写坏二进制）+ 轮转三臂实测 + 22 帧启动瞬态 + v11 产能感知投放被证伪 | MOSAIC_RK3588_20261026.md | 3088 |
+| 二十四 | 主档 §24 ⭐⭐⭐ 2026-10-29 第十一轮收口：ext4 根因翻盘 + 轮转三臂实测 + burst 溢出定量 + v11 产能感知投放被证伪 | memory.md | 2804 |
+| 五十七 | 证伪档 §五十七 ⭐⭐⭐ 2026-10-29 第十一轮：六条旧说法被推翻（板卡中毒 / /dev/rknpu / 逐核负载 / WFQ / 15.015 仿真 / 22 帧缺陷） | falsified_archive.md | 3538 |
+
+> 📌 专题档 `manu/memory/MOSAIC_RK3588_20261026.md` **§21**；证伪档 `manu/memory/falsified_archive.md` **§五十七**。
+
+### 二十五、【最终交付口径】双轨最优（Two-Tier Optimal）：D=3 实战闭环档 + D=64 吞吐交付档
+
+**定论（用户裁决，原样归档）**：
+
+> **D=3 是低延时实战场景下的物理帕累托最优解，但并不是全局唯一的「标准答案」。**
+
+**对外汇报口径 = 双轨最优（Two-Tier Optimal）**：两档并列交付、各司其职，**不得再把 D=3 说成全局唯一的「标准答案」**。
+
+**① 状态快照（双轨两档的最终数字）**
+
+| 档位 | 臂 | D | fps | 延时 p50 / p95 | 丢帧 / 交付帧 | Buffer A 内存（每 service / 合计） | 精度（稳态，物理帧号 ≥ 84） |
+|:--|:--|--:|--:|:--|:--|:--|:--|
+| **实战在线闭环档**（Real-Time Mode） | CANON28_dec_rr_d3 | **3** | **12.880** | 335.532 / **481.036 ms** | 1039 / 6090（丢帧率 14.6%） | 7.37 MB / 14.7 MB | **7045/7045 逐位相同**，F1 `0.905183` = ref |
+| **吞吐交付档**（Throughput Mode） | CANON36_dec_rr_d64 | **64** | **14.037** | 2113.592 / **8058.774 ms** | 312 / 6740（丢帧率 4.4%） | 157.3 MB / 314.6 MB | **7030/7030 逐位相同**，F1 `0.915359` = ref |
+
+（两档 `npu_util_pct` = 79.336 / 86.979；逐核 `npu_load` core0 / core1 / core2 = 83.75 / 52.73 / 0.00 与 86.30 / 63.76 / 0.00；
+per-service `frames_run` = **3042 : 3048 = 1.002:1** 与 **3370 : 3370 = 1.000:1**；GMC 组数 7129 / 7052；
+`rknn_run` 平均 123.1909 / 123.9294 ms/帧；`dropped` / `features_dropped` / `detections_dropped` = 0/0/0；
+`bufA_full_drops` / `bufB_dropped` = 0/0；`gmc_void_frames` / `gmc_history_gaps` / `deadline_blows` = 0/0/0；
+Buffer A 槽位（run.log 原文）= `Buffer A with 3 slot(s) of 2457600 B` / `Buffer A with 64 slot(s) of 2457600 B`。）
+
+**② 差账（派生值）**：fps **1.157 ≈ 1.16**（14.037 − 12.880）；延时 p95 **16.75×**（8058.774 / 481.036，用户口径「缩减 16 倍」）；
+交付帧 **+650**（6740 − 6090）；丢帧 **−727**（1039 − 312）；每 service Buffer A 内存 **×21.4**（7.37 → 157.3 MB）；
+相对纯串行基线 **5.415 fps**（出处：**本文件第 2236 行**「端到端 fps 5.415」）⇒ 12.880 / 5.415 = **+137.8%**（按 ~5.5 fps 口径 = **+134%**）；
+D=3 每 Worker = 3 × 2,457,600 B = 7,372,800 B ≈ **7.3 MB**。
+
+**③ 为什么不是唯一最优（两条）**：
+1. **硬考核 14+ fps 只有 D=64 过线**：D=3 的 **12.880** 差约 **1.1 fps** 未过红线。
+2. **离线录像回放 / 事件检索 / 战后复盘延时无关**：此时 D=3 丢 **1039** 帧成为劣势，D=64 只丢 **312**、多交付 **650** 帧 ⇒ 纯吞吐场景 D=64 最优。
+
+**④ D=3 仍是实战闭环档的理由（两条）**：反无人机伺服转台闭环中，**超过 1 秒的延迟会导致 PID 跟踪控制相位滞后，直接引发脱靶**
+⇒ D=64 的 p95 **8.06 s** 在跟瞄链路上不可用，D=3 的 p95 **481 ms** 全时段半秒内；
+且 D=3 相对 D=64 只损失 **1.16 fps**，换来延时缩减 **16 倍**，每 Worker 仅 3 槽位 ≈ **7.3 MB**，**零总线压力、无大内存分配碎片风险**。
+
+**⑤ 复现命令**
+
+```bash
+ssh -p 22 root@192.168.0.64 'E2E_BIN=/tmp/rknn_mosaic_e2e_v9 E2E_TIMEOUT=1500 timeout 1700 /root/psearch/arms_v12.sh /tmp/rknn_mosaic_e2e_v9 CANON36_dec_rr_d64'
+ssh -p 22 root@192.168.0.64 'E2E_BIN=/tmp/rknn_mosaic_e2e_v9 E2E_TIMEOUT=1500 timeout 1700 /root/psearch/arms_v12.sh /tmp/rknn_mosaic_e2e_v9 CANON28_dec_rr_d3'
+bash manu/pipeline/npu/board/verify_arms.sh CANON36_dec_rr_d64 CANON28_dec_rr_d3
+ssh -p 32222 huangzhe@192.168.99.40 'cd /mnt/data/siping/ptq_work/psearch/results && python3 /tmp/pycharm_project_10ae9e2e/manu/pipeline/npu/board/scratch/feature_md5_diff_frames.py --ref A_gate_step2_nodrop --arms CANON26_dec_xsvc_d3 CANON27_dec_xsvc_d8 CANON28_dec_rr_d3 CANON29_dec_rr_d8 CANON31_dec_rr_d32 CANON33_dec_wfq_d16 CANON36_dec_rr_d64 --steady-threshold 84'
+```
+
+**⑥ 产物路径 / 执行机**：板卡 `root@192.168.0.64:22`（RK3588：4×A76 2.35G + 4×A55 1.8G，7.9GB）；
+序列 `VIDEO00007_19700101_001324`（11810 帧，相机 25.0 fps）；二进制 `/tmp/rknn_mosaic_e2e_v9`（tmpfs）md5 `be1f362129217523bd80483a6890b8ec`；
+臂脚本（板上）`/root/psearch/arms_v12.sh`（本地源 `manu/pipeline/npu/board/arms_v10.sh`）。
+板上（tmpfs）`/root/psearch/results/CANON28_dec_rr_d3/`、`/root/psearch/results/CANON36_dec_rr_d64/`；
+NFS 备份 `/mnt/manu/canon28/CANON28_dec_rr_d3/`、`/mnt/manu/canon36/CANON36_dec_rr_d64/`（本机挂载点 `/run/media/manu/SSD960-LOCAL/nfs/`）；
+服务器打分 `/mnt/data/siping/ptq_work/psearch/results/<ARM>/` + `/mnt/data/siping/ptq_work/surviving_frames/<ARM>.{json,md}`。
+
+**⑦ 遗留（需用户）**：⚠️ **离线 `e2fsck -fp /dev/mmcblk0p6`**（不修会复发，见专题档 §21.1.7 第 3 条）。
+
+**导航表新增行**（本节；行格式与 §6 导航表一致：`§编号（中文） | 标题 | 文件（相对 `manu/memory/`） | 起始行`，便于 `manu/memory/validate_nav_table.py` 逐条解析；本表在三个档案中**完全一致**）：
+
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 二十二 | 专题档 §22 ⭐⭐⭐⭐ 2026-10-29 最终交付口径：双轨最优（D=3 实战闭环档 + D=64 吞吐交付档） | MOSAIC_RK3588_20261026.md | 3347 |
+| 二十五 | 主档 §25 ⭐⭐⭐⭐ 2026-10-29 最终交付口径：双轨最优（D=3 实战闭环档 + D=64 吞吐交付档） | memory.md | 2841 |
+| 五十八 | 证伪档 §58 ⭐⭐⭐ 2026-10-29：「D=3 是唯一最优」被限定为双轨最优 | falsified_archive.md | 3551 |
+
+> 📌 专题档 `manu/memory/MOSAIC_RK3588_20261026.md` **§22**；证伪档 `manu/memory/falsified_archive.md` **§五十八**。

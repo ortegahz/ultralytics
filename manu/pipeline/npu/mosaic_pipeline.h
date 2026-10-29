@@ -104,7 +104,24 @@
 extern "C" {
 #endif
 
-/* v9: MosaicPipelineTiming gained gmc_void_frames and gmc_frames_skipped,
+/* v10: THE THREE-STAGE DECOUPLED PIPELINE.
+ *
+ * MosaicPipelineConfig gained decoupled_stages, buffer_a_depth, buffer_b_depth,
+ * pre_threads, buf_a_mode, pre_affinity and npu_stage_affinity, and
+ * MosaicPipelineTiming gained stage1_ms, stage1_wait_ms, stage2_ms,
+ * stage2_wait_ms, bufA_upload_ms, bufA_dropped, bufA_full_drops, bufB_dropped
+ * and npu_busy_ms, so BOTH STRUCT LAYOUTS changed.  The new fields are
+ * APPENDED at the END of both structs, so the older fields keep their offsets
+ * and an old reader still sees the same numbers in the same places -- but the
+ * version is checked in mosaic_pipeline_create() and a mismatch is rejected
+ * instead of silently reading the wrong fields, so a caller built against v9
+ * must be recompiled.
+ *
+ * The DEFAULT is decoupled_stages=0, which is the FUSED worker of v9, byte for
+ * byte: the fused path is the certified arm and it must stay comparable.
+ *
+ * The v9 note below still stands:
+ * v9: MosaicPipelineTiming gained gmc_void_frames and gmc_frames_skipped,
  * and MosaicPipelineConfig's gmc_compute_stride was RENAMED to gmc_min_stride
  * (same slot, same type -- the MEANING changed: it is no longer a fixed
  * cadence but the minimum physical-frame gap between two GMC groups), so
@@ -145,7 +162,7 @@ extern "C" {
  * caller built against v3 must be recompiled: the version is checked in
  * mosaic_pipeline_create() and a mismatch is rejected instead of silently
  * reading the wrong fields. */
-#define MOSAIC_API_VERSION 9
+#define MOSAIC_API_VERSION 10
 
 /* ---- canvas modes ------------------------------------------------------- */
 enum {
@@ -177,7 +194,16 @@ enum {
    * widening costs ~0.8 ms of host time and the runtime's staging into NPU
    * memory happens inside rknn_run -- where the CPU is blocked anyway.  The
    * upload therefore leaves the host's critical path. */
-  MOSAIC_INPUT_IO_MEM_NHWC = 3
+  MOSAIC_INPUT_IO_MEM_NHWC = 3,
+  /* v10: APPENDED, the existing values keep their numbers.  The same widened
+   * fp16 buffer as MOSAIC_INPUT_SET_F16, but handed over with pass_through=1:
+   * the runtime performs NO conversion and NO copy, it takes the bytes as they
+   * are.  That is only legal when the buffer already IS the model's layout
+   * (NHWC fp16 for our model), so the mode refuses an NCHW model instead of
+   * silently feeding garbage.  It is the host-memory arm of the decoupled
+   * pipeline (buf_a_mode=1), the counterpart of binding a Buffer A DMA slot
+   * with rknn_set_io_mem(). */
+  MOSAIC_INPUT_SET_F16_PT = 4
 };
 
 /* ---- one detection, in NATIVE frame pixels (640x512 coordinates) --------- */
@@ -515,6 +541,57 @@ typedef struct {
    * (a fixed "every Nth frame" cadence on the physical grid).  Same slot, same
    * type -- the layout is unchanged, only the semantics are. */
   int32_t gmc_min_stride;
+
+  /* ---- v10: THE THREE-STAGE DECOUPLED PIPELINE ----------------------------
+   *
+   * The fused worker of v9 does the RGA compose, the upload and the rknn_run
+   * in ONE thread.  Measured on the board, that thread's upload bucket is not
+   * a fixed cost: it was 41.56 ms/frame with the GMC running at full width and
+   * 20.58 ms/frame with the GMC narrowed to one anchor thread -- the upload
+   * bucket was being INFLATED by the CPU and memory-bandwidth contention with
+   * the GMC and the other business on the board.  Splitting the stages gives
+   * the upload its own core group, which is the point of the exercise.
+   *
+   * The new fields are APPENDED at the END of the struct so the older fields
+   * keep their offsets. */
+
+  /* 0 = the FUSED worker of v9 (Stage 1 + Stage 2 in one thread).  This is the
+   * certified arm and it stays byte for byte comparable.  1 = the three-stage
+   * pipeline: Stage 1 (pre-process) -> Buffer A -> Stage 2 (NPU) -> Buffer B
+   * -> Stage 3 (post-process). */
+  int32_t decoupled_stages;
+
+  /* Buffer A: the ring of NPU-ready slots between Stage 1 and Stage 2.  1..64,
+   * default 3.  Each slot holds one model input (2,457,600 B for the 640x640x3
+   * fp16 model), so depth 3 is ~7 MB and D=16 is 78.7 MB for the two services. */
+  int32_t buffer_a_depth;
+
+  /* Buffer B: the ring of raw heatmaps between Stage 2 and Stage 3.  1..8,
+   * default 3.  It is the heat_q of the fused pipeline, which used the
+   * queue_depth knob (8); the fused mode keeps its 8. */
+  int32_t buffer_b_depth;
+
+  /* The number of Stage 1 threads.  In the decoupled mode it is FORCED to
+   * npu_workers: the stages are paired 1:1 (Stage 1 thread i feeds NPU
+   * service i), because every NPU service owns its own Buffer A ring and its
+   * own RKNN context, and a slot may only be bound to the context that
+   * created it.  0 = AUTO (= npu_workers). */
+  int32_t pre_threads;
+
+  /* Where Buffer A's slots live.  0 = DMA (rknn_create_mem, the recommended
+   * arm: the widened fp16 is written straight into the slot and the cross
+   * thread hand-off costs nothing).  1 = host memory (a plain buffer, fed to
+   * the runtime with pass_through=1) -- the A/B arm. */
+  int32_t buf_a_mode;
+
+  /* The core list for Stage 1 AND Stage 3, e.g. "6-7".  NULL = do not pin.
+   * Stage 3 is here because the post-processing is CPU work of the same
+   * family as the pre-processing; keeping them apart from the NPU stage is
+   * the whole point of the split. */
+  const char* pre_affinity;
+
+  /* The core list for Stage 2 (the NPU).  NULL = follow pre_affinity. */
+  const char* npu_stage_affinity;
 } MosaicPipelineConfig;
 
 /* ---- accumulated timing, milliseconds ------------------------------------ */
@@ -706,6 +783,44 @@ typedef struct {
    * and is therefore the number of frames the camera delivered that the
    * engine deliberately did not compute. */
   int64_t gmc_frames_skipped;
+
+  /* ---- v10: THE THREE-STAGE DECOUPLED PIPELINE ----------------------------
+   *
+   * These counters are the WHOLE POINT of the split: they say how much time
+   * each stage really costs once it is no longer sharing a thread with the
+   * others, and they say how much the bounded buffers had to throw away.
+   *
+   * In the FUSED mode (decoupled_stages=0) they all stay 0: the fused worker
+   * keeps reporting into the old buckets (npu_wait_ms, upload_ms, run_ms), so
+   * the certified arm's numbers do not move. */
+
+  /* Stage 1's total wall clock: the RGA compose + the fp16 widening + the
+   * publish into the Buffer A slot. */
+  double stage1_ms;
+  /* Stage 1's time spent WAITING for a feature.  This is a CONSUMER waiting
+   * for work, never the other way round: the GMC never waits for Stage 1. */
+  double stage1_wait_ms;
+  /* Stage 2's total wall clock: the slot binding + rknn_run + the outputs. */
+  double stage2_ms;
+  /* Stage 2's time spent WAITING for a Buffer A slot.  Also a consumer waiting
+   * for work. */
+  double stage2_wait_ms;
+  /* The fp16 widening + the write into the slot: the part of Stage 1 that
+   * replaces the fused mode's upload bucket. */
+  double bufA_upload_ms;
+  /* The Buffer A slots that were overwritten because Stage 2 did not take
+   * them in time: the OLDEST READY slot is reclaimed and its frame is lost. */
+  int64_t bufA_dropped;
+  /* The frames Stage 1 had to drop because EVERY slot was in flight (there
+   * was not even an old READY slot to reclaim). */
+  int64_t bufA_full_drops;
+  /* The heatmaps Buffer B dropped because Stage 3 did not take them in time.
+   * These are ALSO counted in detections_dropped, because a lost heatmap is
+   * exactly a lost detection. */
+  int64_t bufB_dropped;
+  /* The summed rknn_run wall clock of every NPU service: the NPU's own busy
+   * time, the numerator of the utilisation. */
+  double npu_busy_ms;
 } MosaicPipelineTiming;
 
 /* ---- opaque handle ------------------------------------------------------ */

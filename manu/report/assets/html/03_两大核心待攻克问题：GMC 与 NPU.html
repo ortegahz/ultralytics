@@ -5,217 +5,150 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>两大核心待攻克问题：GMC 与 NPU</title>
 </head>
-<body style="width:100%;height:100%;margin:0;overflow:hidden;position:relative;display:flex;align-items:center;justify-content:center;font-family:'Microsoft YaHei','PingFang SC',sans-serif;background:radial-gradient(circle at top right,rgba(188,147,72,0.18),transparent 32%),linear-gradient(180deg,#f7f5ef 0%,#f4f6f9 100%);color:#122033;">
-  <div id="stage" style="width:1280px;height:720px;aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;flex-shrink:0;transform-origin:center center;">
-    <div class="slide" style="width:1180px;height:620px;box-sizing:border-box;display:grid;grid-template-rows:110px 1fr 70px;gap:18px;padding:28px 30px;border-radius:28px;background:rgba(255,255,255,0.84);box-shadow:0 24px 80px rgba(15,23,42,0.12);border:1px solid rgba(18,32,51,0.08);overflow:hidden;">
-      <header class="header" style="flex-shrink:0;display:flex;align-items:end;justify-content:space-between;border-bottom:1px solid rgba(18,32,51,0.12);padding-bottom:14px;">
-        <div>
-          <div class="eyebrow" style="display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:rgba(201,151,77,0.12);color:#7d5a22;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">Signal Narrative</div>
-          <h1 class="title" style="margin:14px 0 0;font-size:38px;line-height:1.08;font-weight:800;letter-spacing:-0.03em;">两大核心待攻克问题：GMC 与 NPU</h1>
-          <p class="subtitle" style="margin:8px 0 0;color:#4b5b70;font-size:15px;line-height:1.4;">管线在板卡上跑起来之后，被两个问题卡住了</p>
+<body style="width:1280px;height:720px;margin:0;overflow:hidden;font-family:'Microsoft YaHei','PingFang SC',sans-serif;background:radial-gradient(circle at top right,rgba(188,147,72,0.18),transparent 32%),linear-gradient(180deg,#f7f5ef 0%,#f4f6f9 100%);color:#122033;display:flex;align-items:center;justify-content:center;">
+  <div class="slide" style="width:1180px;height:620px;display:grid;grid-template-rows:110px 1fr 70px;gap:18px;padding:28px 30px;border-radius:28px;background:rgba(255,255,255,0.84);box-shadow:0 24px 80px rgba(15,23,42,0.12);border:1px solid rgba(18,32,51,0.08);">
+    <header class="header" style="display:flex;align-items:end;justify-content:space-between;border-bottom:1px solid rgba(18,32,51,0.12);padding-bottom:14px;flex-shrink:0;">
+      <div>
+        <div class="eyebrow" style="display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:rgba(201,151,77,0.12);color:#7d5a22;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">Core Blockers</div>
+        <h1 class="title" style="margin:14px 0 0;font-size:38px;line-height:1.08;font-weight:800;letter-spacing:-0.03em;white-space:nowrap;">两大核心待攻克问题：GMC 与 NPU</h1>
+        <p class="subtitle" style="margin:8px 0 0;color:#4b5b70;font-size:15px;line-height:1.4;">管线在板卡上跑起来之后，被两个问题卡住了</p>
+      </div>
+      <div class="page-tag" style="align-self:start;padding:10px 14px;border-radius:14px;background:#122033;color:#f8fafc;font-size:12px;font-weight:700;letter-spacing:0.06em;">3/19</div>
+    </header>
+
+    <main class="content" style="display:grid;grid-template-rows:286px 104px;gap:14px;min-height:0;flex:1;">
+      <section class="problem-grid" style="display:grid;grid-template-columns:1.04fr 0.96fr;gap:18px;min-height:0;" aria-label="两大核心问题">
+        <article class="panel gmc-panel" style="position:relative;min-height:0;border-radius:24px;background:rgba(255,255,255,0.82);border:1px solid rgba(18,32,51,0.08);box-shadow:0 14px 36px rgba(15,23,42,0.08);padding:18px 22px;overflow:hidden;">
+          <div style="position:absolute;top:0;left:0;width:5px;height:100%;background:linear-gradient(180deg,#c87950,#b66a45);"></div>
+          <div style="position:absolute;right:-30px;top:-42px;width:150px;height:150px;border-radius:50%;background:radial-gradient(circle,rgba(182,106,69,0.13),transparent 68%);"></div>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;position:relative;">
+            <div style="display:flex;align-items:center;gap:9px;">
+              <span style="display:inline-flex;align-items:center;justify-content:center;width:31px;height:31px;border-radius:10px;background:rgba(182,106,69,0.11);color:#b66a45;">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="8.5"></circle>
+                  <path d="M12 7.5v5l3.2 2"></path>
+                  <path d="M9 2.8h6"></path>
+                </svg>
+              </span>
+              <span style="padding:6px 10px;border-radius:999px;background:rgba(182,106,69,0.11);color:#9e5737;font-size:12px;font-weight:800;letter-spacing:0.05em;">难题一｜GMC</span>
+            </div>
+            <span style="color:#7c8794;font-size:11px;font-weight:700;letter-spacing:0.04em;">PERFORMANCE &amp; STABILITY</span>
+          </div>
+
+          <div style="display:flex;align-items:flex-end;gap:13px;margin-top:12px;position:relative;">
+            <strong style="color:#b65f37;font-size:56px;line-height:0.94;font-weight:800;letter-spacing:-0.055em;">78.5%</strong>
+            <div style="padding-bottom:3px;">
+              <div style="color:#122033;font-size:15px;font-weight:800;line-height:1.25;">端到端时延占比</div>
+              <div style="margin-top:3px;color:#7a604f;font-size:11px;line-height:1.25;">稳定性有前提</div>
+            </div>
+          </div>
+
+          <div style="margin-top:14px;position:relative;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;">
+              <span style="color:#4b5b70;font-size:11px;font-weight:700;">拟合 + warp + median</span>
+              <span style="color:#b65f37;font-size:12px;font-weight:800;">≈ 99% 算力开销集中</span>
+            </div>
+            <div style="height:10px;border-radius:999px;background:rgba(182,106,69,0.13);overflow:hidden;">
+              <div style="width:99%;height:100%;border-radius:inherit;background:linear-gradient(90deg,#d28a62,#b65f37);"></div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:13px;position:relative;">
+            <div style="padding:7px 8px;border-radius:10px;background:rgba(182,106,69,0.08);color:#8e563d;font-size:11px;font-weight:700;text-align:center;border:1px solid rgba(182,106,69,0.12);">算力开销大</div>
+            <div style="padding:7px 8px;border-radius:10px;background:rgba(182,106,69,0.08);color:#8e563d;font-size:11px;font-weight:700;text-align:center;border:1px solid rgba(182,106,69,0.12);">延时高</div>
+            <div style="padding:7px 8px;border-radius:10px;background:rgba(173,71,60,0.09);color:#9d463b;font-size:11px;font-weight:800;text-align:center;border:1px solid rgba(173,71,60,0.17);">△ 零丢帧是前提</div>
+          </div>
+        </article>
+
+        <article class="panel npu-panel" style="position:relative;min-height:0;border-radius:24px;background:rgba(255,255,255,0.82);border:1px solid rgba(18,32,51,0.08);box-shadow:0 14px 36px rgba(15,23,42,0.08);padding:18px 22px;overflow:hidden;">
+          <div style="position:absolute;top:0;left:0;width:5px;height:100%;background:linear-gradient(180deg,#7183af,#526894);"></div>
+          <div style="position:absolute;right:-32px;top:-38px;width:154px;height:154px;border-radius:50%;background:radial-gradient(circle,rgba(82,104,148,0.13),transparent 68%);"></div>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;position:relative;">
+            <div style="display:flex;align-items:center;gap:9px;">
+              <span style="display:inline-flex;align-items:center;justify-content:center;width:31px;height:31px;border-radius:10px;background:rgba(82,104,148,0.11);color:#526894;">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="6.5" y="6.5" width="11" height="11" rx="2"></rect>
+                  <path d="M9.5 9.5h5v5h-5zM9 2.8v3.7M15 2.8v3.7M9 17.5v3.7M15 17.5v3.7M2.8 9h3.7M2.8 15h3.7M17.5 9h3.7M17.5 15h3.7"></path>
+                </svg>
+              </span>
+              <span style="padding:6px 10px;border-radius:999px;background:rgba(82,104,148,0.11);color:#526894;font-size:12px;font-weight:800;letter-spacing:0.05em;">难题二｜NPU</span>
+            </div>
+            <span style="color:#7c8794;font-size:11px;font-weight:700;letter-spacing:0.04em;">OPERATOR EXECUTION</span>
+          </div>
+
+          <div style="margin-top:11px;position:relative;">
+            <div style="color:#122033;font-size:16px;font-weight:800;line-height:1.35;">算子匹配不完整，推理效率与直觉背离</div>
+            <div style="margin-top:3px;color:#687589;font-size:11px;line-height:1.3;">未匹配算子不报错，执行路径被静默改写</div>
+          </div>
+
+          <div style="margin-top:12px;padding:11px 12px;border-radius:14px;background:rgba(247,249,252,0.88);border:1px solid rgba(82,104,148,0.12);position:relative;">
+            <div style="display:grid;grid-template-columns:65px 1fr 90px;align-items:center;gap:8px;">
+              <span style="color:#66758a;font-size:11px;font-weight:700;">预期</span>
+              <div style="height:2px;background:rgba(82,104,148,0.3);position:relative;">
+                <span style="position:absolute;left:0;top:50%;width:8px;height:8px;border-radius:50%;background:#7183af;transform:translate(-50%,-50%);"></span>
+                <span style="position:absolute;right:0;top:50%;width:8px;height:8px;border-radius:50%;background:#7183af;transform:translate(50%,-50%);"></span>
+              </div>
+              <span style="padding:5px 7px;border-radius:8px;background:rgba(82,104,148,0.10);color:#526894;font-size:10px;font-weight:800;text-align:center;">NPU 全量执行</span>
+            </div>
+            <div style="display:grid;grid-template-columns:65px 1fr 90px;align-items:center;gap:8px;margin-top:12px;">
+              <span style="color:#66758a;font-size:11px;font-weight:700;">实际</span>
+              <div style="height:2px;background:repeating-linear-gradient(90deg,rgba(173,71,60,0.48) 0 6px,transparent 6px 11px);position:relative;">
+                <span style="position:absolute;left:0;top:50%;width:8px;height:8px;border-radius:50%;background:#526894;transform:translate(-50%,-50%);"></span>
+                <span style="position:absolute;right:0;top:50%;width:8px;height:8px;border-radius:50%;background:#ad473c;transform:translate(50%,-50%);"></span>
+                <span style="position:absolute;left:49%;top:50%;width:13px;height:13px;border-radius:50%;border:2px solid #ad473c;background:#fff;transform:translate(-50%,-50%);"></span>
+              </div>
+              <span style="padding:5px 7px;border-radius:8px;background:rgba(173,71,60,0.08);color:#9d4036;font-size:10px;font-weight:800;text-align:center;border:1px solid rgba(173,71,60,0.22);">静默回退 CPU</span>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:12px;position:relative;">
+            <div style="padding:7px 8px;border-radius:10px;background:rgba(82,104,148,0.08);color:#526894;font-size:11px;font-weight:700;text-align:center;border:1px solid rgba(82,104,148,0.13);">MAC 外推失效</div>
+            <div style="padding:7px 8px;border-radius:10px;background:rgba(82,104,148,0.08);color:#526894;font-size:11px;font-weight:700;text-align:center;border:1px solid rgba(82,104,148,0.13);">量化闸门未解</div>
+          </div>
+        </article>
+      </section>
+
+      <section class="roadmap" style="position:relative;min-height:0;border-radius:20px;background:rgba(255,255,255,0.72);border:1px solid rgba(18,32,51,0.08);box-shadow:0 10px 28px rgba(15,23,42,0.06);padding:12px 22px;display:grid;grid-template-rows:26px 1fr;" aria-label="本阶段工作推进轴">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:8px;background:rgba(188,147,72,0.13);color:#9a7131;">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 12h16M14 6l6 6-6 6"></path>
+              </svg>
+            </span>
+            <strong style="color:#122033;font-size:13px;">本阶段推进抓手</strong>
+          </div>
+          <span style="padding:5px 10px;border-radius:999px;background:#122033;color:#f8fafc;font-size:11px;font-weight:800;letter-spacing:0.04em;">9 个工作汇报点</span>
         </div>
-        <div class="page-tag" style="align-self:start;padding:10px 14px;border-radius:14px;background:#122033;color:#f8fafc;font-size:12px;font-weight:700;letter-spacing:0.06em;">03/18</div>
-      </header>
 
-      <main class="content" style="min-height:0;display:grid;grid-template-rows:260px 1fr;gap:6px;overflow:hidden;">
-        <section aria-label="两大工程瓶颈" style="min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-          <article class="panel gmc-panel" style="min-width:0;min-height:0;box-sizing:border-box;display:flex;flex-direction:column;padding:15px 18px 14px;border-radius:24px;background:rgba(255,255,255,0.82);border:1px solid rgba(18,32,51,0.08);border-top:4px solid #c58a3b;box-shadow:0 14px 36px rgba(15,23,42,0.08);transition:transform 180ms ease,border-color 180ms ease,box-shadow 180ms ease;">
-            <div style="display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
-              <div style="display:flex;align-items:center;gap:10px;">
-                <span style="display:inline-flex;align-items:center;justify-content:center;min-width:36px;height:26px;padding:0 9px;border-radius:999px;background:rgba(197,138,59,0.14);color:#9b671f;font-size:12px;font-weight:800;letter-spacing:0.08em;">01</span>
-                <div>
-                  <div style="font-size:clamp(17px,1.4vw,20px);line-height:1.1;font-weight:800;color:#122033;">难题一 · GMC</div>
-                  <div style="margin-top:3px;font-size:11px;color:#7b8796;letter-spacing:0.04em;">计算链路与端到端时延瓶颈</div>
-                </div>
-              </div>
-              <span style="padding:5px 9px;border-radius:999px;background:rgba(197,138,59,0.10);color:#8c6020;font-size:11px;font-weight:700;">主要算力消耗源</span>
-            </div>
-
-            <div style="min-height:0;flex:1;display:grid;grid-template-rows:76px 27px;gap:7px;margin-top:10px;">
-              <div style="display:grid;grid-template-columns:190px 1fr;gap:14px;align-items:center;">
-                <div style="border-right:1px solid rgba(18,32,51,0.09);padding-right:14px;">
-                  <div style="font-size:clamp(46px,4vw,58px);line-height:0.95;font-weight:800;letter-spacing:-0.055em;color:#b87927;">78.5<span style="font-size:26px;letter-spacing:-0.02em;">%</span></div>
-                  <div style="margin-top:6px;font-size:12px;font-weight:700;color:#5a6879;">端到端时延占比</div>
-                </div>
-                <div>
-                  <div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;color:#697687;margin-bottom:6px;">
-                    <span>时延压力分布</span>
-                    <strong style="font-size:12px;color:#9b671f;">78.5%</strong>
-                  </div>
-                  <div style="height:8px;border-radius:999px;background:rgba(18,32,51,0.07);overflow:hidden;">
-                    <div style="width:78.5%;height:100%;border-radius:999px;background:linear-gradient(90deg,#d7aa67,#b87927);"></div>
-                  </div>
-                  <div style="margin-top:7px;font-size:11px;line-height:1.35;color:#6a7787;">GMC 吞掉主要端到端时延</div>
-                </div>
-              </div>
-              <div style="display:flex;align-items:center;gap:8px;padding:0 10px;border-radius:12px;background:rgba(197,138,59,0.08);border:1px solid rgba(197,138,59,0.14);font-size:11px;color:#76552a;">
-                <span style="font-weight:800;color:#9b671f;">计算链路占比</span>
-                <span style="color:#b08a50;">拟合 + Warp + Median</span>
-                <span style="margin-left:auto;font-size:15px;font-weight:800;color:#9b671f;">≈ 99%</span>
-              </div>
-            </div>
-
-            <div aria-label="GMC 三重痛感" style="flex-shrink:0;display:grid;grid-template-columns:1.15fr 0.7fr 1fr;gap:7px;margin-top:9px;">
-              <div style="padding:8px 9px;border-radius:13px;background:rgba(197,138,59,0.09);">
-                <div style="font-size:10px;color:#9a7745;">算力开销</div>
-                <div style="margin-top:3px;font-size:12px;font-weight:700;color:#59462f;">拟合 / Warp / Median</div>
-              </div>
-              <div style="padding:8px 9px;border-radius:13px;background:rgba(197,138,59,0.09);">
-                <div style="font-size:10px;color:#9a7745;">延时</div>
-                <div style="margin-top:3px;font-size:12px;font-weight:700;color:#59462f;">显著受压</div>
-              </div>
-              <div style="padding:8px 9px;border-radius:13px;background:rgba(197,138,59,0.09);">
-                <div style="font-size:10px;color:#9a7745;">稳定性</div>
-                <div style="margin-top:3px;font-size:12px;font-weight:700;color:#59462f;">零丢帧依赖前提</div>
-              </div>
-            </div>
-          </article>
-
-          <article class="panel npu-panel" style="min-width:0;min-height:0;box-sizing:border-box;display:flex;flex-direction:column;padding:15px 18px 14px;border-radius:24px;background:rgba(255,255,255,0.82);border:1px solid rgba(18,32,51,0.08);border-top:4px solid #477ba9;box-shadow:0 14px 36px rgba(15,23,42,0.08);transition:transform 180ms ease,border-color 180ms ease,box-shadow 180ms ease;">
-            <div style="display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
-              <div style="display:flex;align-items:center;gap:10px;">
-                <span style="display:inline-flex;align-items:center;justify-content:center;min-width:36px;height:26px;padding:0 9px;border-radius:999px;background:rgba(71,123,169,0.13);color:#396d9a;font-size:12px;font-weight:800;letter-spacing:0.08em;">02</span>
-                <div>
-                  <div style="font-size:clamp(17px,1.4vw,20px);line-height:1.1;font-weight:800;color:#122033;">难题二 · NPU</div>
-                  <div style="margin-top:3px;font-size:11px;color:#7b8796;letter-spacing:0.04em;">算子匹配与量化闸门瓶颈</div>
-                </div>
-              </div>
-              <span style="padding:5px 9px;border-radius:999px;background:rgba(71,123,169,0.10);color:#396d9a;font-size:11px;font-weight:700;">效率偏离直觉</span>
-            </div>
-
-            <div style="min-height:0;flex:1;display:grid;grid-template-rows:76px 27px;gap:7px;margin-top:10px;">
-              <div style="display:grid;grid-template-columns:1fr 24px 1fr 24px 1.16fr;gap:3px;align-items:center;">
-                <div style="height:66px;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:15px;background:rgba(71,123,169,0.08);border:1px solid rgba(71,123,169,0.17);text-align:center;padding:7px;">
-                  <span style="font-size:10px;color:#6c8297;">模型侧</span>
-                  <strong style="margin-top:3px;font-size:12px;color:#294e70;">模型算子</strong>
-                </div>
-                <svg viewBox="0 0 24 24" aria-hidden="true" style="width:22px;height:22px;color:#6d8ba5;">
-                  <path d="M5 12h12M13 7l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-                <div style="height:66px;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:15px;background:rgba(71,123,169,0.08);border:1px solid rgba(71,123,169,0.17);text-align:center;padding:7px;">
-                  <span style="font-size:10px;color:#6c8297;">硬件侧</span>
-                  <strong style="margin-top:3px;font-size:12px;color:#294e70;">NPU 匹配</strong>
-                </div>
-                <svg viewBox="0 0 24 24" aria-hidden="true" style="width:22px;height:22px;color:#b16356;">
-                  <path d="M5 12h12M13 7l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="3 2"/>
-                </svg>
-                <div style="height:66px;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:15px;background:rgba(178,90,77,0.08);border:1px dashed rgba(178,90,77,0.58);text-align:center;padding:7px;">
-                  <span style="font-size:10px;color:#a45d52;">隐蔽回退</span>
-                  <strong style="margin-top:3px;font-size:12px;color:#9d5046;">静默回退 CPU</strong>
-                </div>
-              </div>
-              <div style="display:flex;align-items:center;justify-content:center;border-radius:12px;background:rgba(71,123,169,0.07);border:1px solid rgba(71,123,169,0.12);font-size:11px;color:#506a82;">
-                匹配不完美 → 执行路径偏离预期 → 推理效率低于直觉
-              </div>
-            </div>
-
-            <div aria-label="NPU 三重痛感" style="flex-shrink:0;display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-top:9px;">
-              <div style="padding:8px 9px;border-radius:13px;background:rgba(71,123,169,0.08);">
-                <div style="font-size:10px;color:#6f879b;">执行路径</div>
-                <div style="margin-top:3px;font-size:12px;font-weight:700;color:#315573;">静默回退 CPU</div>
-              </div>
-              <div style="padding:8px 9px;border-radius:13px;background:rgba(71,123,169,0.08);">
-                <div style="font-size:10px;color:#6f879b;">性能估算</div>
-                <div style="margin-top:3px;font-size:12px;font-weight:700;color:#315573;">MAC 外推失效</div>
-              </div>
-              <div style="padding:8px 9px;border-radius:13px;background:rgba(71,123,169,0.08);">
-                <div style="font-size:10px;color:#6f879b;">量化控制</div>
-                <div style="margin-top:3px;font-size:12px;font-weight:700;color:#315573;">量化闸门未解</div>
-              </div>
-            </div>
-          </article>
-        </section>
-
-        <section aria-label="阶段结论与九个推进节点" style="min-height:0;display:grid;grid-template-rows:42px 34px;gap:6px;">
-          <div style="box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-radius:16px;background:#122033;color:#f8fafc;box-shadow:0 10px 26px rgba(15,23,42,0.10);">
-            <div style="display:flex;align-items:baseline;gap:12px;min-width:0;">
-              <span style="flex-shrink:0;font-size:10px;font-weight:700;letter-spacing:0.12em;color:#cdb781;">核心判断</span>
-              <div style="font-size:clamp(13px,1.05vw,15px);font-weight:600;white-space:nowrap;">
-                两个难题都不是“算力不够”，而是
-                <span style="color:#e2bd75;">“重复做”</span>、
-                <span style="color:#8eb9df;">“算错账”</span>、
-                <span style="color:#d7a39a;">“藏得深”</span>
-              </div>
-            </div>
-            <div style="display:flex;align-items:center;gap:7px;flex-shrink:0;color:#9eabb9;font-size:10px;">
-              <span style="width:6px;height:6px;border-radius:50%;background:#d8a95f;"></span>
-              GMC 重复计算
-              <span style="width:6px;height:6px;border-radius:50%;background:#6f9bc4;margin-left:3px;"></span>
-              NPU 隐性损耗
+        <div style="display:grid;grid-template-columns:90px 1fr 90px;align-items:center;gap:14px;position:relative;">
+          <span style="color:#b65f37;font-size:11px;font-weight:800;letter-spacing:0.05em;">攻克 GMC</span>
+          <div style="position:relative;height:44px;display:flex;align-items:center;justify-content:space-between;">
+            <div style="position:absolute;left:0;right:0;top:50%;height:1px;background:linear-gradient(90deg,rgba(182,106,69,0.65),rgba(188,147,72,0.72),rgba(82,104,148,0.65));"></div>
+            <div style="position:relative;z-index:1;display:flex;width:100%;justify-content:space-between;">
+              <span style="display:inline-flex;align-items:center;justify-content:center;width:29px;height:29px;border-radius:50%;background:#fff;border:1px solid rgba(182,106,69,0.45);box-shadow:0 3px 8px rgba(15,23,42,0.08);color:#a75d3d;font-size:9px;font-weight:800;">01</span>
+              <span style="display:inline-flex;align-items:center;justify-content:center;width:29px;height:29px;border-radius:50%;background:#fff;border:1px solid rgba(182,106,69,0.42);box-shadow:0 3px 8px rgba(15,23,42,0.08);color:#a75d3d;font-size:9px;font-weight:800;">02</span>
+              <span style="display:inline-flex;align-items:center;justify-content:center;width:29px;height:29px;border-radius:50%;background:#fff;border:1px solid rgba(188,147,72,0.48);box-shadow:0 3px 8px rgba(15,23,42,0.08);color:#8f692f;font-size:9px;font-weight:800;">03</span>
+              <span style="display:inline-flex;align-items:center;justify-content:center;width:29px;height:29px;border-radius:50%;background:#fff;border:1px solid rgba(188,147,72,0.48);box-shadow:0 3px 8px rgba(15,23,42,0.08);color:#8f692f;font-size:9px;font-weight:800;">04</span>
+              <span style="display:inline-flex;align-items:center;justify-content:center;width:29px;height:29px;border-radius:50%;background:#fff;border:1px solid rgba(188,147,72,0.48);box-shadow:0 3px 8px rgba(15,23,42,0.08);color:#8f692f;font-size:9px;font-weight:800;">05</span>
+              <span style="display:inline-flex;align-items:center;justify-content:center;width:29px;height:29px;border-radius:50%;background:#fff;border:1px solid rgba(188,147,72,0.48);box-shadow:0 3px 8px rgba(15,23,42,0.08);color:#8f692f;font-size:9px;font-weight:800;">06</span>
+              <span style="display:inline-flex;align-items:center;justify-content:center;width:29px;height:29px;border-radius:50%;background:#fff;border:1px solid rgba(82,104,148,0.42);box-shadow:0 3px 8px rgba(15,23,42,0.08);color:#526894;font-size:9px;font-weight:800;">07</span>
+              <span style="display:inline-flex;align-items:center;justify-content:center;width:29px;height:29px;border-radius:50%;background:#fff;border:1px solid rgba(82,104,148,0.42);box-shadow:0 3px 8px rgba(15,23,42,0.08);color:#526894;font-size:9px;font-weight:800;">08</span>
+              <span style="display:inline-flex;align-items:center;justify-content:center;width:29px;height:29px;border-radius:50%;background:#fff;border:1px solid rgba(82,104,148,0.48);box-shadow:0 3px 8px rgba(15,23,42,0.08);color:#526894;font-size:9px;font-weight:800;">09</span>
             </div>
           </div>
+          <span style="text-align:right;color:#526894;font-size:11px;font-weight:800;letter-spacing:0.05em;">攻克 NPU</span>
+        </div>
+      </section>
+    </main>
 
-          <div style="min-width:0;display:flex;align-items:center;gap:18px;padding:0 13px;border-radius:15px;background:rgba(255,255,255,0.72);border:1px solid rgba(18,32,51,0.08);box-shadow:0 8px 20px rgba(15,23,42,0.05);">
-            <div style="display:flex;align-items:center;gap:9px;flex-shrink:0;">
-              <span style="display:inline-flex;align-items:center;justify-content:center;min-width:31px;height:23px;border-radius:8px;background:rgba(201,151,77,0.13);color:#7d5a22;font-size:12px;font-weight:800;">9</span>
-              <div>
-                <div style="font-size:11px;font-weight:800;color:#293a4e;">本阶段工作汇报点</div>
-                <div style="font-size:9px;color:#8a95a2;">逐一攻克两大难题</div>
-              </div>
-            </div>
-            <div style="height:1px;width:22px;background:rgba(18,32,51,0.10);flex-shrink:0;"></div>
-            <div aria-label="九个推进节点" style="display:flex;align-items:center;justify-content:space-between;flex:1;min-width:0;">
-              <div style="display:flex;align-items:center;">
-                <span style="width:23px;height:23px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;background:#c9974f;color:#fff;font-size:9px;font-weight:800;box-shadow:0 0 0 4px rgba(201,151,77,0.10);">01</span>
-                <span style="width:18px;height:1px;background:rgba(201,151,77,0.38);"></span>
-              </div>
-              <div style="display:flex;align-items:center;">
-                <span style="width:23px;height:23px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;background:#c9974f;color:#fff;font-size:9px;font-weight:800;">02</span>
-                <span style="width:18px;height:1px;background:rgba(201,151,77,0.38);"></span>
-              </div>
-              <div style="display:flex;align-items:center;">
-                <span style="width:23px;height:23px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;background:#c9974f;color:#fff;font-size:9px;font-weight:800;">03</span>
-                <span style="width:18px;height:1px;background:rgba(201,151,77,0.38);"></span>
-              </div>
-              <div style="display:flex;align-items:center;">
-                <span style="width:23px;height:23px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;background:#c9974f;color:#fff;font-size:9px;font-weight:800;">04</span>
-                <span style="width:18px;height:1px;background:rgba(201,151,77,0.38);"></span>
-              </div>
-              <div style="display:flex;align-items:center;">
-                <span style="width:23px;height:23px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;background:#c9974f;color:#fff;font-size:9px;font-weight:800;">05</span>
-                <span style="width:18px;height:1px;background:rgba(201,151,77,0.38);"></span>
-              </div>
-              <div style="display:flex;align-items:center;">
-                <span style="width:23px;height:23px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;background:#c9974f;color:#fff;font-size:9px;font-weight:800;">06</span>
-                <span style="width:18px;height:1px;background:rgba(201,151,77,0.38);"></span>
-              </div>
-              <div style="display:flex;align-items:center;">
-                <span style="width:23px;height:23px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;background:#c9974f;color:#fff;font-size:9px;font-weight:800;">07</span>
-                <span style="width:18px;height:1px;background:rgba(201,151,77,0.38);"></span>
-              </div>
-              <div style="display:flex;align-items:center;">
-                <span style="width:23px;height:23px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;background:#c9974f;color:#fff;font-size:9px;font-weight:800;">08</span>
-                <span style="width:18px;height:1px;background:rgba(201,151,77,0.38);"></span>
-              </div>
-              <div style="display:flex;align-items:center;">
-                <span style="width:23px;height:23px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;background:#c9974f;color:#fff;font-size:9px;font-weight:800;box-shadow:0 0 0 4px rgba(201,151,77,0.10);">09</span>
-              </div>
-            </div>
-            <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;font-size:10px;color:#788594;">
-              推进节奏
-              <span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:#122033;color:#fff;font-size:11px;">→</span>
-            </div>
-          </div>
-        </section>
-      </main>
-
-      <footer class="footer" style="flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 8px;color:#5a6879;font-size:12px;border-top:1px solid rgba(18,32,51,0.1);">
-        <span>Editorial Light Master</span>
-        <span>03</span>
-      </footer>
-    </div>
+    <footer class="footer" style="display:flex;align-items:center;justify-content:space-between;padding:0 8px;color:#5a6879;font-size:12px;border-top:1px solid rgba(18,32,51,0.1);flex-shrink:0;">
+      <span style="white-space:nowrap;">Editorial Light Master</span>
+      <span style="flex:1;text-align:center;color:#4b5b70;font-size:13px;font-weight:600;padding:0 18px;">两个难题都不是“算力不够”，而是 <strong style="color:#b66a45;font-weight:800;">重复做</strong>、<strong style="color:#9a7131;font-weight:800;">算错账</strong>、<strong style="color:#526894;font-weight:800;">藏得深</strong></span>
+      <span style="white-space:nowrap;">3</span>
+    </footer>
   </div>
-
-  <script>
-    (() => {
-      const stage = document.getElementById('stage');
-      const fitStage = () => {
-        const scale = Math.min(window.innerWidth / 1280, window.innerHeight / 720);
-        stage.style.transform = `scale(${scale})`;
-      };
-      fitStage();
-      window.addEventListener('resize', fitStage, { passive: true });
-    })();
-  </script>
 </body>
 </html>

@@ -5,10 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>难题一 · GMC 账本：开销、延时、不稳定</title>
   <style>
-    * {
-      box-sizing: border-box;
-    }
-
     html, body {
       width: 1280px;
       height: 720px;
@@ -104,440 +100,523 @@
       border-top: 1px solid rgba(18, 32, 51, 0.1);
     }
 
-    /* 主内容区域 */
-    .content {
-      grid-template-rows: minmax(0, 1fr) 58px;
-      gap: 12px;
-    }
-
-    .ledger-panel,
-    .evidence-panel {
-      padding: 18px;
-      overflow: hidden;
+    .main-content {
+      position: relative;
     }
 
     .ledger-panel {
       display: grid;
-      grid-template-rows: 102px 92px 1fr;
-      gap: 12px;
+      grid-template-rows: 116px 112px 1fr;
+      gap: 14px;
+      overflow: hidden;
     }
 
-    .kpi-block {
+    .hero-metric {
       display: grid;
-      grid-template-columns: 1.28fr 0.72fr;
-      gap: 18px;
+      grid-template-columns: 180px 1fr;
       align-items: center;
-      padding: 0 4px 10px;
-      border-bottom: 1px solid rgba(18, 32, 51, 0.08);
+      gap: 20px;
+      padding: 4px 8px 12px;
+      border-bottom: 1px solid rgba(18, 32, 51, 0.09);
     }
 
-    .kpi-primary {
+    .hero-number {
+      position: relative;
+      color: #b86a32;
+      font-size: clamp(48px, 5.1vw, 66px);
+      line-height: 0.95;
+      font-weight: 850;
+      letter-spacing: -0.055em;
+    }
+
+    .hero-number::after {
+      content: "";
+      position: absolute;
+      left: 3px;
+      right: 4px;
+      bottom: -10px;
+      height: 4px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(184, 106, 50, 0.88), rgba(201, 151, 77, 0.16));
+    }
+
+    .hero-copy {
       min-width: 0;
     }
 
-    .kpi-value {
-      display: flex;
-      align-items: baseline;
-      gap: 9px;
-      color: #c65b3a;
-      line-height: 1;
-    }
-
-    .kpi-value strong {
-      font-size: 52px;
+    .hero-copy h2 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.3;
       font-weight: 800;
-      letter-spacing: -0.05em;
     }
 
-    .kpi-value span {
-      font-size: 14px;
-      font-weight: 700;
-      color: #a9462e;
-    }
-
-    .kpi-label {
-      margin-top: 8px;
+    .formula {
+      margin: 7px 0 0;
       color: #4b5b70;
       font-size: 13px;
-      font-weight: 700;
+      line-height: 1.35;
     }
 
-    .kpi-secondary {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
-    }
-
-    .metric-chip {
-      min-width: 0;
-      padding: 11px 10px;
-      border-radius: 14px;
-      background: rgba(244, 246, 249, 0.9);
-      border: 1px solid rgba(18, 32, 51, 0.08);
-    }
-
-    .metric-chip span {
-      display: block;
-      color: #69788a;
-      font-size: 11px;
-      line-height: 1.3;
-    }
-
-    .metric-chip strong {
-      display: block;
-      margin-top: 5px;
+    .formula strong {
       color: #122033;
-      font-size: 18px;
-      line-height: 1;
-      white-space: nowrap;
+      font-weight: 800;
     }
 
-    .metric-chip.hot strong {
-      color: #c65b3a;
+    .latency-split {
+      display: grid;
+      grid-template-columns: 74px 1fr;
+      align-items: center;
+      gap: 10px;
+      margin-top: 13px;
     }
 
-    .chart-block {
-      min-width: 0;
+    .split-label {
+      color: #5a6879;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
     }
 
-    .chart-heading {
+    .split-bar {
+      display: flex;
+      height: 14px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #edf0f4;
+      box-shadow: inset 0 0 0 1px rgba(18, 32, 51, 0.04);
+    }
+
+    .split-gmc {
       display: flex;
       align-items: center;
+      justify-content: flex-end;
+      width: 78.5%;
+      padding-right: 7px;
+      color: #fffaf4;
+      background: linear-gradient(90deg, #c77a40, #b86a32);
+      font-size: 9px;
+      font-weight: 800;
+    }
+
+    .split-other {
+      width: 21.5%;
+      background: #dfe5ec;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: baseline;
       justify-content: space-between;
-      gap: 10px;
       margin-bottom: 9px;
     }
 
-    .chart-heading h2,
-    .chart-heading h3 {
+    .section-head h3 {
       margin: 0;
-      font-size: 13px;
+      color: #122033;
+      font-size: 15px;
       line-height: 1.2;
       font-weight: 800;
-      color: #27384c;
     }
 
-    .chart-note {
-      color: #718094;
-      font-size: 10px;
-      white-space: nowrap;
+    .section-head span {
+      color: #7d5a22;
+      font-size: 11px;
+      font-weight: 700;
     }
 
-    .stack-bar {
+    .cost-bar {
       display: flex;
-      width: 100%;
-      height: 28px;
+      height: 20px;
       overflow: hidden;
-      border-radius: 9px;
-      background: #e8ecf1;
+      border-radius: 7px;
+      background: #edf0f4;
+      box-shadow: inset 0 0 0 1px rgba(18, 32, 51, 0.04);
     }
 
-    .stack-bar span {
+    .cost-segment {
       display: flex;
       align-items: center;
       justify-content: center;
       min-width: 0;
       color: #fff;
-      font-size: 11px;
-      font-weight: 700;
+      font-size: 10px;
+      font-weight: 800;
       white-space: nowrap;
     }
 
-    .stack-bar .gmc-time {
-      width: 78.5%;
-      background: linear-gradient(90deg, #d97855, #c65b3a);
-    }
-
-    .stack-bar .other-time {
-      width: 21.5%;
-      background: #aeb8c5;
-    }
-
-    .stack-bar .warp {
+    .cost-warp {
       width: 43.7%;
-      background: #316ea8;
+      background: #b86a32;
     }
 
-    .stack-bar .median {
+    .cost-median {
       width: 33.7%;
-      background: #5d91c4;
+      background: #d49a58;
     }
 
-    .stack-bar .fit {
+    .cost-fit {
       width: 21.6%;
-      background: #8eb1d1;
+      background: #71849b;
     }
 
-    .stack-bar .read {
+    .cost-read {
       width: 1%;
       min-width: 5px;
-      background: #bcc5cf;
-      overflow: hidden;
+      background: #bac5d1;
     }
 
-    .bar-caption {
-      display: flex;
-      justify-content: space-between;
-      gap: 8px;
-      margin-top: 6px;
-      color: #69788a;
-      font-size: 10px;
-    }
-
-    .legend {
+    .cost-legend {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
       gap: 8px;
-      margin-top: 8px;
+      margin-top: 9px;
     }
 
     .legend-item {
       display: flex;
       align-items: center;
       gap: 6px;
-      min-width: 0;
-      color: #566679;
-      font-size: 10px;
+      color: #5a6879;
+      font-size: 11px;
       white-space: nowrap;
     }
 
     .legend-dot {
       width: 7px;
       height: 7px;
-      flex: 0 0 auto;
+      flex: 0 0 7px;
       border-radius: 50%;
     }
 
     .legend-item strong {
-      color: #27384c;
+      color: #122033;
       font-weight: 800;
     }
 
-    .evidence-panel {
+    .constraint {
       display: grid;
-      grid-template-rows: repeat(3, minmax(0, 1fr));
+      grid-template-rows: auto 1fr auto;
       gap: 8px;
+      padding: 12px 14px 10px;
+      border-radius: 18px;
+      background: linear-gradient(135deg, rgba(184, 106, 50, 0.08), rgba(255, 255, 255, 0.62));
+      border: 1px solid rgba(184, 106, 50, 0.14);
     }
 
-    .evidence-card {
-      min-height: 0;
-      padding: 10px 12px;
-      border-radius: 16px;
-      background: rgba(247, 249, 251, 0.88);
-      border: 1px solid rgba(18, 32, 51, 0.07);
-    }
-
-    .evidence-card h2 {
+    .constraint-top {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 8px;
-      margin: 0 0 7px;
-      color: #27384c;
-      font-size: 12px;
-      font-weight: 800;
+      gap: 12px;
     }
 
-    .evidence-index {
-      color: #9b7a42;
-      font-size: 9px;
-      font-weight: 800;
-      letter-spacing: 0.08em;
-    }
-
-    .constraint-flow {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      white-space: nowrap;
-      font-size: 11px;
-      color: #536377;
-    }
-
-    .constraint-flow .formula {
-      padding: 5px 8px;
-      border-radius: 9px;
-      background: rgba(201, 151, 77, 0.11);
-      color: #704f19;
-      font-weight: 800;
-    }
-
-    .constraint-flow .target {
-      margin-left: auto;
-      padding: 5px 9px;
-      border-radius: 9px;
-      background: rgba(46, 139, 87, 0.1);
-      color: #24734a;
-      font-weight: 800;
-    }
-
-    .benchmark {
-      position: relative;
-      height: 54px;
-      margin-top: 3px;
-    }
-
-    .benchmark-row {
-      position: relative;
-      height: 22px;
-      margin-bottom: 5px;
-    }
-
-    .benchmark-label {
-      position: absolute;
-      left: 0;
-      top: 5px;
-      width: 45px;
-      color: #5f6e80;
-      font-size: 10px;
-      font-weight: 700;
-    }
-
-    .benchmark-track {
-      position: absolute;
-      left: 48px;
-      right: 0;
-      top: 4px;
-      height: 12px;
-      border-radius: 999px;
-      background: #e3e8ee;
-      overflow: hidden;
-    }
-
-    .benchmark-fill {
-      height: 100%;
-      border-radius: inherit;
-      background: linear-gradient(90deg, #4f86b9, #316ea8);
-    }
-
-    .benchmark-fill.over {
-      background: linear-gradient(90deg, #5d91c4 0 31%, #d97855 31% 100%);
-    }
-
-    .benchmark-value {
-      position: absolute;
-      right: 0;
-      top: 1px;
-      color: #27384c;
-      font-size: 10px;
-      font-weight: 800;
-    }
-
-    .target-line {
-      position: absolute;
-      left: calc(48px + (100% - 48px) * 0.22);
-      top: 0;
-      bottom: 4px;
-      z-index: 2;
-      width: 1px;
-      background: #2e8b57;
-    }
-
-    .target-label {
-      position: absolute;
-      right: 0;
-      top: 37px;
-      color: #24734a;
-      font-size: 9px;
-      font-weight: 800;
-    }
-
-    .anchor-formula {
-      display: grid;
-      grid-template-columns: 1fr auto 1fr;
-      align-items: center;
-      gap: 6px;
-      color: #334459;
-      font-size: 10px;
-      font-weight: 700;
-      text-align: center;
-    }
-
-    .anchor-formula .equiv {
-      color: #9b7a42;
+    .constraint-title {
       font-size: 14px;
       font-weight: 800;
     }
 
-    .gate {
-      grid-column: 1 / -1;
-      justify-self: center;
-      margin-top: 1px;
-      padding: 4px 12px;
-      border-radius: 8px;
-      background: rgba(46, 139, 87, 0.11);
-      color: #24734a;
-      font-family: Consolas, "Courier New", monospace;
-      font-size: 10px;
-      font-weight: 800;
-    }
-
-    .conclusion-band {
-      grid-column: 1 / -1;
-      display: grid;
-      grid-template-columns: auto 1fr auto;
-      align-items: center;
-      gap: 15px;
-      min-width: 0;
-      padding: 0 16px;
-      border-radius: 18px;
-      background: linear-gradient(90deg, rgba(242, 248, 244, 0.96), rgba(255, 255, 255, 0.9));
-      border: 1px solid rgba(46, 139, 87, 0.15);
-      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
-    }
-
-    .status-pill {
-      padding: 7px 10px;
+    .constraint-rule {
+      padding: 4px 8px;
       border-radius: 999px;
-      background: rgba(46, 139, 87, 0.12);
-      color: #24734a;
-      font-size: 11px;
+      color: #7d5a22;
+      background: rgba(201, 151, 77, 0.13);
+      font-size: 10px;
       font-weight: 800;
       white-space: nowrap;
     }
 
-    .conclusion-band strong {
-      color: #203247;
-      font-size: 13px;
-      line-height: 1.35;
+    .threshold {
+      display: grid;
+      grid-template-columns: 62px 1fr 92px;
+      align-items: center;
+      gap: 10px;
     }
 
-    .conclusion-note {
-      color: #667589;
-      font-size: 10px;
-      line-height: 1.35;
+    .threshold-label {
+      color: #5a6879;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .threshold-track {
+      position: relative;
+      height: 13px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #dfe9e6 0 65.6%, #ead8c9 65.6% 100%);
+    }
+
+    .threshold-fill {
+      width: 65.6%;
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #2f8f83, #5ca99f);
+    }
+
+    .threshold-marker {
+      position: absolute;
+      top: -4px;
+      left: 65.6%;
+      width: 2px;
+      height: 21px;
+      background: #122033;
+      transform: translateX(-1px);
+    }
+
+    .threshold-value {
+      color: #b86a32;
+      font-size: 17px;
+      font-weight: 850;
       text-align: right;
+      letter-spacing: -0.02em;
+    }
+
+    .constraint-note {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding-top: 7px;
+      border-top: 1px solid rgba(18, 32, 51, 0.08);
+      color: #5a6879;
+      font-size: 11px;
+      line-height: 1.25;
+    }
+
+    .stability-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex: 0 0 auto;
+      padding: 4px 8px;
+      border-radius: 999px;
+      color: #246f66;
+      background: rgba(47, 143, 131, 0.11);
+      font-weight: 800;
+    }
+
+    .stability-badge::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #2f8f83;
+      box-shadow: 0 0 0 3px rgba(47, 143, 131, 0.12);
+    }
+
+    .action-panel {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      padding: 20px;
+    }
+
+    .action-header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0 2px 12px;
+      border-bottom: 1px solid rgba(18, 32, 51, 0.1);
+    }
+
+    .action-header h2 {
+      margin: 0;
+      font-size: 19px;
+      line-height: 1.2;
+      font-weight: 850;
+      letter-spacing: -0.02em;
+    }
+
+    .action-header p {
+      margin: 0 0 1px;
+      color: #7d5a22;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
       white-space: nowrap;
     }
 
-    .panel,
-    .conclusion-band {
-      transition:
-        transform 180ms ease,
-        border-color 180ms ease,
-        box-shadow 180ms ease;
+    .action-columns {
+      display: grid;
+      grid-template-columns: 0.92fr 1.35fr 0.82fr;
+      gap: 8px;
+      padding: 10px 8px 7px;
+      color: #7a8796;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
     }
 
-    .panel:hover {
+    .action-list {
+      display: grid;
+      grid-template-rows: repeat(3, 1fr);
+      gap: 9px;
+      min-height: 0;
+      flex: 1;
+    }
+
+    .action-row {
+      display: grid;
+      grid-template-columns: 0.92fr 1.35fr 0.82fr;
+      align-items: center;
+      gap: 8px;
+      min-height: 0;
+      padding: 10px 9px;
+      border-radius: 15px;
+      background: rgba(244, 246, 249, 0.76);
+      border: 1px solid rgba(18, 32, 51, 0.07);
+      transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+    }
+
+    .action-row:hover {
       transform: translateY(-2px);
-      border-color: rgba(18, 32, 51, 0.14);
-      box-shadow: 0 18px 44px rgba(15, 23, 42, 0.1);
+      border-color: rgba(47, 143, 131, 0.24);
+      box-shadow: 0 10px 22px rgba(15, 23, 42, 0.07);
+    }
+
+    .cost-cell {
+      min-width: 0;
+    }
+
+    .cost-main {
+      display: block;
+      color: #122033;
+      font-size: 12px;
+      line-height: 1.25;
+      font-weight: 800;
+    }
+
+    .cost-share {
+      display: block;
+      margin-top: 3px;
+      color: #b86a32;
+      font-size: 10px;
+      font-weight: 800;
+    }
+
+    .move-cell {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-width: 0;
+    }
+
+    .move-cell::after {
+      content: "→";
+      position: absolute;
+      right: -2px;
+      color: #9aa6b4;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .move-id {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 27px;
+      height: 27px;
+      flex: 0 0 27px;
+      border-radius: 9px;
+      color: #f8fafc;
+      background: #122033;
+      font-size: 11px;
+      font-weight: 850;
+    }
+
+    .move-text {
+      min-width: 0;
+      color: #26374b;
+      font-size: 11px;
+      line-height: 1.3;
+      font-weight: 800;
+    }
+
+    .result-cell {
+      min-width: 0;
+      padding-left: 8px;
+      border-left: 1px solid rgba(18, 32, 51, 0.09);
+    }
+
+    .result-value {
+      display: block;
+      color: #2f8f83;
+      font-size: 12px;
+      line-height: 1.25;
+      font-weight: 850;
+      white-space: nowrap;
+    }
+
+    .result-label {
+      display: block;
+      margin-top: 3px;
+      color: #6e7c8d;
+      font-size: 9px;
+      line-height: 1.25;
+    }
+
+    .action-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 10px;
+      padding: 10px 11px;
+      border-radius: 13px;
+      color: #4b5b70;
+      background: rgba(201, 151, 77, 0.08);
+      font-size: 10px;
+      line-height: 1.35;
+    }
+
+    .action-footer strong {
+      color: #7d5a22;
+    }
+
+    .guard {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex: 0 0 auto;
+      color: #246f66;
+      font-weight: 800;
+    }
+
+    .guard::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #2f8f83;
+    }
+
+    @keyframes revealBar {
+      from { transform: scaleX(0); transform-origin: left center; }
+      to { transform: scaleX(1); transform-origin: left center; }
+    }
+
+    .split-gmc,
+    .cost-segment,
+    .threshold-fill {
+      animation: revealBar 620ms cubic-bezier(0.22, 0.8, 0.35, 1) both;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .panel,
+      .action-row,
+      .split-gmc,
+      .cost-segment,
+      .threshold-fill {
+        animation: none;
+        transition: none;
+      }
     }
 
     :focus-visible {
       outline: 2px solid rgba(201, 151, 77, 0.55);
       outline-offset: 3px;
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-      .panel,
-      .conclusion-band {
-        transition: none;
-      }
-
-      .panel:hover {
-        transform: none;
-      }
     }
   </style>
 </head>
@@ -545,142 +624,138 @@
   <div class="slide">
     <header class="header">
       <div>
-        <div class="eyebrow">Signal Narrative</div>
+        <div class="eyebrow">Engineering Bottleneck · 01</div>
         <h1 class="title">难题一 · GMC 账本：开销、延时、不稳定</h1>
-        <p class="subtitle">GMC 占端到端墙钟延时 78.5%；零丢帧与有界延时构成新的性能硬约束</p>
+        <p class="subtitle">GMC 吃掉端到端时延的 78.5%，三段成本对应本阶段三招</p>
       </div>
-      <div class="page-tag">4/18</div>
+      <div class="page-tag">04/19</div>
     </header>
-    <main class="content">
-      <section class="panel ledger-panel" aria-label="GMC 性能账本">
-        <div class="kpi-block">
-          <div class="kpi-primary">
-            <div class="kpi-value">
-              <strong>78.5%</strong>
-              <span>首要瓶颈</span>
-            </div>
-            <div class="kpi-label">GMC 占端到端墙钟延时</div>
-          </div>
-          <div class="kpi-secondary" aria-label="延时关键指标">
-            <div class="metric-chip hot">
-              <span>GMC 耗时</span>
-              <strong>62.765 ms</strong>
-            </div>
-            <div class="metric-chip">
-              <span>端到端墙钟</span>
-              <strong>79.952 ms</strong>
+    <main class="content main-content">
+      <section class="panel ledger-panel" aria-label="GMC 成本、延时与稳定性账本">
+        <article class="hero-metric">
+          <div class="hero-number">78.5%</div>
+          <div class="hero-copy">
+            <h2>GMC 是当前端到端时延的主要瓶颈</h2>
+            <p class="formula">
+              板卡 <strong>gmc_total 62.765 ms</strong> / 端到端墙钟 <strong>79.952 ms</strong>
+            </p>
+            <div class="latency-split" aria-label="GMC 占端到端时延 78.5%，其他环节占 21.5%">
+              <span class="split-label">时延构成</span>
+              <div class="split-bar">
+                <div class="split-gmc">GMC 78.5%</div>
+                <div class="split-other"></div>
+              </div>
             </div>
           </div>
+        </article>
+
+        <article aria-label="PC 侧算力成本分解">
+          <div class="section-head">
+            <h3>PC 侧算力归因</h3>
+            <span>warp + median = 77.4% 核心成本</span>
+          </div>
+          <div class="cost-bar" aria-label="warp 43.7%，median 33.7%，拟合 21.6%，读帧 1%">
+            <div class="cost-segment cost-warp">43.7%</div>
+            <div class="cost-segment cost-median">33.7%</div>
+            <div class="cost-segment cost-fit">21.6%</div>
+            <div class="cost-segment cost-read"></div>
+          </div>
+          <div class="cost-legend">
+            <span class="legend-item"><i class="legend-dot" style="background:#b86a32"></i>warp <strong>43.7%</strong></span>
+            <span class="legend-item"><i class="legend-dot" style="background:#d49a58"></i>median <strong>33.7%</strong></span>
+            <span class="legend-item"><i class="legend-dot" style="background:#71849b"></i>拟合 <strong>21.6%</strong></span>
+            <span class="legend-item"><i class="legend-dot" style="background:#bac5d1"></i>读帧 <strong>1%</strong></span>
+          </div>
+        </article>
+
+        <article class="constraint" aria-label="25 FPS 吞吐硬约束对比">
+          <div class="constraint-top">
+            <span class="constraint-title">25 FPS 新硬约束</span>
+            <span class="constraint-rule">GMC 吞吐 ≥ 相机率</span>
+          </div>
+          <div class="threshold">
+            <span class="threshold-label">目标 ≤40 ms</span>
+            <div class="threshold-track" aria-label="step10 实测 60.8 至 61.2 毫秒，超过 40 毫秒目标约 21 毫秒">
+              <div class="threshold-fill"></div>
+              <span class="threshold-marker"></span>
+            </div>
+            <span class="threshold-value">60.8–61.2</span>
+          </div>
+          <div class="constraint-note">
+            <span>step10 仍超目标约 <strong style="color:#b86a32">21 ms</strong>，吞吐尚未达标</span>
+            <span class="stability-badge">0 帧 / 0 洞</span>
+          </div>
+        </article>
+      </section>
+
+      <section class="panel action-panel" aria-label="战线 A 的成本与优化动作映射">
+        <div class="action-header">
+          <h2>战线 A｜三段成本，三招</h2>
+          <p>COST → ACTION</p>
         </div>
 
-        <section class="chart-block" aria-labelledby="latency-title">
-          <div class="chart-heading">
-            <h2 id="latency-title">端到端延时构成</h2>
-            <span class="chart-note">62.765 / 79.952 = 78.5%</span>
-          </div>
-          <div class="stack-bar" role="img" aria-label="GMC 62.765毫秒，占78.5%；其余耗时17.187毫秒，占21.5%">
-            <span class="gmc-time">GMC · 62.765 ms</span>
-            <span class="other-time">17.187 ms</span>
-          </div>
-          <div class="bar-caption">
-            <span>GMC：主要延时来源</span>
-            <span>其余链路：21.5%</span>
-          </div>
-        </section>
+        <div class="action-columns" aria-hidden="true">
+          <span>成本项</span>
+          <span>优化动作</span>
+          <span>可验证改善</span>
+        </div>
 
-        <section class="chart-block" aria-labelledby="compute-title">
-          <div class="chart-heading">
-            <h2 id="compute-title">PC 侧算力归因</h2>
-            <span class="chart-note">warp 与 median 合计 77.4%</span>
-          </div>
-          <div class="stack-bar" role="img" aria-label="warp 43.7%，median 33.7%，拟合21.6%，读帧1%">
-            <span class="warp">warp 43.7%</span>
-            <span class="median">median 33.7%</span>
-            <span class="fit">拟合 21.6%</span>
-            <span class="read"></span>
-          </div>
-          <div class="legend" aria-label="算力归因图例">
-            <div class="legend-item">
-              <span class="legend-dot" style="background:#316ea8"></span>
-              <span>warp <strong>43.7%</strong></span>
+        <div class="action-list">
+          <article class="action-row">
+            <div class="cost-cell">
+              <span class="cost-main">warp + median</span>
+              <span class="cost-share">77.4%</span>
             </div>
-            <div class="legend-item">
-              <span class="legend-dot" style="background:#5d91c4"></span>
-              <span>median <strong>33.7%</strong></span>
+            <div class="move-cell">
+              <span class="move-id">A1</span>
+              <span class="move-text">OpenCL 融合内核<br />搬到 GPU</span>
             </div>
-            <div class="legend-item">
-              <span class="legend-dot" style="background:#8eb1d1"></span>
-              <span>拟合 <strong>21.6%</strong></span>
+            <div class="result-cell">
+              <span class="result-value">承接主战场</span>
+              <span class="result-label">GPU 融合</span>
             </div>
-            <div class="legend-item">
-              <span class="legend-dot" style="background:#bcc5cf"></span>
-              <span>读帧 <strong>1%</strong></span>
-            </div>
-          </div>
-        </section>
-      </section>
+          </article>
 
-      <section class="panel evidence-panel" aria-label="三组硬证据">
-        <article class="evidence-card">
-          <h2>
-            新硬约束
-            <span class="evidence-index">01 / STANDARD</span>
-          </h2>
-          <div class="constraint-flow">
-            <span>零丢帧 + 有界延时</span>
-            <span class="formula">GMC 吞吐 ≥ 相机率</span>
-            <span class="target">25 fps ⇒ ≤ 40 ms/帧</span>
-          </div>
-        </article>
-
-        <article class="evidence-card">
-          <h2>
-            实测差距
-            <span class="evidence-index">02 / BENCHMARK</span>
-          </h2>
-          <div class="benchmark" role="img" aria-label="40毫秒目标；step10为60.8至61.2毫秒；step2为157.6至161.1毫秒">
-            <div class="benchmark-row">
-              <span class="benchmark-label">step10</span>
-              <div class="benchmark-track">
-                <div class="benchmark-fill over" style="width:52%"></div>
-              </div>
-              <span class="benchmark-value">60.8–61.2 ms</span>
+          <article class="action-row">
+            <div class="cost-cell">
+              <span class="cost-main">拟合</span>
+              <span class="cost-share">21.6%</span>
             </div>
-            <div class="benchmark-row">
-              <span class="benchmark-label">step2</span>
-              <div class="benchmark-track">
-                <div class="benchmark-fill" style="width:100%"></div>
-              </div>
-              <span class="benchmark-value">157.6–161.1 ms</span>
+            <div class="move-cell">
+              <span class="move-id">A2</span>
+              <span class="move-text">Tree 锚点级联</span>
             </div>
-            <div class="target-line"></div>
-            <div class="target-label">目标线 40 ms</div>
-          </div>
-        </article>
+            <div class="result-cell">
+              <span class="result-value">22 → 6.19</span>
+              <span class="result-label">次 / 帧</span>
+            </div>
+          </article>
 
-        <article class="evidence-card">
-          <h2>
-            锚定成立条件
-            <span class="evidence-index">03 / GATE</span>
-          </h2>
-          <div class="anchor-formula">
-            <span>物理帧号锚定</span>
-            <span class="equiv">≡</span>
-            <span>消费计数锚定</span>
-            <span class="gate">dropped == 0</span>
-          </div>
-        </article>
-      </section>
+          <article class="action-row">
+            <div class="cost-cell">
+              <span class="cost-main">fit 内 gFTT</span>
+              <span class="cost-share">65.8%</span>
+            </div>
+            <div class="move-cell">
+              <span class="move-id">A3</span>
+              <span class="move-text">纯函数缓存</span>
+            </div>
+            <div class="result-cell">
+              <span class="result-value">18.46 → 3.94</span>
+              <span class="result-label">毫秒</span>
+            </div>
+          </article>
+        </div>
 
-      <section class="conclusion-band" aria-label="本页结论">
-        <span class="status-pill">深缓冲｜0 帧 / 0 洞</span>
-        <strong>稳定性已被“深缓冲”解决一半——“零丢帧”从结果变成必须守住的前提</strong>
-        <span class="conclusion-note">锚定等价不能由深缓冲替代</span>
+        <div class="action-footer">
+          <span><strong>优化边界：</strong>后续动作必须保持“锚定等价、不丢帧”。</span>
+          <span class="guard">深缓冲已启用</span>
+        </div>
       </section>
     </main>
     <footer class="footer">
       <span>Editorial Light Master</span>
-      <span>4</span>
+      <span>04</span>
     </footer>
   </div>
 </body>

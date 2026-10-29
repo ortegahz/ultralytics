@@ -20,14 +20,18 @@
 |:--|:--|
 | **主题** | 复杂背景下红外弱小无人机检测 · 工程化阶段汇报 |
 | **主线** | 从"能跑"到"可交付"——把一条 PC 上的算法图，变成 RK3588 上可并行、可量化、可验收的实时管线 |
-| **结构** | **开篇立两个靶子**（难题一 GMC / 难题二 NPU）→ 战线 A 打 GMC → 战线 B 打 NPU → 公共底座 → 收口遗留与下一步 |
-| **页数** | 18 页（16:9，1280×720 渲染） |
+| **结构** | **开篇立两个靶子**（难题一 GMC / 难题二 NPU）→ **战线 A 打 GMC**（A1 OpenCL / A2 step10 / A3 缓存）→ **战线 B 打 NPU**（B1~B4）→ **公共底座**（并行结构 + 库交付）→ 收口遗留与下一步 |
+| **页数** | **20 页**（16:9，1280×720，含结尾「谢谢」页） |
+| **生成器** | **ppt-master**（`/media/manu/1TB-Volume/workspace/ppt-master`）· Quick Generate 流程 · mode=`pyramid` + style=`data-journalism` · 产出**原生 DrawingML 形状**（非整页位图），文字可直接在 PowerPoint 里编辑 |
+| **内容源** | ppt-master 工程 `deck_content.py`（本仓 `assets/svg_source/` 为导出的 SVG 源页） |
 | **状态** | ✅ 全部页通过布局检查 |
 
 ### 核心叙事（讲的人务必先记住这三句）
 
 1. **管线在板卡上跑起来之后，被两个问题卡住了** —— 一个是 GMC（吃掉了端到端时延的 **78.5%** 且时延账算不准），一个是 NPU（让"编译通过"≠"跑在 NPU 上"、让 FLOPs 外推失效）。
-2. **后面 9 个工作汇报点全部围绕这两个问题展开** —— 战线 A 打在 GMC 上，战线 B 打在 NPU 上，三项公共底座两条战线共用。
+2. **后面 9 个工作汇报点全部围绕这两个问题展开** —— 战线 A 打在 GMC 上，战线 B 打在 NPU 上，两项公共底座两条战线共用。
+   - **战线 A 的三招按 GMC 的三段成本一一对应**：`warp+median 77.4%` → **A1 OpenCL**；`拟合 21.6%` → **A2 step10**；`fit 内部 65.8%` → **A3 缓存**。
+     💡 A1 与 A2 **互补而非重复** —— step10 明确"warp 一次没少"，它砍不动的 77.4% 正是 A1 搬走的那块。
 3. **收口时主动摆出未解项** —— 评审会最服的不是"全做完了"，而是"你知道还差什么、为什么差、下一步怎么补"。
 
 ---
@@ -37,12 +41,26 @@
 ```
 manu/report/
 ├── README.md                        ← 本文件：索引 + 复现方式
-├── 00_汇报正文_工程化阶段.md          ← ★ 汇报正文（评审 / 存档 / 讲稿底稿）
-├── 01_幻灯片大纲.md                  ← 18 页逐页素材（自动导出，勿手改）
-├── 02_数据溯源.md                    ← ★ 每个数字 → memory 出处 + 生成链路命令
-├── slides/                          ← 18 张 PNG 预览
-└── assets/                          ← PPTX（图片版 + 可编辑版）+ HTML 源页
+├── 00_汇报正文_工程化阶段.md          ← ★ 汇报正文（评审 / 存档 / 讲稿底稿，v3）
+├── 01_幻灯片大纲.md                  ← 19 页逐页素材（自动导出，勿手改）
+├── 02_数据溯源.md                    ← ★ 每个数字 → memory 出处 + 修订记录 + 生成链路
+├── outline/                         ← 幻灯片大纲的结构化副本（JSON）
+└── assets/
+    ├── 红外弱小无人机检测_工程化阶段汇报_20页_原生可编辑.pptx  ← ★ 当前成品（ppt-master，原生矢量形状）
+    ├── 红外弱小无人机检测_工程化阶段汇报_19页.pptx          ← 上一版（PPT-AGENT，整页位图）
+    ├── 红外弱小无人机检测_工程化阶段汇报_19页_可编辑版.pptx   ← 上一版（PPT-AGENT，可编辑版）
+    ├── svg_source/                   ← ★ 20 个 SVG 源页（改字改这里，重跑即出新版）
+    ├── html/                         ← 上一版（PPT-AGENT）的 HTML 源页
+    └── outline.json / contents.json  ← 上一版内容源的运行期副本
 ```
+
+> **✅ 当前状态**：**成品已用 ppt-master 生成（20 页，零布局问题，原生 DrawingML 形状）** ——
+> `assets/红外弱小无人机检测_工程化阶段汇报_20页_原生可编辑.pptx`（114 KB，纯矢量，文字与形状都能在 PowerPoint 里直接改）
+> + `assets/svg_source/`（20 个 SVG 源页）+ `slides/`（20 张 PNG 预览）。
+> 页序见 `00_汇报正文_工程化阶段.md` **§5 幻灯片分页映射**。
+>
+> **两版差别**：19 页版是 PPT-AGENT 生成的**整页位图**（改字要回 HTML 改）；
+> 20 页版是 ppt-master 生成的**原生形状**（可直接在 PPT 里编辑，源页在 `assets/svg_source/`）。
 
 ### 导航
 
@@ -62,31 +80,40 @@ manu/report/
 **执行机**：本地工作站（生成）；板卡 `root@192.168.0.64`（数据来源）
 
 ```bash
-# 1) 全量生成（18 页，并发 5，约 15~20 分钟）
-cd /media/manu/1TB-Volume/workspace/PPT-AGENT
-/home/manu/anaconda3/bin/python -u run_fixed_deck_parallel.py --workers 5
+# 1) 全量生成（当前成品：ppt-master / Quick Generate）
+cd /media/manu/1TB-Volume/workspace/ppt-master
+P=projects/ir_uav_engineering_20261029
+PY=/home/manu/anaconda3/envs/uav/bin/python
 
-# 2) 只重跑指定页（保留其它页）
-/home/manu/anaconda3/bin/python -u run_fixed_deck_parallel.py --workers 1 --only 9
+# 2) 布局校验（写 validation/svg_quality_report.json，导出端要读它做指纹核对）
+$PY skills/ppt-master/scripts/svg_quality_checker.py $P \
+    --quick-generate --canonical-authoring --stage final --json
 
-# 3) 重新导出幻灯片大纲到本目录
-cd /media/manu/1TB-Volume/workspace/PPT-AGENT
-/home/anu/anaconda3/bin/python -c "
-import sys; sys.path.insert(0,'.')
-import deck_content
-from html_pipeline.pipeline import _get_pages
-print(len(_get_pages(deck_content.OUTLINE)), '页')
-"
-# 正式导出脚本见下方「五、工具链」
+# 3) 导出原生 PPTX
+$PY skills/ppt-master/scripts/svg_to_pptx.py $P --quick-generate --no-notes
+#    → $P/exports/<name>_<timestamp>.pptx
 
-# 4) 校验与归档
-python3 manu/memory/validate_nav_table.py    # 记忆体系自检（59/59）
+# 4) 归档：拷回本目录
+cp $P/exports/*.pptx  manu/report/assets/红外弱小无人机检测_工程化阶段汇报_20页_原生可编辑.pptx
+cp $P/svg_output/*.svg manu/report/assets/svg_source/
+
+# 5) 记忆体系自检（与 PPT 无关，但每次改 memory 都要跑）
+python3 manu/memory/validate_nav_table.py    # 期望 59/59
 ```
 
+> ⚠️ **改文案的两个坑**：
+> ① 多行文本必须用 `<text>` 的**直接子** `<tspan x=… dy=…>`，**不能嵌套**（嵌套 → checker ERROR）；
+> ② `<tspan>` 的开闭标签数必须配平（写错 → XML 不合法 → 整页导出失败）。
+> 改完先跑 `svg_quality_checker.py` 再导出。
+
 **产物路径**
-- 生成中间产物：`/home/manu/tmp/ppt-output/红外弱小无人机检测算法工程化阶段汇报/`
-  （`html/` 18 个源页、`outline.json`、`contents.json`、`slide-status.json`、两个 PPTX）
+- 生成中间产物：`ppt-master/projects/ir_uav_engineering_20261029/`
+  （`svg_output/` 20 个源页、`validation/` 校验报告、`exports/` PPTX、`backup/` 备份）
 - 归档副本：`manu/report/assets/` 与 `manu/report/slides/`
+
+> **📌 操作纪律**：**内容优先，PPT 按需生成** —— 除非明确要求，**不要**主动跑生成命令
+> （每轮 10~20 分钟、消耗 LLM 额度）。改文案只改内容源 + 重新导出 `01_幻灯片大纲.md`；
+> 需要新成品时再跑生成命令（见「三、怎么复现」）。
 
 ---
 
@@ -111,11 +138,12 @@ python3 manu/memory/validate_nav_table.py    # 记忆体系自检（59/59）
 
 | 需求 | 命令 / 位置 |
 |:--|:--|
-| 生成 18 页 PPT | `run_fixed_deck_parallel.py --workers 5` |
+| **改汇报文案** | 改 `PPT-AGENT/deck_content.py` → 重新导出 `01_幻灯片大纲.md`（**不需要跑 PPT**） |
+| 生成 18 页 PPT（**需明确指示**） | `run_fixed_deck_parallel.py --workers 5` |
 | 只重跑某页 | `run_fixed_deck_parallel.py --workers 1 --only N` |
 | 导出幻灯片大纲 md | `deck_content.py` → `manu/report/01_幻灯片大纲.md`（**自动生成，勿手改**） |
 | 渲染预览 PNG | `html_pipeline.html_builder::render_html_with_validation` |
-| 归档产物 | `manu/report/{assets,slides}/` |
+| 归档产物 | `manu/report/assets/`、`manu/report/slides/` |
 | 查数据出处 | `manu/report/02_数据溯源.md` → `manu/memory/` |
 
 ---
