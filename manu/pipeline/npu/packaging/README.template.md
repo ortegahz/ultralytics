@@ -156,8 +156,20 @@ ssh -p {{BOARD_PORT}} {{BOARD}} '/mnt/manu/mosaic_sdk/mosaic_api_test \
   | `--kernel-dir` | `/root/kernels` | OpenCL kernel 目录 |
   | `--limit` | `60` | 最多跑多少帧（`0` = 不限） |
   | `--no-env-gate` | 关（默认开体检） | 跳过开库前的环境体检 |
+  | `--post-mode` | `sparse` | 后处理算法：`sparse`（默认）/ `dense` / `verify` / `gpu` |
+  | `--dump-tsv` | 不导出 | 把逐帧检测导出成 e2e 同格式的 TSV |
 
   不带参数也能直接跑（默认值就是板卡上那一套）。
+* **后处理有四种算法（v10.3）**，由 `--post-mode` 或环境变量 `MOSAIC_POST_MODE` 选：
+
+  | 模式 | 板卡实测（RK3588，600 帧） | 全序列门禁 VERDICT | 说明 |
+  |---|---|---|---|
+  | **`sparse`（默认）** | **0.531 ms/帧**，σ 0.219，最坏帧 1.037 | **PASS** | CPU NEON 稀疏路径：只求值「可能过阈值」的像素。**输出与 `dense` 逐比特一致**（全序列上 6034 个共同帧的检测框逐条相同、feature md5 7113/7113 相同），已认证的历史数字不需要重跑 |
+  | `dense` | 37.856 ms/帧，σ 0.728，最坏帧 40.665 | PASS | 参考实现：全图双线性上采样 + 全图 8 连通域。留作对照与退路 |
+  | `verify` | ≈ dense 的两倍 | — | 诊断用：同一帧同时跑 dense 与 sparse 并逐字段比对 |
+  | `gpu` | 稳态 0.857 ms/帧（σ 0.039） | **FAIL** | OpenCL 局部极大路径（跑在 Mali 上）。**不是 dense 的即插即用替代**（检测流 5666 条不同、假警率高 50 %），且有一次性 OpenCL 初始化尖刺（首帧约 54 ms） |
+
+  换成参考实现：`MOSAIC_POST_MODE=dense` 或 `--post-mode dense`。
 * **NFS 上直接执行慢**：先拷到本地再跑——
   `cp /mnt/manu/mosaic_sdk/mosaic_api_test /tmp/ && /tmp/mosaic_api_test ...`。
 * **板卡根分区 `/root` 的 ext4 已损坏**：**不要往 `/root` scp 大文件**。本包走

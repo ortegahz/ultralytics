@@ -948,10 +948,224 @@ void EnsureDir(const std::string& dir) {
 // run on a different thread than the NPU that produced the heatmap, and two
 // Sessions must never share it.  The library gives the post-processing
 // service its own workspace per worker thread.
+// ===== SPARSE CORE BEGIN =====
+// ---------------------------------------------------------------------------
+// 稀疏后处理（sparse back-projection）
+// ---------------------------------------------------------------------------
+//
+// WHY
+// ---
+// dense 路径对每个 tile 都做「640x512 全图双线性上采样 + 全图 8 连通域」：
+// 三个 tile 合计约 98 万次双线性求值 + 约 200 万次连通域像素访问，
+// 板卡实测这一段 43.88 ms/帧，而且它在关键路径上（post_wait）。
+// 但热图里真正过阈值的像素通常只有几百个 —— 其余的求值全是白做的。
+//
+// 数学依据
+// --------
+// 双线性值是 4 个源值的凸组合（权重非负、和为 1），所以在实数域里
+// 「4 个源值全 < 阈值 ⇒ 该 dst 像素必然 < 阈值」。于是只需要：
+//   STEP 1  扫源窗口，找出「可能过阈值」的像素
+//   STEP 2  用逆映射把它们展开成 native 侧的候选矩形（位图）
+//   STEP 3  只在候选位上做双线性求值，保留确实过阈值的像素（光栅序）
+//   STEP 4  在这些像素上跑与 dense 完全相同的两遍 8 连通域
+// 输出的 Comp 序列与 dense 逐字节一致。
+//
+// 浮点余量（最容易踩的坑）
+// ----------------------
+// 「凸组合 ⇒ 必然 < 阈值」在实数域成立，但 dense 侧是 FLOAT32 算完再和
+// double 阈值比较；float32 的舍入有可能把「刚好低于阈值」的结果抬到阈值
+// 之上（相对误差最大 6u，u = 2^-24）。所以候选集合不能用真实阈值构造，
+// 必须用一个低一个安全余量的「源阈值」：
+//     src_threshold = threshold - max(1e-9, 128u * threshold)
+// 这样「4 个源值全 < src_threshold ⇒ 算出来的 dst 必然 < threshold」成立，
+// 候选集合是「真正过阈值像素」的严格超集；而最终判定仍然走 dense 的
+// 同一条 double 比较 ((double)value >= threshold)，所以输出一致。
+//
+// 另一个坑：dense 的比较是 ((double)float32值 >= (double)0.06)，
+// 而 double(0.06) != float32(0.06)（float32(0.06) = 0.059999998658895493，
+// 比 double(0.06) 小 1.34e-9），所以不能直接用 vcgeq_f32(v, 0.06f) 判。
+// 正解见 SparseCeilF32()：取「不小于 src_threshold 的最小 float32」，
+// 于是 float32 的比较与 double 的比较对任意 float32 v 完全等价。
+// ===========================================================================
+
+enum PostMode {
+  kPostModeDense = 0,   // 全图双线性 + 全图连通域（默认，行为与原来完全一样）
+  kPostModeSparse = 1,  // 稀疏：只求值「有可能过阈值」的 native 像素
+  kPostModeVerify = 2,  // 自检：dense 与 sparse 同时跑并逐字段比对
+  kPostModeGpu = 3,     // OpenCL 局部极大路径（Mali GPU）
+};
+
+
+// float32 的单位舍入 u = 2^-24。
+constexpr double kSparseU = 5.9604644775390625e-08;
+// 双线性链路里最多 6 次有效舍入（top/bot 各 2 乘 1 加，dst 1 乘 1 加），
+// 相对误差 <= 6u ≈ 3.6e-7。取 128u 的相对余量（≈7.6e-6），
+// 保证「4 个源值全 < src_threshold ⇒ 算出来的 dst 必然 < threshold」。
+constexpr double kSparseURel = 128.0 * kSparseU;
+
+// 候选位图：640*512 bit = 40 KB，每行 10 个 uint64。
+constexpr int kSparseRowWords = kSrcW / 64;                 // 10
+constexpr int kSparseCandWords = kSparseRowWords * kSrcH;   // 5120
+// scratch 的初始容量（只增不减，稳态零分配）。
+constexpr size_t kSparseCapFg = 1 << 16;       // 前景像素
+constexpr size_t kSparseCapLabels = 1 << 16;   // 临时标号 / 并查集
+constexpr size_t kSparseCapComps = 1 << 15;    // 组件统计
+constexpr size_t kSparseCapCols = 1024;        // 一行里命中的列号（sw <= 640）
+
+// 一个前景像素：native 坐标 + native 值 + 遍 1 的临时标号。
+struct SparsePixel {
+  int16_t x = 0;
+  int16_t y = 0;
+  float v = 0;        // 与 dense 的 native_map 里那个 float32 逐位相同
+  int32_t label = 0;  // 遍 1 的临时标号
+};
+
+// 一个组件的统计量。累加器类型必须与 dense 完全一致：
+// sx / sy / ssum 用 double，speak 用 float —— 否则 cx/cy/sum 的
+// float 位模式会不一样。
+struct SparseStat {
+  int32_t cnt = 0;
+  int32_t xmin = 0, xmax = 0, ymin = 0, ymax = 0;
+  double sx = 0.0, sy = 0.0, ssum = 0.0;
+  float speak = 0.0f;
+};
+
+// 源阈值：比真实阈值低一个浮点安全余量（理由见上面的分析）。
+inline double SparseSrcThreshold(double threshold) {
+  const double eps = std::max(1e-9, threshold * kSparseURel);
+  return threshold - eps;
+}
+
+// ceil_f32(t)：不小于 t（按 double 比较）的最小 float32。
+// 有了它，对任意 float32 v 都有
+//     (v >= ceil_f32(t))  <=>  ((double)v >= t)
+// 于是 NEON 的 vcgeq_f32 与 dense 的 double 比较完全等价。
+inline float SparseCeilF32(double t) {
+  float f = (float)t;
+  if (std::isnan(f)) return f;
+  if ((double)f < t) f = std::nextafterf(f, INFINITY);
+  return f;
+}
+
+// 源列 j 会被哪些 native 列用到（闭区间 [lo, hi]）。
+//
+//   g(X) = floor((X+0.5)*sx_scale-0.5) 是 native 列 X 对应的源列下标
+//   源列 j 以 ix0 的身份出现：X ∈ [A(j), B(j))
+//   源列 j 以 ix1 的身份出现：X ∈ [A(j-1), B(j-1))，而 B(j-1) == A(j)，
+//     两段正好首尾相接
+//   => 合并后：X ∈ [A(j-1), B(j))
+//   A(j-1) = (j-0.5)/sx_scale-0.5 ，B(j) = (j+1.5)/sx_scale-0.5
+// 两端的夹取也自然被覆盖：j==0 时 ix<0 会被夹到 0（A(-1)<0 ⇒ lo=0），
+// j==sw-1 时 ix+1 会被夹到 sw-1（B(sw-1)>dw-1 ⇒ hi=dw-1）。
+inline void SparseSrcRange(double scale, int j, int dst_len, int* lo, int* hi) {
+  const double a = ((double)j - 0.5) / scale - 0.5;   // A(j-1)
+  const double b = ((double)j + 1.5) / scale - 0.5;   // B(j)
+  int l = (int)std::ceil(a);
+  int h = (int)std::ceil(b) - 1;
+  if (l < 0) l = 0;
+  if (h > dst_len - 1) h = dst_len - 1;
+  if (h < l) h = l;
+  *lo = l;
+  *hi = h;
+}
+
+// 在位图的一行上把 [lo, hi] 置 1。
+inline void SparseSetRange(uint64_t* row, int lo, int hi) {
+  const int w0 = lo >> 6, w1 = hi >> 6;
+  if (w0 == w1) {
+    row[w0] |= (~0ULL << (lo & 63)) & (~0ULL >> (63 - (hi & 63)));
+    return;
+  }
+  row[w0] |= (~0ULL << (lo & 63));
+  for (int w = w0 + 1; w < w1; w++) row[w] = ~0ULL;
+  row[w1] |= (~0ULL >> (63 - (hi & 63)));
+}
+
+// 扫窗口的一行，把「>= src_threshold」的列号写进 cols，返回个数。
+//
+// NEON 只做快速排除：整块 4 lane 都没命中时一个都不写；
+// 命中的 lane 仍然用 double 精确复核（(double)v >= src_threshold），
+// 与 dense 的判定完全一致。f32_thr 是 SparseCeilF32(src_threshold)，
+// 所以 NEON 的比较与 double 的比较本身也是等价的（不会有漏判）。
+inline int SparseScanRow(const float* row, int sw, float f32_thr, double src_threshold,
+                         int* cols) {
+  int n = 0;
+  int x = 0;
+  (void)f32_thr;   // 非 NEON 构建下用不到
+#ifdef MOSAIC_HAVE_NEON
+  const float32x4_t thr = vdupq_n_f32(f32_thr);
+  for (; x + 4 <= sw; x += 4) {
+    const float32x4_t v = vld1q_f32(row + x);
+    const uint32x4_t m = vcgeq_f32(v, thr);
+    if (vgetq_lane_u32(m, 0)) {
+      const float vv = vgetq_lane_f32(v, 0);
+      if ((double)vv >= src_threshold) cols[n++] = x + 0;
+    }
+    if (vgetq_lane_u32(m, 1)) {
+      const float vv = vgetq_lane_f32(v, 1);
+      if ((double)vv >= src_threshold) cols[n++] = x + 1;
+    }
+    if (vgetq_lane_u32(m, 2)) {
+      const float vv = vgetq_lane_f32(v, 2);
+      if ((double)vv >= src_threshold) cols[n++] = x + 2;
+    }
+    if (vgetq_lane_u32(m, 3)) {
+      const float vv = vgetq_lane_f32(v, 3);
+      if ((double)vv >= src_threshold) cols[n++] = x + 3;
+    }
+  }
+#endif
+  for (; x < sw; x++) {
+    const float vv = row[x];
+    if ((double)vv >= src_threshold) cols[n++] = x;
+  }
+  return n;
+}
+
+// float32 的逐位比较（区分 +0.0 / -0.0，NaN 也按位模式比）。
+inline bool SparseSameF32(float a, float b) {
+  uint32_t ua = 0, ub = 0;
+  memcpy(&ua, &a, sizeof(ua));
+  memcpy(&ub, &b, sizeof(ub));
+  return ua == ub;
+}
+
 struct PostWorkspace {
   std::vector<float> native_map;
   CcWorkspace cc;
   std::vector<Comp> comps;
+
+  // ---- 稀疏路径的 scratch（InitPostWorkspace 里一次性分配，运行时复用）----
+  int post_mode = kPostModeDense;             // 0=dense 1=sparse 2=verify
+  std::vector<uint64_t> sp_cand;               // 候选位图 640*512 bit = 40 KB
+  std::vector<int32_t> sp_labels;              // 相对 bbox 的临时标号数组
+  std::vector<SparsePixel> sp_fg;              // 前景像素（光栅序）
+  std::vector<int> sp_parent;                  // 并查集 parent（1-based，0 号不用）
+  std::vector<int> sp_root_final;              // root -> 最终标号
+  std::vector<SparseStat> sp_stats;            // 每组件的统计量
+  std::vector<int> sp_cols;                    // 一行里命中的列号
+
+  // ---- 自检模式（post_mode == kPostModeVerify）的状态，外部可读 ----
+  std::vector<Comp> verify_dense;              // dense 的结果（对照基准）
+  std::vector<Comp> verify_sparse;             // sparse 的结果
+  long verify_frames = 0;                      // 累计比对的帧数
+  long verify_mismatch_count = 0;              // 累计不一致次数（外部可读）
+  int verify_first_diff_printed = 0;           // 只打印第一处差异，避免刷屏
+
+  // ---- GPU 路径的分段耗时（post_mode == kPostModeGpu）----
+  double gpu_upload_ms = 0.0;
+  double gpu_kernel_ms = 0.0;
+  double gpu_readback_ms = 0.0;
+  double gpu_total_ms = 0.0;
+  long gpu_frames = 0;
+  long gpu_peaks = 0;
+  long gpu_peaks_dropped = 0;
+  int gpu_fallback_warned = 0;                 // 只警告一次
+  // 逐帧分段采样（算方差 / 分布用；稳态不分配，reserve 过了）
+  std::vector<double> gpu_upload_samples;
+  std::vector<double> gpu_kernel_samples;
+  std::vector<double> gpu_readback_samples;
+  std::vector<double> gpu_total_samples;
 };
 
 // Size the back-projection scratch.  The Session gets one of these from
@@ -960,7 +1174,314 @@ struct PostWorkspace {
 inline void InitPostWorkspace(PostWorkspace* ws) {
   if (!ws) return;
   ws->native_map.assign((size_t)kSrcW * kSrcH, 0.0f);
+  // 稀疏路径的 scratch：一次性分配好，运行时不再 malloc / new。
+  ws->sp_cand.assign(kSparseCandWords, 0ULL);
+  ws->sp_labels.assign((size_t)kSrcW * kSrcH, 0);
+  ws->sp_fg.reserve(kSparseCapFg);
+  ws->sp_parent.reserve(kSparseCapLabels);
+  ws->sp_root_final.reserve(kSparseCapLabels);
+  ws->sp_stats.reserve(kSparseCapComps);
+  ws->sp_cols.assign(kSparseCapCols, 0);
+  ws->verify_dense.reserve(1024);
+  ws->verify_sparse.reserve(1024);
 }
+
+// ---------------------------------------------------------------------------
+// SparseBackProjectTile: 稀疏后处理一个 tile。
+//
+// 输出的 Comp 序列与 dense 的 DetectComponents 逐字段一致：
+//   * mask 判定用同一条 double 比较 ((double)value >= threshold)
+//   * 临时标号按光栅序发放、并查集规则复用 UfFind/UfUnite
+//   * 最终标号按 root 升序编号（== cv2 的 label 序）
+//   * 遍 2 的统计累加也在光栅序上做，累加器类型与 dense 相同
+//   * 过滤 / 排序 / 截断与 dense 相同
+// ---------------------------------------------------------------------------
+inline void SparseBackProjectTile(const float* src, int src_stride, int sw, int sh,
+                                  double threshold, int min_area, int limit, PostWorkspace* ws,
+                                  std::vector<Comp>* out) {
+  out->clear();
+  if (sw <= 0 || sh <= 0) return;
+
+  // 兜底：workspace 没经过 InitPostWorkspace 时自建 scratch（只可能发生在
+  // 测试代码里；正常路径下这一段永远不成立，因此没有运行期分配）。
+  if (ws->sp_cand.size() != (size_t)kSparseCandWords) {
+    ws->sp_cand.assign(kSparseCandWords, 0ULL);
+    ws->sp_labels.assign((size_t)kSrcW * kSrcH, 0);
+    ws->sp_fg.reserve(kSparseCapFg);
+    ws->sp_parent.reserve(kSparseCapLabels);
+    ws->sp_root_final.reserve(kSparseCapLabels);
+    ws->sp_stats.reserve(kSparseCapComps);
+  }
+  if (ws->sp_cols.size() < (size_t)sw) ws->sp_cols.assign((size_t)sw, 0);
+
+  const double src_threshold = SparseSrcThreshold(threshold);
+  const float f32_thr = SparseCeilF32(src_threshold);
+  const double sx_scale = (double)sw / (double)kSrcW;
+  const double sy_scale = (double)sh / (double)kSrcH;
+
+  // ---- STEP 1 + STEP 2：源窗口扫描 -> native 候选位图 ----------------------
+  uint64_t* cand = ws->sp_cand.data();
+  memset(cand, 0, sizeof(uint64_t) * (size_t)kSparseCandWords);
+  int bx0 = kSrcW, by0 = kSrcH, bx1 = -1, by1 = -1;
+
+  int* cols = ws->sp_cols.data();
+  for (int hy = 0; hy < sh; hy++) {
+    const float* row = src + (size_t)hy * src_stride;
+    const int ncols = SparseScanRow(row, sw, f32_thr, src_threshold, cols);
+    if (ncols == 0) continue;
+    int ylo = 0, yhi = 0;
+    SparseSrcRange(sy_scale, hy, kSrcH, &ylo, &yhi);
+    // 同一行里相邻的命中列，其 native 区间也是相邻的 -> 合并成段，
+    // 减少位图写入次数（长条斑块时效果明显）。
+    int run_lo = -1, run_hi = -1;
+    for (int i = 0; i < ncols; i++) {
+      int xlo = 0, xhi = 0;
+      SparseSrcRange(sx_scale, cols[i], kSrcW, &xlo, &xhi);
+      if (run_lo < 0) {
+        run_lo = xlo;
+        run_hi = xhi;
+        continue;
+      }
+      if (xlo <= run_hi + 1) {
+        if (xhi > run_hi) run_hi = xhi;
+        continue;
+      }
+      // flush 上一段（bbox 要用被写入的那一段 run_lo/run_hi）
+      if (run_lo < bx0) bx0 = run_lo;
+      if (run_hi > bx1) bx1 = run_hi;
+      if (ylo < by0) by0 = ylo;
+      if (yhi > by1) by1 = yhi;
+      for (int y = ylo; y <= yhi; y++) SparseSetRange(cand + (size_t)y * kSparseRowWords, run_lo, run_hi);
+      run_lo = xlo;
+      run_hi = xhi;
+    }
+    if (run_lo >= 0) {
+      if (run_lo < bx0) bx0 = run_lo;
+      if (run_hi > bx1) bx1 = run_hi;
+      if (ylo < by0) by0 = ylo;
+      if (yhi > by1) by1 = yhi;
+      for (int y = ylo; y <= yhi; y++) SparseSetRange(cand + (size_t)y * kSparseRowWords, run_lo, run_hi);
+    }
+  }
+  if (bx1 < bx0) return;   // 没有任何候选 -> 没有前景
+
+  // ---- STEP 3：在候选位里按光栅序求值 ------------------------------------
+  const int bw = bx1 - bx0 + 1;
+  const int bh = by1 - by0 + 1;
+  // 标号数组（相对 bbox）先清零；只清 bbox 区域，不是全图。
+  memset(ws->sp_labels.data(), 0, sizeof(int32_t) * (size_t)bw * (size_t)bh);
+
+  std::vector<SparsePixel>& fg = ws->sp_fg;
+  fg.clear();
+  const int w0 = bx0 >> 6, w1 = bx1 >> 6;
+  for (int y = by0; y <= by1; y++) {
+    // 与 ResizeBilinearF32 逐字一致的每行常量
+    const double fy = (y + 0.5) * sy_scale - 0.5;
+    const int sy = (int)std::floor(fy);
+    const float ay = (float)(fy - sy);
+    const int y0 = std::max(0, std::min(sh - 1, sy));
+    const int y1 = std::max(0, std::min(sh - 1, sy + 1));
+    const float* r0 = src + (size_t)y0 * src_stride;
+    const float* r1 = src + (size_t)y1 * src_stride;
+    const uint64_t* crow = cand + (size_t)y * kSparseRowWords;
+    for (int w = w0; w <= w1; w++) {
+      uint64_t bits = crow[w];
+      if (w == w0) bits &= ~0ULL << (bx0 & 63);
+      if (w == w1) bits &= ~0ULL >> (63 - (bx1 & 63));
+      while (bits) {
+        const int b = __builtin_ctzll(bits);
+        bits &= bits - 1;
+        const int x = (w << 6) + b;
+        // ---- 与 ResizeBilinearF32 逐字一致的求值 ----
+        const double fx = (x + 0.5) * sx_scale - 0.5;
+        const int sx = (int)std::floor(fx);
+        const float ax = (float)(fx - sx);
+        const int ix0 = std::max(0, std::min(sw - 1, sx));
+        const int ix1 = std::max(0, std::min(sw - 1, sx + 1));
+        const float top = r0[ix0] * (1.0f - ax) + r0[ix1] * ax;
+        const float bot = r1[ix0] * (1.0f - ax) + r1[ix1] * ax;
+        const float v = top * (1.0f - ay) + bot * ay;
+        // dense 的判定：((double)hm[idx] >= threshold)
+        if (!((double)v >= threshold)) continue;
+        SparsePixel p;
+        p.x = (int16_t)x;
+        p.y = (int16_t)y;
+        p.v = v;
+        p.label = 0;
+        fg.push_back(p);
+      }
+    }
+  }
+  if (fg.empty()) return;
+
+  // ---- STEP 4a：遍 1，临时标号（8 连通，光栅序） ---------------------------
+  // 与 dense 完全一样的规则：邻居只看 left / up / up-left / up-right
+  // （up-right 在光栅序里更靠前，已经处理过）。
+  ws->sp_parent.clear();
+  ws->sp_parent.push_back(0);   // 0 号不用（与 dense 的 parent.assign(1,0) 等价）
+  int nlab = 0;
+  for (size_t i = 0; i < fg.size(); i++) {
+    const int X = (int)fg[i].x;
+    const int Y = (int)fg[i].y;
+    const int lx = X - bx0, ly = Y - by0;
+    int nb[4];
+    int nn = 0;
+    if (X > bx0) nb[nn++] = ly * bw + (lx - 1);            // left
+    if (Y > by0) {
+      nb[nn++] = (ly - 1) * bw + lx;                        // up
+      if (X > bx0) nb[nn++] = (ly - 1) * bw + (lx - 1);     // up-left
+      if (X < bx1) nb[nn++] = (ly - 1) * bw + (lx + 1);     // up-right
+    }
+    int lbl = 0;
+    for (int k = 0; k < nn; k++) {
+      const int l = ws->sp_labels[(size_t)nb[k]];
+      if (l == 0) continue;
+      if (lbl == 0 || l < lbl) lbl = l;
+    }
+    if (lbl == 0) {
+      lbl = ++nlab;
+      ws->sp_parent.push_back(lbl);   // parent[lbl] == lbl
+    }
+    fg[i].label = lbl;
+    ws->sp_labels[(size_t)(ly * bw + lx)] = lbl;
+    for (int k = 0; k < nn; k++) {
+      const int l = ws->sp_labels[(size_t)nb[k]];
+      if (l != 0 && l != lbl) UfUnite(&ws->sp_parent, lbl, l);
+    }
+  }
+  if (nlab == 0) return;
+
+  // ---- 最终标号：按 root 升序编号（== cv2 的 label 序） -------------------
+  if (ws->sp_root_final.size() < (size_t)nlab + 1) ws->sp_root_final.resize((size_t)nlab + 1);
+  int ncomp = 0;
+  for (int l = 1; l <= nlab; l++) {
+    if (UfFind(&ws->sp_parent, l) == l) ws->sp_root_final[(size_t)l] = ++ncomp;
+  }
+
+  // ---- STEP 4b：遍 2，按光栅序统计 ----------------------------------------
+  if (ws->sp_stats.size() < (size_t)ncomp + 1) ws->sp_stats.resize((size_t)ncomp + 1);
+  for (int f = 1; f <= ncomp; f++) {
+    SparseStat& st = ws->sp_stats[(size_t)f];
+    st.cnt = 0;
+    st.xmin = kSrcW;
+    st.xmax = -1;
+    st.ymin = kSrcH;
+    st.ymax = -1;
+    st.sx = 0.0;
+    st.sy = 0.0;
+    st.ssum = 0.0;
+    st.speak = -1.0e30f;
+  }
+  for (size_t i = 0; i < fg.size(); i++) {
+    const int l = fg[i].label;
+    const int f = ws->sp_root_final[(size_t)UfFind(&ws->sp_parent, l)];
+    SparseStat& st = ws->sp_stats[(size_t)f];
+    const int X = (int)fg[i].x;
+    const int Y = (int)fg[i].y;
+    st.cnt++;
+    st.sx += (double)X;
+    st.sy += (double)Y;
+    st.ssum += (double)fg[i].v;
+    if (fg[i].v > st.speak) st.speak = fg[i].v;
+    if (X < st.xmin) st.xmin = X;
+    if (X > st.xmax) st.xmax = X;
+    if (Y < st.ymin) st.ymin = Y;
+    if (Y > st.ymax) st.ymax = Y;
+  }
+
+  // ---- 过滤 / 排序 / 截断：与 dense 一致 ---------------------------------
+  out->reserve((size_t)ncomp);
+  for (int f = 1; f <= ncomp; f++) {
+    const SparseStat& st = ws->sp_stats[(size_t)f];
+    if (st.cnt < min_area) continue;
+    Comp c;
+    c.cx = (float)(st.sx / (double)st.cnt);
+    c.cy = (float)(st.sy / (double)st.cnt);
+    c.w = st.xmax - st.xmin + 1;
+    c.h = st.ymax - st.ymin + 1;
+    c.area = st.cnt;
+    c.peak = st.speak;
+    c.sum = (float)st.ssum;
+    out->push_back(c);
+  }
+  // 排序：按 sum 降序，且**稳定**（dense 侧用的是 std::stable_sort）。
+  //
+  // 为什么不用 std::stable_sort：它会为归并**分配一块 O(n) 的临时缓冲**，
+  // 那是稀疏路径稳态下**唯一剩下的一次 malloc**
+  // （host 端实测：dense 每次调用 10 次分配，sparse 1 次 —— 那 1 次就是它）。
+  // 而这里的候选数极小（实测每帧 2~4 个，上限 max_detections=100），
+  // 插入排序的 O(n^2) 完全不是问题。
+  //
+  // 稳定性：只有当「前一个.sum < 当前.sum」时才往后挪 ⇒ **相等时保持原有相对顺序**，
+  // 与 stable_sort 一致 ⇒ 输出逐字节相同。
+  //
+  // n 很大（病态帧，几千个碎块）时退回 stable_sort，避免 O(n^2)。
+  if (out->size() <= 64) {
+    for (size_t i = 1; i < out->size(); i++) {
+      const Comp key = (*out)[i];
+      size_t j = i;
+      while (j > 0 && (*out)[j - 1].sum < key.sum) {
+        (*out)[j] = (*out)[j - 1];
+        j--;
+      }
+      (*out)[j] = key;
+    }
+  } else {
+    std::stable_sort(out->begin(), out->end(),
+                     [](const Comp& a, const Comp& b) { return a.sum > b.sum; });
+  }
+  if ((int)out->size() > limit) out->resize((size_t)limit);
+}
+
+// 自检模式：逐字段比对 dense 与 sparse 的结果。
+// 不一致就累加计数，并打印第一处差异（tile、comps 下标、字段名、两边的值）。
+inline void VerifyCompareComps(int tile_tag, const std::vector<Comp>& dense,
+                               const std::vector<Comp>& sparse, PostWorkspace* ws) {
+  const size_t n = dense.size() > sparse.size() ? dense.size() : sparse.size();
+  for (size_t i = 0; i < n; i++) {
+    if (i >= dense.size() || i >= sparse.size()) {
+      ws->verify_mismatch_count++;
+      if (!ws->verify_first_diff_printed) {
+        ws->verify_first_diff_printed = 1;
+        fprintf(stderr,
+                "[VERIFY][MISMATCH] tile=%d comp[%zu] field=count dense=%zu sparse=%zu\n", tile_tag,
+                i, dense.size(), sparse.size());
+      }
+      continue;
+    }
+    const Comp& a = dense[i];
+    const Comp& b = sparse[i];
+    const char* field = nullptr;
+    if (a.tag != b.tag) field = "tag";
+    else if (!SparseSameF32(a.cx, b.cx)) field = "cx";
+    else if (!SparseSameF32(a.cy, b.cy)) field = "cy";
+    else if (a.w != b.w) field = "w";
+    else if (a.h != b.h) field = "h";
+    else if (a.area != b.area) field = "area";
+    else if (!SparseSameF32(a.peak, b.peak)) field = "peak";
+    else if (!SparseSameF32(a.sum, b.sum)) field = "sum";
+    if (!field) continue;
+    ws->verify_mismatch_count++;
+    if (!ws->verify_first_diff_printed) {
+      ws->verify_first_diff_printed = 1;
+      uint32_t bits_cx = 0, bits_sx = 0, bits_cy = 0, bits_sy = 0, bits_sum = 0, bits_ssum = 0;
+      memcpy(&bits_cx, &a.cx, 4);
+      memcpy(&bits_sx, &b.cx, 4);
+      memcpy(&bits_cy, &a.cy, 4);
+      memcpy(&bits_sy, &b.cy, 4);
+      memcpy(&bits_sum, &a.sum, 4);
+      memcpy(&bits_ssum, &b.sum, 4);
+      fprintf(stderr,
+              "[VERIFY][MISMATCH] tile=%d comp[%zu] field=%s "
+              "dense=(tag=%d cx=%.9g/0x%08x cy=%.9g/0x%08x w=%d h=%d area=%d peak=%.9g sum=%.9g/0x%08x) "
+              "sparse=(tag=%d cx=%.9g/0x%08x cy=%.9g/0x%08x w=%d h=%d area=%d peak=%.9g sum=%.9g/0x%08x)\n",
+              tile_tag, i, field, a.tag, (double)a.cx, bits_cx, (double)a.cy, bits_cy, a.w, a.h,
+              a.area, (double)a.peak, (double)a.sum, bits_sum, b.tag, (double)b.cx, bits_sx,
+              (double)b.cy, bits_sy, b.w, b.h, b.area, (double)b.peak, (double)b.sum, bits_ssum);
+    }
+  }
+}
+// ===== SPARSE CORE END =====
 
 struct Session {
   Options opt;
@@ -988,6 +1509,30 @@ struct Session {
   // reads the canvas) and still needs a scratch buffer for the NCHW path.
   mutable std::vector<uint16_t> f16_nchw;   // transpose scratch for the NCHW upload
 };
+
+// ---------------------------------------------------------------------------
+// GPU 后处理的接入点（注册钩子，不用反向 include）
+//
+// mosaic_post_gpu.h include 了本文件（它要用 Session / Comp），
+// 所以本文件**不能** include mosaic_post_gpu.h（会成环）。
+// 于是这里只声明一个函数指针类型 + 一个 inline 变量；
+// 真正实现 GPU 路径的编译单元（mosaic_pipeline.cpp）在 create() 时把它注册进来。
+// 没注册时 GPU 模式会回退 dense 并打一行警告，不会崩。
+// ---------------------------------------------------------------------------
+struct GpuPostTiming {
+  double upload_ms = 0;    // 热图 -> GPU buffer（含计数器清零）
+  double kernel_ms = 0;    // 派发 -> clFinish() 返回
+  double readback_ms = 0;  // 阻塞回读候选点
+  double total_ms = 0;     // 整个调用（含 CPU 侧反投影组装）
+  int peaks = 0;           // 通过过滤的候选数
+  int peaks_dropped = 0;   // 超过 max_peaks 被丢掉的局部极大
+};
+
+using GpuPostHook = bool (*)(const Session*, const std::vector<float>&, std::vector<Comp>*,
+                             GpuPostTiming*);
+
+// C++17 的 inline 变量：每个 TU 看到的是同一个对象。
+inline GpuPostHook g_gpu_post_hook = nullptr;
 
 // The tile layout.  Shared by both entry points, so the canvas can never be
 // composed with a different tile set than the one the model was checked
@@ -1193,7 +1738,9 @@ bool InitSession(Session* s, const std::string& model_path, CanvasMode mode,
   // ---- RGA buffers --------------------------------------------------------
   if (!AllocCanvasBuffers(s)) return false;
 
-  s->post.native_map.assign((size_t)kSrcW * kSrcH, 0.0f);
+  // InitPostWorkspace 会把 native_map 和稀疏路径的 scratch 一次性分配好
+  // （与原来只分配 native_map 等价，多出来的只是稀疏路径的预分配 scratch）。
+  InitPostWorkspace(&s->post);
   return true;
 }
 
@@ -1574,6 +2121,51 @@ void BackProjectFrame(Session* s, const std::vector<float>& hm, PostWorkspace* w
   const NpuCtx& npu = s->npu;
   const double b0 = now_ms();
   out->clear();
+  // 0 = dense（默认，行为与原来完全一样）
+  // 1 = sparse（只求值可能过阈值的像素）
+  // 2 = verify（dense 与 sparse 同时跑并逐字段比对，输出 dense 的结果）
+  // 3 = gpu（OpenCL 局部极大路径；钩子没注册 / GPU 不可用时回退 dense）
+  int mode = ws->post_mode;
+  if (mode == kPostModeGpu) {
+    bool gpu_ok = false;
+    if (g_gpu_post_hook) {
+      GpuPostTiming gt;
+      gpu_ok = g_gpu_post_hook(s, hm, out, &gt);
+      if (gpu_ok) {
+        ws->gpu_upload_ms += gt.upload_ms;
+        ws->gpu_kernel_ms += gt.kernel_ms;
+        ws->gpu_readback_ms += gt.readback_ms;
+        ws->gpu_total_ms += gt.total_ms;
+        ws->gpu_frames++;
+        ws->gpu_peaks += gt.peaks;
+        ws->gpu_peaks_dropped += gt.peaks_dropped;
+        ws->gpu_upload_samples.push_back(gt.upload_ms);
+        ws->gpu_kernel_samples.push_back(gt.kernel_ms);
+        ws->gpu_readback_samples.push_back(gt.readback_ms);
+        ws->gpu_total_samples.push_back(gt.total_ms);
+        if (ws->gpu_frames % 60 == 0) {
+          const double n = (double)ws->gpu_frames;
+          fprintf(stderr,
+                  "[i] gpu post: upload=%.3f kernel=%.3f readback=%.3f total=%.3f ms/帧 "
+                  "(peaks=%.1f dropped=%lld)\n",
+                  ws->gpu_upload_ms / n, ws->gpu_kernel_ms / n, ws->gpu_readback_ms / n,
+                  ws->gpu_total_ms / n, (double)ws->gpu_peaks / n,
+                  (long long)ws->gpu_peaks_dropped);
+        }
+      }
+    }
+    if (!gpu_ok) {
+      if (!ws->gpu_fallback_warned) {
+        ws->gpu_fallback_warned = 1;
+        fprintf(stderr, "[WARN] GPU 后处理不可用（钩子未注册或设备初始化失败），本帧回退 dense\n");
+      }
+      out->clear();          // 钩子可能已经写了半截结果
+      mode = kPostModeDense;  // 这一帧走 dense
+    } else {
+      if (backproj_ms) *backproj_ms = now_ms() - b0;
+      return;                  // GPU 路径已经把所有 tile 做完并打好 tag
+    }
+  }
   for (const Tile& t : s->tiles) {
     if (!t.enabled) continue;
     int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
@@ -1583,16 +2175,46 @@ void BackProjectFrame(Session* s, const std::vector<float>& hm, PostWorkspace* w
     // The tile's heatmap sub-rectangle, enlarged back onto the native grid.
     // The source rows are still npu.hm_w floats apart -- the sub-rectangle
     // is a WINDOW of the heatmap, not a packed image.
-    ResizeBilinearF32(hm.data() + (size_t)y0 * npu.hm_w + x0, npu.hm_w, sw, sh,
-                      ws->native_map.data(), kSrcW, kSrcH);
-    DetectComponents(&ws->cc, ws->native_map.data(), kSrcW, kSrcH, s->region_threshold,
-                     s->min_area, s->max_detections, &ws->comps);
+    const float* src = hm.data() + (size_t)y0 * npu.hm_w + x0;
+    if (mode == kPostModeVerify) {
+      // ---- 自检模式：dense 先跑（留作基准），再跑 sparse，逐字段比对 ----
+      ResizeBilinearF32(src, npu.hm_w, sw, sh, ws->native_map.data(), kSrcW, kSrcH);
+      DetectComponents(&ws->cc, ws->native_map.data(), kSrcW, kSrcH, s->region_threshold,
+                       s->min_area, s->max_detections, &ws->comps);
+      ws->verify_dense.clear();
+      for (const Comp& c : ws->comps) {
+        Comp tagged = c;
+        tagged.tag = t.tag;
+        ws->verify_dense.push_back(tagged);
+      }
+      SparseBackProjectTile(src, npu.hm_w, sw, sh, s->region_threshold, s->min_area,
+                            s->max_detections, ws, &ws->comps);
+      ws->verify_sparse.clear();
+      for (const Comp& c : ws->comps) {
+        Comp tagged = c;
+        tagged.tag = t.tag;
+        ws->verify_sparse.push_back(tagged);
+      }
+      VerifyCompareComps(t.tag, ws->verify_dense, ws->verify_sparse, ws);
+      // 自检模式输出 dense 的结果，保证板卡上的可见行为与 dense 一致
+      for (const Comp& c : ws->verify_dense) out->push_back(c);
+      continue;
+    }
+    if (mode == kPostModeSparse) {
+      SparseBackProjectTile(src, npu.hm_w, sw, sh, s->region_threshold, s->min_area,
+                            s->max_detections, ws, &ws->comps);
+    } else {
+      ResizeBilinearF32(src, npu.hm_w, sw, sh, ws->native_map.data(), kSrcW, kSrcH);
+      DetectComponents(&ws->cc, ws->native_map.data(), kSrcW, kSrcH, s->region_threshold,
+                       s->min_area, s->max_detections, &ws->comps);
+    }
     for (const Comp& c : ws->comps) {
       Comp tagged = c;
       tagged.tag = t.tag;
       out->push_back(tagged);
     }
   }
+  if (mode == kPostModeVerify) ws->verify_frames++;
   if (backproj_ms) *backproj_ms = now_ms() - b0;
 }
 

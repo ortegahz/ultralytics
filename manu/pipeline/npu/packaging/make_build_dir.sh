@@ -99,12 +99,14 @@ purpose_of() {
     copy_to_nfs.sh)               echo "一键脚本：编译 + 拷贝到 NFS + md5 回验 +（可选）板卡验证" ;;
     src/npu/mosaic_pipeline.cpp)  echo "库实现（GMC/OpenCL + RGA mosaic + RKNN fp16 + 反投影）" ;;
     src/npu/mosaic_pipeline.h)    echo "**公开 C ABI 头**（集成方写代码时 include 它）" ;;
-    src/npu/mosaic_core.h)        echo "库内部核心头（GMC / RGA / RKNN 胶水层）" ;;
+    src/npu/mosaic_core.h)        echo "库内部核心头（GMC / RGA / RKNN 胶水层 + 后处理三路径）" ;;
+    src/npu/mosaic_post_gpu.h)    echo "GPU 后处理路径（OpenCL 局部极大；kernel 已内嵌，**不需要**外置 .cl）" ;;
     src/npu/mosaic_api_test.cpp)  echo "示例 demo 源（只调公开 C ABI）" ;;
     src/npu/mosaic_contract_test.cpp) echo "契约测试源（验收门禁）" ;;
     src/cpp/gmc_stream_ocl.cpp)   echo "GMC/OpenCL 引擎（被 mosaic_pipeline.cpp 以 ../cpp/ 相对包含）" ;;
     src/cpp/md5.h)                echo "MD5 实现（被 gmc_stream_ocl.cpp 以 md5.h 相对包含）" ;;
     src/opencl/host/ocl_host.h)   echo "OpenCL host 封装（被 gmc_stream_ocl.cpp 以 ../opencl/host/ 相对包含）" ;;
+    src/opencl/host/post_local_max.cl) echo "GPU 后处理的 kernel 源码**可读副本**（运行时不需要，源码已内嵌进 mosaic_post_gpu.h）" ;;
     include/rknn_api.h)           echo "RKNN Runtime API 头（第三方）" ;;
     include/stb_image.h)          echo "stb 图像解码（第三方）" ;;
     include/stb_image_resize.h)   echo "stb 图像缩放（第三方）" ;;
@@ -175,12 +177,16 @@ copy_one() {
 copy_one "$ROOT/mosaic_pipeline.cpp"            "src/npu/mosaic_pipeline.cpp"
 copy_one "$ROOT/mosaic_pipeline.h"              "src/npu/mosaic_pipeline.h"
 copy_one "$ROOT/mosaic_core.h"                  "src/npu/mosaic_core.h"
+copy_one "$ROOT/mosaic_post_gpu.h"              "src/npu/mosaic_post_gpu.h"
 copy_one "$ROOT/mosaic_api_test.cpp"            "src/npu/mosaic_api_test.cpp"
 copy_one "$ROOT/mosaic_contract_test.cpp"       "src/npu/mosaic_contract_test.cpp"
 # 被相对包含的引擎 / 工具 / OpenCL host
 copy_one "$ROOT/../cpp/gmc_stream_ocl.cpp"      "src/cpp/gmc_stream_ocl.cpp"
 copy_one "$ROOT/../cpp/md5.h"                   "src/cpp/md5.h"
 copy_one "$ROOT/../opencl/host/ocl_host.h"       "src/opencl/host/ocl_host.h"
+# GPU 后处理路径的 kernel 源码（mosaic_post_gpu.h 里已内嵌同一份，
+# 这里带的是**可读副本**，方便集成方查阅/改写；运行时不需要它）
+copy_one "$ROOT/../opencl/kernels/post_local_max.cl" "src/opencl/host/post_local_max.cl"
 # 运行时 OpenCL kernel 资产
 copy_one "$ROOT/../opencl/kernels/warp_median_fused.cl"  "runtime/kernels/warp_median_fused.cl"
 copy_one "$ROOT/../opencl/kernels/sortnet_generated.inc" "runtime/kernels/sortnet_generated.inc"

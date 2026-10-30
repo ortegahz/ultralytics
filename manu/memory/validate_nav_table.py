@@ -55,16 +55,58 @@ NAV_ROW_RE = re.compile(
     r"^\|\s*(?P<label>[^|]+?)\s*\|\s*(?P<title>[^|]+?)\s*\|\s*(?P<file>[^|]+?)\s*\|\s*(?P<line>\d+)\s*\|\s*$"
 )
 CN_NUM = "零一二三四五六七八九十百"
-# 章节标题：'## §三十六 🔥 xxx' / '## 一、xxx' / '## 零之二、xxx'
+# 章节标题：'## §三十六 🔥 xxx' / '## 一、xxx' / '## 零之二、xxx' / '## 21. xxx'
+#
+# 2026-10-30：归档里**两种数字体系并存** —— 专题档 §21 与主档 §24 的标题写的是
+# 阿拉伯数字（`## 21.` / `## 24.`），其余是中文数字（`### 二十三、`）。
+# 原来的正则只认中文数字，于是那两行的标题**根本解析不出章节号**，
+# 连带整组导航行判 FAIL（校验器要求同一文件的所有行共用一个行号偏移）。
+# ⇒ 正则现在同时接受阿拉伯数字，norm_label() 把两者归一成同一个整数再比。
 HEAD_NUM_RE = re.compile(
-    r"^#{1,6}\s*(?:§\s*)?([%s]+(?:之[%s]+)?)\s*(?:[、,.：:·]|—|\s|$)" % (CN_NUM, CN_NUM)
+    r"^#{1,6}\s*(?:§\s*)?([%s0-9]+(?:之[%s0-9]+)?)\s*(?:[、,.：:·]|—|\s|$)" % (CN_NUM, CN_NUM)
 )
 FILE_RE = re.compile(r"`([^`]*archive/[^`]+\.md)`")
 
+_CN_DIGITS = {"零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4,
+              "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+_CN_UNITS = {"十": 10, "百": 100, "千": 1000}
+
+
+def cn_to_int(text: str):
+    """中文数字 -> 整数；'二十一'->21、'六十'->60、'五十七'->57。解析不了返回 None。"""
+    total = 0
+    section = 0
+    number = 0
+    seen = False
+    for ch in text:
+        if ch in _CN_DIGITS:
+            number = _CN_DIGITS[ch]
+            seen = True
+        elif ch in _CN_UNITS:
+            unit = _CN_UNITS[ch]
+            if number == 0:
+                number = 1        # '十二' 读作 12，不是 2
+            section += number * unit
+            number = 0
+            seen = True
+        else:
+            return None
+    if not seen:
+        return None
+    return total + section + number
+
 
 def norm_label(raw: str) -> str:
-    """归一化章节号：去掉 § / 空白 / 全角空格。"""
-    return re.sub(r"[\s§　]", "", raw)
+    """归一化章节号：去掉 § / 空白 / 全角空格，并把中文数字换成阿拉伯数字。
+
+    两种数字体系必须归一到同一个形式，否则 '二十一' 与 '21' 永远比不相等
+    （归档里两种都存在，见 HEAD_NUM_RE 处的说明）。
+    """
+    s = re.sub(r"[\s§　]", "", raw)
+    if s.isdigit():
+        return str(int(s))
+    n = cn_to_int(s)
+    return str(n) if n is not None else s
 
 
 def parse_nav(text: str):

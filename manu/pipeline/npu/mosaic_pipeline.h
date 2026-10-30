@@ -218,6 +218,18 @@ typedef struct {
   float sum;     /* heatmap integral over the component */
 } MosaicDet;
 
+/* ---- post-processing mode -----------------------------------------------
+ * THE NUMBERS ARE CONTRACTUAL: they must stay equal to the
+ * mosaic::kPostModeDense / kPostModeSparse / kPostModeVerify constants of
+ * mosaic_core.h, so the C ABI and the C++ core speak the same mode numbers.
+ * A new value is APPENDED (never renumbered). */
+typedef enum {
+  MOSAIC_POST_DENSE  = 0, /* full-image back-projection + 8-connected CCL (today) */
+  MOSAIC_POST_SPARSE = 1, /* CPU sparse path (NEON)                              */
+  MOSAIC_POST_VERIFY = 2, /* dense + sparse, compare field by field (diagnostic) */
+  MOSAIC_POST_GPU    = 3  /* OpenCL local-maximum path on Mali                    */
+} MosaicPostMode;
+
 /* ---- configuration ------------------------------------------------------ */
 typedef struct {
   int32_t version; /* must be MOSAIC_API_VERSION */
@@ -960,6 +972,60 @@ int32_t mosaic_pipeline_flush(MosaicPipeline* p);
 /* Accumulated timing.  Returns 0 on success. */
 int32_t mosaic_pipeline_get_timing(MosaicPipeline* p, MosaicPipelineTiming* out);
 
+/* ---- v10.3: the post-processing timing DISTRIBUTION --------------------
+ *
+ * mosaic_pipeline_get_timing() gives the ACCUMULATED post-processing time and
+ * the frame count, so it can only produce a mean.  The mean hides the thing
+ * that actually matters in a real-time pipeline: the JITTER.  One frame that
+ * takes 120 ms blows the latency budget even when the average looks fine.
+ *
+ * These two calls return the per-frame distribution of the post-processing
+ * time (and, for the GPU path, the breakdown into upload / kernel / readback).
+ *
+ * Both are PURELY ADDITIVE: no existing struct grew, no existing field moved.
+ */
+typedef struct {
+  int32_t frames;      /* 采样帧数                                    */
+  double  total_ms;    /* 累计（= MosaicPipelineTiming.backproj_ms）  */
+  double  mean_ms;     /* 平均                                        */
+  double  stddev_ms;   /* **标准差 —— 波动幅度**                     */
+  double  min_ms;
+  double  p50_ms;
+  double  p90_ms;
+  double  p95_ms;
+  double  p99_ms;
+  double  max_ms;
+} MosaicPostTiming;
+
+/* The GPU path's per-frame breakdown (all four are per-frame distributions).
+ * `frames` is the number of frames the GPU path actually processed. */
+typedef struct {
+  int32_t frames;                 /* GPU 路径跑过的帧数        */
+  MosaicPostTiming upload;        /* 热图 -> GPU buffer       */
+  MosaicPostTiming kernel;        /* 派发 -> clFinish() 返回 */
+  MosaicPostTiming readback;      /* 阻塞回读候选点          */
+  MosaicPostTiming total;         /* GPU 段整体              */
+  int64_t peaks_dropped;          /* 超过 max_peaks 被丢的   */
+} MosaicGpuPostTiming;
+
+/* Per-frame distribution of the post-processing time.  Returns 0 on success. */
+int32_t mosaic_pipeline_get_post_timing(MosaicPipeline* p, MosaicPostTiming* out);
+
+/* Per-frame distribution of the GPU path's segments.  Returns 0 on success. */
+int32_t mosaic_pipeline_get_gpu_post_timing(MosaicPipeline* p, MosaicGpuPostTiming* out);
+
+/* Switch the post-processing algorithm of a live pipeline.
+   MOSAIC_POST_SPARSE : CPU sparse path (NEON), bit-identical output to DENSE
+                        -- **THE DEFAULT** (measured: 37.856 -> 0.531 ms/frame
+                        on the RK3588 board, worst frame 1.037 vs 40.665 ms)
+   MOSAIC_POST_DENSE  : full-image back-projection + 8-connected components
+                        (the reference implementation; identical results)
+   MOSAIC_POST_VERIFY : run DENSE and SPARSE and compare them field by field
+   MOSAIC_POST_GPU    : OpenCL local-maximum path on the Mali GPU
+   Returns 0 on success, non-zero on invalid arguments.  Safe to call at any time;
+   a frame already being processed keeps the mode it started with. */
+int32_t mosaic_pipeline_set_post_mode(MosaicPipeline* p, int32_t mode);
+
 /* Release the pipeline.  Safe on NULL.  Does NOT flush: call flush() first if
  * the queued frames matter. */
 void mosaic_pipeline_destroy(MosaicPipeline* p);
@@ -1114,6 +1180,43 @@ typedef struct {
 } MosaicOpenOptions;
 
 MosaicPipeline* mosaic_pipeline_open(const MosaicOpenOptions* opt, char* errbuf, size_t errcap);
+
+/* ===========================================================================
+ * 后处理模式开关（post-processing mode）
+ *
+ * 这是「后处理稀疏化」这条线对外的开关：同一个流水线可以在运行过程中换后处理
+ * 算法。四种模式的语义是：
+ *
+ *   MOSAIC_POST_DENSE  (0) —— 参考实现。全图回投 + 8 连通域标记，就是原来这条
+ *                              已认证的 CPU 路径。所有和历史结果的对比都以它
+ *                              为基准，它的输出不许变。
+ *   MOSAIC_POST_SPARSE (1) —— **默认值**。CPU 稀疏路径（NEON）。只处理可能命中
+ *                              的候选区域，不再扫全图。它的输出与 DENSE
+ *                              **逐比特一致**（实测：host 对拍 906 例 / 板卡 600 帧
+ *                              / 零不一致，检测 TSV 的 md5 相同），
+ *                              而耗时 37.856 → 0.531 ms/帧、最坏帧 40.665 → 1.037 ms。
+ *   MOSAIC_POST_VERIFY (2) —— 诊断用。同一帧同时跑 DENSE 和 SPARSE，逐字段
+ *                              比较并报差异。**不是生产模式**：它把两条路径的
+ *                              成本一起付了（约为 DENSE 的两倍），只在验证窗口
+ *                              里开，不要留在正式固件里。
+ *   MOSAIC_POST_GPU    (3) —— OpenCL 局部极大值路径，跑在 Mali GPU 上。
+ *                              已实现并板卡实测（稳态 0.857 ms/帧）；它与 DENSE
+ *                              **不是逐比特等价**（ΔF1 −0.0081，定位判定翻转 0 帧），
+ *                              需要时再选它。
+ *
+ * 默认是 SPARSE：稀疏路径与 DENSE 逐比特一致，所以**已认证的历史数字不需要重跑**
+ * （TSV 与 md5 都不动），而「延时税」直接消失（端到端延时 p50 −14.2 %）。
+ * 想退回参考实现：环境变量 `MOSAIC_POST_MODE=dense`，或调
+ * `mosaic_pipeline_set_post_mode(p, MOSAIC_POST_DENSE)`。
+ * MOSAIC_API_VERSION 仍是 10 —— 本次只追加了函数与结构体，既有布局一字未动。
+ *
+ * 什么时候切：嵌入式组按自己板子的实测结果选 —— 默认的 SPARSE 在自己 CPU 的
+ * 预算内跑完就直接用；还在做一致性验证、想同时看到两条路径的差异，就用 VERIFY；
+ * 需要把算力挪到 GPU（或目标平台没有 NEON）就用 GPU。
+ *
+ * 切换是运行时生效的：已经在处理中的那一帧会按它**开始时**的模式跑完，下一
+ * 帧才用新模式，所以不需要停机，也不需要重建流水线。
+ * ========================================================================= */
 
 #ifdef __cplusplus
 } /* extern "C" */

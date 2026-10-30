@@ -105,12 +105,42 @@ TOTAL_EXPECT = LQ_EXPECT + UAV_EXPECT
 # 路线 B 的分层参数组（3e-6 : 1.5e-5 : 3e-5），搜索只缩放整体倍率
 GROUP_LRS = {"G2_p4p5": 3e-6, "G3_neck": 1.5e-5, "G4_head": 3e-5}
 FROZEN_BACKBONE = ("b0", "b1", "b2", "b3", "b4")
+# 可训练骨干段（周末扩展：可按 backbone_lr_scale / freeze_backbone_epochs 保护）
+G2_MODULES = ("b5", "b6", "b7", "b8", "b9", "b10")
 
 # 混合比例候选（mix_spec）：natural = 路线 B 对照（自然 1:3.09），wN = 加权采样 1:N
 MIX_SPECS = [
     "natural",
     "w1.0", "w1.5", "w2.0", "w2.5", "w3.0", "w3.5", "w4.0", "w5.0", "w6.0", "w8.0",
 ]
+
+# ==============================================================================
+# 扩展搜索空间（2026-10-30 周末 no-GMC 复现实验）
+# ==============================================================================
+# 核心假设（用户提出）：
+#   「GMC RC2（trial_0080）作为**初始化权重**起步，比冻结基线（474 去 P0）
+#     拥有高得多的『弱小目标表征上限』；但必须配合**更小的步长 + 更长的 epoch
+#     + 骨干保护**，否则未对齐残差的巨大梯度会灾难性遗忘掉 trial_0080 的浅层特征核。」
+#
+# ⇒ 在原 11 维搜索空间上**加 4 维**：
+#   init_from              : 初始化权重来源（base474 / rc2）
+#   epochs                 : 训练轮数（3 太少 ⇒ 扩到 6/10/15）
+#   backbone_lr_scale      : G2(b5..b10，骨干可训练段) 的 lr 相对倍率（0=全冻结）
+#   freeze_backbone_epochs : 前 N 个 epoch 锁死骨干，第 N+1 epoch 起解冻（渐进式）
+#
+# ⚠️ **默认关闭**（EXTENDED_SPACE=False ⇒ suggest_params 与旧版逐位相同），
+#    只有显式传 --extended-space 才启用 ⇒ **GMC 侧既有 study 的搜索空间不受污染**。
+INIT_CHOICES = ["base474", "rc2"]
+EPOCH_CHOICES = [3, 6, 10, 15]
+BACKBONE_LR_SCALE_CHOICES = [1.0, 0.3, 0.1, 0.0]
+FREEZE_BB_EPOCH_CHOICES = [0, 2]
+# lr_scale 下探到 0.2（RC2 初始化需要小步长；旧版下限 0.3）
+LR_SCALE_LOW, LR_SCALE_HIGH = 0.2, 3.0
+# warmup 上限抬到 1.5 epoch（用户要求 warmup ≥ 1 个完整 epoch）
+WARMUP_EPOCHS_LOW, WARMUP_EPOCHS_HIGH = 0.2, 1.5
+
+# 由调度器按 --extended-space 设置（worker 进程不读它）
+EXTENDED_SPACE = False
 
 # 路线 B 已验证的超参（作为种子与缩放中心）
 ROUTE_B_DEFAULTS = {
@@ -185,12 +215,17 @@ def weighted_sampler_patch(weights: np.ndarray, num_samples: int, seed: int):
 # 2. 参数空间
 # ==============================================================================
 def suggest_params(trial: optuna.Trial) -> dict:
-    return {
+    """搜索空间。
+
+    ⚠️ **EXTENDED_SPACE=False 时与旧版逐位相同**（11 维），保证 GMC 侧既有 study
+    的搜索空间不被新维度污染；只有新实验（传 --extended-space）才走 15 维分支。
+    """
+    params = {
         # ★ 关键参数：dataloader 混合比例（口径 1 = Batch 内采样概率）
         "mix_spec": trial.suggest_categorical("mix_spec", MIX_SPECS),
         # 其余超参
-        "lr_scale": trial.suggest_float("lr_scale", 0.3, 3.0, log=True),
-        "warmup_epochs": trial.suggest_float("warmup_epochs", 0.2, 1.0),
+        "lr_scale": trial.suggest_float("lr_scale", LR_SCALE_LOW, LR_SCALE_HIGH, log=True),
+        "warmup_epochs": trial.suggest_float("warmup_epochs", WARMUP_EPOCHS_LOW, WARMUP_EPOCHS_HIGH),
         "weight_decay": trial.suggest_float("weight_decay", 1e-5, 5e-4, log=True),
         "focal_beta": trial.suggest_float("focal_beta", 2.2, 2.9, step=0.05),
         "offset_weight": trial.suggest_float("offset_weight", 0.40, 0.70, step=0.05),
@@ -200,6 +235,17 @@ def suggest_params(trial: optuna.Trial) -> dict:
         "clip_max_norm": trial.suggest_float("clip_max_norm", 2.0, 8.0),
         "freeze_bn": trial.suggest_categorical("freeze_bn", [True, False]),
     }
+    if EXTENDED_SPACE:
+        # ---- 周末扩展 4 维（2026-10-30）----
+        params["init_from"] = trial.suggest_categorical("init_from", INIT_CHOICES)
+        params["epochs"] = trial.suggest_categorical("epochs", EPOCH_CHOICES)
+        params["backbone_lr_scale"] = trial.suggest_categorical(
+            "backbone_lr_scale", BACKBONE_LR_SCALE_CHOICES
+        )
+        params["freeze_backbone_epochs"] = trial.suggest_categorical(
+            "freeze_backbone_epochs", FREEZE_BB_EPOCH_CHOICES
+        )
+    return params
 
 
 def parse_mix_spec(spec: str) -> tuple[str, float]:
@@ -330,6 +376,21 @@ def run_worker() -> int:
     ap.add_argument("--translate", type=float, required=True)
     ap.add_argument("--clip-max-norm", type=float, required=True)
     ap.add_argument("--freeze-bn", type=int, required=True)
+    # ---- 周末扩展（2026-10-30）：骨干保护 / 渐进式解冻 / 初始化权重标签 ----
+    ap.add_argument(
+        "--backbone-lr-scale", type=float, default=1.0,
+        help="G2(b5..b10，可训练骨干段) 的 lr 相对倍率；0 = 该段完全冻结。"
+             "默认 1.0 ⇒ 与旧版逐位相同。",
+    )
+    ap.add_argument(
+        "--freeze-backbone-epochs", type=int, default=0,
+        help="前 N 个 epoch 把 G2(b5..b10) 锁死（requires_grad=False + BN eval），"
+             "第 N+1 epoch 起解冻。0 = 不冻结（与旧版逐位相同）。",
+    )
+    ap.add_argument(
+        "--init-key", type=str, default="",
+        help="初始化权重来源标签（base474 / rc2），只写进产物元数据便于审计。",
+    )
     ap.add_argument(
         "--sched-epochs", type=int, default=5,
         help="cosine 退火**周期**按几个 epoch 算（默认 5，与 RC1 同口径）。"
@@ -378,6 +439,13 @@ def run_worker() -> int:
         f"freeze_bn={bool(args.freeze_bn)}",
         flush=True,
     )
+    if args.init_key or args.backbone_lr_scale != 1.0 or args.freeze_backbone_epochs:
+        print(
+            f"[WORKER] ★扩展协议：init={args.init_key or '(默认)'} | epochs={args.epochs} | "
+            f"backbone_lr_scale={args.backbone_lr_scale} | "
+            f"freeze_backbone_epochs={args.freeze_backbone_epochs}",
+            flush=True,
+        )
     print("=" * 100, flush=True)
 
     # ---- 模型：与底模完全同构（去 P0），并带回源 ckpt 的 p0 张量 ----
@@ -478,6 +546,7 @@ def run_worker() -> int:
     buckets: dict[str, list[torch.nn.Parameter]] = {k: [] for k in GROUP_LRS}
     frozen: list[torch.nn.Parameter] = []
     unmatched: list[str] = []
+    g2_params: list[torch.nn.Parameter] = []
     for name, param in model.named_parameters():
         if any(name == g or name.startswith(g + ".") for g in FROZEN_BACKBONE):
             param.requires_grad_(False)
@@ -500,10 +569,34 @@ def run_worker() -> int:
         if not params:
             continue
         lr = base_lr * args.lr_scale
+        if key == "G2_p4p5":
+            # 骨干段 lr 相对倍率（周末扩展）：1.0 ⇒ 与旧版逐位相同
+            lr = lr * args.backbone_lr_scale
+            g2_params = params
         n = sum(p.numel() for p in params)
         groups.append({"params": params, "lr": lr, "base_lr": lr, "name": key, "numel": n})
-        print(f"[PARAM] {key:<9} lr={lr:.3e} (基准 {base_lr:.1e} × {args.lr_scale:.3f})  参数 {n:,}", flush=True)
+        print(f"[PARAM] {key:<9} lr={lr:.3e} (基准 {base_lr:.1e} × {args.lr_scale:.3f}"
+              + (f" × 骨干倍率 {args.backbone_lr_scale}" if key == "G2_p4p5" else "")
+              + f")  参数 {n:,}", flush=True)
     print(f"[PARAM] G1_frozen 参数 {sum(p.numel() for p in frozen):,}（严格冻结）", flush=True)
+
+    # ---- 骨干段保护（周末扩展，2026-10-30）--------------------------------
+    # 目的：GMC RC2（trial_0080）的骨干特征核是"弱小目标表征上限"的载体，
+    # 未对齐残差（满屏地物错位白边）带来的巨大梯度会把它们冲烂 ⇒ 灾难性遗忘。
+    #   backbone_lr_scale == 0            ⇒ G2(b5..b10) 整段冻结（含 BN 统计量）
+    #   freeze_backbone_epochs = N > 0    ⇒ 前 N 个 epoch 冻结 G2，第 N+1 epoch 起解冻
+    g2_frozen_forever = (args.backbone_lr_scale == 0.0)
+    g2_frozen_epochs = max(0, int(args.freeze_backbone_epochs))
+    if g2_params and (g2_frozen_forever or g2_frozen_epochs > 0):
+        for p in g2_params:
+            p.requires_grad_(False)
+        print(
+            f"[PARAM] G2 骨干段保护：backbone_lr_scale={args.backbone_lr_scale} "
+            f"freeze_backbone_epochs={g2_frozen_epochs} ⇒ 前 "
+            f"{'全程' if g2_frozen_forever else g2_frozen_epochs} 个 epoch 冻结 "
+            f"（{sum(p.numel() for p in g2_params):,} 参数，BN 统计量一并冻结）",
+            flush=True,
+        )
 
     optimizer = torch.optim.AdamW(groups, lr=groups[0]["lr"], weight_decay=args.weight_decay)
     for pg, g in zip(optimizer.param_groups, groups):
@@ -560,20 +653,39 @@ def run_worker() -> int:
     )
     csv_file.flush()
 
-    def set_frozen_eval() -> None:
+    def set_frozen_eval(epoch: int = 0) -> None:
         model.train()
         for name, module in model.named_modules():
             if any(name == g or name.startswith(g + ".") for g in FROZEN_BACKBONE):
                 module.eval()
             if args.freeze_bn and name.endswith("bn"):
                 module.eval()  # 冻结 BN running stats（用户点名的下一轮方向）
+        # 骨干段（G2: b5..b10）在被冻结期间强制 eval ⇒ 保护它的 BN running stats
+        # （§十七 教训：BN 漂移毁掉底模）
+        g2_is_frozen = g2_frozen_forever or (g2_frozen_epochs > 0 and epoch <= g2_frozen_epochs)
+        if g2_is_frozen:
+            for name, module in model.named_modules():
+                if any(name == g or name.startswith(g + ".") for g in G2_MODULES):
+                    module.eval()
 
     global_step = 0
     vram_peak = 0.0
     t_start = time.time()
     last_weights = None
     for epoch in range(1, args.epochs + 1):
-        set_frozen_eval()
+        # ---- 渐进式解冻：第 (freeze_backbone_epochs + 1) 个 epoch 起放开 G2 ----
+        # 目的：先让检测头（Head）单独适应"满屏错位地物白边"的假警抑制，
+        # 待 Head 稳定后再以微小 lr 放开骨干 ⇒ 杜绝灾难性遗忘。
+        if (not g2_frozen_forever) and g2_frozen_epochs > 0 \
+                and epoch == g2_frozen_epochs + 1 and g2_params:
+            for p in g2_params:
+                p.requires_grad_(True)
+            print(
+                f"[UNFREEZE] epoch {epoch}：解冻 G2 骨干段（{sum(p.numel() for p in g2_params):,} 参数）"
+                f" ⇒ 其后按 backbone_lr_scale={args.backbone_lr_scale} 更新",
+                flush=True,
+            )
+        set_frozen_eval(epoch)
         ep_loss = ep_hm = ep_off = 0.0
         nb = 0
         lq_seen = uav_seen = 0
@@ -743,6 +855,10 @@ def run_worker() -> int:
         "train_epochs": args.epochs,
         "gate_epoch": gate_epoch,
         "sched_epochs": sched_epochs,
+        "init_key": args.init_key,
+        "init_weights": str(resolve_weights(args.weights)),
+        "backbone_lr_scale": args.backbone_lr_scale,
+        "freeze_backbone_epochs": args.freeze_backbone_epochs,
         "weights": str(gate_weights),
         "last_weights": str(last_weights),
         "train_loss": ep_loss / max(nb, 1),
@@ -826,8 +942,21 @@ def write_summary_row(csv_path: Path, trial_name: str, params: dict, res: dict |
         "trial,status,mix_spec,mix_mode,target_ratio,measured_ratio,gate_verdict,"
         "t1_f1,t1_fp,t2_f1,t2_fp,t3_f1,t3_fp,utility,utility_vs_rc1,"
         "lr_scale,warmup_epochs,weight_decay,focal_beta,offset_weight,mosaic,scale,translate,"
-        "clip_max_norm,freeze_bn,duration_min\n"
+        "clip_max_norm,freeze_bn,"
+        "init_from,epochs,backbone_lr_scale,freeze_backbone_epochs,duration_min\n"
     )
+    if csv_path.exists():
+        # ⚠️ 列头变了**绝不能**直接往老文件追加（会整体错位 ⇒ 读盘时是"神秘"的解析错误）。
+        #    老文件改名让位，重新开一份；这样新旧两套表各自自洽。
+        try:
+            first = csv_path.open("r", encoding="utf-8").readline().strip()
+        except Exception:
+            first = ""
+        if first and first != header.strip():
+            import time as _t
+            bak = csv_path.with_suffix(csv_path.suffix + f".bak_{int(_t.time())}")
+            csv_path.rename(bak)
+            print(f"[CSV] 列头变化 ⇒ 老表改名让位：{bak}", flush=True)
     if not csv_path.exists():
         with open(csv_path, "w", encoding="utf-8") as f:
             f.write(header)
@@ -843,6 +972,16 @@ def write_summary_row(csv_path: Path, trial_name: str, params: dict, res: dict |
         except Exception:
             return default
 
+    def _p(key, default=""):
+        v = params.get(key, default)
+        if v is None:
+            return default
+        if isinstance(v, bool):
+            return str(v)
+        if isinstance(v, float):
+            return f"{v:.4f}".rstrip("0").rstrip(".") or "0"
+        return str(v)
+
     row = (
         f"{trial_name},{status},{params.get('mix_spec')},{(res or {}).get('mix_mode','')},"
         f"{_f3('uav_per_lq_target'):.3f},{_f3('measured_ratio'):.3f},"
@@ -853,7 +992,9 @@ def write_summary_row(csv_path: Path, trial_name: str, params: dict, res: dict |
         f"{params.get('lr_scale'):.4f},{params.get('warmup_epochs'):.3f},{params.get('weight_decay'):.8f},"
         f"{params.get('focal_beta'):.2f},{params.get('offset_weight'):.2f},{params.get('mosaic'):.2f},"
         f"{params.get('scale'):.2f},{params.get('translate'):.2f},{params.get('clip_max_norm'):.2f},"
-        f"{params.get('freeze_bn')},{duration_min:.2f}\n"
+        f"{params.get('freeze_bn')},"
+        f"{_p('init_from')},{_p('epochs')},{_p('backbone_lr_scale')},{_p('freeze_backbone_epochs')},"
+        f"{duration_min:.2f}\n"
     )
     with open(csv_path, "a", encoding="utf-8") as f:
         f.write(row)
@@ -887,7 +1028,41 @@ def main() -> int:
         default="",
         help="参照系包 JSON（透传给每个 worker）。换特征语义（如 no-GMC）时必传；不传 = 现有 GMC 语义。",
     )
+    ap.add_argument(
+        "--extended-space",
+        action="store_true",
+        help="启用周末扩展搜索空间（+init_from / +epochs / +backbone_lr_scale / +freeze_backbone_epochs）。"
+             "**不传 ⇒ 搜索空间与旧版逐位相同**（GMC 侧既有 study 不受污染）。",
+    )
+    ap.add_argument(
+        "--init-weights-map",
+        type=str,
+        default="",
+        help='JSON 文件：{"base474": "<权重路径>", "rc2": "<权重路径>"}。'
+             "扩展空间下按每个 trial 的 init_from 取对应权重；不传则所有 trial 都用 --weights。",
+    )
+    ap.add_argument(
+        "--enqueue-plan",
+        type=str,
+        default="",
+        help="JSON 文件：确定性对照臂清单（每项是一组**完整**超参）。启动时按顺序入队，"
+             "保证指定的臂一定被跑（不依赖 TPE 采样运气）。",
+    )
     args = ap.parse_args()
+
+    global EXTENDED_SPACE
+    EXTENDED_SPACE = bool(args.extended_space)
+
+    # ---- 初始化权重映射（扩展空间用）----
+    init_map: dict[str, str] = {}
+    if args.init_weights_map:
+        init_map = json.loads(Path(args.init_weights_map).read_text(encoding="utf-8"))
+        print(f"[INIT-MAP] {json.dumps(init_map, ensure_ascii=False)}", flush=True)
+        for _k, _v in init_map.items():
+            if not Path(_v).is_file():
+                raise FileNotFoundError(f"初始化权重不存在：{_k} → {_v}")
+    if EXTENDED_SPACE and not init_map:
+        raise RuntimeError("[INIT-MAP] 扩展空间必须提供 --init-weights-map（每个 init_from 都要有对应权重）")
 
     out_root = Path(args.output_root)
     (out_root / "trials").mkdir(parents=True, exist_ok=True)
@@ -944,7 +1119,7 @@ def main() -> int:
         print(f"[HEAL] 自愈 {healed} 个陈旧 RUNNING trial（标为 FAIL，不污染 TPE）", flush=True)
 
     # 种子 trial：对照（natural）+ 1:2 / 1:3 / 1:4 / 1:6
-    if not args.no_seed_trials and len(study.trials) == 0:
+    if not args.no_seed_trials and len(study.trials) == 0 and not args.enqueue_plan:
         seeds = []
         for spec in ("natural", "w2.0", "w3.0", "w4.0", "w6.0"):
             p = dict(ROUTE_B_DEFAULTS)
@@ -953,6 +1128,28 @@ def main() -> int:
         for p in seeds:
             study.enqueue_trial(p, skip_if_exists=True)
         print(f"[SEED] 注入 {len(seeds)} 个种子 trial（natural 对照 + w2/w3/w4/w6）", flush=True)
+
+    # ---- 确定性对照臂（--enqueue-plan）------------------------------------
+    # 为什么要有它：TPE 是概率性的；用户点名要验的 4 组假设（对照组/A/B/C）
+    # **必须保证被跑到**，不能靠"运气"。入队后 study.ask() 会优先取走。
+    if args.enqueue_plan:
+        allowed = {"mix_spec", "lr_scale", "warmup_epochs", "weight_decay", "focal_beta",
+                   "offset_weight", "mosaic", "scale", "translate", "clip_max_norm", "freeze_bn"}
+        if EXTENDED_SPACE:
+            allowed |= {"init_from", "epochs", "backbone_lr_scale", "freeze_backbone_epochs"}
+        plan = json.loads(Path(args.enqueue_plan).read_text(encoding="utf-8"))
+        n_enq = 0
+        for item in plan:
+            raw = dict(item.get("params") or {})
+            p = {k: v for k, v in raw.items() if k in allowed}
+            ua = {"role": str(item.get("role", "")), "enqueued_by": "enqueue_plan"}
+            if item.get("seed") is not None:
+                ua["seed"] = int(item["seed"])
+            study.enqueue_trial(p, skip_if_exists=False, user_attrs=ua)
+            n_enq += 1
+            print(f"[PLAN] 入队 #{n_enq} role={ua['role']} init={p.get('init_from')} "
+                  f"ep={p.get('epochs')} lr={p.get('lr_scale')} mix={p.get('mix_spec')}", flush=True)
+        print(f"[PLAN] 共注入 {n_enq} 个确定性对照臂（优先于 TPE 采样）", flush=True)
 
     stop_flag = {"stop": False}
 
@@ -1010,7 +1207,7 @@ def main() -> int:
             #   {"workers": 16}       → dataloader worker 数
             # 解析失败一律回落到启动参数（绝不因配置问题打死调度器）。
             rt = read_runtime_config(out_root)
-            train_epochs = int(rt.get("train_epochs") or args.epochs)
+            default_epochs = int(rt.get("train_epochs") or args.epochs)
             default_gate_epoch = int(rt.get("gate_epoch") or 0)
             default_workers = int(rt.get("workers") or args.workers)
 
@@ -1019,6 +1216,22 @@ def main() -> int:
             seed = int(ua.get("seed", args.seed + trial.number))
             workers = int(ua.get("workers", default_workers))
             gate_epoch = int(ua.get("gate_epoch", default_gate_epoch))
+
+            # ---- 扩展维度（周末，2026-10-30）：每 trial 的 epoch / 初始化权重 / 骨干保护 ----
+            # 优先级：user_attrs 覆盖 > 搜索参数 > runtime_config > 启动参数
+            trial_epochs = int(ua.get("epochs") or params.get("epochs") or default_epochs)
+            init_key = str(params.get("init_from") or "")
+            if init_key:
+                if init_key not in init_map:
+                    raise RuntimeError(f"[INIT-MAP] 未知 init_from={init_key}（map={list(init_map)}）")
+                init_weights = init_map[init_key]
+            else:
+                init_weights = args.weights
+            backbone_lr_scale = float(params.get("backbone_lr_scale", 1.0) or 1.0)
+            freeze_bb_epochs = int(params.get("freeze_backbone_epochs", 0) or 0)
+            # cosine 周期：3 epoch 仍用 5（与 RC1/Ep3 同 LR 轨迹，保留旧口径）；
+            # ≥6 epoch 用自身长度 ⇒ 让 lr 在整段训练里走完一整个 cosine。
+            sched_epochs = 5 if trial_epochs == 3 else trial_epochs
 
             trial_name = f"trial_{trial.number:04d}"
             log_file = out_root / "logs" / f"{trial_name}.log"
@@ -1030,10 +1243,11 @@ def main() -> int:
                 "--output-root", str(out_root),
                 "--longquan-data", args.longquan_data,
                 "--uav-data", args.uav_data,
-                "--weights", args.weights,
+                "--weights", init_weights,
                 "--gate-script", args.gate_script,
                 "--baseline-cache", args.baseline_cache,
-                "--epochs", str(train_epochs),
+                "--epochs", str(trial_epochs),
+                "--sched-epochs", str(sched_epochs),
                 "--batch", str(args.batch),
                 "--imgsz", str(args.imgsz),
                 "--workers", str(workers),
@@ -1051,6 +1265,9 @@ def main() -> int:
                 "--translate", str(params["translate"]),
                 "--clip-max-norm", str(params["clip_max_norm"]),
                 "--freeze-bn", "1" if params["freeze_bn"] else "0",
+                "--backbone-lr-scale", str(backbone_lr_scale),
+                "--freeze-backbone-epochs", str(freeze_bb_epochs),
+                "--init-key", init_key,
             ]
             if args.reference_frame:
                 cmd += ["--reference-frame", args.reference_frame]
@@ -1062,10 +1279,14 @@ def main() -> int:
                 "log_handle": fh, "start_time": time.time(),
             })
             save_registry()
-            gate_desc = "量末Ep" if gate_epoch in (0, train_epochs) else f"量Ep{gate_epoch}"
+            gate_desc = "量末Ep" if gate_epoch in (0, trial_epochs) else f"量Ep{gate_epoch}"
             print(f"[LAUNCH] {trial_name} → GPU {gpu_id} | mix={params['mix_spec']} | "
-                  f"lr_scale={params['lr_scale']:.3f} | 协议 {train_epochs}ep/{gate_desc} "
+                  f"lr_scale={params['lr_scale']:.3f} | 协议 {trial_epochs}ep/{gate_desc} "
                   f"| seed={seed} workers={workers} | 日志 {log_file.name}", flush=True)
+            if EXTENDED_SPACE:
+                print(f"[LAUNCH]   ★init={init_key or '(默认)'} | backbone_lr_scale={backbone_lr_scale} | "
+                      f"freeze_backbone_epochs={freeze_bb_epochs} | cosine周期={sched_epochs}ep | "
+                      f"role={ua.get('role', '')}", flush=True)
 
         # 收割
         still = []

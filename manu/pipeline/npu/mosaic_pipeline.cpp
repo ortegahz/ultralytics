@@ -52,6 +52,9 @@
 
 #include "mosaic_core.h"
 #include "mosaic_pipeline.h"
+// v10.3: GPU 后处理路径。它 include 了 mosaic_core.h（用 Session / Comp），
+// 所以只能在这里注册，不能让 mosaic_core.h 反向 include（会成环）。
+#include "mosaic_post_gpu.h"
 
 #include <algorithm>
 #include <atomic>
@@ -387,6 +390,14 @@ struct MosaicPipeline {
   std::condition_variable cv_heat;        // a heatmap arrived
   std::vector<std::thread> post_threads;
   std::vector<std::unique_ptr<mosaic::PostWorkspace>> post_ws;
+  // v10.3: which post-processing algorithm the POST service runs.
+  //   0 = dense  (full-image back-projection + 8-connected CCL; the original)
+  //   1 = sparse (CPU sparse path; bit-identical output to dense)
+  //   2 = verify (dense + sparse, compared field by field; diagnostic only)
+  //   3 = gpu    (OpenCL local-maximum path on the Mali GPU)
+  // It is atomic because mosaic_pipeline_set_post_mode() may be called while the
+  // pipeline is running; the POST thread re-reads it for every frame.
+  std::atomic<int> post_mode{1};
 
   // ---- the results --------------------------------------------------------
   // out_q feeds mosaic_pipeline_collect(); cb_q feeds the callback.  A frame
@@ -468,6 +479,9 @@ struct MosaicPipeline {
   // NPU is the pipeline's critical path, and the core-mask experiment is
   // judged on this distribution -- not on the mean alone.
   std::vector<double> rknn_run_samples;
+  // v10.3: one sample per frame for the POST-processing time.  The mean hides
+  // the jitter; this distribution is what a latency budget has to absorb.
+  std::vector<double> post_samples;
   double gmc_corner_pts = 0.0;   // sum of the per-detection corner counts
   double gmc_corner_dets = 0.0;  // sum of the per-detection counts
 
@@ -1916,6 +1930,10 @@ struct MosaicPipeline {
       }
 
       // ---- stage 3: back-projection + connected components ---------------
+      // The algorithm is re-read for every frame: mosaic_pipeline_set_post_mode()
+      // may switch it while the pipeline is running, and a frame already in
+      // flight keeps the mode it started with.
+      ws->post_mode = this->post_mode.load(std::memory_order_relaxed);
       std::vector<mosaic::Comp> comps;
       double backproj_ms = 0.0;
       mosaic::BackProjectFrame(hi.sess, hi.hm, ws, &comps, &backproj_ms);
@@ -1923,6 +1941,8 @@ struct MosaicPipeline {
         std::lock_guard<std::mutex> lk(m_time);
         timing.backproj_ms += backproj_ms;
         timing.frames += 1;
+        // v10.3: 逐帧采样（算方差 / 分布用）。
+        post_samples.push_back(backproj_ms);
       }
 
       ResultItem ri;
@@ -3163,6 +3183,44 @@ MosaicPipeline* mosaic_pipeline_create(const MosaicPipelineConfig* cfg, char* er
     mosaic::InitPostWorkspace(p->post_ws.back().get());
   }
 
+  // v10.3: the deployment knob.  MOSAIC_POST_MODE picks the algorithm the POST
+  // service runs; it exists so the embedded team can pick per board without
+  // recompiling.  An unknown value is ignored (the default SPARSE keeps running)
+  // -- a typo must never silently change what the pipeline computes.
+  //
+  // WHY THE DEFAULT IS SPARSE (v10.3)
+  // ---------------------------------
+  // The sparse path is **bit-identical** to the dense one -- that is not a
+  // claim, it is measured:
+  //   * host 对拍：906 个随机用例 / 19,937 个连通域 / **0 处不一致**
+  //   * 板卡 verify 自检：600 帧 / **0 处不一致**（dense 与 sparse 同帧逐字段比对）
+  //   * 板卡检测 TSV：dense 与 sparse 的 md5 **完全相同**
+  // and it is 71x faster (37.856 -> 0.531 ms/frame) with a lower worst case
+  // (1.037 vs 40.665 ms).  So the default can safely BE the fast path: the
+  // certified arm's numbers do not move, and the latency tax disappears.
+  // DENSE stays available as the reference implementation (and as the
+  // fallback if a future change ever breaks the equivalence).
+  {
+    const char* env = getenv("MOSAIC_POST_MODE");
+    int mode = 1;  // 1 = sparse（默认）
+    if (env && *env) {
+      const std::string v = env;
+      if (v == "dense" || v == "0") mode = 0;
+      else if (v == "sparse" || v == "1") mode = 1;
+      else if (v == "verify" || v == "2") mode = 2;
+      else if (v == "gpu" || v == "3") mode = 3;
+      else fprintf(stderr, "[WARN] MOSAIC_POST_MODE='%s' is not one of "
+                           "dense/sparse/verify/gpu; keeping the default (sparse)\n", v.c_str());
+    }
+    p->post_mode.store(mode, std::memory_order_relaxed);
+    fprintf(stderr, "[i] post mode = %s\n",
+            mode == 0 ? "dense" : mode == 1 ? "sparse" : mode == 2 ? "verify" : "gpu");
+  }
+
+  // v10.3: 注册 GPU 后处理钩子。CL 资源是**懒创建**的（第一次真正用到 GPU
+  // 模式时才建 context / program / buffer），所以这里注册不花任何时间。
+  mosaic::g_gpu_post_hook = &mosaic::GpuPostDetect;
+
   p->timing.wall_ms = mosaic::now_ms();
 
   // v10: THE DEPTH OF BUFFER B.  The fused mode keeps the queue_depth (8) it
@@ -3378,6 +3436,9 @@ int32_t mosaic_pipeline_collect(MosaicPipeline* p, int64_t* frame_id, MosaicDet*
   return n;
 }
 
+// v10.3: 逐帧后处理耗时原始样本的落盘（定义在 get_post_timing 附近）。
+static void DumpPostSamples(MosaicPipeline* p);
+
 int32_t mosaic_pipeline_flush(MosaicPipeline* p) {
   if (!p) return -1;
   {
@@ -3459,6 +3520,9 @@ int32_t mosaic_pipeline_flush(MosaicPipeline* p) {
   }
   p->cv_art.notify_all();
   if (p->art_thread.joinable()) p->art_thread.join();
+  // v10.3: the per-frame post-processing samples are final now (the POST thread
+  // is joined), so the optional raw dump can happen.
+  DumpPostSamples(p);
   {
     std::lock_guard<std::mutex> lk(p->m_out);
     p->flushed = true;
@@ -3552,6 +3616,126 @@ int32_t mosaic_pipeline_get_timing(MosaicPipeline* p, MosaicPipelineTiming* out)
   if (p->gmc_corner_dets > 0.0) {
     out->gmc_corner_mean = p->gmc_corner_pts / p->gmc_corner_dets;
   }
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
+// v10.3: the post-processing time DISTRIBUTION.
+//
+// The accumulated mean hides the jitter.  A post-processing step that costs
+// 0.5 ms on average but 40 ms on one frame in a hundred will blow a latency
+// budget just as badly as one that costs 40 ms every time -- and only the
+// distribution shows which one it is.
+//
+// stddev_ms is the "how much does it fluctuate" number the user asked for.
+// ---------------------------------------------------------------------------
+static void PostTimingFromSamples(std::vector<double> v, MosaicPostTiming* out) {
+  if (!out) return;
+  MosaicPostTiming t{};
+  t.frames = (int32_t)v.size();
+  if (v.empty()) {
+    *out = t;
+    return;
+  }
+  std::sort(v.begin(), v.end());
+  double sum = 0.0;
+  for (double x : v) sum += x;
+  t.total_ms = sum;
+  t.mean_ms = sum / (double)v.size();
+  double var = 0.0;
+  for (double x : v) {
+    const double d = x - t.mean_ms;
+    var += d * d;
+  }
+  t.stddev_ms = std::sqrt(var / (double)v.size());
+  t.min_ms = v.front();
+  t.max_ms = v.back();
+  t.p50_ms = pct_nearest_rank(v, 0.50);
+  t.p90_ms = pct_nearest_rank(v, 0.90);
+  t.p95_ms = pct_nearest_rank(v, 0.95);
+  t.p99_ms = pct_nearest_rank(v, 0.99);
+  *out = t;
+}
+
+int32_t mosaic_pipeline_get_post_timing(MosaicPipeline* p, MosaicPostTiming* out) {
+  if (!p || !out) return -1;
+  std::lock_guard<std::mutex> lk(p->m_time);
+  PostTimingFromSamples(p->post_samples, out);
+  return 0;
+}
+
+// v10.3: 逐帧后处理耗时的原始样本导出（诊断用）。
+//
+// 为什么要有它：分布统计（均值/标准差/p99/max）能说「有一次 54 ms」，但说不��
+// 「有几次」「在第几帧」「紧跟在什么事件后面」。定位长尾原因需要原始序列。
+//
+// 开启方式：环境变量 MOSAIC_POST_SAMPLES=<路径>（在 flush() 时落盘，每行一个毫秒值）。
+static void DumpPostSamples(MosaicPipeline* p) {
+  const char* path = getenv("MOSAIC_POST_SAMPLES");
+  if (!p || !path || !*path) return;
+  std::vector<double> v;
+  {
+    std::lock_guard<std::mutex> lk(p->m_time);
+    v = p->post_samples;
+  }
+  FILE* f = fopen(path, "w");
+  if (!f) {
+    fprintf(stderr, "[WARN] cannot write the post samples to %s: %s\n", path, strerror(errno));
+    return;
+  }
+  for (double x : v) fprintf(f, "%.6f\n", x);
+  fclose(f);
+  fprintf(stderr, "[i] post samples written: %s (%zu frames)\n", path, v.size());
+}
+
+int32_t mosaic_pipeline_get_gpu_post_timing(MosaicPipeline* p, MosaicGpuPostTiming* out) {
+  if (!p || !out) return -1;
+  MosaicGpuPostTiming g{};
+  // The GPU samples live in the POST worker's workspace (the workspace owns the
+  // scratch, and there is one per post worker).  With one post worker -- the
+  // shipped configuration -- this is a single worker's samples.
+  std::vector<double> up, ke, rb, tt;
+  for (const auto& wsp : p->post_ws) {
+    const mosaic::PostWorkspace* ws = wsp.get();
+    if (!ws) continue;
+    up.insert(up.end(), ws->gpu_upload_samples.begin(), ws->gpu_upload_samples.end());
+    ke.insert(ke.end(), ws->gpu_kernel_samples.begin(), ws->gpu_kernel_samples.end());
+    rb.insert(rb.end(), ws->gpu_readback_samples.begin(), ws->gpu_readback_samples.end());
+    tt.insert(tt.end(), ws->gpu_total_samples.begin(), ws->gpu_total_samples.end());
+    g.peaks_dropped += ws->gpu_peaks_dropped;
+  }
+  PostTimingFromSamples(up, &g.upload);
+  PostTimingFromSamples(ke, &g.kernel);
+  PostTimingFromSamples(rb, &g.readback);
+  PostTimingFromSamples(tt, &g.total);
+  g.frames = g.total.frames;
+  *out = g;
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
+// v10.3: switch the post-processing algorithm of a live pipeline.
+//
+// The switch is a single atomic word, so it is safe to call while the pipeline
+// is running.  A frame that is already being processed keeps the mode it
+// started with: the POST thread reads the word once per frame, right before it
+// runs the back-projection.
+//
+// The modes (see mosaic_pipeline.h):
+//   0 DENSE  the original: full-image bilinear back-projection + 8-connected CCL
+//   1 SPARSE the CPU sparse path; its output is BIT-IDENTICAL to DENSE
+//   2 VERIFY runs DENSE and SPARSE and compares them field by field (diagnostic)
+//   3 GPU    the OpenCL local-maximum path on the Mali GPU
+//
+// NOTE: VERIFY costs twice the post-processing time by construction -- it is a
+// self-check tool, not a production mode.
+// ---------------------------------------------------------------------------
+int32_t mosaic_pipeline_set_post_mode(MosaicPipeline* p, int32_t mode) {
+  if (!p) return -1;
+  if (mode < 0 || mode > 3) return -2;
+  p->post_mode.store(mode, std::memory_order_relaxed);
+  fprintf(stderr, "[i] post mode -> %s\n",
+          mode == 0 ? "dense" : mode == 1 ? "sparse" : mode == 2 ? "verify" : "gpu");
   return 0;
 }
 

@@ -2832,6 +2832,468 @@ GMC 组 6、BufferA 丢弃 0。README 记录的 4 个产物 md5 与磁盘**逐�
 
 ---
 
+### 6.13 ⭐⭐⭐ 后处理稀疏化（CPU NEON 路线 + GPU OpenCL 路线）与板卡实测
+
+> 这一节的起点是一个**用户提问**：「memory 里原来的后处理速度是多少？」
+> 查出来的事实比预想的严重：**当前解耦管线里的后处理不是 10.89 ms，而是 45.72 ms/帧**。
+
+#### 6.13.0 起点：memory 里的历史口径（先对齐，再动手）
+
+`manu/memory/` 里 `backproject_cc`（CPU f32 反投影 + 8 连通域）的全部记录：
+
+| 出处 | 口径 | ms/帧 |
+|:--|:--|--:|
+| `MOSAIC_RK3588_20261026.md:404` | 库交付 e2e 全量 11,810 帧（有缓存，交付口径） | 10.890 / **10.888** |
+| `MOSAIC_RK3588_20261026.md:77` | 多尺度拼图交付表 | **11.699** |
+| `memory.md:2219` | 库驱动臂（fps 8.022） | 12.7292（upload）/ **10.9285**（backproject_cc） |
+| `memory_compact.md:244` | 板端 11,810 帧全量 | 12.782 / **10.888** |
+| `falsified_archive.md:1929,1983` | svc_N 全量臂（单 worker 串行链） | **10.8928**（链：upload 13.2597 + run 112.3796 + outputs 0.7977 + **backproject_cc 10.8928** = 137.33） |
+| `falsified_archive.md:3083` | 全量臂 | **11.0495**（26,419.252 ms） |
+
+⇒ **历史口径稳定在 10.89 ~ 11.70 ms/帧**，用户记忆里的「10.89 ms」正是其中最常引用的那个。
+
+**但当前配置不是那个口径**：`CANON28_dec_rr_d3`（解耦管线，`decoupled_stages=1`）实测
+`backproject_cc` = **45.72 ms/帧**（278,279.727 ms / 6103 帧），是历史口径的 **4.2 倍**。
+
+**为什么变快了 4.2 倍？**（不是后处理算法变了，是**跑它的核变了**）
+
+| | 历史口径 | 当前解耦配置 |
+|:--|:--|:--|
+| POST 线程绑核 | `npu_cpus` = **6-7**（A76 @2.352 GHz） | `pre_cpus` = **0-3**（A55 @1.8 GHz，`mosaic_pipeline.cpp:1889`） |
+| 同核还有谁 | 几乎没人 | **2 个 pre 线程**（RGA 拼图 + fp16 加宽） |
+| 时钟比 | — | 1.31× |
+| 抢核 | 无 | 还要再乘一个争抢系数 |
+
+⇒ 板卡拓扑实测：`cpu0-3 = 1.8 GHz / capacity 405`（A55），`cpu4-7 = 2.352 GHz / capacity 1024`（A76）。
+⇒ **后处理从「独占 A76」变成了「和 pre 线程挤 A55」**，这才是它涨到 45.72 ms 的原因。
+
+#### 6.13.1 为什么值得动手：99.8% 的像素是白扫的
+
+后处理现在做的是：每个 tile 把热图窗口**双线性上采样成 640×512**，再在 640×512 上做**全图 8 连通域**。
+3 个 tile ⇒ 每帧 **983,040** 次双线性求值 + 约 **200 万**次连通域像素访问。
+
+用 dense 路径自己产出的 TSV 反算（`Comp.area` 恰好就是该连通域的前景像素数）：
+
+| 项 | 实测（600 帧，板卡实时 pipeline） |
+|:--|:--|
+| dense 每帧扫的像素 | **983,040**（3 tile × 327,680） |
+| 真实前景像素/帧 | mean **1,822** / p50 1,798 / p90 3,729 / max 5,574 |
+| **前景密度** | **0.185 %** |
+| 每帧连通域数 | 0 个的帧 29、2 个 192、3 个 283、4 个 30、5+ 25 |
+
+⇒ **dense 有 99.815% 的像素是在白扫**。「红外弱小目标在热图上是稀疏孤峰」这个直觉在这套数据上**成立**。
+
+#### 6.13.2 路线 A：CPU 稀疏路径（与 dense **逐字节等价**）
+
+**核心思想**：不改变「8 连通域 + 连通域质心」的语义，只改变「**算哪些像素**」。
+
+1. **STEP 1（热图粗筛，NEON）**：在 tile 的热图窗口上算 `above = (src[j] >= threshold)`。
+   ⚠️ 阈值坑：dense 侧是 `((double)float32值 >= (double)0.06)` 的 **double 比较**，而
+   `float32(0.06) = 0.059999998658895493` **小于** `double(0.06)` ⇒ 直接用 `vcgeq_f32(v, 0.06f)`
+   会**误纳**边界值。解法：`SparseCeilF32(t)` 取「不小于 t 的最小 float32」，使
+   `(v >= ceil_f32(t)) ⟺ ((double)v >= t)` **恒成立**；NEON 只出掩码，命中 lane 再走 double 复核。
+2. **STEP 2（候选位图）**：双线性值是 4 个源值的**凸组合** ⇒ **4 个源值全 < threshold ⇒ 该 native
+   像素必然 < threshold**。所以只要把「4 个源值里至少一个 ≥ threshold」的 native 像素挑出来求值，
+   其余全部跳过。逆映射：源列 j 影响到的 native 列区间是 `[A(j-1), B(j))`
+   （`A(j) = (j+0.5)/sx_scale-0.5`，`ix0` 段与 `ix1` 段因 `B(j-1)=A(j)` 首尾相接）。
+   用 640×512 的**位图**（40 KB）记录候选。
+3. **STEP 3（光栅序求值）**：在候选位里按 Y 升 X 升扫描，求值表达式与 `ResizeBilinearF32` **逐字相同**
+   （同样 double `fx/fy`、`floor`、float `ax/ay`、同样 clamp 顺序），再用 dense 同一条
+   `((double)v >= threshold)` 判定 ⇒ 前景像素列表天然是**光栅序**。
+4. **STEP 4（连通域）**：两遍算法与 `DetectComponents` **完全同语义**，只是只遍历前景列表：
+   临时标号按光栅序发放、`UfFind/UfUnite` 规则一字不改、最终标号按 root 升序（== cv2 label 序）、
+   **遍 2 也在光栅序上累加**且累加器类型照抄（`sx/sy/ssum`=double、`speak`=float）
+   ⇒ `sum`/`cx`/`cy` 的 float 位模式**必然相同**。
+
+**为什么它是「逐字节等价」而不是「差不多」**：
+浮点累加的**顺序**决定结果。dense 的遍 2 是「按光栅序扫全图、只累加前景像素」，
+稀疏版是「按光栅序扫前景列表」—— 两者对**同一个分量**的加法序列完全一致 ⇒ double 累加器逐位相同。
+
+**板卡 verify 自检**（`post_mode=2`：同一帧同时跑 dense 和 sparse，逐字段比对）：
+
+| 项 | 结果 |
+|:--|:--|
+| 板卡帧数 | **600** |
+| `PostWorkspace::verify_mismatch_count` | **0** |
+| 第一处差异打印 | **一次都没有** |
+| dense / sparse / verify 三个 TSV 的 md5 | **三者完全相同** `24029618452528dedd059380a0b1e262` |
+
+**host 侧对拍**（worker 自测，从 `mosaic_core.h` **原样抽取**代码，906 个随机用例）：
+`cases=906  dense_components=19937  mismatches=0`，覆盖均匀噪声 / 稀疏尖峰 / 长条斑块 /
+**float32 临界值网格** / NaN / ±Inf / 5 阈值 × 4 min_area × 4 limit 组合 / 跨 tile 边界形状 /
+**跨用例复用同一 workspace**。过程中真实抓到并修掉一个 bug：候选 bbox 更新时误用了当前列而不是
+被 flush 的那一段，导致 bbox 偏小、漏掉边缘分量（906 例中 70 例不一致）。
+
+#### 6.13.3 路线 B：GPU OpenCL 路径（局部极大 + 3×3 加权质心）
+
+按用户给的方案实现：**一次上传整张热图（320×320 fp32 = 409,600 B）→ 三个 tile 各派发一次
+3×3 局部极大 kernel（`atomic_inc` 拿槽位）→ 回读候选点（几十字节到 1 KB）→ CPU 侧反投影**。
+
+**实现中修正的两个真问题**（都是 worker 自己抓到的）：
+
+1. **几何误解**：dense 路径的 `ResizeBilinearF32(src, hm_w, sw, sh, native_map, 640, 512)`
+   把**每个 tile 的窗口拉伸到整张 640×512 画布**，tile 的画布位置从不参与
+   ⇒ 反投影必须用**窗口内局部坐标**，第一版误加了全局热图偏移。
+2. **OpenCL 规范错误**：初版把 `(cl_mem)(buffer + offset)` 当 kernel 参数传（违反规范，PoCL 直接 assert 崩），
+   改为传合法 handle + kernel 内 `base` 偏移索引。
+
+**语义差异（与 dense 的逐项对照）**：
+
+| 字段 | dense | GPU（原版） | GPU（peak 标定修正后） |
+|:--|:--|:--|:--|
+| `cx/cy` | 分量像素坐标算术平均 | 3×3 强度加权质心 → native | 同左 |
+| `peak` | **上采样 native 图**里分量内最大值 | 源热图局部极大值（**上界**） | **上采样 native 图**里候选邻域最大值（**同口径**） |
+| `w/h` | 分量 bbox | 3×3 邻域在 native 的尺寸 | 同左 |
+| `area` | 分量像素数 | 3×3 内 ≥阈值的格子数（0-9） | 同左 |
+| `sum` | 分量值之和 | 0 | 0 |
+| 排序 | sum 降序 | peak 降序 | peak 降序 |
+
+⚠️ **peak 口径差是精度问题的唯一根因**：`peak` 上偏 ⇒ `th_base=0.3` 的过滤变松 ⇒ 多出来的假警。
+修正方式：在 CPU 上对**仅有的几个候选**（实测 2.4 个/帧）算 9 次双线性插值，
+取候选 3×3 native 邻域的最大值 ⇒ 两个路径的 `peak` 回到同一把尺子上。代价可忽略。
+
+#### 6.13.4 精度判据（先定尺子，再看数）
+
+PC 评分链（`manu/evaluation/eval_multiscale_cache_th.py`）：
+
+```
+TSV(tag,cx,cy,w,h,area,peak,sum) → cache → merge_scales(dedup_radius=768)
+   → single_frame_dets(th_base=0.3) → count_matches(mode="inbox", tol=8.0)
+```
+
+**`inbox` 判定只看预测中心点是否落在 GT 框内**：
+`abs(px-gx) <= gw/2 and abs(py-gy) <= gh/2`（`_hits`，`eval_multiscale_cache_th.py:161-166`）
+—— **预测自己的 `w`/`h`/`sum`/`area` 完全不参与匹配**。`area` 甚至被评分器显式忽略。
+
+**GT 实测**（服务器 `Final_Labels_merged_20261010`，序列 `VIDEO00007_19700101_001324`）：
+
+| 项 | 实测 |
+|:--|:--|
+| GT 帧数 / 目标数 / **多目标帧** | 11,810 / 10,535 / **0** |
+| GT 框尺寸（native px） | w: p10 38.8 / **p50 57.0** / p90 179.0；h: p10 14.0 / **p50 21.0** / p90 68.0 |
+| **inbox 容差（半宽/半高）** | **±28.5 / ±10.5 px**（p10 → ±19.4 / ±7.0） |
+
+⇒ **每帧只有 1 个 GT 目标**，判定容差**纵向只有 ±10.5 px** ⇒ 质心偏 10 px 就会把 TP 翻成 FP。
+（这也说明「3×3 加权质心替代斑块质心」不是无害的：斑块 bbox p50 是 16×12（tag0）/ 38×31（tag1）/ 55×45（tag2），
+质心与峰值位置可以差好几个像素。）
+
+**命中帧对比工具**（本轮新建）：`manu/pipeline/npu/board/scratch/det_hit_frame_diff.py`
+—— 「命中帧」= 基准与候选**都产出检出**的帧；逐个目标按 `peak` 降序配对（`--top-k`，默认 1，
+等价于 `dedup_radius=768` 的实际效果），比较 `Δcx/Δcy/Δ中心距/Δpeak/Δw/Δh/Δarea/Δsum`，
+并（给了 `--labels-root` 时）统计 **inbox 判定翻转帧数**。
+自检：dense 自比 → 全部 Δ=0 ✅。
+
+#### 6.13.5 板卡实测：速度与**方差**（600 帧，板卡实时 pipeline `mosaic_api_test`）
+
+**逐帧样本的来源**：库新增 `mosaic_pipeline_get_post_timing()` / `mosaic_pipeline_get_gpu_post_timing()`
+（**纯追加**：`MosaicPipelineConfig` / `MosaicPipelineTiming` 的 `sizeof` 与**逐字段 `offsetof`**
+在改动前后**逐行相同**，探针输出 md5 `05bebfd47a9a24a8596351ac0f9b4f75` /
+`1495b31d66dd198156bdb4cbdad11eb4`），以及环境变量 `MOSAIC_POST_SAMPLES=<路径>` 导出原始逐帧序列。
+
+**总分布（每帧后处理耗时，600 帧）**：
+
+| 模式 | 均值 | **标准差** | 相对波动 | p50 | p90 | p95 | p99 | min | max |
+|:--|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| dense | 37.856 | **0.728** | 1.9 % | 37.771 | 38.644 | 38.724 | 38.783 | 36.124 | 40.665 |
+| **sparse（CPU NEON）** | **0.531** | **0.219** | 41 % | 0.528 | 0.816 | 0.930 | 1.010 | 0.240 | **1.037** |
+| gpu（含首帧） | 0.948 | 2.181 | 230 % | 0.871 | 0.897 | 0.903 | 0.923 | 0.730 | **54.324** |
+| **gpu（稳态，剔除首帧）** | **0.857** | **0.039** | 4.5 % | 0.871 | 0.897 | 0.903 | 0.923 | 0.730 | **1.023** |
+
+**GPU 分段（稳态）**：
+
+| 段 | 均值 | 标准差 | p99 | max |
+|:--|--:|--:|--:|--:|
+| 上传（热图 → GPU buffer，409,600 B + 计数器清零） | 0.213 | 0.009 | — | — |
+| kernel（3 次派发 → `clFinish()` 返回） | 0.564 | 0.038 | — | — |
+| 回读（阻塞 `clEnqueueReadBuffer`） | 0.072 | 0.009 | — | — |
+| **GPU 段整段** | **0.855** | **0.039** | 0.915 | **1.023** |
+| 丢弃候选（超 `max_peaks`） | 0 | — | — | — |
+
+**那个 54 ms 的尖刺是什么？** 逐帧样本给出了确定答案：**只有 1 帧 —— frame 0，54.324 ms**。
+它**不在 GPU 计算里**（GPU 段自身的 max 只有 1.023 ms）⇒ 它是
+**OpenCL context + program build + buffer 创建的一次性懒初始化**。
+⇒ 由此得到两条纪律：
+* **短跑会骗人**：20 帧的短跑看到「3.623 ms/帧」，那是把 54 ms 摊到 20 帧上的结果；
+  **稳态是 0.855 ms/帧**。任何「GPU 后处理要 3.6 ms」的说法都带着这个摊销误差。
+* **要消除它**：在 `create()` 时预热（建 context + build program + 建 buffer），
+  把 54 ms 挪到开库阶段，代价是开库慢 54 ms。
+
+**三个数字的量纲差别（很重要）**：
+* **dense**：慢但**极稳**（σ 0.728 ms = 1.9 %），每帧都要付 38 ms。
+* **sparse**：快，而且**绝对波动最小**（σ 0.219 ms，**最差一帧 1.037 ms**）——
+  即「最坏情况也不会超过 1.04 ms」。
+* **gpu**：稳态也很快，但**有一个 54 ms 的首帧尖刺**（一次性），
+  稳态 σ 0.039 ms 反而比 sparse 更小（0.855 ms 的基数下）。
+
+⇒ 若要一个**单帧最坏情况**的保证：**sparse 是 1.037 ms，gpu 是 54.324 ms（首帧），dense 是 40.665 ms**。
+
+#### 6.13.5.1 内存操作：**稳态 `malloc = 0`**（用户方案里的那一格，已实测）
+
+**测量方法**：host 端拦截 `malloc/calloc/realloc` 并计数，计数器**精确地开关在后处理调用的前后**。
+（板卡上的进程级计数不能用：整个进程每帧有 ~3780 次分配，来自 OpenCV 解帧，
+信噪比太差 —— 但那个斜率仍可作旁证，见下。）
+
+| 路径 | **每次调用的堆分配次数** | 分配来自哪里 |
+|:--|--:|:--|
+| dense | **10** | `DetectComponents` 里的 **9 个局部统计 vector**（cnt/xmin/xmax/ymin/ymax/sx/sy/ssum/speak）+ **1 次 `std::stable_sort` 的归并缓冲** |
+| sparse（改前） | **1** | 只剩 `std::stable_sort` 的归并缓冲 |
+| **sparse（改后）** | **0** ✅ | 全部 scratch 在 `PostWorkspace`（`InitPostWorkspace` 一次性分配）+ 排序换成**稳定插入排序** |
+
+**怎么把最后那 1 次消掉的**：`std::stable_sort` 永远会为归并分配一块 O(n) 临时缓冲。
+候选数实测只有 **2~4 个**（上限 `max_detections=100`），O(n²) 的插入排序完全不是问题。
+**稳定性**靠「只有当 `前一个.sum < 当前.sum` 时才往后挪」保证 ⇒ 相等时保持原有相对顺序 ⇒
+与 `stable_sort` **输出逐字节相同**；`n > 64` 的病态帧退回 `stable_sort`，避免 O(n²)。
+
+**排序改了之后必须重新证明等价**（这是本轮自己给自己加的一道闸）：
+板卡 `verify` 模式（dense 与 sparse 同帧逐字段比对）**600 帧 → 0 处不一致**；
+dense 与 sparse 的检测 TSV **md5 逐字节相同**；契约测试 **196 passed / 0 failed**。
+
+**板卡进程级旁证**（`LD_PRELOAD` 计数器，100 帧与 600 帧的斜率）：
+
+| 模式 | 100 帧 | 600 帧 | **每帧斜率** |
+|:--|--:|--:|--:|
+| dense | 583,650 | 2,476,463 | **3,785.6 次/帧** |
+| sparse | 581,026 | 2,471,041 | **3,780.0 次/帧** |
+
+⇒ 两条路的每帧分配几乎一样（都被解帧淹没），差值就是 dense 路径自己多出来的那几次
+（9 个局部 vector + 1 次归并缓冲）⇒ **dense 每帧要在堆上反复申请/释放 10 次，
+sparse 是 0 次**。
+
+#### 6.13.6 精度实测（600 帧，板卡实时 pipeline `mosaic_api_test`）
+
+**PC 评分器**（服务器 `huangzhe@192.168.99.40:32222`，conda env `edgesam`（有 numpy + torchvision），
+口径 `th_base=0.3` / `dedup_radius=768` / `match_mode=inbox` / `tol=8.0`，
+参数从门禁产物 `results/mosaic_vs_f32_e2e_val3.json` 的 `groups[0].params` **扁平化抽取**
+—— 直接把嵌套的 json 喂给评分器会静默回退到默认 `th_base=0.22`/`dedup=32`，数完全不同）：
+
+| 臂 | TP | FP | FN | R | P | **F1** | ΔF1 vs dense | 检测 TSV md5 |
+|:--|--:|--:|--:|--:|--:|--:|--:|:--|
+| dense（基准） | 398 | 19 | 169 | 70.194 % | 95.444 % | **0.808943** | — | `24029618452528dedd059380a0b1e262` |
+| **sparse（CPU NEON）** | 398 | 19 | 169 | 70.194 % | 95.444 % | **0.808943** | **+0.000000** | **同上（逐字节相同）** |
+| gpu（peak 标定修正**前**） | 398 | **33** | 169 | 70.194 % | 92.343 % | 0.797595 | −0.011348 | `9de32c1f…`（修正后） |
+| **gpu（peak 标定修正**后**）** | 398 | **29** | 169 | 70.194 % | 93.208 % | **0.800805** | **−0.008138** | `9de32c1fa81239a5a6a8acb9405152ab` |
+
+⇒ **CPU NEON 路线：TP/FP/FN/R/P/F1 逐项相同**，不是「差不多」，是**同一个数**；
+   连 TSV 都是**逐字节相同**（md5 一致）。
+⇒ **GPU 路线：召回完全相同**（TP 398 / FN 169 一模一样），
+   掉的**全部是假警**（FP 19 → 29），ΔF1 = −0.0081。
+
+**命中帧对比（GPU peak 修正后 vs dense，600 帧，带 GT 的 inbox 判定）**：
+
+| 量 | 统计 |
+|:--|:--|
+| 命中帧 | 563（dense 有 / GPU 空的有 **8** 帧；GPU 有 / dense 空的有 **0** 帧） |
+| Δcx | p50 −0.405 / p90 0.845 / p95 1.296 / p99 6.818 / **max 260.841** px |
+| Δcy | p50 0.028 / p90 0.917 / p95 1.176 / p99 1.779 / max **2.710** px |
+| **Δ中心距** | p50 1.117 / p90 3.229 / p95 3.733 / p99 7.866 / **max 319.668** px |
+| Δpeak | p50 **+0.0103** / p95 +0.0321 / max +0.0633（修正前是 p50 +0.0123） |
+| **inbox 判定翻转** | **0 帧**（532 个有 GT 的命中帧：两边都命中 427 帧，**判定完全一致**） |
+
+⇒ GPU 路线的**定位判定与 dense 完全一致**（inbox 翻转 0）；
+   残余的 FP 差异来自**两条结构性差异**（不是标定 bug）：
+   ① **排序键不同**：dense 按 `sum`（分量值之和）排序，GPU 按 `peak` 排序
+   —— 一个「峰略低但面积大得多」的分量在 dense 里排第一、在 GPU 里排第二；
+   ② **候选粒度不同**：dense 一个连通域出一个候选，GPU 一个局部极大出一个候选
+   ⇒ 同一个斑块的多峰会被 GPU 拆成多个候选。
+
+#### 6.13.6.2 ⭐⭐ 全序列对齐口径（**项目既定的门禁工具**，`load_and_align_subset.py`）
+
+600 帧子集是「同一批帧」上的严格对照，但它毕竟只有全序列的 5 %。
+项目里比较两条 e2e 臂的**既定口径**是 `manu/pipeline/npu/ptq/load_and_align_subset.py`
+（`board/verify_arms.sh` 就是调它）：它把臂与**认证基准** `A_gate_step2_nodrop`
+按 feature md5 对齐到共有子集，再在**同一标签集**上打分，并给出 VERDICT。
+
+⚠️ 为什么 600 帧子集不能替代它：两次 e2e 跑批的**交付帧集合不同**
+（dense 6086 帧 / sparse 6034 帧 / gpu 6048 帧）——
+因为 GMC 的「机会主义最新帧」调度逐次跑的帧不一样（GMC 组数 7158 / 7113 / 7130）。
+⇒ 跨跑批的 F1 **不能直接比**，必须先对齐子集。
+
+**三臂 × 认证基准（服务器 `huangzhe@192.168.99.40:32222`，conda env `uav`，
+参数 `runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/track3_blind.json`
+→ `th_base=0.3` / `dedup_radius=768`）**：
+
+| 臂 | 共有子集 | **feature md5 逐位** | **检测流逐条** | TP | FP | FN | R | P | **F1** | FAR/帧 | **VERDICT** |
+|:--|--:|:--|:--|--:|--:|--:|--:|--:|--:|--:|:--|
+| dense | 7158 | **7158/7158 不同 0** | common 6086 / **identical 6086 / different 0** | 4647 | 91 | 898 | 83.805 % | 98.079 % | **0.903822** | 0.014952 | **PASS** |
+| **sparse** | 7113 | **7113/7113 不同 0** | common 6034 / **identical 6034 / different 0** | 4620 | 83 | 880 | 84.000 % | 98.235 % | **0.905616** | 0.013755 | **PASS** |
+| gpu | 7130 | 7130/7130 不同 0 | common 6048 / identical 382 / **different 5666** | 4635 | **104** | 875 | 84.120 % | 97.805 % | 0.904478 | **0.017196** | **FAIL** |
+
+**这张表是全项目的最终判据，三条结论**：
+
+1. **sparse 臂 PASS**，而且是**最强的 PASS**：
+   * `feature md5` **7113/7113 逐位相同、different = 0**（GMC 特征完全没动）；
+   * **检测流 common 6034 条全部 identical，different = 0** ——
+     跨两次独立 e2e 跑批、6000 多帧、每一帧的每一个检测框（tag/坐标/宽高/面积/峰值/积分）
+     **逐条完全相同**；
+   * 在它自己的共有子集上，`arm@S` 与 `ref@S` 的 **TP/FP/FN/R/P/F1 逐项相同**。
+2. **dense 臂也 PASS**（同一口径 F1 0.903822）——这说明**这套门禁本身是绿的**，
+   sparse 的 PASS 不是「因为判据松」。
+3. **gpu 臂 FAIL**：检测流 **5666 条不同** ⇒ 它**不是 dense 的即插即用替代**；
+   假警率也更高（FAR/帧 **0.017196** vs dense 0.014952 / sparse 0.013755），
+   与 600 帧子集上「FP 多、召回不掉」的结论一致。
+   ⇒ **GPU 路线要想过门禁，必须先把它改造成与 dense 逐比特等价**（当前不是）。
+
+**⇒ 最终方案 sparse 在全序列口径上：检测逐条相同、F1 逐项相同、门禁 PASS。**
+
+---
+
+#### 6.13.7 端到端影响（e2e 全量 11,810 帧，三臂串行，参数与 CANON28_dec_rr_d3 完全一致）
+
+| 指标 | dense | sparse | gpu | sparse vs dense | gpu vs dense |
+|:--|--:|--:|--:|--:|--:|
+| **后处理 backproject_cc ms/帧** | **45.7246** | **0.6753** | **0.9725** | **−98.5 %** | **−97.9 %** |
+| POST 线程等待 ms/帧 | 31.9288 | 77.6523 | 77.1821 | +141.1 % | +140.2 % |
+| **端到端 fps** | 12.872 | 12.764 | 12.793 | −0.8 % | −0.6 % |
+| total_wall ms/帧 | 472793.8 | 472747.1 | 472769.4 | −0.0 % | −0.0 % |
+| **延时 p50 (ms)** | 363.7 | **312.1** | **314.2** | **−14.2 %** | **−13.6 %** |
+| **延时 p95 (ms)** | 493.3 | **445.0** | **445.3** | **−9.8 %** | **−9.7 %** |
+| **延时 p99 (ms)** | 526.5 | **464.2** | **463.8** | **−11.8 %** | **−11.9 %** |
+| 延时 max (ms) | 566.1 | 506.8 | 515.1 | −10.5 % | −9.0 % |
+| rknn_run ms/帧 | 745254.8 | 746412.1 | 746518.7 | +0.2 % | +0.2 % |
+| GMC 合计 ms/帧 | 420171.9 | 422643.4 | 421599.4 | +0.6 % | +0.3 % |
+| Stage1(pre) ms/帧 | 60041.5 | 60092.4 | 60294.8 | +0.1 % | +0.4 % |
+| NPU 利用率 % | 78.8 | 78.9 | 79.0 | +0.2 % | +0.2 % |
+| 相机/特征/检测丢帧 | 0/0/0 | 0/0/0 | 0/0/0 | — | — |
+| deadline 超限 / 历史缺口 | 0 / 0 | 0 / 0 | 0 / 0 | — | — |
+
+**这张表是本轮最重要的结论，两句话说完**：
+
+1. **吞吐（fps）没变**（12.872 → 12.764 / 12.793，差异在跑批波动范围内）——
+   因为**后处理从来不是端到端瓶颈**：瓶颈是 `rknn_run`（122.76 ms/帧，2 个 NPU service）
+   和 GMC（58.46 ms/帧）。证据是 `post_wait`：**dense 31.93 ms/帧 → sparse 77.65 ms/帧**
+   —— POST 线程从「忙到没空等」变成「**77 % 的时间在等活干**」。
+2. **但端到端延时实实在在降了 10 ~ 14 %**（p50 −14.2 %、p95 −9.8 %、p99 −11.8 %）。
+   原因：后处理在解耦管线里是**串行依赖链上的一段**（NPU 出结果 → 后处理 → 检测可交付），
+   它省下的 45 ms 直接从**每一帧的交付延时**里减掉了；吞吐没涨是因为吞吐由 NPU 的物理速度封顶。
+
+⇒ **「后处理 45.72 ms/帧」是一个「延时税」，不是「吞吐税」。** 这条区分必须写清楚，
+否则会得出「优化了 98.5 % 却没提速 ⇒ 白干」的错误结论。
+
+#### 6.13.8 选型结论（数据说话）
+
+| 维度 | dense（今天） | **sparse（CPU NEON）** | gpu（OpenCL） |
+|:--|:--|:--|:--|
+| 后处理耗时（稳态） | 37.856 ms | **0.531 ms** | 0.857 ms |
+| 加速比 | 1× | **71.3×** | 44.2× |
+| 标准差 | 0.728 ms | 0.219 ms | 0.039 ms（稳态） |
+| **单帧最坏** | 40.665 ms | **1.037 ms** | 54.324 ms（**首帧**，一次性初始化） |
+| F1 vs dense | 基准 | **+0.000000（逐项相同）** | −0.008138 |
+| inbox 判定翻转 | 基准 | **0 帧** | 0 帧 |
+| **全序列门禁 VERDICT**（`load_and_align_subset.py`） | PASS | **PASS**（检测流 6034/6034 逐条相同） | **FAIL**（检测流 5666 条不同） |
+| 额外依赖 | 无 | 无（纯 CPU/NEON） | OpenCL + Mali 驱动；**与 GMC 共用 Mali 设备** |
+| A55 核占用 | 37.9 ms/帧 | **0.53 ms/帧** | 0.86 ms/帧（dispatch/回读仍在 CPU 上） |
+| 交付风险 | — | **零**：输出逐字节相同 | 有：首帧尖刺、GPU 语义差、Mali 与 GMC 争抢 |
+
+**⇒ 推荐：默认切到 `sparse`（CPU NEON）。**
+理由（按重要性排序）：
+1. **精度零风险**：TSV 逐字节相同、F1 逐项相同、inbox 翻转 0 帧 ⇒ 门禁不需要重跑就能过；
+2. **更快**：0.531 ms vs GPU 的 0.857 ms（CPU 路线反而快 1.6×，因为 GPU 的 dispatch/回读仍在 CPU 上）；
+3. **更稳**：单帧最坏 1.037 ms（GPU 有 54 ms 的首帧尖刺）；
+4. **零新依赖**：不碰 OpenCL/Mali，不与 GMC 抢设备，集成方换板子也不用管 OpenCL 可用性。
+
+**⇒ GPU 路线的适用场景（不是不能用，是不占优）**：
+* 需要把 A55 核完全腾给别的业务（此时两条路线都腾，GPU 还多占 0.33 ms 的 CPU）；
+* 目标平台不是 ARM（NEON 不可用），需要一条可移植的 GPU 路线；
+* 想让 GMC 独占 Mali（此时后处理不上 GPU）。
+**它需要额外做的事**：开库时**预热** OpenCL（把 54 ms 首帧尖刺挪到建流水线阶段）、
+把 `peak` 口径标定成 dense 口径（已做，`ΔF1` 从 −0.0113 收窄到 −0.0081）、
+以及接受 `w/h/area/sum/排序键` 的口径差异。
+
+#### 6.13.8.1 ⭐ 最终选定（用户拍板）：**sparse（CPU NEON）**，并**已切成默认值**
+
+用户 2026-10-30 拍板：「选定 sparse（CPU NEON）……0.531 / 0.219 / 0.528 / 0.930 / 1.010 / 1.037，
+这个为最终方案。」⇒ **默认后处理模式从 DENSE 改为 SPARSE**，落地细节：
+
+| 落点 | 改动 |
+|:--|:--|
+| `mosaic_pipeline.cpp` `create()` | `MOSAIC_POST_MODE` 的默认值 `0(dense)` → **`1(sparse)`**；未识别值的兜底提示同步改成 sparse |
+| `mosaic_pipeline.cpp` Pipeline 结构 | `std::atomic<int> post_mode{0}` → **`{1}`** |
+| `mosaic_api_test.cpp` | `--post-mode` 的缺省值 `dense` → **`sparse`**（demo 的零参数运行现在就走稀疏路径） |
+| `mosaic_pipeline.h` | 公开枚举注释与中文说明改口径：「默认值」= SPARSE；写清「与 DENSE 逐比特一致 ⇒ 已认证的历史数字不需要重跑」 |
+
+**为什么可以安全地改默认值**（这是改默认值的唯一理由）：
+稀疏路径与 dense **逐比特一致**，这不是声明而是实测 ——
+host 对拍 906 例 / 19,937 个连通域 / 0 处不一致；板卡 verify 自检 600 帧 / 0 处不一致；
+板卡检测 TSV 的 md5 相同（`24029618452528dedd059380a0b1e262`）。
+⇒ **已认证臂的数字不需要重跑**，而「延时税」直接消失。
+
+**改默认后的复验（板卡）**：
+
+| 项 | 结果 |
+|:--|:--|
+| 契约测试（默认 sparse） | **196 passed / 0 failed** ✅（门禁在稀疏路径上全绿） |
+| 启动日志 | `[i] post mode = sparse` ✅ |
+| 交付包独立编译（包内 `build_lib.sh` + `build_demo.sh`，不依赖仓库） | ✅ 通过 |
+| `copy_to_nfs.sh --build --verify`（拷贝 + md5 回验 + 上板实跑） | ✅ **EXIT=0** |
+| 板上**零参数**运行的后处理耗时 | **0.625 ms/帧**（σ 0.020，max 0.652） |
+
+**退回参考实现的方式**（嵌入式组保留这条后路）：
+环境变量 `MOSAIC_POST_MODE=dense`，或调 `mosaic_pipeline_set_post_mode(p, MOSAIC_POST_DENSE)`。
+
+#### 6.13.9 复现命令与产物
+
+**① 编译（本地，交叉工具链）**
+```bash
+cd /media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu
+MOSAIC_NO_DEPLOY=1 bash build_mosaic_pipeline_arm64.sh        # 0 error / 0 warning
+```
+
+**② 部署到板卡（走 NFS，不 scp 到坏 ext4）**
+```bash
+STAGE=/run/media/manu/SSD960-LOCAL/nfs/post_measure
+cp -f out/mosaic_api_test "$STAGE/mosaic_api_test"
+ssh -p 22 root@192.168.0.64 'cp -f /mnt/manu/post_measure/mosaic_api_test /tmp/mosaic_api_test_pm && chmod +x /tmp/mosaic_api_test_pm'
+```
+
+**③ 板卡实测（速度 + 方差 + TSV）**
+```bash
+ssh -p 22 root@192.168.0.64 'for m in dense sparse gpu; do
+  MOSAIC_POST_SAMPLES=/mnt/manu/post_measure/samples_$m.txt /tmp/mosaic_api_test_pm \
+    --raw-root /mnt/manu/lq_ir_bmp --sequence VIDEO00007_19700101_001324 \
+    --model /mnt/manu/ptq/models/p0_off_A_none.rknn --kernel-dir /root/kernels \
+    --limit 600 --post-mode $m --dump-tsv /mnt/manu/post_measure/${m}_v3.tsv; done'
+```
+
+**④ 命中帧对比（本地）**
+```bash
+cd manu/pipeline/npu/board/scratch
+python3 det_hit_frame_diff.py \
+  --base /run/media/manu/SSD960-LOCAL/nfs/post_measure/dense_v3.tsv \
+  --new  /run/media/manu/SSD960-LOCAL/nfs/post_measure/gpu_v3.tsv \
+  --labels-root /tmp/post_gt --seq VIDEO00007_19700101_001324
+```
+
+**⑤ PC 评分器（服务器）**
+```bash
+ssh -p 32222 huangzhe@192.168.99.40 'cd /tmp/pycharm_project_10ae9e2e && \
+  /mnt/data/siping/miniconda3/envs/edgesam/bin/python manu/pipeline/npu/ptq/score_surviving_frames.py \
+  --arm-tsv /tmp/post_score/gpu_v3.tsv --ref-tsv /tmp/post_score/dense_v3.tsv \
+  --seq VIDEO00007_19700101_001324 \
+  --labels-root "/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010" \
+  --params-json /tmp/post_score/params_flat.json \
+  --work-dir /tmp/post_score/work_gpu_v3 \
+  --out-json /tmp/post_score/score_gpu_v3.json --out-md /tmp/post_score/score_gpu_v3.md'
+```
+
+**⑥ 端到端三臂（板卡，串行）**
+```bash
+ssh -p 22 root@192.168.0.64 'bash /root/psearch/e2e_post_modes.sh /tmp/rknn_mosaic_e2e_pm'
+# 结果：/root/psearch/results/POSTM_{dense,sparse,gpu}/timing.txt
+```
+
+**产物路径**
+
+| 产物 | 路径 |
+|:--|:--|
+| 板卡二进制 | `/tmp/mosaic_api_test_pm`（tmpfs）、`/tmp/rknn_mosaic_e2e_pm`（tmpfs） |
+| 板卡逐帧样本 | `/mnt/manu/post_measure/samples_{dense,sparse,gpu}.txt`（NFS） |
+| 板卡检测 TSV | `/mnt/manu/post_measure/{dense,sparse,gpu}_v3.tsv`（NFS） |
+| 板卡 e2e 结果 | `/root/psearch/results/POSTM_{dense,sparse,gpu}/`（tmpfs） |
+| 服务器评分 | `/tmp/post_score/score_{sparse,gpu}.json` / `score_{sparse,gpu}.md` |
+| 本地命中帧报告 | `manu/pipeline/npu/board/scratch/det_hit_frame_diff.py`（工具）；本轮输出见 §6.13.5/§6.13.6 |
+| 新增源码 | `manu/pipeline/npu/mosaic_post_gpu.h`、`manu/pipeline/opencl/kernels/post_local_max.cl` |
+
+---
 
 ## 7. 架构修正建议（全部有实测支撑；「必做」项 = 7.1 / 7.2 / 7.4，「已否决」项 = 7.8 / 7.11，「建议」项 = 7.9，「后续」项 = 7.10）
 

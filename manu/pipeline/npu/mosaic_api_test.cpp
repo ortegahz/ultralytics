@@ -21,6 +21,25 @@
 
 #include "mosaic_pipeline.h"
 
+// ---------------------------------------------------------------------------
+// 把一帧的检测写成一行 TSV。
+// 格式与 mosaic::FormatTsvLine()（mosaic_core.h）逐字相同，PC 评分器可以直接
+// 吃这份文件：
+//     <stem>\t<count>\t<tag> <cx> <cy> <w> <h> <area> <peak> <sum>\t...
+// 0 检出的帧也要写一行（"<stem>\t0"）：评分器靠它判断「这一帧管线跑过了」。
+// ---------------------------------------------------------------------------
+static void WriteTsvLine(FILE* f, const std::string& stem, const MosaicDet* dets, int32_t n)
+{
+    fprintf(f, "%s\t%d", stem.c_str(), (int)n);
+    for (int32_t k = 0; k < n; ++k)
+    {
+        fprintf(f, "\t%d %.4f %.4f %d %d %d %.6f %.4f", dets[k].tag, (double)dets[k].cx,
+                (double)dets[k].cy, dets[k].w, dets[k].h, dets[k].area, (double)dets[k].peak,
+                (double)dets[k].sum);
+    }
+    fprintf(f, "\n");
+}
+
 int main(int argc, char** argv)
 {
     // ---- 命令行参数（默认值就是板卡上的那一套，不带参数也能直接跑）----------
@@ -28,15 +47,19 @@ int main(int argc, char** argv)
     std::string sequence = "VIDEO00007_19700101_001324";
     std::string model = "/mnt/manu/ptq/models/p0_off_A_none.rknn";
     std::string kernel_dir = "/root/kernels";
+    std::string dump_tsv; // 空 = 不导出 TSV
     int limit = 60; // 最多跑多少帧
     bool env_gate = true; // 默认体检；--no-env-gate 才跳过
+    // 后处理算法：sparse（默认，与 dense **逐字节等价**且快 71 倍）/ dense / verify / gpu
+    int32_t post_mode = MOSAIC_POST_SPARSE;
+    std::string post_mode_name = "sparse";
 
     for (int i = 1; i < argc; ++i)
     {
         const std::string arg = argv[i];
         const bool wants_value = (arg == "--raw-root" || arg == "--sequence" ||
             arg == "--model" || arg == "--kernel-dir" ||
-            arg == "--limit");
+            arg == "--limit" || arg == "--post-mode" || arg == "--dump-tsv");
         if (wants_value && i + 1 >= argc)
         {
             fprintf(stderr, "[FATAL] %s 缺少参数值\n", arg.c_str());
@@ -48,6 +71,20 @@ int main(int argc, char** argv)
         else if (arg == "--kernel-dir") kernel_dir = argv[++i];
         else if (arg == "--limit") limit = atoi(argv[++i]);
         else if (arg == "--no-env-gate") env_gate = false;
+        else if (arg == "--post-mode")
+        {
+            const std::string v = argv[++i];
+            if (v == "dense") { post_mode = MOSAIC_POST_DENSE; post_mode_name = v; }
+            else if (v == "sparse") { post_mode = MOSAIC_POST_SPARSE; post_mode_name = v; }
+            else if (v == "verify") { post_mode = MOSAIC_POST_VERIFY; post_mode_name = v; }
+            else if (v == "gpu") { post_mode = MOSAIC_POST_GPU; post_mode_name = v; }
+            else
+            {
+                fprintf(stderr, "[FATAL] --post-mode 只支持 dense|sparse|verify|gpu\n");
+                return 2;
+            }
+        }
+        else if (arg == "--dump-tsv") dump_tsv = argv[++i];
         else
         {
             fprintf(stderr, "[FATAL] 未知参数 %s\n", arg.c_str());
@@ -77,6 +114,31 @@ int main(int argc, char** argv)
         //    一定要把它打印出来 —— 只说「打开失败」等于什么信息都没给。
         fprintf(stderr, "[FATAL] 打开流水线失败：\n%s\n", err);
         return 1;
+    }
+
+    // ---- 后处理算法：dense（默认）/ sparse / verify / gpu --------------------
+    // 在 open 之后、第一次 push 之前切：已经在处理中的那一帧仍按它开始时的模式
+    // 跑完，下一帧才用新模式，所以运行时切也不需要停机。
+    if (mosaic_pipeline_set_post_mode(pipeline, post_mode) != 0)
+    {
+        fprintf(stderr, "[FATAL] 设置后处理模式失败（%s）\n", post_mode_name.c_str());
+        mosaic_pipeline_destroy(pipeline);
+        return 1;
+    }
+    printf("[demo] 后处理模式 %s\n", post_mode_name.c_str());
+
+    // ---- 可选：把逐帧检测导出成 TSV（给 PC 评分器打分）---------------------
+    FILE* tsv = nullptr;
+    if (!dump_tsv.empty())
+    {
+        tsv = fopen(dump_tsv.c_str(), "w");
+        if (!tsv)
+        {
+            fprintf(stderr, "[FATAL] 打不开 TSV 输出文件 %s\n", dump_tsv.c_str());
+            mosaic_pipeline_destroy(pipeline);
+            return 1;
+        }
+        printf("[demo] 检测结果导出到 %s\n", dump_tsv.c_str());
     }
 
     // 出错时统一走到底部：destroy 只调一次，不会重复释放。
@@ -145,8 +207,19 @@ int main(int argc, char** argv)
         for (int32_t k = 0; k < nd; ++k)
         {
             // 坐标是原图（640x512）上的像素：cx/cy 是框中心，w/h 是宽高。
-            printf("        #%d cx=%.1f cy=%.1f w=%d h=%d peak=%.3f\n",
-                   k, dets[k].cx, dets[k].cy, dets[k].w, dets[k].h, dets[k].peak);
+            // tag 是来源拼图块（0=原图 1=thumb160 2=thumb80），area 是连通域像素数。
+            printf("        #%d tag=%d cx=%.1f cy=%.1f w=%d h=%d area=%d peak=%.3f\n",
+                   k, dets[k].tag, dets[k].cx, dets[k].cy, dets[k].w, dets[k].h, dets[k].area,
+                   dets[k].peak);
+        }
+        if (tsv)
+        {
+            // 帧号用 push 的序号（0 基、6 位补零），不是 collect 回来的 fid：
+            // 评分器按 stem 里 "__" 之后的数字去对齐 PC 侧的帧索引。
+            // 0 检出的帧也要写一行（"stem\t0"）。
+            char stem[256];
+            snprintf(stem, sizeof(stem), "%s__%06d", sequence.c_str(), i);
+            WriteTsvLine(tsv, stem, dets, nd);
         }
     }
 
@@ -161,16 +234,49 @@ int main(int argc, char** argv)
     MosaicPipelineTiming t;
     if (mosaic_pipeline_get_timing(pipeline, &t) == 0)
     {
+        // 后处理耗时：backproj_ms 是累计值，除以帧数得到每帧平均。
+        // 帧数为 0 时不除（避免除零），直接写 n/a。
+        char post_ms[32];
+        if (t.frames > 0)
+            snprintf(post_ms, sizeof(post_ms), "%.3f", t.backproj_ms / (double)t.frames);
+        else
+            snprintf(post_ms, sizeof(post_ms), "n/a");
+
         printf("[demo] 完成 %lld 帧 / 用时 %.1f s（demo 端到端速率 %.2f 帧/秒，"
                "含读帧与等待，不是流水线吞吐上限），检出 %d 个目标，"
-               "丢帧 camera=%lld feature=%lld detection=%lld，GMC 组 %lld，BufferA 丢弃 %lld\n",
+               "丢帧 camera=%lld feature=%lld detection=%lld，GMC 组 %lld，BufferA 丢弃 %lld，"
+               "后处理 %s ms/帧\n",
                (long long)t.frames, t.wall_ms / 1000.0,
                t.frames * 1000.0 / (t.wall_ms > 0 ? t.wall_ms : 1),
                total_dets,
                (long long)t.dropped, (long long)t.features_dropped,
                (long long)t.detections_dropped, (long long)t.gmc_groups_done,
-               (long long)t.bufA_dropped);
+               (long long)t.bufA_dropped,
+               post_ms);
     }
+
+    // ---- 后处理耗时的分布（均值会掩盖抖动，抖动才是延时预算要吸收的）-----
+    MosaicPostTiming pt;
+    if (mosaic_pipeline_get_post_timing(pipeline, &pt) == 0 && pt.frames > 0)
+    {
+        printf("[demo] 后处理分布（%d 帧）：均值 %.3f ms｜标准差 %.3f ms｜"
+               "p50 %.3f｜p90 %.3f｜p95 %.3f｜p99 %.3f｜min %.3f｜max %.3f\n",
+               pt.frames, pt.mean_ms, pt.stddev_ms, pt.p50_ms, pt.p90_ms, pt.p95_ms,
+               pt.p99_ms, pt.min_ms, pt.max_ms);
+    }
+    MosaicGpuPostTiming gt;
+    if (mosaic_pipeline_get_gpu_post_timing(pipeline, &gt) == 0 && gt.frames > 0)
+    {
+        printf("[demo] GPU 分段（%d 帧，均值 ms）：上传 %.3f（σ %.3f）｜"
+               "kernel %.3f（σ %.3f）｜回读 %.3f（σ %.3f）｜整段 %.3f（σ %.3f）｜"
+               "p99 %.3f｜max %.3f｜丢弃候选 %lld\n",
+               gt.frames, gt.upload.mean_ms, gt.upload.stddev_ms,
+               gt.kernel.mean_ms, gt.kernel.stddev_ms,
+               gt.readback.mean_ms, gt.readback.stddev_ms,
+               gt.total.mean_ms, gt.total.stddev_ms,
+               gt.total.p99_ms, gt.total.max_ms, (long long)gt.peaks_dropped);
+    }
+    if (tsv) fclose(tsv);
 
     // ---- 4. destroy ---------------------------------------------------------
     mosaic_pipeline_destroy(pipeline);
