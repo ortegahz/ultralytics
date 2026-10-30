@@ -1,3 +1,9 @@
+> ⚠️ **本文件是模板，不是交付物本身。**
+> 交付物 `build/README.md` 由
+> `{{SRC_ROOT}}/packaging/make_build_dir.sh` 从本文件生成，**请勿手改生成物**。
+> 本文件里的占位符（双花括号形式）由脚本按实况填充；模板若漏改一个，
+> 脚本会检查到残留的双花括号并直接报错退出，不会产出一份带占位符的文档。
+
 # mosaic_pipeline SDK —— 独立构建包（RK3588 / aarch64）
 
 本目录是一个**自包含的交付包**：库源码、示例 demo、契约测试、第三方头文件全部
@@ -5,17 +11,25 @@
 
 ```
 build/
-├── README.md          ← 你正在看的这份（四条命令）
+├── README.md          ← 你正在看的这份（四条命令）  ★由 packaging/README.template.md 生成
+├── MANIFEST.md        ← 交付清单（md5 表自动生成）★由 packaging/MANIFEST.template.md 生成
 ├── build_lib.sh       ← 只编译库
 ├── build_demo.sh      ← 只编译测试程序
+├── copy_to_nfs.sh     ← 一键拷贝到 NFS（可选带板卡验证）
 ├── src/
 │   ├── npu/           mosaic_pipeline.{cpp,h}, mosaic_core.h,
 │   │                  mosaic_api_test.cpp, mosaic_contract_test.cpp
 │   ├── cpp/           gmc_stream_ocl.cpp, md5.h
 │   └── opencl/host/   ocl_host.h
-├── include/           rknn_api.h, stb_image*.h, rga/(18), CL/(20)
+├── include/           rknn_api.h, stb_image*.h, rga/ + CL/
+├── runtime/kernels/   warp_median_fused.cl, sortnet_generated.inc（运行时必需）,
+│                      gmc_feature_gpu.cl（可选，库不加载）
 └── out/               ← 产物落在这里
 ```
+
+交付包共 **{{FILE_COUNT}}** 个文件：源码 **{{SRC_COUNT}}** 个（`src/`）、
+第三方头 **{{HDR_COUNT}}** 个（`include/`）、kernel 资产 **{{KERNEL_COUNT}}** 个
+（`runtime/`），另加 `out/` 的编译产物。
 
 产物（全部 aarch64 ELF）：
 
@@ -25,12 +39,22 @@ build/
 | `out/mosaic_api_test` | **给客户的示例 demo**：只调公开 C ABI（open / push / collect / destroy） |
 | `out/mosaic_contract_test` | **库的契约测试**（验收门禁） |
 
+当前产物的 md5（**本次构建的快照**；`libmosaic_pipeline.a` 每次构建都会变，
+见文末「md5 的两个已知假差异」）：
+
+| 文件 | md5 |
+|---|---|
+| `out/mosaic_pipeline.o` | `{{OBJ_MD5}}` |
+| `out/libmosaic_pipeline.a` | `{{LIB_A_MD5}}` |
+| `out/mosaic_api_test` | `{{API_TEST_MD5}}` |
+| `out/mosaic_contract_test` | `{{CONTRACT_TEST_MD5}}` |
+
 ---
 
 ## ① 单独编译库
 
 ```bash
-cd /media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu/build
+cd {{PKG_ROOT}}
 bash build_lib.sh
 ```
 
@@ -39,9 +63,9 @@ bash build_lib.sh
 **等价的一行命令**（不依赖脚本，可直接粘贴）：
 
 ```bash
-cd /media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu/build && \
-TC=/media/manu/1TB-Volume/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu && \
-INSTALL=/media/manu/1TB-Volume/workspace/opencv-4.10.0-arm64-install && \
+cd {{PKG_ROOT}} && \
+TC={{TOOLCHAIN}} && \
+INSTALL={{OPENCV_INSTALL}} && \
 mkdir -p out && \
 "$TC/bin/aarch64-rockchip-linux-gnu-g++" -std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter -Wno-unused-function \
   -ffp-contract=off -fno-fast-math -fno-unsafe-math-optimizations -DCL_TARGET_OPENCL_VERSION=300 \
@@ -58,7 +82,7 @@ rm -f out/libmosaic_pipeline.a && \
 依赖 ① 产出的 `out/libmosaic_pipeline.a`（链接的就是它）。
 
 ```bash
-cd /media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu/build
+cd {{PKG_ROOT}}
 bash build_demo.sh
 ```
 
@@ -68,11 +92,11 @@ bash build_demo.sh
 产物换成 `out/mosaic_contract_test` 即得契约测试）：
 
 ```bash
-cd /media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu/build && \
-TC=/media/manu/1TB-Volume/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu && \
-INSTALL=/media/manu/1TB-Volume/workspace/opencv-4.10.0-arm64-install && \
-LIBDIR=/media/manu/1TB-Volume/rk3588/boardlibs && \
-RT_LIB_DIR=/run/media/manu/SSD960-LOCAL/nfs/npu && \
+cd {{PKG_ROOT}} && \
+TC={{TOOLCHAIN}} && \
+INSTALL={{OPENCV_INSTALL}} && \
+LIBDIR={{BOARD_LIBS}} && \
+RT_LIB_DIR={{RT_LIB_DIR}} && \
 mkdir -p out && \
 "$TC/bin/aarch64-rockchip-linux-gnu-g++" -std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter -Wno-unused-function \
   -ffp-contract=off -fno-fast-math -fno-unsafe-math-optimizations -DCL_TARGET_OPENCL_VERSION=300 \
@@ -89,25 +113,25 @@ mkdir -p out && \
 ## ③ 把编译产物拷到 NFS 挂载点
 
 ```bash
-mkdir -p /run/media/manu/SSD960-LOCAL/nfs/mosaic_sdk
-cp -f /media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu/build/out/mosaic_api_test \
-      /media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu/build/out/mosaic_contract_test \
-      /media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu/build/out/libmosaic_pipeline.a \
-      /media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu/build/src/npu/mosaic_pipeline.h \
-      /run/media/manu/SSD960-LOCAL/nfs/mosaic_sdk/
+mkdir -p {{NFS_ROOT}}/mosaic_sdk
+cp -f {{PKG_ROOT}}/out/mosaic_api_test \
+      {{PKG_ROOT}}/out/mosaic_contract_test \
+      {{PKG_ROOT}}/out/libmosaic_pipeline.a \
+      {{PKG_ROOT}}/src/npu/mosaic_pipeline.h \
+      {{NFS_ROOT}}/mosaic_sdk/
 ```
 
 > `mosaic_pipeline.h` 一起拷过去，是为了让客户能自己写代码链接这个库。
 
-**挂载点对应关系**：NFS 在本机是 `/run/media/manu/SSD960-LOCAL/nfs`，在板卡上是
+**挂载点对应关系**：NFS 在本机是 `{{NFS_ROOT}}`，在板卡上是
 `/mnt/manu` ⇒ 拷过去之后，板卡从 `/mnt/manu/mosaic_sdk/` 就能看到这些文件。
 
 ---
 
-## ④ 运行命令（板卡 `root@192.168.0.64:22`）
+## ④ 运行命令（板卡 `{{BOARD}}:{{BOARD_PORT}}`）
 
 ```bash
-ssh -p 22 root@192.168.0.64 '/mnt/manu/mosaic_sdk/mosaic_api_test \
+ssh -p {{BOARD_PORT}} {{BOARD}} '/mnt/manu/mosaic_sdk/mosaic_api_test \
   --raw-root   /mnt/manu/lq_ir_bmp \
   --sequence   VIDEO00007_19700101_001324 \
   --model      /root/psearch/models/p0_off_A_none.rknn \
@@ -242,7 +266,7 @@ mosaic_pipeline_destroy(p);
 所以**不带任何参数就能直接跑**：
 
 ```bash
-ssh -p 22 root@192.168.0.64 '/mnt/manu/mosaic_sdk/mosaic_api_test --limit 12'
+ssh -p {{BOARD_PORT}} {{BOARD}} '/mnt/manu/mosaic_sdk/mosaic_api_test --limit 12'
 ```
 
 > **换板子时这三个默认路径大概率不同**（模型放哪、kernel 放哪、帧从哪来，都
@@ -255,11 +279,11 @@ ssh -p 22 root@192.168.0.64 '/mnt/manu/mosaic_sdk/mosaic_api_test --limit 12'
 
 ## NFS 交付目录内容
 
-`/run/media/manu/SSD960-LOCAL/nfs/mosaic_sdk/`（板卡侧 = `/mnt/manu/mosaic_sdk/`）
+`{{NFS_ROOT}}/mosaic_sdk/`（板卡侧 = `/mnt/manu/mosaic_sdk/`）
 应当包含这些：
 
 ```
-/run/media/manu/SSD960-LOCAL/nfs/mosaic_sdk/
+{{NFS_ROOT}}/mosaic_sdk/
 ├── mosaic_api_test          ← 示例 demo 可执行文件
 ├── mosaic_contract_test     ← 契约测试可执行文件
 ├── libmosaic_pipeline.a     ← 静态库
@@ -275,8 +299,8 @@ ssh -p 22 root@192.168.0.64 '/mnt/manu/mosaic_sdk/mosaic_api_test --limit 12'
 拷贝命令（**由 Leader / 使用者执行**）：
 
 ```bash
-SRC=/media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu/build
-DST=/run/media/manu/SSD960-LOCAL/nfs/mosaic_sdk
+SRC={{PKG_ROOT}}
+DST={{NFS_ROOT}}/mosaic_sdk
 mkdir -p "$DST/kernels"
 cp -f "$SRC/out/mosaic_api_test" "$SRC/out/mosaic_contract_test" \
       "$SRC/out/libmosaic_pipeline.a" "$SRC/src/npu/mosaic_pipeline.h" \
@@ -296,7 +320,7 @@ cp -f "$SRC/runtime/kernels/gmc_feature_gpu.cl" \
 拷贝这一步也有一个脚本，**编译 + 拷贝 + 上板验证一条命令**：
 
 ```bash
-cd /media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu/build
+cd {{PKG_ROOT}}
 bash copy_to_nfs.sh --build --verify      # 编译 + 拷贝 + 上板验证，一条命令
 ```
 
@@ -324,7 +348,7 @@ README + MANIFEST + 脚本自身）→ **逐文件 md5 回验**（NFS 写坏了�
 
 ```bash
 # 从工程里把交付用的全部依赖文件整理进 build/（可反复重跑）
-bash /media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu/packaging/make_build_dir.sh
+bash {{SRC_ROOT}}/packaging/make_build_dir.sh
 ```
 
 它会做四件事：
@@ -349,3 +373,20 @@ bash /media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu/packaging/ma
 
 > 第三方头（`include/`）来自 `manu/pipeline/npu/.build-include/`。若该目录不存在，
 > 先跑一次 `MOSAIC_NO_DEPLOY=1 bash build_mosaic_pipeline_arm64.sh` 让它自动 stage。
+
+---
+
+## 唯一源在哪（给维护者）
+
+* **`manu/pipeline/npu/packaging/` 是唯一源，且被 git 跟踪**：
+  `make_build_dir.sh`、`README.template.md`、`MANIFEST.template.md`、
+  `build_lib.sh`、`build_demo.sh`、`copy_to_nfs.sh`。
+* **`manu/pipeline/npu/build/` 是生成物**，被仓库 `.gitignore` 的 `build/` 规则
+  忽略（不会进 git），由一条命令重建：
+
+  ```bash
+  bash {{SRC_ROOT}}/packaging/make_build_dir.sh
+  ```
+
+* 要改**交付内容**，改 `packaging/` 里的原件，然后重跑上面那条命令刷新
+  `build/`；**不要**直接改 `build/` 里的东西——下一次重跑会冲掉。

@@ -2787,6 +2787,49 @@ bash manu/pipeline/npu/board/verify_arms.sh CANON28_dec_rr_d3_v12
 | `mosaic_contract_test.cpp` | `4a94d7b6840580a9116c17c1c0527217` |
 | `build_mosaic_pipeline_arm64.sh` | `155af58363d7716c6039affb2f3ab6e2` |
 
+#### 6.12.10 ⭐ 交付包的「唯一源」在 git 里（build/ 是生成物）
+
+`manu/pipeline/npu/packaging/` 是**唯一源**（git 跟踪）：`make_build_dir.sh`（从工程整理文件进 build/）、
+`README.template.md`、`MANIFEST.template.md`、`build_lib.sh`、`build_demo.sh`、`copy_to_nfs.sh`。
+`manu/pipeline/npu/build/` 是**生成物**（被 `.gitignore:11` 忽略），由 `make_build_dir.sh` 一条命令重建。
+
+#### 6.12.11 ⭐ `make_build_dir.sh` 同源生成 MANIFEST + README（交付文档不手写）
+
+`make_build_dir.sh` 一条命令产出的 `build/` 里，**README 与 MANIFEST 都是脚本生成的**，
+不是人工维护的副本：
+
+| 交付文档 | 模板（git 跟踪） | 生成机制 |
+|:--|:--|:--|
+| `build/README.md` | `packaging/README.template.md` | 19 个占位符按**磁盘实况**填充（路径 / 板卡 / 工具链 / 文件计数 / 产物 md5） |
+| `build/MANIFEST.md` | `packaging/MANIFEST.template.md` | 模板正文 + **自动生成的 md5 表**（逐文件 md5 / 字节数 / 用途） |
+
+两道防呆保证交付文档不可能出错：
+1. **残留检查**：生成物里只要还有一个 `{{`，脚本立即 `die` 并打印残留行号 —— 模板漏改占位符时**当场失败**，不会产出一份带占位符的文档；
+2. **md5 回验**：`MANIFEST` 落盘后回扫全表，校验「表内 md5 == 磁盘 md5」且「表外无漏登记文件」，两条都过才写「完成」。
+
+生成顺序（`README` 先落临时文件，`MANIFEST` 才能登记它的 md5）：
+`拷文件 → 生成 README(临时) → 生成 MANIFEST(登记 README 的 md5) → README 落盘`。
+
+**包内容**（`build/` 共 62 文件）：源码 8（`src/npu`+`src/cpp`+`src/opencl/host`）、第三方头 42（`include/`）、
+kernel 资产 3（`runtime/kernels/`，其中 `gmc_feature_gpu.cl` **库运行时不需要**，仅探针用）、
+脚本 3、`README.md` + `MANIFEST.md`、`out/` 产物 4。
+
+**给嵌入式组的四条命令**（包根 = `build/`，板卡无关）：
+
+```bash
+bash make_build_dir.sh      # ① 从工程整理出交付包（幂等；顺带生成 README + MANIFEST）
+bash build_lib.sh           # ② 单独编译库     -> out/libmosaic_pipeline.a
+bash build_demo.sh          # ③ 单独编译测试程序 -> out/mosaic_api_test + out/mosaic_contract_test
+bash copy_to_nfs.sh --build --verify   # ④ 拷到 NFS + md5 回验 +（可选）上板实跑
+```
+
+**权限修正（本轮）**：生成的 `README.md` / `MANIFEST.md` 原为 `600`（`mktemp` 遗留），
+交付方换用户解压后不可读；已在 `make_build_dir.sh` 里显式 `chmod 0644`，与包内其它文件一致。
+
+**本轮实测**（执行机：本机 `192.168.0.115`，编译用 RK3588 交叉工具链；板卡 `root@192.168.0.64`）：
+打包 → 编译 → 拷 NFS → 上板实跑，`EXIT=0`；板上 6 帧检出 12 个目标、丢帧 camera/feature/detection 全 0、
+GMC 组 6、BufferA 丢弃 0。README 记录的 4 个产物 md5 与磁盘**逐个一致**，生成文档**无 `{{` 残留**。
+
 ---
 
 

@@ -35,6 +35,59 @@ echo "  生成目录 : $DEST"
 echo
 
 # ---------------------------------------------------------------------------
+# 占位符取值（与 build_lib.sh / build_demo.sh / copy_to_nfs.sh 的默认值一致）
+# ---------------------------------------------------------------------------
+TOOLCHAIN_V="${RK3588_TOOLCHAIN:-/media/manu/1TB-Volume/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu}"
+OPENCV_V="${OPENCV_INSTALL:-/media/manu/1TB-Volume/workspace/opencv-4.10.0-arm64-install}"
+BOARD_LIBS_V="${BOARD_LIBS:-/media/manu/1TB-Volume/rk3588/boardlibs}"
+RT_LIB_DIR_V="${RT_LIB_DIR:-/run/media/manu/SSD960-LOCAL/nfs/npu}"
+NFS_ROOT_V="${NFS_ROOT:-/run/media/manu/SSD960-LOCAL/nfs}"
+BOARD_V="${BOARD:-root@192.168.0.64}"
+BOARD_PORT_V="${BOARD_PORT:-22}"
+
+# 填占位符。模板里 {{...}} 形式的占位符由本函数按实况替换。
+fill_placeholders() {
+  local src="$1" dst="$2"
+  sed -E \
+    -e "s|\{\{SRC_ROOT\}\}|$ROOT|g" \
+    -e "s|\{\{PKG_ROOT\}\}|$DEST|g" \
+    -e "s|\{\{NFS_ROOT\}\}|$NFS_ROOT_V|g" \
+    -e "s|\{\{BOARD\}\}|$BOARD_V|g" \
+    -e "s|\{\{BOARD_PORT\}\}|$BOARD_PORT_V|g" \
+    -e "s|\{\{TOOLCHAIN\}\}|$TOOLCHAIN_V|g" \
+    -e "s|\{\{OPENCV_INSTALL\}\}|$OPENCV_V|g" \
+    -e "s|\{\{BOARD_LIBS\}\}|$BOARD_LIBS_V|g" \
+    -e "s|\{\{RT_LIB_DIR\}\}|$RT_LIB_DIR_V|g" \
+    -e "s|\{\{FILE_COUNT\}\}|$FILE_COUNT|g" \
+    -e "s|\{\{SRC_COUNT\}\}|$SRC_COUNT|g" \
+    -e "s|\{\{HDR_COUNT\}\}|$HDR_COUNT|g" \
+    -e "s|\{\{KERNEL_COUNT\}\}|$KERNEL_COUNT|g" \
+    -e "s|\{\{OBJ_MD5\}\}|$OBJ_MD5|g" \
+    -e "s|\{\{LIB_A_MD5\}\}|$LIB_A_MD5|g" \
+    -e "s|\{\{API_TEST_MD5\}\}|$API_TEST_MD5|g" \
+    -e "s|\{\{CONTRACT_TEST_MD5\}\}|$CONTRACT_TEST_MD5|g" \
+    "$src" > "$dst"
+}
+
+# 生成物里绝不能残留 {{...}}：模板漏改一个占位符就必须当场失败，
+# 而不是产出一份带 {{}} 的交付文档。
+check_no_placeholder() {
+  local f="$1" n
+  n=$(grep -c '{{' "$f" || true)
+  if [ "$n" != "0" ]; then
+    echo "[ERROR] $f 里还有 $n 行残留的 {{...}} 占位符（模板漏改了？）：" >&2
+    grep -n '{{' "$f" >&2 || true
+    exit 1
+  fi
+}
+
+# 产物 md5；文件不存在（还没编译）时填「（尚未编译）」
+md5_or_placeholder() {
+  local f="$1"
+  if [ -f "$f" ]; then md5sum "$f" | cut -d' ' -f1; else echo "（尚未编译）"; fi
+}
+
+# ---------------------------------------------------------------------------
 # 用途说明（写进 MANIFEST.md 的表里）
 # ---------------------------------------------------------------------------
 purpose_of() {
@@ -96,7 +149,7 @@ is_expected() {
 # ---------------------------------------------------------------------------
 # 0. 先决条件：暂存的第三方头
 # ---------------------------------------------------------------------------
-echo "== [1/6] 检查暂存的第三方头 =="
+echo "== [1/7] 检查暂存的第三方头 =="
 [ -d "$STAGE" ] || die "缺少暂存的第三方头：先跑一次 MOSAIC_NO_DEPLOY=1 bash build_mosaic_pipeline_arm64.sh（它会自动 stage 这些头）"
 [ -d "$STAGE/rga" ] || die "暂存的第三方头缺少 rga/：$STAGE/rga"
 [ -d "$STAGE/CL" ]  || die "暂存的第三方头缺少 CL/：$STAGE/CL"
@@ -106,7 +159,7 @@ echo "  [ok] $STAGE（rga/ + CL/ 齐备）"
 # 1. 拷贝源码、脚本、kernel 资产
 # ---------------------------------------------------------------------------
 echo
-echo "== [2/6] 拷贝源码 / 脚本 / kernel 资产 =="
+echo "== [2/7] 拷贝源码 / 脚本 / kernel 资产 =="
 mkdir -p "$DEST/src/npu" "$DEST/src/cpp" "$DEST/src/opencl/host" \
          "$DEST/runtime/kernels" "$DEST/include/rga" "$DEST/include/CL"
 
@@ -133,17 +186,19 @@ copy_one "$ROOT/../opencl/kernels/warp_median_fused.cl"  "runtime/kernels/warp_m
 copy_one "$ROOT/../opencl/kernels/sortnet_generated.inc" "runtime/kernels/sortnet_generated.inc"
 copy_one "$ROOT/../opencl/kernels/gmc_feature_gpu.cl"    "runtime/kernels/gmc_feature_gpu.cl"
 # 脚本与文档（packaging/ 下是原件，拷进 build/ 后是运行版）
-copy_one "$HERE/README.md"          "README.md"
+# README.md 不在这里拷贝：它由本脚本从 packaging/README.template.md **生成**
+#   （见下面的 [5/7]），所以这里只把它登记进清单。
 copy_one "$HERE/build_lib.sh"       "build_lib.sh"
 copy_one "$HERE/build_demo.sh"      "build_demo.sh"
 copy_one "$HERE/copy_to_nfs.sh"     "copy_to_nfs.sh"
 chmod +x "$DEST/build_lib.sh" "$DEST/build_demo.sh" "$DEST/copy_to_nfs.sh"
+EXPECTED+=("README.md")   # 生成物，但在交付清单里（md5 在生成后才有）
 
 # ---------------------------------------------------------------------------
 # 2. 拷贝第三方头
 # ---------------------------------------------------------------------------
 echo
-echo "== [3/6] 拷贝第三方头（include/）=="
+echo "== [3/7] 拷贝第三方头（include/）=="
 for h in rknn_api.h stb_image.h stb_image_resize.h stb_image_write.h; do
   copy_one "$STAGE/$h" "include/$h"
 done
@@ -157,7 +212,7 @@ done
 # 3. 清理陈旧文件（不在本次清单里的旧文件）—— 用 find -delete，不用 rm -rf
 # ---------------------------------------------------------------------------
 echo
-echo "== [4/6] 清理陈旧文件 =="
+echo "== [4/7] 清理陈旧文件 =="
 stale=0
 for sub in src include runtime; do
   [ -d "$DEST/$sub" ] || continue
@@ -173,15 +228,38 @@ done
 echo "  [ok] 删除 $stale 个陈旧文件"
 
 # ---------------------------------------------------------------------------
-# 4. 生成 build/MANIFEST.md（模板 + 自动生成的 md5 表）
+# 4. 生成 README（内容先落临时文件，让 MANIFEST 能登记它的 md5）
 # ---------------------------------------------------------------------------
 echo
-echo "== [5/6] 生成 MANIFEST.md =="
+echo "== [5/7] 生成 README =="
+README_TPL="$HERE/README.template.md"
+[ -f "$README_TPL" ] || die "缺模板：$README_TPL"
+
+# 计数与 md5 都按【当前磁盘实况】算
+SRC_COUNT=$(find "$DEST/src" -type f 2>/dev/null | wc -l)
+HDR_COUNT=$(find "$DEST/include" -type f 2>/dev/null | wc -l)
+KERNEL_COUNT=$(find "$DEST/runtime" -type f 2>/dev/null | wc -l)
+FILE_COUNT=$(( ${#EXPECTED[@]} + 1 ))   # + MANIFEST.md 自身
+OBJ_MD5=$(md5_or_placeholder "$DEST/out/mosaic_pipeline.o")
+LIB_A_MD5=$(md5_or_placeholder "$DEST/out/libmosaic_pipeline.a")
+API_TEST_MD5=$(md5_or_placeholder "$DEST/out/mosaic_api_test")
+CONTRACT_TEST_MD5=$(md5_or_placeholder "$DEST/out/mosaic_contract_test")
+
+README_TMP="$(mktemp)"
+fill_placeholders "$README_TPL" "$README_TMP"
+check_no_placeholder "$README_TMP"
+echo "  [ok] README 内容已生成（计数：$FILE_COUNT / $SRC_COUNT / $HDR_COUNT / $KERNEL_COUNT）"
+
+# ---------------------------------------------------------------------------
+# 5. 生成 build/MANIFEST.md（模板 + 自动生成的 md5 表）
+# ---------------------------------------------------------------------------
+echo
+echo "== [6/7] 生成 MANIFEST.md =="
 TEMPLATE="$HERE/MANIFEST.template.md"
 [ -f "$TEMPLATE" ] || die "缺模板：$TEMPLATE"
 
 TABLE="$(mktemp)"
-trap 'rm -f "$TABLE"' EXIT
+trap 'rm -f "$TABLE" "$README_TMP"' EXIT
 
 {
   echo "**共 ${#EXPECTED[@]} 个交付文件（不含 \`out/\` 与本清单自身）。**"
@@ -192,6 +270,10 @@ trap 'rm -f "$TABLE"' EXIT
   echo "|---|---|---:|---|"
   for rel in $(printf '%s\n' "${EXPECTED[@]}" | sort); do
     f="$DEST/$rel"
+    # README.md 是刚生成的（还没落盘），它的 md5 取自临时文件
+    if [ "$rel" = "README.md" ]; then
+      f="$README_TMP"
+    fi
     [ -f "$f" ] || die "清单里的文件不存在：$f"
     printf '| `%s` | `%s` | %s | %s |\n' \
       "$rel" "$(md5sum "$f" | cut -d' ' -f1)" "$(fmt_num "$(stat -c%s "$f")")" "$(purpose_of "$rel")"
@@ -214,19 +296,35 @@ trap 'rm -f "$TABLE"' EXIT
   fi
 } > "$TABLE"
 
+MANIFEST_TMP="$(mktemp)"
+# 先填模板里的占位符，再把自动生成的 md5 表拼进去
 {
   sed -n '1,/<!-- MD5_TABLE:BEGIN -->/p' "$TEMPLATE" | sed '$d'
   cat "$TABLE"
   sed -n '/<!-- MD5_TABLE:END -->/,$p' "$TEMPLATE"
-} > "$DEST/MANIFEST.md"
+} > "$MANIFEST_TMP.raw"
+fill_placeholders "$MANIFEST_TMP.raw" "$MANIFEST_TMP"
+rm -f "$MANIFEST_TMP.raw"
+check_no_placeholder "$MANIFEST_TMP"
+mv -f "$MANIFEST_TMP" "$DEST/MANIFEST.md"
+# mktemp 建出来的是 600，交付给别人（换用户解压）就读不了 → 统一放开只读权限
+chmod 0644 "$DEST/MANIFEST.md"
 
 echo "  [ok] $DEST/MANIFEST.md（模板 + 自动生成表）"
+
+# ---------------------------------------------------------------------------
+# 6. README 落盘（**最后生成的文件**）
+# ---------------------------------------------------------------------------
+cp -f "$README_TMP" "$DEST/README.md"
+chmod 0644 "$DEST/README.md"
+check_no_placeholder "$DEST/README.md"
+echo "  [ok] $DEST/README.md（模板 + 占位符填充）"
 
 # ---------------------------------------------------------------------------
 # 5. 回验：表内 md5 与磁盘一致；表外不该有漏登记的文件
 # ---------------------------------------------------------------------------
 echo
-echo "== [6/6] 回验 MANIFEST =="
+echo "== [7/7] 回验 MANIFEST =="
 bad=0
 while IFS= read -r line; do
   rel=$(printf '%s' "$line" | sed -E 's/^\| `([^`]+)`.*/\1/')

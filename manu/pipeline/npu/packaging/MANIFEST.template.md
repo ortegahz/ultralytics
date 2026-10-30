@@ -1,3 +1,9 @@
+> ⚠️ **本文件是模板，不是交付物本身。**
+> 交付物 `build/MANIFEST.md` 由
+> `{{SRC_ROOT}}/packaging/make_build_dir.sh` 从本文件生成，**请勿手改生成物**。
+> 占位符（双花括号形式）由脚本按实况填充；`MD5_TABLE` 标记之间的表由脚本自动生成。
+> 模板若漏改一个，脚本会检查到残留的双花括号并直接报错退出。
+
 # MANIFEST.md —— 嵌入式组集成交付清单
 
 > 目标板卡**不是**我们手上这块 RK3588 开发板。本清单把交付物分成
@@ -8,7 +14,7 @@
 ## A. 包内容总览
 
 包根目录：`manu/pipeline/npu/build/`（仓库内路径
-`/media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu/build/`）。
+`{{PKG_ROOT}}/`）。
 
 <!-- MD5_TABLE:BEGIN -->
 （本段由 `make_build_dir.sh` 自动生成，勿手改）
@@ -81,10 +87,10 @@ const std::string isrc = ocl::read_file(kernel_dir + "/sortnet_generated.inc");
 
 | 项 | 我们这边用的（仅供对照） | 集成方要做什么 |
 |:--|:--|:--|
-| `librknnrt.so` | RKNN Runtime **2.3.0**（`c949ad889d@2024-11-07`），`/run/media/manu/SSD960-LOCAL/nfs/npu/librknnrt.so`，7,259,064 B，md5 `56e425dcc7b59ab0e1aec685b178b99f`，SONAME `librknnrt.so` | 用**他们自己板子 BSP** 的同版本 runtime（2.3.0）。版本必须匹配 `include/rknn_api.h` |
-| `librga.so.2` | `/run/media/manu/SSD960-LOCAL/nfs/npu/librga.so.2.1.0`，192,712 B，md5 `7136ae5469eb217f068ef3efc6f26d53`，SONAME `librga.so.2`，`rga_api version 1.10.0_[9]` | 同上，取他们 BSP 的 librga。其 API 头 `include/rga/*` 已随包交付 |
-| `libOpenCL.so.1` | `/media/manu/1TB-Volume/rk3588/boardlibs/libOpenCL.so.1.0.0`，34,808 B，md5 `e9036376b6f8f59e30522eb43fe410cd`，SONAME `libOpenCL.so.1`（OpenCL 1.0–2.0） | 同上，取他们板子的 OpenCL 驱动库 |
-| 模型 `.rknn` | `/run/media/manu/SSD960-LOCAL/nfs/ptq/models/p0_off_A_none.rknn`，6,326,305 B，md5 `1a3faf2f9459cad8a389ffa81810234c` | 可直接用我们这份，也可换他们自己的模型。**换模型的形状约束见下表**（板卡实测） |
+| `librknnrt.so` | RKNN Runtime **2.3.0**（`c949ad889d@2024-11-07`），`{{RT_LIB_DIR}}/librknnrt.so`，7,259,064 B，md5 `56e425dcc7b59ab0e1aec685b178b99f`，SONAME `librknnrt.so` | 用**他们自己板子 BSP** 的同版本 runtime（2.3.0）。版本必须匹配 `include/rknn_api.h` |
+| `librga.so.2` | `{{RT_LIB_DIR}}/librga.so.2.1.0`，192,712 B，md5 `7136ae5469eb217f068ef3efc6f26d53`，SONAME `librga.so.2`，`rga_api version 1.10.0_[9]` | 同上，取他们 BSP 的 librga。其 API 头 `include/rga/*` 已随包交付 |
+| `libOpenCL.so.1` | `{{BOARD_LIBS}}/libOpenCL.so.1.0.0`，34,808 B，md5 `e9036376b6f8f59e30522eb43fe410cd`，SONAME `libOpenCL.so.1`（OpenCL 1.0–2.0） | 同上，取他们板子的 OpenCL 驱动库 |
+| 模型 `.rknn` | `{{NFS_ROOT}}/ptq/models/p0_off_A_none.rknn`，6,326,305 B，md5 `1a3faf2f9459cad8a389ffa81810234c` | 可直接用我们这份，也可换他们自己的模型。**换模型的形状约束见下表**（板卡实测） |
 | 帧数据 | `VIDEO00007_19700101_001324`（640×512 BMP，命名 `frame_%06d.bmp`，共 11,810 帧），本板路径 `/mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324` | 他们自己的相机流（同样须是 640×512 灰度、单通道） |
 
 > **交叉编译器与 OpenCV** 也属于对方环境：需要 aarch64 交叉工具链
