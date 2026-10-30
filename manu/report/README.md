@@ -21,10 +21,10 @@
 | **主题** | 复杂背景下红外弱小无人机检测 · 工程化阶段汇报 |
 | **主线** | 从"能跑"到"可交付"——把一条 PC 上的算法图，变成 RK3588 上可并行、可量化、可验收的实时管线 |
 | **结构** | **开篇立两个靶子**（难题一 GMC / 难题二 NPU）→ **战线 A 打 GMC**（A1 OpenCL / A2 step10 / A3 缓存）→ **战线 B 打 NPU**（B1~B4）→ **公共底座**（并行结构 + 库交付）→ 收口遗留与下一步 |
-| **页数** | **20 页**（16:9，1280×720，含结尾「谢谢」页） |
+| **页数** | **21 页**（16:9，1280×720，含结尾「谢谢」页；v4 新增「战果 A4 · 多缓存深度帕累托」整页） |
 | **生成器** | **ppt-master**（`/media/manu/1TB-Volume/workspace/ppt-master`）· Quick Generate 流程 · mode=`pyramid` + style=`data-journalism` · 产出**原生 DrawingML 形状**（非整页位图），文字可直接在 PowerPoint 里编辑 |
-| **内容源** | ppt-master 工程 `deck_content.py`（本仓 `assets/svg_source/` 为导出的 SVG 源页） |
-| **状态** | ✅ 全部页通过布局检查 |
+| **内容源** | **ppt-master 工程 `svg_output/*.svg`**（本仓 `assets/svg_source/` 为其归档副本，**唯一真值**） |
+| **状态** | ✅ **21/21 页完全通过**布局质量门（0 warning / 0 error / 0 blocking） |
 
 ### 核心叙事（讲的人务必先记住这三句）
 
@@ -46,21 +46,27 @@ manu/report/
 ├── 02_数据溯源.md                    ← ★ 每个数字 → memory 出处 + 修订记录 + 生成链路
 ├── outline/                         ← 幻灯片大纲的结构化副本（JSON）
 └── assets/
-    ├── 红外弱小无人机检测_工程化阶段汇报_20页_原生可编辑.pptx  ← ★ 当前成品（ppt-master，原生矢量形状）
+    ├── 红外弱小无人机检测_工程化阶段汇报_21页_原生可编辑.pptx  ← ★ 当前成品（ppt-master，原生矢量形状）
     ├── 红外弱小无人机检测_工程化阶段汇报_19页.pptx          ← 上一版（PPT-AGENT，整页位图）
     ├── 红外弱小无人机检测_工程化阶段汇报_19页_可编辑版.pptx   ← 上一版（PPT-AGENT，可编辑版）
-    ├── svg_source/                   ← ★ 20 个 SVG 源页（改字改这里，重跑即出新版）
+    ├── _旧版/                        ← 更早的 20 页版（OpenCL 还在公共底座），勿直接使用
+    ├── svg_source/                   ← ★ 21 个 SVG 源页（改字改这里，重跑即出新版）
     ├── html/                         ← 上一版（PPT-AGENT）的 HTML 源页
     └── outline.json / contents.json  ← 上一版内容源的运行期副本
 ```
 
-> **✅ 当前状态**：**成品已用 ppt-master 生成（20 页，零布局问题，原生 DrawingML 形状）** ——
-> `assets/红外弱小无人机检测_工程化阶段汇报_20页_原生可编辑.pptx`（114 KB，纯矢量，文字与形状都能在 PowerPoint 里直接改）
-> + `assets/svg_source/`（20 个 SVG 源页）+ `slides/`（20 张 PNG 预览）。
+> **✅ 当前状态**：**成品已用 ppt-master 生成（21 页，零布局问题，原生 DrawingML 形状）** ——
+> `assets/红外弱小无人机检测_工程化阶段汇报_21页_原生可编辑.pptx`（96 KB / **788 个原生形状 / 544 段可编辑文字 / 0 张位图**）
+> + `assets/svg_source/`（**21 个 SVG 源页**）+ `slides/`（**21 张 PNG 预览**）。
 > 页序见 `00_汇报正文_工程化阶段.md` **§5 幻灯片分页映射**。
 >
+> **v5 视觉重构（2026-10-29）**：针对"配图简陋、文字过多"的反馈做了整版重做 ——
+> ① **13 页新增真实图表 / 结构示意图**（条形图、帕累托四联图、前后对照、流水线时间线、RGA 画布拼图、环节链路图）；
+> ② **文字大幅压缩**，每页收敛为"**一个视觉主锚点 + 一句结论 + 来源脚注**"；
+> ③ 全部 21 页重跑布局质量门 → **21/21 完全通过（0 warning / 0 error）**。
+>
 > **两版差别**：19 页版是 PPT-AGENT 生成的**整页位图**（改字要回 HTML 改）；
-> 20 页版是 ppt-master 生成的**原生形状**（可直接在 PPT 里编辑，源页在 `assets/svg_source/`）。
+> 21 页版是 ppt-master 生成的**原生形状**（可直接在 PPT 里编辑，源页在 `assets/svg_source/`）。
 
 ### 导航
 
@@ -71,7 +77,7 @@ manu/report/
 | 查某个数字从哪来 / 怎么复现 | `02_数据溯源.md` |
 | 拿成品 PPT | `assets/` |
 | 快速过一眼版面 | `slides/` |
-| **改文案** | 改 `PPT-AGENT/deck_content.py`（唯一真值）→ 重跑生成 → 重新导出 `01_幻灯片大纲.md`；**不要手改 `01_`** |
+| **改文案** | 改 `assets/svg_source/*.svg`（唯一真值）→ 重跑质量门 → 重导出 PPTX；**不要手改 `01_`** |
 
 ---
 
@@ -94,21 +100,24 @@ $PY skills/ppt-master/scripts/svg_to_pptx.py $P --quick-generate --no-notes
 #    → $P/exports/<name>_<timestamp>.pptx
 
 # 4) 归档：拷回本目录
-cp $P/exports/*.pptx  manu/report/assets/红外弱小无人机检测_工程化阶段汇报_20页_原生可编辑.pptx
+cp $P/exports/*.pptx  manu/report/assets/红外弱小无人机检测_工程化阶段汇报_21页_原生可编辑.pptx
 cp $P/svg_output/*.svg manu/report/assets/svg_source/
 
 # 5) 记忆体系自检（与 PPT 无关，但每次改 memory 都要跑）
-python3 manu/memory/validate_nav_table.py    # 期望 59/59
+python3 manu/memory/validate_nav_table.py    # 期望 65/65
 ```
 
-> ⚠️ **改文案的两个坑**：
+> ⚠️ **改文案/改图的五个坑（都踩过）**：
 > ① 多行文本必须用 `<text>` 的**直接子** `<tspan x=… dy=…>`，**不能嵌套**（嵌套 → checker ERROR）；
-> ② `<tspan>` 的开闭标签数必须配平（写错 → XML 不合法 → 整页导出失败）。
-> 改完先跑 `svg_quality_checker.py` 再导出。
+> ② `<tspan>` 的开闭标签数必须配平（写错 → XML 不合法 → 整页导出失败）；
+> ③ **行内强调 tspan（无 `x`/`dy`）≠ 换行 tspan（有 `x`+`dy`）** —— 批量脚本把二者混同会��文字挤成一行；
+> ④ 同一 `x`/`y` 的两条 `<text>` 会被 checker 判为"段落未合并"（advisory，不阻塞）；
+> ⑤ **条形图的数值标签必须放在条外**，压在条上会被同色盖住（肉眼几乎看不见）。
+> 改完先跑 `svg_quality_checker.py` 再导出；**改了 SVG 必须重跑质量门**，否则导出端报 `stale` 拒绝导出。
 
 **产物路径**
 - 生成中间产物：`ppt-master/projects/ir_uav_engineering_20261029/`
-  （`svg_output/` 20 个源页、`validation/` 校验报告、`exports/` PPTX、`backup/` 备份）
+  （`svg_output/` **21 个源页**、`validation/` 校验报告、`exports/` PPTX、`backup/` 备份）
 - 归档副本：`manu/report/assets/` 与 `manu/report/slides/`
 
 > **📌 操作纪律**：**内容优先，PPT 按需生成** —— 除非明确要求，**不要**主动跑生成命令
@@ -121,8 +130,9 @@ python3 manu/memory/validate_nav_table.py    # 期望 59/59
 
 | 组件 | 位置 / 版本 | 说明 |
 |:--|:--|:--|
-| PPT 生成器 | `/media/manu/1TB-Volume/workspace/PPT-AGENT` | LLM 逐页生成 HTML → 截图 → PPTX |
-| **内容源（唯一真值）** | `PPT-AGENT/deck_content.py` | outline + contents，**逐字可溯源** |
+| **PPT 生成器（当前成品）** | `/media/manu/1TB-Volume/workspace/ppt-master` | 手写 SVG 源页 → 质量门 → **原生 DrawingML** PPTX（**无位图**） |
+| **内容源（唯一真值）** | `ppt-master/projects/ir_uav_engineering_20261029/svg_output/*.svg` | 21 个源页，本仓 `assets/svg_source/` 为归档副本 |
+| 上一版生成器（留档） | `/media/manu/1TB-Volume/workspace/PPT-AGENT` | LLM 逐页生成 HTML → 截图 → PPTX（整页位图） |
 | 并行驱动 | `PPT-AGENT/run_fixed_deck_parallel.py` | Phase A 并发 LLM / Phase B 串行 playwright / Phase C 导出 |
 | 串行驱动（对照） | `PPT-AGENT/run_fixed_deck.py` | |
 | LLM 端点 | MiniMax OpenAI 兼容（`api.minimaxi.com/v1`） | key 存 `PPT-AGENT/.env`（`chmod 600`，`.gitignore` 已忽略） |
@@ -138,11 +148,11 @@ python3 manu/memory/validate_nav_table.py    # 期望 59/59
 
 | 需求 | 命令 / 位置 |
 |:--|:--|
-| **改汇报文案** | 改 `PPT-AGENT/deck_content.py` → 重新导出 `01_幻灯片大纲.md`（**不需要跑 PPT**） |
-| 生成 18 页 PPT（**需明确指示**） | `run_fixed_deck_parallel.py --workers 5` |
-| 只重跑某页 | `run_fixed_deck_parallel.py --workers 1 --only N` |
-| 导出幻灯片大纲 md | `deck_content.py` → `manu/report/01_幻灯片大纲.md`（**自动生成，勿手改**） |
-| 渲染预览 PNG | `html_pipeline.html_builder::render_html_with_validation` |
+| **改汇报文案 / 改图** | 改 `ppt-master/projects/.../svg_output/*.svg` → 跑质量门 → 重导出 PPTX |
+| 重跑布局质量门 | `svg_quality_checker.py $P --quick-generate --canonical-authoring --stage final --json` |
+| 导出原生 PPTX | `svg_to_pptx.py $P --quick-generate --no-notes` |
+| 渲染 PNG 预览 | Playwright + Chromium 直渲 `svg_output/*.svg`（1280×720） |
+| **改 PPT-AGENT 旧链路文案** | 改 `PPT-AGENT/deck_content.py` → 重新导出 `manu/report/01_幻灯片大纲.md`（**不需要跑 PPT**） |
 | 归档产物 | `manu/report/assets/`、`manu/report/slides/` |
 | 查数据出处 | `manu/report/02_数据溯源.md` → `manu/memory/` |
 

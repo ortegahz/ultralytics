@@ -662,7 +662,13 @@ typedef struct {
   double outputs_ms;
   double backproj_ms;
   int64_t frames;   /* frames that finished the whole path */
-  double wall_ms;   /* wall clock since create()           */
+  double wall_ms;   /* the ELAPSED time since create().
+                     * ⚠️ It only BECOMES the elapsed time inside
+                     *    mosaic_pipeline_flush(): before that this field holds the
+                     *    START TIMESTAMP (a monotonic clock reading), not a
+                     *    duration.  mosaic_pipeline_destroy() does NOT convert it
+                     *    (and frees the handle, so nothing can be read afterwards)
+                     *    -- so call flush() first, then read the timing. */
   int64_t dropped;  /* frames dropped at the CAMERA queue because the pipeline
                      * could not keep up.  The camera is never stalled, so this
                      * is the back-pressure valve of a real-time stream.
@@ -957,6 +963,157 @@ int32_t mosaic_pipeline_get_timing(MosaicPipeline* p, MosaicPipelineTiming* out)
 /* Release the pipeline.  Safe on NULL.  Does NOT flush: call flush() first if
  * the queued frames matter. */
 void mosaic_pipeline_destroy(MosaicPipeline* p);
+
+/* ===========================================================================
+ * v10.1 -- THE EXAMPLE-DEMO SUPPORT API.
+ *
+ * WHY: `mosaic_api_test.cpp` is handed to third parties as an EXAMPLE DEMO.
+ * Its first screen used to be a wall of hand-written environment checks and
+ * hand-set default knobs.  The checks and the presets now live HERE, in the
+ * library, so the demo's main() is three calls:
+ *
+ *     MosaicPipelineConfig cfg;
+ *     mosaic_pipeline_config_preset(&cfg, MOSAIC_PRESET_REALTIME);
+ *     mosaic_pipeline_config_set_paths(&cfg, model, kernels, sequence);
+ *     MosaicEnvReport env;
+ *     mosaic_pipeline_env_check(&cfg, raw_root, &env);
+ *
+ * CONTRACT (read before touching anything):
+ *  - This section is PURELY ADDITIVE.  No existing struct gains a field, no
+ *    existing default changes, no existing function changes its behaviour.
+ *    `MOSAIC_API_VERSION` therefore STAYS 10 -- an old binary built against
+ *    v10 keeps working, and the library is a STATIC archive anyway, so every
+ *    binary carries its own copy.
+ *  - `preset` is an int32_t, NOT the enum type: the size of a C enum is
+ *    compiler-defined (C++ would pick `unsigned char` for three values, C
+ *    would pick `unsigned int`), so passing the enum BY VALUE would be an
+ *    ABI landmine.  Callers pass the MOSAIC_PRESET_* constants.
+ *  - The affinity strings the presets install point to STRING LITERALS
+ *    (static storage) -> they outlive any config.  The path strings the
+ *    caller installs are NOT copied: the caller keeps them alive.
+ * ========================================================================= */
+typedef enum {
+  MOSAIC_PRESET_BASELINE   = 0, /* the certified FUSED worker (== the defaults) */
+  MOSAIC_PRESET_REALTIME   = 1, /* 实战在线闭环档: 3-stage + round-robin + D=3   */
+  MOSAIC_PRESET_THROUGHPUT = 2  /* 吞吐交付档:     3-stage + round-robin + D=64  */
+} MosaicPreset;
+
+/* The environment check-out report.  A NEW type on purpose: it must never be
+ * folded into MosaicPipelineConfig (that struct is passed BY POINTER and the
+ * library writes into it -- growing it would write past a caller's buffer). */
+typedef struct {
+  int32_t ok;           /* 1 = every HARD requirement is met                   */
+  int32_t model_ok;     /* the model file exists and is readable              */
+  int32_t kernel_ok;    /* the OpenCL kernel directory exists                 */
+  int32_t raw_root_ok;  /* the raw-frame root directory exists                */
+  int32_t sequence_ok;  /* <raw_root>/<sequence> exists                       */
+  int32_t frame_count;  /* frames found there (-1 = not scanned)              */
+  int32_t npu_ok;       /* an NPU device node is present  (INFORMATIONAL)     */
+  int32_t rga_ok;       /* librga can be loaded           (INFORMATIONAL)     */
+  char    summary[512]; /* a human-readable summary, '\n'-separated           */
+} MosaicEnvReport;
+
+typedef void (*MosaicFrameCallback)(void* user, int32_t index, const char* frame_path);
+
+int32_t mosaic_pipeline_config_preset(MosaicPipelineConfig* cfg, int32_t preset);
+int32_t mosaic_pipeline_config_set_paths(MosaicPipelineConfig* cfg, const char* model_path,
+                                         const char* kernel_dir, const char* sequence);
+int32_t mosaic_pipeline_env_check(const MosaicPipelineConfig* cfg, const char* raw_root,
+                                   MosaicEnvReport* out);
+int32_t mosaic_pipeline_list_frames(const char* seq_dir, MosaicFrameCallback cb, void* user,
+                                    int32_t max_frames);
+
+/* ===========================================================================
+ * v10.2 -- THE FACADE, PART 1: the field reference and the contract.
+ *
+ * WHAT THIS IS FOR: the client does NOT want to know about presets, about the
+ * environment check, or about the order of the configuration calls.  It wants
+ * ONE function that takes a filled-in options struct and returns a ready
+ * pipeline, plus push / collect / destroy.
+ *
+ * THAT IS THE WHOLE CLIENT CODE: one open + push + collect + destroy.  See
+ * the example right below.
+ *
+ * THE FIELD REFERENCE (MosaicOpenOptions):
+ *
+ *   version     : must be MOSAIC_API_VERSION.  A mismatch is REJECTED (the
+ *                 handle is not created and errbuf says so): a struct that
+ *                 does not match the library is an ABI landmine, not a
+ *                 warning.
+ *   preset      : which shipped configuration to start from --
+ *                 MOSAIC_PRESET_BASELINE (the certified fused worker),
+ *                 MOSAIC_PRESET_REALTIME (the live online loop) or
+ *                 MOSAIC_PRESET_THROUGHPUT (the delivery arm).  An unknown
+ *                 value is REJECTED.
+ *   check_env   : 1 = run the environment check BEFORE creating the pipeline;
+ *                 0 = skip it.  The check is only run when `raw_root` is
+ *                 given as well (see below).
+ *   model_path  : the .rknn model file.  REQUIRED -- create() refuses to
+ *                 build a pipeline without one.
+ *   kernel_dir  : the OpenCL kernel pair directory.  NULL selects the
+ *                 library default ("/root/kernels").
+ *   sequence    : the sequence name; it appears in the md5-out lines and it
+ *                 is the second half of the environment check's sequence
+ *                 directory (<raw_root>/<sequence>).
+ *   raw_root    : the raw-frame root directory.  IT SERVES THE ENVIRONMENT
+ *                 CHECK ONLY, and it MAY BE NULL (or empty): in that case
+ *                 the check is SKIPPED, NOT FAILED -- a client that streams
+ *                 live frames has no frame directory to point at and must
+ *                 still be able to open the pipeline.
+ *
+ * THE PATH STRINGS ARE NOT COPIED: the struct holds the caller's pointers,
+ * so the caller keeps the strings alive until mosaic_pipeline_destroy().
+ *
+ * THE errbuf CONTRACT: `errbuf` may be NULL and `errcap` may be 0 -- then
+ * no message is written and nothing crashes.  Otherwise errbuf receives a
+ * human-readable reason and is ALWAYS NUL-terminated, even when the reason
+ * does not fit (it is truncated).
+ *
+ * CONTRACT (read before touching anything):
+ *  - This section is PURELY ADDITIVE.  No existing struct gains a field, no
+ *    existing default changes, no existing function changes its behaviour.
+ *    `MOSAIC_API_VERSION` therefore STAYS 10 -- an old binary built against
+ *    v10 keeps working, and the library is a STATIC archive anyway, so every
+ *    binary carries its own copy.
+ *  - `preset` is an int32_t, NOT the enum type: the size of a C enum is
+ *    compiler-defined, so passing the enum BY VALUE would be an ABI
+ *    landmine.  Callers pass the MOSAIC_PRESET_* constants.
+ * ========================================================================= */
+/* ===========================================================================
+ * v10.2 -- THE SIMPLE FACADE: the four calls a CLIENT writes.
+ *
+ *     MosaicOpenOptions opt;
+ *     memset(&opt, 0, sizeof(opt));
+ *     opt.version    = MOSAIC_API_VERSION;
+ *     opt.preset     = MOSAIC_PRESET_REALTIME;      // or _THROUGHPUT / _BASELINE
+ *     opt.model_path = "/path/to/model.rknn";
+ *     opt.kernel_dir = "/path/to/kernels";
+ *     opt.sequence   = "VIDEO00007_19700101_001324";
+ *     opt.raw_root   = "/path/to/frames";           // the env check needs it
+ *     opt.check_env  = 1;                           // check BEFORE creating
+ *
+ *     char err[512];
+ *     MosaicPipeline* p = mosaic_pipeline_open(&opt, err, sizeof(err));
+ *     if (!p) { fprintf(stderr, "%s\n", err); return 1; }   // err says WHY
+ *
+ *     mosaic_pipeline_push(p, gray, w, h);            // one frame in
+ *     mosaic_pipeline_collect(p, &frame_id, dets, 16); // the detections out
+ *     mosaic_pipeline_destroy(p);                     // done
+ *
+ * That is the whole client API: ONE call to configure + check the environment
+ * + create, then push / collect / destroy.
+ * ========================================================================= */
+typedef struct {
+  int32_t version;      /* must be MOSAIC_API_VERSION                       */
+  int32_t preset;       /* MOSAIC_PRESET_*                                  */
+  int32_t check_env;    /* 1 = run the environment check before creating    */
+  const char* model_path;
+  const char* kernel_dir;
+  const char* sequence;
+  const char* raw_root; /* the environment check only; may be NULL          */
+} MosaicOpenOptions;
+
+MosaicPipeline* mosaic_pipeline_open(const MosaicOpenOptions* opt, char* errbuf, size_t errcap);
 
 #ifdef __cplusplus
 } /* extern "C" */

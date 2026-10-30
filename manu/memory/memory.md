@@ -2869,6 +2869,19 @@ per-service `frames_run` = **3042 : 3048 = 1.002:1** 与 **3370 : 3370 = 1.000:1
 `bufA_full_drops` / `bufB_dropped` = 0/0；`gmc_void_frames` / `gmc_history_gaps` / `deadline_blows` = 0/0/0；
 Buffer A 槽位（run.log 原文）= `Buffer A with 3 slot(s) of 2457600 B` / `Buffer A with 64 slot(s) of 2457600 B`。）
 
+**①' 对外汇报口径卡（一页纸版｜2026-10-29 最终口径）**
+
+| 档位 | D | 臂 | fps | 延时 p50 / p95 | 丢帧 / 交付帧 | Buffer A 内存 | 结论 |
+|:--|--:|:--|--:|:--|:--|:--|:--|
+| **实战闭环档**<br>（Real-Time Mode） | **3** | CANON28 | **12.880** | 335.5 / **481.0 ms** | **1039 / 6090** | **7.3 MB/Worker**<br>（两 Worker 14.7 MB） | **在线跟瞄唯一兼顾可用帧率与亚秒级响应** |
+| **吞吐交付档**<br>（Throughput Mode） | **64** | CANON36 | **14.037** | 2113.6 / 8058.8 ms | 312 / 6740 | 157.3 MB/Worker<br>（两 Worker 314.6 MB） | 硬考核 14+ fps 唯一过线档；纯吞吐/离线回放场景最优 |
+
+**已封装成库（不再以脚本形式存在）**：
+- `MOSAIC_API_VERSION` = **10**（v8→v9 机会主义动态最新帧调度；v9→v10 解耦架构 + Buffer A 槽位三态机 FREE/READY/INFLIGHT 同一把 mutex）
+- 轮转游标（跨 service 投放，消除「ready 最短优先」的规则偏向）：**零公开 ABI 变更**并入 v10
+- 板卡契约测试 `mosaic_api_test_v10` = **104 passed / 0 failed / EXIT=0**（其中 14 条为新增解耦断言）
+- 静态库 `libmosaic_pipeline_v10.a` md5 `5611cbffeac01a47888aecf68ec035e8`
+
 **② 差账（派生值）**：fps **1.157 ≈ 1.16**（14.037 − 12.880）；延时 p95 **16.75×**（8058.774 / 481.036，用户口径「缩减 16 倍」）；
 交付帧 **+650**（6740 − 6090）；丢帧 **−727**（1039 − 312）；每 service Buffer A 内存 **×21.4**（7.37 → 157.3 MB）；
 相对纯串行基线 **5.415 fps**（出处：**本文件第 2236 行**「端到端 fps 5.415」）⇒ 12.880 / 5.415 = **+137.8%**（按 ~5.5 fps 口径 = **+134%**）；
@@ -2909,3 +2922,128 @@ NFS 备份 `/mnt/manu/canon28/CANON28_dec_rr_d3/`、`/mnt/manu/canon36/CANON36_d
 | 五十八 | 证伪档 §58 ⭐⭐⭐ 2026-10-29：「D=3 是唯一最优」被限定为双轨最优 | falsified_archive.md | 3551 |
 
 > 📌 专题档 `manu/memory/MOSAIC_RK3588_20261026.md` **§22**；证伪档 `manu/memory/falsified_archive.md` **§五十八**。
+
+### 二十六、【客户端门面 API】示例 demo 落地：open / push / collect / destroy 四个调用
+
+**用户诉求（2026-10-29，原样归档）**：
+
+> 把「配置和检查部分」封装成函数，让 main 调用起来更清爽，**这些函数可以封装到 lib 里面**；
+> **客户调用就很方便的用一个函数配置和检查环境，一个函数 push，一个函数 collect，一个函数 destroy 就可以了**。
+
+**① 本轮交付一句话**：配置 / 环境体检 / 建流水线**收进 lib 门面**（头文件 v10.1 段 + v10.2 段），
+`manu/pipeline/npu/mosaic_api_test.cpp` **重写为给客户的直线示例 demo**（161 行、零断言、零 config 样板），
+契约测试**搬家**到新建的 `manu/pipeline/npu/mosaic_contract_test.cpp`（1108 行，原断言 + 新增 6 条门面断言）；
+板卡契约测试 **196 passed / 0 failed / EXIT=0**，示例 demo 12 帧 **EXIT=0**、检出 **28** 个目标、丢帧全 0。
+
+**② 客户写的全部代码（四个调用）**：
+
+```c
+MosaicOpenOptions opt;
+memset(&opt, 0, sizeof(opt));
+opt.version    = MOSAIC_API_VERSION;
+opt.preset     = MOSAIC_PRESET_REALTIME;   /* 或 _THROUGHPUT / _BASELINE */
+opt.model_path = "/path/to/model.rknn";
+opt.kernel_dir = "/path/to/kernels";
+opt.sequence   = "VIDEO00007_19700101_001324";
+opt.raw_root   = "/path/to/frames";        /* 只有环境体检用它；可为 NULL */
+opt.check_env  = 1;
+
+char err[512];
+MosaicPipeline* p = mosaic_pipeline_open(&opt, err, sizeof(err));
+if (!p) { fprintf(stderr, "%s\n", err); return 1; }   /* err 说 WHY */
+
+mosaic_pipeline_push(p, gray, w, h);             /* 一帧进 */
+mosaic_pipeline_collect(p, &frame_id, dets, 16);  /* 检测框出 */
+mosaic_pipeline_destroy(p);                      /* 释放 */
+```
+
+**③ lib 侧新增（配置与检查从此在 lib 里）**：
+v10.1 = `mosaic_pipeline_config_preset()` / `mosaic_pipeline_config_set_paths()` / `mosaic_pipeline_env_check()` / `mosaic_pipeline_list_frames()`（+ `MosaicPreset` / `MosaicEnvReport` / `MosaicFrameCallback`）；
+v10.2 = `MosaicOpenOptions` + 门面 `mosaic_pipeline_open()`；实现全部落在 `extern "C"` 块内。
+
+**④ ABI 纪律（零破坏）**：`MOSAIC_API_VERSION` **仍为 10**；`MosaicPipelineConfig` / `MosaicPipelineTiming` 的**字段数、顺序、默认值零变化**
+（新旧头文件同一 `offsetof` 探针，**123 行 sizeof/offsetof 逐行相同**，输出 md5 均为 **`57b9142cbcb8b714c18f872888ac6a71`**）；
+`preset` 形参用 **`int32_t`** 而非枚举类型（C 枚举大小由编译器决定，**按值传枚举是 ABI 地雷**）。
+
+**⑤ 板卡实测（执行机 `root@192.168.0.64:22`，产物一律 tmpfs `/tmp`）**：契约测试 `/tmp/mosaic_contract_test_v1` **196 passed / 0 failed / EXIT=0**；
+示例 demo `/tmp/mosaic_api_test_v16` 12 帧一推一收、检出 **28** 个目标、丢帧 camera/feature/detection **全 0**、EXIT=0、环境体检 **7 项全 OK**。
+
+**⑥ D=3 回归（重构后）**：`/tmp/rknn_mosaic_e2e_v12`（`CANON28_dec_rr_d3` = 轮转 + `--buffer-a-depth 3`）⇒
+**fps 12.908**、交付 **6103** 帧、`bufA_dropped` **1089**、`bufA_full_drops` **0**、`bufB_dropped` **0**、
+`dropped`/`features_dropped`/`detections_dropped` **全 0**、`gmc_void_frames` **0**、`gmc_history_gaps` **0**、`deadline_blows` **0**、
+`gmc_groups` **7192**、`npu_util` **79.230%**、延时 p50 **360.272** / p95 **491.931** / p99 **521.594** / max **567.532 ms**。
+
+**⑦ D=3 精度：完全对齐（重构是逐字节中性的）**：
+
+| 比对 | 结果 |
+|:--|:--|
+| 重构后 vs 重构前（同一臂、同一板卡/数据/模型/参数）逐帧特征 md5（`manu/pipeline/npu/board/scratch/feature_md5_diff_frames.py`，稳态阈值 84） | 共有 **5275** 帧，**md5 差异 all=0 / steady=0** ⇒ 逐字节零行为变化 |
+| 重构前 vs 官方参考臂 `A_gate_step2_nodrop` | 7129 共有帧，22 处差异，**全在启动瞬态（物理帧号 36..78 的偶数帧）**，steady 0 ⇒ PASS |
+| 重构后 vs 官方参考臂 `A_gate_step2_nodrop` | 7192 共有帧，**同一批** 22 处瞬态差异（36..78），steady 0 ⇒ PASS |
+| 子集检测口径（`manu/pipeline/npu/board/verify_arms.sh`）重构后 | arm@S F1 **0.905561** vs ref@S F1 **0.905561** ⇒ **ΔF1 = +0.000000** ✅ |
+| 子集检测口径（对照）重构前 | arm@S F1 0.905183 vs ref@S F1 0.905183 ⇒ ΔF1 = +0.000000 ✅ |
+| fps / 交付帧 / 丢帧 对照 | 重构前 **12.880** fps / 6090 帧 / 1039；重构后 **12.908** fps / 6103 帧 / 1089 |
+
+⇒ **口径**：重构**逐字节中性** —— **两版都对参考臂 ΔF1 = 0**；组数 7129 → 7192、帧数 6090 → 6103 的浮动来自 GMC「机会主义最新帧」
+调度**随墙钟节奏变化**（跑一次就变），**不是重构引入**；那 22 帧瞬态差异**重构前后完全同型**，不是新问题。
+
+**⑧ ⚠️ 顺带修正的一个坑**：`MosaicPipelineTiming::wall_ms` **只有 `mosaic_pipeline_flush()` 之后才是「已用时长」**
+（`mosaic_pipeline.cpp:3166` 写的是**起始时间戳**，`:3505` 在 flush 内才换算；`destroy()` 不换算且释放句柄；
+`get_timing()` 只原样拷贝）⇒ flush 之前读到的是**开机以来的毫秒数**（板卡开机约 9.5 h 时印出「**用时 34300.0 s / 0.00 fps**」）。
+**正确用法：先 `mosaic_pipeline_flush(p)`，再 `mosaic_pipeline_get_timing(p, &t)`**；头文件注释已订正，demo 已改为先 flush。详见证伪档 §59。
+
+**⑨ 产物 md5**：`out/mosaic_pipeline.o` `0760f0fedac112374a788d2eddb63184`（497736 B）、`out/rknn_mosaic_e2e` `4c4068b0bfd915a5cf3691222590b200`（8347976 B）、
+`out/mosaic_api_test`（demo）`63830935f9263696aa6390c8a32d802d`（8307440 B）、`out/mosaic_contract_test` `828986c055ef1b28331d088e5ff6fae9`（8332848 B）、
+`out/rknn_mosaic_heatmap` `2007ce5d20ecec4aeb01105498047c90`（**未变**）；
+（`out/libmosaic_pipeline.a` 的 md5 每次构建都变 —— GNU `ar` 把成员 mtime 打进归档头；内容一致性以 `out/mosaic_pipeline.o` 为准。）
+
+**⑩ 三侧 md5 对账（铁律〇）**：本地 = SSHFS 挂载 = 服务器，**5/5 逐字一致**：`mosaic_pipeline.h` `a29d2f9d9d9056c88d8844d602c42a82`、
+`mosaic_pipeline.cpp` `f80b14c413d17f3c594dde31879a1f1f`、`mosaic_api_test.cpp` `7f0a52d4d541c0ee3faf9847953db0a5`、
+`mosaic_contract_test.cpp` `4a94d7b6840580a9116c17c1c0527217`、`build_mosaic_pipeline_arm64.sh` `155af58363d7716c6039affb2f3ab6e2`。
+
+**⑪ 复现命令（脚本路径 + 完整命令 + 执行机 + 产物路径，铁律九）**
+
+```bash
+# 编译（执行机：本地 x86 工作站，交叉工具链 aarch64；MOSAIC_NO_DEPLOY=1 禁止自动部署）
+cd /media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu
+MOSAIC_NO_DEPLOY=1 bash build_mosaic_pipeline_arm64.sh        # 0 error / 0 warning
+
+# 部署到板卡 tmpfs（禁止 scp 到 /root：板卡根分区 ext4 已损坏，>1 MB 二进制会被写坏）
+scp -P 22 out/mosaic_api_test       root@192.168.0.64:/tmp/mosaic_api_test_v16.tmp
+scp -P 22 out/mosaic_contract_test  root@192.168.0.64:/tmp/mosaic_contract_test_v1.tmp
+scp -P 22 out/rknn_mosaic_e2e       root@192.168.0.64:/tmp/rknn_mosaic_e2e_v12.tmp
+ssh -p 22 root@192.168.0.64 'mv /tmp/mosaic_api_test_v16.tmp /tmp/mosaic_api_test_v16 && mv /tmp/mosaic_contract_test_v1.tmp /tmp/mosaic_contract_test_v1 && mv /tmp/rknn_mosaic_e2e_v12.tmp /tmp/rknn_mosaic_e2e_v12 && chmod +x /tmp/mosaic_api_test_v16 /tmp/mosaic_contract_test_v1 /tmp/rknn_mosaic_e2e_v12'
+
+# 契约测试（板卡）
+ssh -p 22 root@192.168.0.64 'cd /root && timeout 850 /tmp/mosaic_contract_test_v1 --raw-root /mnt/manu/lq_ir_bmp --sequence VIDEO00007_19700101_001324 --model /root/psearch/models/p0_off_A_none.rknn --kernel-dir /root/psearch/kernels --limit 60'
+
+# 示例 demo（板卡）
+ssh -p 22 root@192.168.0.64 'cd /root && timeout 550 /tmp/mosaic_api_test_v16 --raw-root /mnt/manu/lq_ir_bmp --sequence VIDEO00007_19700101_001324 --model /root/psearch/models/p0_off_A_none.rknn --kernel-dir /root/psearch/kernels --limit 12'
+
+# D=3 e2e（板卡）
+ssh -p 22 root@192.168.0.64 'E2E_BIN=/tmp/rknn_mosaic_e2e_v12 E2E_TIMEOUT=1500 timeout 1700 /root/psearch/arms_v12.sh /tmp/rknn_mosaic_e2e_v12 CANON28_dec_rr_d3'
+
+# 逐帧 md5 比对（服务器）
+ssh -p 32222 huangzhe@192.168.99.40 'cd /mnt/data/siping/ptq_work/psearch/results && python3 /tmp/pycharm_project_10ae9e2e/manu/pipeline/npu/board/scratch/feature_md5_diff_frames.py --ref CANON28_dec_rr_d3 --arms CANON28_dec_rr_d3_v12 --steady-threshold 84'
+
+# 子集精度校验（本地执行，服务器侧跑脚本）
+bash manu/pipeline/npu/board/verify_arms.sh CANON28_dec_rr_d3_v12
+```
+
+**⑫ 产物路径 / 执行机**：板卡（tmpfs）`/tmp/mosaic_api_test_v16`、`/tmp/mosaic_contract_test_v1`、`/tmp/rknn_mosaic_e2e_v12`、结果 `/root/psearch/results/CANON28_dec_rr_d3/`；
+NFS `/mnt/manu/canon28_v12/`（新跑）与 `/mnt/manu/canon28/CANON28_dec_rr_d3/`（重构前基准）；
+服务器 `/mnt/data/siping/ptq_work/psearch/results/CANON28_dec_rr_d3_v12/` 与 `/mnt/data/siping/ptq_work/surviving_frames/CANON28_dec_rr_d3_v12.{json,md}`；
+编译机 = 本地 x86 工作站（交叉工具链 aarch64），运行机 = 板卡 `root@192.168.0.64:22`，md5 比对机 = `huangzhe@192.168.99.40:32222`。
+
+**⑬ 遗留**：⚠️ **离线 `e2fsck -fp /dev/mmcblk0p6`**（需用户执行；不修会复发，见专题档 §21.1.7 第 3 条）；
+本轮其余事项已闭合。
+
+**导航表新增行**（本节；行格式与 §6 导航表一致：`§编号（中文） | 标题 | 文件（相对 `manu/memory/`） | 起始行`，便于 `manu/memory/validate_nav_table.py` 逐条解析；本表在三个档案中**完全一致**）：
+
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 二十三 | 专题档 §23 ⭐⭐⭐ 2026-10-29 客户端门面 API（v10.1/v10.2）+ 重构后 D=3 回归 | MOSAIC_RK3588_20261026.md | 3451 |
+| 二十六 | 主档 §26 ⭐⭐⭐ 2026-10-29 客户端门面 API：open / push / collect / destroy 四个调用 | memory.md | 2916 |
+| 五十九 | 证伪档 §59 ⭐⭐⭐ 2026-10-29：wall_ms 在 flush 之前是起始时间戳 | falsified_archive.md | 3606 |
+
+> 📌 专题档 `manu/memory/MOSAIC_RK3588_20261026.md` **§23**；证伪档 `manu/memory/falsified_archive.md` **§五十九**。

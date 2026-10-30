@@ -3735,3 +3735,57 @@ D=64 只在「压帧数 / 抬 fps」这一个指标上更优，整体更差，�
 | 五十八 | 证伪档 §58 ⭐⭐⭐ 2026-10-29：「D=3 是唯一最优」被限定为双轨最优 | falsified_archive.md | 3551 |
 
 > 📌 专题档 `manu/memory/MOSAIC_RK3588_20261026.md` **§22**；主档 `manu/memory/memory.md` **§25**。
+
+### 五十九、`wall_ms` 在 `flush()` 之前是「起始时间戳」而不是「已用时长」（demo 印出「用时 34300.0 s」的真凶）
+
+**旧说法（被本节推翻）**：「`mosaic_pipeline_get_timing()` 读出来的 `MosaicPipelineTiming::wall_ms` 就是**流水线已用时长**；
+所以示例 demo 印出的「**用时 34300.0 s / 0.00 fps**」说明这条流水线**跑了 9.5 小时还没结束**，或者**计时器坏了**。」
+
+**真凶**：`wall_ms` **只有 `mosaic_pipeline_flush()` 之后才是「已用时长」**；
+在 flush 之前读它，读到的是**起始时间戳**（开机以来的毫秒数），**不是**「已用时长」。
+
+**源码级依据**（`manu/pipeline/npu/mosaic_pipeline.cpp`）：
+
+| 位置 | 代码 / 行为 | 含义 |
+|:--|:--|:--|
+| `:3166` | `p->timing.wall_ms = mosaic::now_ms();` | **create 时**写入的是**起始时间戳**（不是时长） |
+| `:3505` | `p->timing.wall_ms = mosaic::now_ms() - p->timing.wall_ms;` | **只有 flush() 内**才换算成 `now - start`（这才是已用时长） |
+| `mosaic_pipeline_destroy()` | 不换算，且**释放句柄** | 之后再也读不到该字段 |
+| `mosaic_pipeline_get_timing()` | 只是**原样拷贝** `p->timing` | **不会**替你换算 |
+
+**板卡实测（真凶的现场）**：板卡开机约 **9.5 h**，示例 demo 直接读 timing（未先 flush）⇒ 印出「**用时 34300.0 s / 0.00 fps**」。
+⇒ 这个数字**既不是**流水线跑了 9.5 h，**也不是**计时器坏了，而是**读了一个还没被换算的起始时间戳**。
+
+**正确用法（唯一）**：
+
+```c
+mosaic_pipeline_flush(p);                    /* 先 flush：换算 + join 内部线程 */
+MosaicPipelineTiming t;
+mosaic_pipeline_get_timing(p, &t);           /* 再读：此时 wall_ms 才是已用毫秒 */
+printf("用时 %.1f s\n", t.wall_ms / 1000.0);
+```
+
+`manu/pipeline/npu/rknn_mosaic_e2e.cpp:828` **本来就是这么做的**（先 flush 再 get_timing）
+⇒ 所以 e2e 的 `wall 472819.9 ms` 是**对的**，不必怀疑，也不必重跑。
+
+**已落地的修复（三处）**：
+
+1. `manu/pipeline/npu/mosaic_pipeline.h` 的 `wall_ms` 字段注释已**订正**：明写「⚠️ 它只在 `mosaic_pipeline_flush()` 内部才变成已用时长；在此之前是 **START TIMESTAMP**；`destroy()` 不换算且释放句柄 ⇒ 先 flush 再读」。
+2. `manu/pipeline/npu/mosaic_api_test.cpp`（给客户的示例 demo）已改为**先 flush 再 get_timing**。
+3. `manu/pipeline/npu/mosaic_contract_test.cpp` 把次序写进了门禁：第 **420** 行 `mosaic_pipeline_flush(p)` → 第 **426** 行 `mosaic_pipeline_get_timing(p, &tm)` → 第 **465** 行断言 `tm.wall_ms > 0.0`。
+
+**⇒ 改写后的说法**：`wall_ms` 是**两段式**字段 —— **create 时是起始时间戳，flush 时才变成已用时长**；
+**任何「先读 timing 后 flush」的代码都会拿到开机以来的毫秒数**，这是**用法错误**，不是流水线缺陷、更不是计时器故障。
+
+### 五十九.1 导航条目（本节新增）
+
+（本表行格式与主档 §6 导航表一致：`§编号（中文） | 标题 | 文件（相对 `manu/memory/`） | 起始行`，
+以便 `manu/memory/validate_nav_table.py` 逐条解析；本表在三个档案中**完全一致**。）
+
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 二十三 | 专题档 §23 ⭐⭐⭐ 2026-10-29 客户端门面 API（v10.1/v10.2）+ 重构后 D=3 回归 | MOSAIC_RK3588_20261026.md | 3451 |
+| 二十六 | 主档 §26 ⭐⭐⭐ 2026-10-29 客户端门面 API：open / push / collect / destroy 四个调用 | memory.md | 2916 |
+| 五十九 | 证伪档 §59 ⭐⭐⭐ 2026-10-29：wall_ms 在 flush 之前是起始时间戳 | falsified_archive.md | 3606 |
+
+> 📌 专题档 `manu/memory/MOSAIC_RK3588_20261026.md` **§23**；主档 `manu/memory/memory.md` **§26**。

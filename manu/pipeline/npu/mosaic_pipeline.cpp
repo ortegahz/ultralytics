@@ -58,6 +58,7 @@
 #include <cerrno>
 #include <chrono>
 #include <condition_variable>
+#include <cstdarg>
 #include <cstdio>
 #include <cstring>
 #include <deque>
@@ -67,6 +68,14 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+// The v10.1 example-demo support API probes the filesystem and the runtime
+// libraries: stat()/access() for the paths, opendir()/readdir() for the DRM
+// nodes, dlopen() for librga.
+#include <dirent.h>
+#include <dlfcn.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 namespace {
 
@@ -2165,6 +2174,384 @@ void mosaic_pipeline_config_defaults(MosaicPipelineConfig* cfg) {
   cfg->buf_a_mode = 0;      // 0 = DMA (rknn_create_mem), 1 = host memory
   cfg->pre_affinity = nullptr;
   cfg->npu_stage_affinity = nullptr;  // NULL = follow pre_affinity
+}
+
+// ===========================================================================
+// v10.1 -- THE EXAMPLE-DEMO SUPPORT API.
+//
+// WHY: `mosaic_api_test.cpp` is handed to third parties as an EXAMPLE DEMO.
+// Its first screen used to be a wall of hand-written environment checks and
+// hand-set default knobs.  The checks and the presets live HERE, in the
+// library, so the demo's main() is three calls.
+//
+// PURELY ADDITIVE: nothing below changes an existing struct, a default, a
+// function's behaviour, or the ABI version -- MOSAIC_API_VERSION stays 10.
+// The contract is in mosaic_pipeline.h.
+//
+// The helpers below are `static` (internal linkage): they are not part of the
+// ABI and they do not add a symbol to the archive.
+// ===========================================================================
+
+// The frames of a sequence are named frame_%06d.bmp, from 0, CONSECUTIVELY.
+// The same convention the reference demo's own ListFrames() used.
+static const char* const kMosaicFramePathFmt = "%s/frame_%06d.bmp";
+
+// The hard ceiling of the frame probe: the same 4096 the old ListFrames()
+// used, so the library and the demo can never disagree about the count.
+static const int32_t kMosaicFrameProbeMax = 4096;
+
+// Does `path` exist and can it be read?
+static bool MosaicPathReadable(const char* path) {
+  if (!path || !*path) return false;
+  struct stat st;
+  if (stat(path, &st) != 0) return false;
+  return access(path, R_OK) == 0;
+}
+
+// Does `path` exist and is it a directory?
+static bool MosaicPathIsDir(const char* path) {
+  if (!path || !*path) return false;
+  struct stat st;
+  if (stat(path, &st) != 0) return false;
+  return S_ISDIR(st.st_mode);
+}
+
+// Is an NPU device node present?
+//
+// WHY BOTH: on the board the NPU is driven through DRM (/dev/dri/card*) and
+// there is NO /dev/rknpu node, so a check for /dev/rknpu alone would report
+// "no NPU" on a perfectly healthy board.  Either one means "there is an NPU".
+static bool MosaicHasNpuNode() {
+  struct stat st;
+  if (stat("/dev/rknpu", &st) == 0) return true;
+  DIR* d = opendir("/dev/dri");
+  if (!d) return false;
+  bool found = false;
+  struct dirent* e = nullptr;
+  while (!found && (e = readdir(d)) != nullptr) {
+    if (strncmp(e->d_name, "card", 4) == 0) found = true;
+  }
+  closedir(d);
+  return found;
+}
+
+// Can librga be loaded?  The library already links -lrga -ldl; this is only
+// the "can we actually GET it" existence check.  `err` receives the dlerror()
+// text when the load fails.
+static bool MosaicLoadRga(char* err, size_t errlen) {
+  void* h = dlopen("librga.so.2", RTLD_LAZY);
+  if (h) {
+    dlclose(h);
+    if (err && errlen) err[0] = '\0';
+    return true;
+  }
+  const char* e = dlerror();
+  if (err && errlen) {
+    snprintf(err, errlen, "%s", e ? e : "dlopen(librga.so.2) failed");
+  }
+  return false;
+}
+
+// The frames of a sequence, by the CONTINUOUS frame_%06d.bmp probe.
+//
+// The scan stops at the FIRST missing frame -- the same semantics the
+// reference demo's ListFrames() had -- so the answer is "the frames that are
+// actually there", not "the files in the directory".
+//
+// `cb` is called with the FULL path.  The pointer is valid ONLY FOR THE
+// DURATION OF THE CALL (it points at this function's own buffer), so the
+// callback has to use it right away.
+static int32_t MosaicScanFrames(const char* seq_dir, MosaicFrameCallback cb, void* user,
+                                 int32_t max_frames) {
+  if (!seq_dir || !*seq_dir) return -1;
+  // The directory has to be openable, otherwise the answer is "unknown".
+  DIR* d = opendir(seq_dir);
+  if (!d) return -1;
+  closedir(d);
+
+  int32_t limit = kMosaicFrameProbeMax;
+  if (max_frames > 0 && max_frames < limit) limit = max_frames;
+
+  int32_t count = 0;
+  char path[1024];
+  for (int32_t i = 0; i < limit; ++i) {
+    snprintf(path, sizeof(path), kMosaicFramePathFmt, seq_dir, static_cast<int>(i));
+    struct stat st;
+    if (stat(path, &st) != 0) break;  // the sequence stops at the first hole
+    if (cb) cb(user, i, path);
+    ++count;
+  }
+  return count;
+}
+
+// Append one line to the summary buffer, never overflowing it.  The buffer is
+// always NUL-terminated, so strlen() is always safe on it.
+static void MosaicSummaryAdd(char* buf, size_t cap, const char* fmt, ...) {
+  size_t len = strlen(buf);
+  if (len >= cap) return;
+  va_list ap;
+  va_start(ap, fmt);
+  vsnprintf(buf + len, cap - len, fmt, ap);
+  va_end(ap);
+  buf[cap - 1] = '\0';
+}
+
+// Install one of the three shipped presets.
+//
+// Returns 0 on success, -1 when `cfg` is NULL or the preset is unknown.  An
+// unknown preset leaves `cfg` EXACTLY as it was -- not one byte -- so the
+// check happens BEFORE anything is written.
+int32_t mosaic_pipeline_config_preset(MosaicPipelineConfig* cfg, int32_t preset) {
+  if (!cfg) return -1;
+  if (preset != MOSAIC_PRESET_BASELINE && preset != MOSAIC_PRESET_REALTIME &&
+      preset != MOSAIC_PRESET_THROUGHPUT) {
+    return -1;
+  }
+  // The presets are built ON TOP of the frozen defaults, never beside them.
+  mosaic_pipeline_config_defaults(cfg);
+  // A preset installs NO PATHS: the paths belong to the machine the demo runs
+  // on, and the caller installs them with mosaic_pipeline_config_set_paths().
+  // (config_defaults() hands out a kernel_dir of "/root/kernels"; the preset
+  // clears it, so "the preset chose a path" can never be a surprise.)
+  cfg->model_path = nullptr;
+  cfg->kernel_dir = nullptr;
+  cfg->sequence = nullptr;
+
+  // The BASELINE preset IS the defaults: the certified FUSED worker, nothing
+  // overlaid on top of it.
+  if (preset == MOSAIC_PRESET_BASELINE) return 0;
+
+  // ---- REALTIME / THROUGHPUT ---------------------------------------------
+  // These values are the board-accepted CANON28 / CANON36 delivery arms, value
+  // for value.  The four affinity strings are STRING LITERALS, i.e. static
+  // storage: they outlive any config the caller puts on the stack.
+  cfg->gmc_anchor_step = 2;
+  cfg->npu_workers = 2;
+  cfg->gmc_workers = 1;
+  cfg->post_workers = 1;
+  cfg->input_queue = 64;
+  cfg->jitter_depth = 3;
+  cfg->gmc_ring_slack = 1;
+  cfg->gmc_phys_anchor = 1;
+  cfg->gmc_min_stride = 1;
+  cfg->gmc_anchor_threads = 4;
+  cfg->cpu_affinity = "0-7";
+  cfg->gmc_affinity_group = "4-7";
+  cfg->pre_affinity = "0-3";
+  cfg->npu_stage_affinity = "6-7";
+  cfg->decoupled_stages = 1;
+  // Buffer A's depth is the ONLY difference between the two live presets:
+  // D=3 for the online loop (the smallest latency that still absorbs the
+  // jitter), D=64 for the throughput delivery arm.
+  cfg->buffer_a_depth = (preset == MOSAIC_PRESET_THROUGHPUT) ? 64 : 3;
+  cfg->buffer_b_depth = 3;
+  cfg->pre_threads = 2;
+  cfg->buf_a_mode = 0;  // DMA
+  return 0;
+}
+
+// Install the three paths of a run.
+//
+// The paths are NOT copied: the config holds the caller's pointers, so the
+// caller keeps the strings alive.  A NULL argument clears its field (it does
+// not crash, and it does not fall back to a default).
+int32_t mosaic_pipeline_config_set_paths(MosaicPipelineConfig* cfg, const char* model_path,
+                                         const char* kernel_dir, const char* sequence) {
+  if (!cfg) return -1;
+  cfg->model_path = model_path;
+  cfg->kernel_dir = kernel_dir;
+  cfg->sequence = sequence;
+  return 0;
+}
+
+// Check that this machine can actually run the pipeline, and write a
+// human-readable report.
+//
+// The HARD requirements are: the model file, the kernel directory, the raw
+// frame root, the sequence directory, and at least one frame in the sequence.
+// The NPU node and librga are INFORMATIONAL: they say whether the board can
+// run the inference RIGHT NOW, but a missing node is not a reason to refuse a
+// configuration check (and on this board the NPU is a DRM device, not
+// /dev/rknpu).
+//
+// Returns 0 when every hard requirement is met, -1 otherwise.  `out->ok` says
+// the same thing.
+int32_t mosaic_pipeline_env_check(const MosaicPipelineConfig* cfg, const char* raw_root,
+                                   MosaicEnvReport* out) {
+  if (out) {
+    memset(out, 0, sizeof(*out));
+    out->frame_count = -1;  // nothing scanned yet
+  }
+  if (!cfg) {
+    if (out) {
+      char s[512];
+      s[0] = '\0';
+      MosaicSummaryAdd(s, sizeof(s), "[env] 配置        : FAIL 配置为空 (cfg == NULL)\n");
+      MosaicSummaryAdd(s, sizeof(s), "[env] 结论        : 不通过\n");
+      memcpy(out->summary, s, sizeof(out->summary));
+    }
+    return -1;
+  }
+
+  const char* model = cfg->model_path;
+  const char* kdir = cfg->kernel_dir;
+  const char* seq = cfg->sequence;
+
+  const bool model_ok = MosaicPathReadable(model);
+  const bool kernel_ok = MosaicPathIsDir(kdir);
+  const bool raw_root_ok = MosaicPathIsDir(raw_root);
+
+  // The sequence lives UNDER the raw root: <raw_root>/<sequence>.
+  char seq_path[1024];
+  seq_path[0] = '\0';
+  if (raw_root && *raw_root && seq && *seq) {
+    snprintf(seq_path, sizeof(seq_path), "%s/%s", raw_root, seq);
+  }
+  const bool sequence_ok = MosaicPathIsDir(seq_path);
+
+  // -1 = NOT SCANNED (we do not even know where the sequence is).  0 = the
+  // sequence directory is not there, or it holds no frames -- either way the
+  // honest answer to "how many frames" is NONE.
+  int32_t frames = -1;
+  if (seq_path[0]) {
+    frames = MosaicScanFrames(seq_path, nullptr, nullptr, 0);
+    if (frames < 0) frames = 0;
+  }
+
+  const bool npu_ok = MosaicHasNpuNode();
+  char rga_err[256];
+  rga_err[0] = '\0';
+  const bool rga_ok = MosaicLoadRga(rga_err, sizeof(rga_err));
+
+  const bool ok = model_ok && kernel_ok && raw_root_ok && sequence_ok && (frames > 0);
+
+  char s[512];
+  s[0] = '\0';
+  MosaicSummaryAdd(s, sizeof(s), "[env] 模型        : %s %s\n", model_ok ? "OK  " : "FAIL",
+                   model_ok ? (model ? model : "") : "模型文件不存在或不可读");
+  MosaicSummaryAdd(s, sizeof(s), "[env] kernel 目录 : %s %s\n", kernel_ok ? "OK  " : "FAIL",
+                   kernel_ok ? (kdir ? kdir : "") : "kernel 目录不存在");
+  MosaicSummaryAdd(s, sizeof(s), "[env] 帧根目录    : %s %s\n", raw_root_ok ? "OK  " : "FAIL",
+                   raw_root_ok ? (raw_root ? raw_root : "")
+                               : "帧根目录不存在");
+  MosaicSummaryAdd(s, sizeof(s), "[env] 序列目录    : %s %s\n", sequence_ok ? "OK  " : "FAIL",
+                   sequence_ok ? seq_path : "序列目录不存在");
+  if (frames < 0) {
+    MosaicSummaryAdd(s, sizeof(s), "[env] 可用帧数    : 未扫描\n");
+  } else {
+    MosaicSummaryAdd(s, sizeof(s), "[env] 可用帧数    : %d\n", static_cast<int>(frames));
+  }
+  MosaicSummaryAdd(s, sizeof(s), "[env] NPU 节点    : %s (信息项)\n", npu_ok ? "OK  " : "FAIL");
+  if (rga_ok) {
+    MosaicSummaryAdd(s, sizeof(s), "[env] RGA 运行库  : OK   (信息项)\n");
+  } else {
+    MosaicSummaryAdd(s, sizeof(s), "[env] RGA 运行库  : FAIL (信息项) %s\n", rga_err);
+  }
+  MosaicSummaryAdd(s, sizeof(s), "[env] 结论        : %s\n", ok ? "通过" : "不通过");
+
+  if (out) {
+    out->ok = ok ? 1 : 0;
+    out->model_ok = model_ok ? 1 : 0;
+    out->kernel_ok = kernel_ok ? 1 : 0;
+    out->raw_root_ok = raw_root_ok ? 1 : 0;
+    out->sequence_ok = sequence_ok ? 1 : 0;
+    out->frame_count = frames;
+    out->npu_ok = npu_ok ? 1 : 0;
+    out->rga_ok = rga_ok ? 1 : 0;
+    memcpy(out->summary, s, sizeof(out->summary));
+  }
+  return ok ? 0 : -1;
+}
+
+// The frames of a sequence, counted (and optionally reported one by one).
+//
+// Returns the number of frames (>= 0), or -1 when the directory cannot be
+// opened.  `cb` may be NULL: then the function only counts.
+int32_t mosaic_pipeline_list_frames(const char* seq_dir, MosaicFrameCallback cb, void* user,
+                                    int32_t max_frames) {
+  return MosaicScanFrames(seq_dir, cb, user, max_frames);
+}
+
+// ===========================================================================
+// v10.2 -- THE SIMPLE FACADE: configure + check the environment + create, in
+// ONE call.
+//
+// THIS IS THE WHOLE CLIENT API:
+//
+//     MosaicOpenOptions opt;
+//     memset(&opt, 0, sizeof(opt));
+//     opt.version    = MOSAIC_API_VERSION;
+//     opt.preset     = MOSAIC_PRESET_REALTIME;
+//     opt.model_path = "/path/to/model.rknn";
+//     opt.kernel_dir = "/path/to/kernels";
+//     opt.sequence   = "VIDEO00007_19700101_001324";
+//     opt.raw_root   = "/path/to/frames";
+//     opt.check_env  = 1;
+//
+//     char err[512];
+//     MosaicPipeline* p = mosaic_pipeline_open(&opt, err, sizeof(err));
+//     if (!p) { fprintf(stderr, "%s\n", err); return 1; }
+//
+//     mosaic_pipeline_push(p, gray, w, h);
+//     mosaic_pipeline_collect(p, &frame_id, dets, 16);
+//     mosaic_pipeline_destroy(p);
+//
+// The function REUSES the v10.1 helpers -- it does not re-implement the
+// presets, the path install or the environment check: there must be exactly
+// ONE copy of that logic, or the demo and the client drift apart.
+//
+// NOTHING IS LEAKED: every failure path returns NULL and this function
+// never hands out a half-built handle.
+MosaicPipeline* mosaic_pipeline_open(const MosaicOpenOptions* opt, char* errbuf, size_t errcap) {
+  // The errbuf is OPTIONAL: NULL or a zero capacity means "do not write a
+  // message", never "crash".
+  auto fail = [&](const char* why) -> MosaicPipeline* {
+    if (errbuf && errcap) {
+      snprintf(errbuf, errcap, "%s", why);
+    }
+    return nullptr;
+  };
+
+  if (!opt) return fail("opt is NULL");
+  if (opt->version != MOSAIC_API_VERSION)
+    return fail("version mismatch (expected MOSAIC_API_VERSION)");
+  if (opt->preset != MOSAIC_PRESET_BASELINE && opt->preset != MOSAIC_PRESET_REALTIME &&
+      opt->preset != MOSAIC_PRESET_THROUGHPUT)
+    return fail("unknown preset");
+
+  // The two v10.1 helpers, in order: the preset lays down the frozen
+  // defaults, the path install points them at this machine's files.  The
+  // preset was validated above, so both calls succeed.
+  MosaicPipelineConfig cfg;
+  mosaic_pipeline_config_preset(&cfg, opt->preset);
+  mosaic_pipeline_config_set_paths(&cfg, opt->model_path, opt->kernel_dir, opt->sequence);
+
+  // The environment check is OPTIONAL.  It runs only when the caller asked
+  // for it AND gave a raw root to look at: a client that streams live frames
+  // has no frame directory, and a missing directory must not stop it from
+  // opening the pipeline.
+  if (opt->check_env != 0 && opt->raw_root && *opt->raw_root) {
+    MosaicEnvReport env;
+    memset(&env, 0, sizeof(env));
+    env.frame_count = -1;
+    const int32_t rc = mosaic_pipeline_env_check(&cfg, opt->raw_root, &env);
+    if (rc != 0 || !env.ok) {
+      // The summary IS the reason: copy it WHOLE, then add the one-line
+      // verdict.  snprintf truncates safely and keeps the NUL, so a small
+      // errbuf can never overflow.
+      if (errbuf && errcap) {
+        const int n = snprintf(errbuf, errcap, "%s\nenvironment check failed", env.summary);
+        if (n < 0) errbuf[0] = '\0';
+      }
+      return nullptr;
+    }
+  }
+
+  // The create's OWN errbuf semantics are passed through UNCHANGED: create
+  // writes the reason itself (model missing, version mismatch, ...), so the
+  // client sees exactly the same message it would have seen calling create
+  // directly.
+  return mosaic_pipeline_create(&cfg, errbuf, errcap);
 }
 
 MosaicPipeline* mosaic_pipeline_create(const MosaicPipelineConfig* cfg, char* errbuf,

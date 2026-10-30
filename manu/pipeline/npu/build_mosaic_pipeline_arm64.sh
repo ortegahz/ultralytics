@@ -12,6 +12,9 @@
 #                           drives a raw infrared sequence, writes the TSV
 #   rknn_mosaic_heatmap     the refactored BMP-driven binary, rebuilt here so
 #                           the refactor is covered by the same compile
+#   mosaic_api_test         the EXAMPLE DEMO third parties copy: it calls ONLY
+#                           the public C ABI (open / push / collect / destroy)
+#   mosaic_contract_test    the library's own CONTRACT test (the gate)
 #
 # DISCIPLINE (inherited from build_rknn_mosaic_arm64.sh and
 # build_gmc_ocl_arm64.sh, both of which are certified):
@@ -103,9 +106,10 @@ echo "== linking rknn_mosaic_e2e =="
 echo "[ok] $OUT/rknn_mosaic_e2e"
 
 # ---------------------------------------------------------------------------
-# 2b. the API contract test (links the library, touches only the public ABI)
+# 2b. the EXAMPLE DEMO (the file third parties copy: open / push / collect /
+#     destroy).  The library's own contract test is mosaic_contract_test (2c).
 # ---------------------------------------------------------------------------
-echo "== building mosaic_api_test (library contract test) =="
+echo "== building mosaic_api_test (the example demo) =="
 "$CXX" -std=gnu++17 -O2 -Wall -Wextra \
   $FP_FLAGS \
   -I"$STAGE" -I"$STAGE/rga" -I"$PIPE/cpp" -I"$PIPE/opencl/host" -I"$INSTALL/include/opencv4" \
@@ -113,6 +117,18 @@ echo "== building mosaic_api_test (library contract test) =="
   -L"$RT_LIB_DIR" -lrknnrt -lrga -Wl,-rpath-link,"$RT_LIB_DIR" \
   -L"$LIBDIR" -L"$INSTALL/lib" -L"$TP_LIB" $OPENCV_LIBS -lOpenCL -lpthread -ldl -lm
 echo "[ok] $OUT/mosaic_api_test"
+
+# ---------------------------------------------------------------------------
+# 2c. the API CONTRACT test (the example demo is mosaic_api_test)
+# ---------------------------------------------------------------------------
+echo "== building mosaic_contract_test (library contract test) =="
+"$CXX" -std=gnu++17 -O2 -Wall -Wextra \
+  $FP_FLAGS \
+  -I"$STAGE" -I"$STAGE/rga" -I"$PIPE/cpp" -I"$PIPE/opencl/host" -I"$INSTALL/include/opencv4" \
+  "$HERE/mosaic_contract_test.cpp" "$OUT/libmosaic_pipeline.a" -o "$OUT/mosaic_contract_test" \
+  -L"$RT_LIB_DIR" -lrknnrt -lrga -Wl,-rpath-link,"$RT_LIB_DIR" \
+  -L"$LIBDIR" -L"$INSTALL/lib" -L"$TP_LIB" $OPENCV_LIBS -lOpenCL -lpthread -ldl -lm
+echo "[ok] $OUT/mosaic_contract_test"
 
 # ---------------------------------------------------------------------------
 # 3. the refactored BMP-driven binary (same core, no OpenCV)
@@ -149,6 +165,7 @@ check_needed() {
 
 check_needed "$OUT/rknn_mosaic_e2e"
 check_needed "$OUT/mosaic_api_test"
+check_needed "$OUT/mosaic_contract_test"
 check_needed "$OUT/rknn_mosaic_heatmap"
 
 echo
