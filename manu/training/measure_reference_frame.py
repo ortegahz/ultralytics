@@ -94,6 +94,11 @@ def main() -> int:
     ap.add_argument("--weights", default="runs/optuna_p0_nas/trial_0474/weights/best.pt", help="冻结基线权重")
     ap.add_argument("--out-dir", default="runs/nogmc_ref", help="产物目录")
     ap.add_argument("--label", default="nogmc", help="参照系标签（写进 JSON 便于审计）")
+    ap.add_argument(
+        "--track2-fp-max-increment", type=int, default=GATE_TRACK2_FP_MAX_INCREMENT,
+        help="门禁允许的 T2 虚警**增量**上限（相对冻结基线）。默认 10（GMC 口径）；"
+             "no-GMC 语义下基线 FP 更高，已于 2026-10-27 经用户授权放宽到 60（绝对 FP ≤ 112）。",
+    )
     ap.add_argument("--gpus", default="0", help="GPU 列表（逗号分隔）；LQ 缓存按此数分片")
     ap.add_argument("--infer-gpu", default="", help="T1 推理 GPU（默认取 gpus 第一个）")
     ap.add_argument("--batch", type=int, default=32)
@@ -282,7 +287,7 @@ def main() -> int:
         "rc1": {},
         "gate": {
             "track2_f1_min": GATE_TRACK2_F1_MIN,
-            "track2_fp_max_increment": GATE_TRACK2_FP_MAX_INCREMENT,
+            "track2_fp_max_increment": args.track2_fp_max_increment,
             "track1_min_delta": GATE_TRACK1_MIN_DELTA,
         },
         "gate_base": {

@@ -52,8 +52,16 @@ def _i(v, default=None):
 
 # 11 个调参维度：11 维**逐位相同** = 同一条训练配方（同超参）；
 # 组内 trial 号不同 ⇒ 种子不同 ⇒ 可测种子噪声。
+#
+# ⚠️ 周末扩展实验（2026-10-30）在原 11 维上**加了 4 维**：
+#   init_from / epochs / backbone_lr_scale / freeze_backbone_epochs
+#   —— 这 4 维**必须**进分组键，否则"同配置不同 epoch"会被误并成一组。
+#   老 CSV（GMC 侧 / 旧 no-GMC 侧）没有这 4 列 ⇒ 取空串 ⇒ 仍是合法的单一配置。
 CFG_COLS = ("mix_spec", "lr_scale", "warmup_epochs", "weight_decay", "focal_beta",
-            "offset_weight", "mosaic", "scale", "translate", "clip_max_norm", "freeze_bn")
+            "offset_weight", "mosaic", "scale", "translate", "clip_max_norm", "freeze_bn",
+            "init_from", "epochs", "backbone_lr_scale", "freeze_backbone_epochs")
+# 需要按字符串规范化的列（其余按 float 归一到 6 位小数）
+CFG_STR_COLS = ("mix_spec", "freeze_bn", "init_from")
 
 
 def main() -> int:
@@ -231,18 +239,41 @@ def main() -> int:
     #   §五之四 实测：no-GMC 侧同超参换种子的 T3 极差 0.170~1.651 pp、U 极差 0.0051~0.0297
     #   ⇒ 单点第一名的「优势」可能**完全落在种子噪声带内** ⇒ 不能当交接依据。
     #   实测反例：某配置单点 T3 全场最高，但同配置另两个种子全部撞 T1 红线。
-    # 分组键 = 11 个调参维度**逐位相同**（同一条训练配方）；组内 trial 号不同 ⇒ 种子不同。
+    # 分组键 = 全部调参维度（2026-10-30 起 15 维）**逐位相同**（同一条训练配方）；组内 trial 号不同 ⇒ 种子不同。
     def _cfg_norm(field, raw):
-        """配置分组键的规范化：mix_spec / freeze_bn 按字符串，其余按 float 归一到 6 位小数。
-        （用 float 归一是为了吸收 '7.21' / '7.210' 这类书写差异，避免同一配置被拆成两组。）"""
-        if field in ("mix_spec", "freeze_bn"):
-            return str(raw).strip()
+        """配置分组键的规范化：字符串列按字符串，epochs / freeze_backbone_epochs 按整数，
+        其余按 float 归一到 6 位小数。
+        （用 float 归一是为了吸收 '7.21' / '7.210' 这类书写差异，避免同一配置被拆成两组。）
+        ⚠️ 老 CSV 没有扩展 4 列 ⇒ 取到空串 ⇒ 仍归一为同一个合法值，不会把老行拆散。"""
+        s = str(raw).strip()
+        if field in CFG_STR_COLS:
+            return s
+        if field in ("epochs", "freeze_backbone_epochs"):
+            try:
+                return int(float(s))
+            except Exception:
+                return s
         fv = _f(raw)
-        return round(fv, 6) if fv is not None else str(raw).strip()
+        return round(fv, 6) if fv is not None else s
 
     def _cfg_key(r):
         raw = r.get("cfg_raw") or {}
         return tuple(_cfg_norm(f, raw.get(f, "")) for f in CFG_COLS)
+
+    # ⚠️ 2026-10-30：分组键 = **全部 15 个调参维度**逐位相同（同一条训练配方）。
+    #    ⇒ 标签**必须**能区分「同 mix 同 lr 但 init/epochs 不同」的两条臂
+    #    （如 base474/8ep 与 rc2/8ep 同为 "w3.0 · 2.8821"）⇒ 标签里必须带 init_from 与 epochs。
+    def _glabel(g0):
+        raw = g0.get("cfg_raw") or {}
+        init = str(raw.get("init_from", "") or "").strip() or "base"
+        ep = str(raw.get("epochs", "") or "").strip() or "?"
+        return f"{g0['mix_spec']} · lr{g0['lr_scale']} · {init} · {ep}ep"
+
+    def _sn_label(gd):
+        """§五之四 的标签（seed_noise 的返回 dict 无 cfg_raw ⇒ 从 mix/lr + 可选扩展列拼）。"""
+        init = str(gd.get("init_from", "") or "").strip() or "base"
+        ep = str(gd.get("epochs", "") or "").strip() or "?"
+        return f"{gd.get('mix_spec')} / {gd.get('lr_scale')} / {init} / {ep}ep"
 
     def _med(vals):
         vals = [v for v in vals if v is not None]
@@ -257,7 +288,10 @@ def main() -> int:
         return -statistics.median(us) if us else 9.0
 
     def _weight_info(trial, root):
-        """从 trial 的 gate_report 取 epoch3 权重：返回 (相对路径, md5, 字节数) 或 None。
+        """从 trial 的 gate_report 取**该 trial 实际末 epoch** 的权重：返回 (相对路径, md5, 字节数) 或 None。
+
+        ⚠️ 周末扩展实验里每 trial 的 epoch 数可变（3/6/8/10/15）⇒ 权重文件名是
+        epoch8.pt / epoch10.pt / epoch15.pt…，**不能再写死 epoch3**。
 
         gate_report.json 只记路径、不记 md5 ⇒ 这里现算 md5，
         让「结论 → 产物」这一环在 SUMMARY.md 里闭合（交接的人不用自己去猜拿哪个权重）。
@@ -299,7 +333,7 @@ def main() -> int:
     P("> **为什么以「配置」为单位**：单 trial 的 U 排名被**种子噪声**支配 —— §五之四 实测 no-GMC 侧"
       "同超参换种子的 T3 极差 **0.170~1.651 pp**、U 极差 **0.0051~0.0297**。"
       "⇒ 单点第一名的「优势」可能完全落在噪声带内 ⇒ **不能当交接依据**。")
-    P("> **分组键** = 11 个调参维度**逐位相同**（同一条训练配方）；组内 trial 号不同 ⇒ 种子不同。")
+    P("> **分组键** = 全部调参维度**逐位相同**（同一条训练配方；2026-10-30 起为 15 维，含 init_from / epochs / backbone_lr_scale / freeze_backbone_epochs）；组内 trial 号不同 ⇒ 种子不同。")
     P("> **口径**：组内一律取**中位数**；U 仍由 `utility()` 重算（不信 CSV 列）。")
     P("")
 
@@ -314,7 +348,7 @@ def main() -> int:
               "排名**不可作为交接依据**（须先做同超参多种子复现）。")
             P("")
         else:
-            P("| # | 配置（mix · lr_scale） | 种子数 | 过线 | U 中位 | U(vs RC1) 中位 | T1 中位 | T2 中位 | "
+            P("| # | 配置（mix · lr · init · epochs） | 种子数 | 过线 | U 中位 | U(vs RC1) 中位 | T1 中位 | T2 中位 | "
               "T2FP 中位 | T3 中位 | U 极差 | T3 极差 | trial |")
             P("|--:|:--|--:|:--|--:|--:|--:|--:|--:|--:|--:|--:|:--|")
             for i, g in enumerate(multi, 1):
@@ -327,30 +361,30 @@ def main() -> int:
                 fp2 = _med([x["m"]["track2_fp"] for x in g])
                 u_rng = _rng(us)
                 t3_rng = _rng([x["m"]["track3_f1"] for x in g]) * 100
-                label = f"{g[0]['mix_spec']} · {g[0]['lr_scale']}"
+                label = _glabel(g[0])
                 trials = "、".join(sorted(x["trial"] for x in g))
                 med_urs = ("%+.6f" % statistics.median(urs)) if urs else "—"
                 P(f"| {i} | {label} | {len(g)} | **{npass}/{len(g)}** | **{statistics.median(us):+.6f}** | "
                   f"{med_urs} | {m1:.6f} | {m2:.6f} | {fp2:.0f} | **{m3:.6f}** | {u_rng:.6f} | "
                   f"**{t3_rng:.3f} pp** | {trials} |")
             P("")
-            P("**已复现配置的全量超参（11 维）+ 可交付权重** —— 交接 / 复现按这个配方：")
+            P(f"**已复现配置的全量超参（{len(CFG_COLS)} 维）+ 可交付权重** —— 交接 / 复现按这个配方：")
             P("")
             for i, g in enumerate(multi, 1):
                 raw = g[0].get("cfg_raw") or {}
                 us = [x["u"] for x in g]
                 npass = sum(1 for x in g if (x["verdict"] or "").startswith("PASS"))
-                label = f"{g[0]['mix_spec']} · lr_scale={g[0]['lr_scale']}"
+                label = _glabel(g[0])
                 gbest = max(g, key=lambda x: x["u"])
                 g_full = all((x["verdict"] or "").startswith("PASS") for x in g)
                 P(f"- **{i}. {label}**（{len(g)} 种子，过线 {npass}/{len(g)}，U 中位 {statistics.median(us):+.6f}）")
-                P("  - 超参（11 维）：`" + " | ".join(str(raw.get(k, "")) for k in CFG_COLS) + "`")
-                P("  - 权重（epoch3.pt，md5 现算）：")
+                P(f"  - 超参（{len(CFG_COLS)} 维）：`" + " | ".join(str(raw.get(k, "")) for k in CFG_COLS) + "`")
+                P("  - 可交付权重（md5 现算；文件名为该 trial 实际训练的末 epoch，**不再固定 epoch3**）：")
                 _any_w = False
                 for x in sorted(g, key=lambda y: y["trial"]):
                     wi = _weight_info(x["trial"], out_root)
                     if not wi:
-                        P(f"    - `{x['trial']}` → ⚠️ 未找到 epoch3 权重")
+                        P(f"    - `{x['trial']}` → ⚠️ 未找到权重（缺 gate_report 或权重文件）")
                         continue
                     _any_w = True
                     # 「建议交付」只在**全种子过线**的组里标（否则等于把已出局配置推出去）
@@ -359,7 +393,7 @@ def main() -> int:
                     P(f"    - `{x['trial']}` → `{wi[0]}`｜md5 `{wi[1]}`｜{wi[2]:,} B"
                       f"｜U {x['u']:+.6f}{mark}")
                 if not _any_w:
-                    P("    - ⚠️ 本组无可用 epoch3 权重（须查 trial 目录）")
+                    P("    - ⚠️ 本组无可用权重（须查 trial 目录）")
             P("")
             # 交接冠军 = **全种子过一级红线**的组里 U 中位最高者；
             # 若没有全过的组，则退回 U 中位最高组并显式标注「交接线待定」。
@@ -388,7 +422,7 @@ def main() -> int:
                         "se": (t3r / 2.0) / math.sqrt(n) if n else 0.0,
                         "u": statistics.median([x["u"] for x in g]),
                         "np": sum(1 for x in g if (x["verdict"] or "").startswith("PASS")),
-                        "label": f"{g[0]['mix_spec']} · {g[0]['lr_scale']}"}
+                        "label": _glabel(g[0])}
 
             _S = [_gstat(g) for g in full_pass] if full_pass else [_gstat(multi[0])]
             _handoff = _S[0]
@@ -448,7 +482,7 @@ def main() -> int:
                         if sum(1 for x in g if (x["verdict"] or "").startswith("PASS")) < len(g)]
             if unstable:
                 _u = "；".join(
-                    f"{g[0]['mix_spec']} · {g[0]['lr_scale']}"
+                    f"{_glabel(g[0])}"
                     f"（{sum(1 for x in g if (x['verdict'] or '').startswith('PASS'))}/{len(g)}）"
                     for g in unstable)
                 P(f"> ⚠️ **以下配置存在未过一级红线的种子 ⇒ 已出局（不可作交接线）**：{_u}。")
@@ -465,7 +499,7 @@ def main() -> int:
                 x = g[0]
                 m = x["m"]
                 u_rc1_s = ("%+.6f" % x["u_rc1"]) if x["u_rc1"] is not None else "—"
-                P(f"| {i} | {x['mix_spec']} · {x['lr_scale']} | {x['u']:+.6f} | {u_rc1_s} | "
+                P(f"| {i} | {_glabel(x)} | {x['u']:+.6f} | {u_rc1_s} | "
                   f"{m['track1_f1']:.6f} | {m['track2_f1']:.6f} | {m['track2_fp']} | "
                   f"{m['track3_f1']:.6f} | {x['verdict']} | {x['trial']} |")
         P("")
@@ -710,10 +744,10 @@ def main() -> int:
                     continue
                 P(f"**{_title}**")
                 P("")
-                P("| 配置（mix / lr_scale） | 种子数 | trial | ΔF1_T1 极差 | ΔF1_T2 极差 | ΔF1_T3 极差 | T2FP 极差 | T3FP 极差 |")
+                P("| 配置（mix / lr / init / epochs） | 种子数 | trial | ΔF1_T1 极差 | ΔF1_T2 极差 | ΔF1_T3 极差 | T2FP 极差 | T3FP 极差 |")
                 P("|:--|--:|:--|--:|--:|--:|--:|--:|")
                 for g in _sn:
-                    P(f"| {g['mix_spec']} / {g['lr_scale']} | {g['n_seeds']} | "
+                    P(f"| {_sn_label(g)} | {g['n_seeds']} | "
                       f"{'、'.join(g['trials'])} | **{g['t1_range_pp']:.3f} pp** | {g['t2_range_pp']:.3f} pp | "
                       f"**{g['t3_range_pp']:.3f} pp** | {g['t2_fp_range']:.0f} | {g['t3_fp_range']:.0f} |")
                 P("")
@@ -830,7 +864,7 @@ def main() -> int:
                 for r in _near:
                     m = r["m"]
                     d3 = (m["track3_f1"] - _f(_rc2.get("t3_f1"))) * 100
-                    P(f"| {r['trial']} | {_dist(r):.4f} | {r['mix_spec']} · {r['lr_scale']} | "
+                    P(f"| {r['trial']} | {_dist(r):.4f} | {_glabel(r)} | "
                       f"{m['track1_f1']:.6f} | {m['track2_f1']:.6f} | {m['track2_fp']} | "
                       f"{m['track3_f1']:.6f} | {m['track3_fp']} | **{d3:+.3f} pp** | {r['verdict']} |")
                 P("")

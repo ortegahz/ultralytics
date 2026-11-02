@@ -89,10 +89,31 @@ def metrics_of(r: dict) -> dict | None:
     }
 
 
+# ⚠️ 2026-10-30 扩展 4 维：周末实验的「RC1 对照」必须**同时**满足
+#   base474 起步 + 3 epoch + 骨干不缩放 + 不锁骨干（这才是旧 RC1 的语义）。
+#   否则同配方的 rc2 臂会被**误判成 RC1 对照**，把两类 trial 混进同一桶。
+#   老 CSV 没有这 4 列 ⇒ 取空串 ⇒ 跳过校验 ⇒ 与旧版**逐位一致** ✅。
+RC1_EXT = {
+    "init_from": "base474",
+    "epochs": 3.0,
+    "backbone_lr_scale": 1.0,
+    "freeze_backbone_epochs": 0.0,
+}
+
+
 def is_rc1_hp(r: dict) -> bool:
     """该 trial 的超参是否与 RC1 完全一致（= 合格的复现对照）。"""
     for k, v in RC1_HP.items():
         if abs(f(r, k) - v) > HP_COLS[k]:
+            return False
+    for k, v in RC1_EXT.items():
+        raw = r.get(k)
+        if raw is None or str(raw).strip() == "":
+            continue          # 老 CSV 无该列 ⇒ 按旧 RC1 语义放行
+        if k == "init_from":
+            if str(raw).strip() != v:
+                return False
+        elif abs(f(r, k) - v) > 1e-9:
             return False
     return True
 

@@ -1,0 +1,194 @@
+[
+  {
+    "role": "NATURAL_RC1",
+    "seed": 100,
+    "note": "natural 对照（base474 + ROUTE_B_DEFAULTS 原样）⇒ 产出 no-GMC 语义的 rc1 参照（供 utility_vs_rc1 用）",
+    "params": {
+      "mix_spec": "natural", "lr_scale": 1.0, "warmup_epochs": 0.5,
+      "weight_decay": 0.0001, "focal_beta": 2.7, "offset_weight": 0.55,
+      "mosaic": 0.05, "scale": 0.20, "translate": 0.10, "clip_max_norm": 5.0,
+      "freeze_bn": false,
+      "init_from": "base474", "epochs": 3, "backbone_lr_scale": 1.0, "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "CTRL_BASE474_3EP",
+    "seed": 101,
+    "note": "对照组（原路线复现）：旧 no-GMC 交接配方 base474 + w3.0 + lr2.8821 + 3ep ⇒ 应复现旧 T3≈0.8119",
+    "params": {
+      "mix_spec": "w3.0", "lr_scale": 2.8821, "warmup_epochs": 0.588,
+      "weight_decay": 0.00026906, "focal_beta": 2.75, "offset_weight": 0.40,
+      "mosaic": 0.15, "scale": 0.10, "translate": 0.05, "clip_max_norm": 5.65,
+      "freeze_bn": false,
+      "init_from": "base474", "epochs": 3, "backbone_lr_scale": 1.0, "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "CTRL_BASE474_10EP",
+    "seed": 102,
+    "note": "只拉长 epoch（不换初始化）：base474 + w3.0 + lr2.8821 + 10ep ⇒ 单独量化『epoch 太少』这一项",
+    "params": {
+      "mix_spec": "w3.0", "lr_scale": 2.8821, "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906, "focal_beta": 2.75, "offset_weight": 0.40,
+      "mosaic": 0.15, "scale": 0.10, "translate": 0.05, "clip_max_norm": 5.65,
+      "freeze_bn": false,
+      "init_from": "base474", "epochs": 10, "backbone_lr_scale": 1.0, "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "RC2_ANCHOR_3EP",
+    "seed": 103,
+    "note": "RC2 原配方只换数据集（base474→rc2 初始化、w2.5/lr2.2702、3ep）⇒ 与旧 no-GMC 配方移植结果直接可比",
+    "params": {
+      "mix_spec": "w2.5", "lr_scale": 2.2702, "warmup_epochs": 0.588,
+      "weight_decay": 0.00026906, "focal_beta": 2.75, "offset_weight": 0.40,
+      "mosaic": 0.15, "scale": 0.10, "translate": 0.05, "clip_max_norm": 5.65,
+      "freeze_bn": false,
+      "init_from": "rc2", "epochs": 3, "backbone_lr_scale": 1.0, "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "ARM_A_RC2_LR1_8EP",
+    "seed": 104,
+    "note": "实验组 A（RC2 移植直冲）：rc2 + w3.0 + lr1.0 + 8ep + warmup1.5",
+    "params": {
+      "mix_spec": "w3.0", "lr_scale": 1.0, "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906, "focal_beta": 2.75, "offset_weight": 0.40,
+      "mosaic": 0.15, "scale": 0.10, "translate": 0.05, "clip_max_norm": 5.65,
+      "freeze_bn": false,
+      "init_from": "rc2", "epochs": 8, "backbone_lr_scale": 1.0, "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "ARM_B_RC2_LR05_FBN_8EP",
+    "seed": 105,
+    "note": "实验组 B（RC2 特征保护）：rc2 + w3.0 + lr0.5 + 8ep + freeze_bn",
+    "params": {
+      "mix_spec": "w3.0", "lr_scale": 0.5, "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906, "focal_beta": 2.75, "offset_weight": 0.40,
+      "mosaic": 0.15, "scale": 0.10, "translate": 0.05, "clip_max_norm": 5.65,
+      "freeze_bn": true,
+      "init_from": "rc2", "epochs": 8, "backbone_lr_scale": 1.0, "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "ARM_C_RC2_PROG_8EP",
+    "seed": 106,
+    "note": "实验组 C（渐进式微调）：rc2 + w3.0 + lr1.0 + 8ep + backbone_lr_scale0.1 + 前2ep锁骨干",
+    "params": {
+      "mix_spec": "w3.0", "lr_scale": 1.0, "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906, "focal_beta": 2.75, "offset_weight": 0.40,
+      "mosaic": 0.15, "scale": 0.10, "translate": 0.05, "clip_max_norm": 5.65,
+      "freeze_bn": false,
+      "init_from": "rc2", "epochs": 8, "backbone_lr_scale": 0.1, "freeze_backbone_epochs": 2
+    }
+  },
+  {
+    "role": "ARM_BP_RC2_LR05_FBN_PROG_8EP",
+    "seed": 107,
+    "note": "B+C 叠加（最强保护组合）：rc2 + w3.0 + lr0.5 + 8ep + freeze_bn + 骨干0.1 + 前2ep锁骨干",
+    "params": {
+      "mix_spec": "w3.0", "lr_scale": 0.5, "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906, "focal_beta": 2.75, "offset_weight": 0.40,
+      "mosaic": 0.15, "scale": 0.10, "translate": 0.05, "clip_max_norm": 5.65,
+      "freeze_bn": true,
+      "init_from": "rc2", "epochs": 8, "backbone_lr_scale": 0.1, "freeze_backbone_epochs": 2
+    }
+  },
+  {
+    "role": "ARM_CAT_RC2_LR28_8EP",
+    "seed": 108,
+    "note": "灾难性遗忘反证臂：rc2 + w3.0 + lr2.8821 + 8ep ⇒ 若 RC2 初始化 + 大 lr 会崩，这条应当最差",
+    "params": {
+      "mix_spec": "w3.0", "lr_scale": 2.8821, "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906, "focal_beta": 2.75, "offset_weight": 0.40,
+      "mosaic": 0.15, "scale": 0.10, "translate": 0.05, "clip_max_norm": 5.65,
+      "freeze_bn": false,
+      "init_from": "rc2", "epochs": 8, "backbone_lr_scale": 1.0, "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "ARM_LONG_RC2_LR10_15EP",
+    "seed": 109,
+    "note": "探顶臂：rc2 + w3.0 + lr1.0 + 15ep ⇒ 观察 epoch 拉到 15 是否继续涨或开始过拟合",
+    "params": {
+      "mix_spec": "w3.0", "lr_scale": 1.0, "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906, "focal_beta": 2.75, "offset_weight": 0.40,
+      "mosaic": 0.15, "scale": 0.10, "translate": 0.05, "clip_max_norm": 5.65,
+      "freeze_bn": false,
+      "init_from": "rc2", "epochs": 15, "backbone_lr_scale": 1.0, "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "ARM_RC2_LR07_6EP",
+    "seed": 110,
+    "note": "中间档：rc2 + w3.0 + lr0.7 + 6ep + freeze_bn + 骨干0.3",
+    "params": {
+      "mix_spec": "w3.0", "lr_scale": 0.7, "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906, "focal_beta": 2.75, "offset_weight": 0.40,
+      "mosaic": 0.15, "scale": 0.10, "translate": 0.05, "clip_max_norm": 5.65,
+      "freeze_bn": true,
+      "init_from": "rc2", "epochs": 6, "backbone_lr_scale": 0.3, "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "CTRL_BASE474_8EP",
+    "seed": 111,
+    "note": "★**8ep 的 base474 对照**（与 ARM_CAT 逐项同参、只换 init）⇒ 把 init 效应从 epoch 效应里干净剥出来；同时补齐 base474 的 3/8/10 ep 阶梯",
+    "params": {
+      "mix_spec": "w3.0", "lr_scale": 2.8821, "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906, "focal_beta": 2.75, "offset_weight": 0.40,
+      "mosaic": 0.15, "scale": 0.10, "translate": 0.05, "clip_max_norm": 5.65,
+      "freeze_bn": false,
+      "init_from": "base474", "epochs": 8, "backbone_lr_scale": 1.0, "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "ARM_A_BASE474_LR1_8EP",
+    "seed": 112,
+    "note": "★**ARM_A 的 base474 孪生臂**（逐项同参、只换 init=base474）⇒ 与 ARM_A 成对 ⇒ 直接读出『换初始化权重』这一个变量的净效应",
+    "params": {
+      "mix_spec": "w3.0", "lr_scale": 1.0, "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906, "focal_beta": 2.75, "offset_weight": 0.40,
+      "mosaic": 0.15, "scale": 0.10, "translate": 0.05, "clip_max_norm": 5.65,
+      "freeze_bn": false,
+      "init_from": "base474", "epochs": 8, "backbone_lr_scale": 1.0, "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "ARM_D_RC2_BBFREEZE_8EP",
+    "seed": 113,
+    "note": "极端特征保护：rc2 + lr0.5 + 8ep + **backbone_lr_scale=0（骨干整段冻结，只训 Neck+Head）** + freeze_bn",
+    "params": {
+      "mix_spec": "w3.0", "lr_scale": 0.5, "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906, "focal_beta": 2.75, "offset_weight": 0.40,
+      "mosaic": 0.15, "scale": 0.10, "translate": 0.05, "clip_max_norm": 5.65,
+      "freeze_bn": true,
+      "init_from": "rc2", "epochs": 8, "backbone_lr_scale": 0.0, "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "ARM_E_RC2_W25_10EP",
+    "seed": 114,
+    "note": "把 RC2 自己那条配方拉长：rc2 + **w2.5（RC2 原 mix）** + lr1.0 + 10ep + 骨干0.1 + 前2ep锁骨干 + freeze_bn",
+    "params": {
+      "mix_spec": "w2.5", "lr_scale": 1.0, "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906, "focal_beta": 2.75, "offset_weight": 0.40,
+      "mosaic": 0.15, "scale": 0.10, "translate": 0.05, "clip_max_norm": 5.65,
+      "freeze_bn": true,
+      "init_from": "rc2", "epochs": 10, "backbone_lr_scale": 0.1, "freeze_backbone_epochs": 2
+    }
+  },
+  {
+    "role": "ARM_F_RC2_LR03_15EP",
+    "seed": 115,
+    "note": "最保守极限：rc2 + lr**0.3** + **15ep** + 骨干0.1 + 前2ep锁骨干 + freeze_bn ⇒ 若这条仍打不过 GMC RC2，则『no-GMC 必须换底模』被强力证实",
+    "params": {
+      "mix_spec": "w3.0", "lr_scale": 0.3, "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906, "focal_beta": 2.75, "offset_weight": 0.40,
+      "mosaic": 0.15, "scale": 0.10, "translate": 0.05, "clip_max_norm": 5.65,
+      "freeze_bn": true,
+      "init_from": "rc2", "epochs": 15, "backbone_lr_scale": 0.1, "freeze_backbone_epochs": 2
+    }
+  }
+]

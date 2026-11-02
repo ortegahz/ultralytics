@@ -42,6 +42,12 @@ PARAMS = (
     "offset_weight", "mosaic", "scale", "translate", "clip_max_norm", "freeze_bn",
 )
 
+# ⚠️ 2026-10-30 扩展 4 维（周末 no-GMC 实验）：
+#   init_from / epochs / backbone_lr_scale / freeze_backbone_epochs
+#   ⇒ 「同配置」必须连这 4 维也逐位相同，否则**不同配置会被并成同配置**。
+#   老 CSV（GMC 侧 / 旧 no-GMC 侧）没有这些列 ⇒ 取空串 ⇒ 分组与旧版**逐位一致** ✅。
+EXTRA_PARAMS = ("init_from", "epochs", "backbone_lr_scale", "freeze_backbone_epochs")
+
 
 def _f(row: dict, key: str) -> float:
     try:
@@ -217,6 +223,10 @@ def seed_noise(csv_path: Path, max_trials: int = 200) -> list[dict]:
         fp3 = [_f(rows[n], "t3_fp") for n in names]
         out.append({
             "mix_spec": key[0], "lr_scale": key[1],
+            # ⚠️ 2026-10-30：把扩展 4 维也带出来（老 CSV 没有 ⇒ 空串），
+            #    汇总器才能拼出**可区分**的配置标签（否则 base474/8ep 与 rc2/8ep 标签一样）。
+            "init_from": key[11] if len(key) > 11 else "",
+            "epochs": key[12] if len(key) > 12 else "",
             "trials": names, "n_seeds": len(names),
             "t1_range_pp": (max(t1) - min(t1)) * 100.0,
             "t2_range_pp": (max(t2) - min(t2)) * 100.0,
@@ -305,7 +315,20 @@ def _trial_sort_key(name: str) -> int:
 
 
 def _param_tuple(row: dict) -> tuple:
-    return tuple((row.get(k) or "") for k in PARAMS)
+    """同配置判定键 = 全部调参维度**逐位相同**。
+
+    ⚠️ **2026-10-30 扩展**：周末实验在原 11 维上加了 4 维
+    （init_from / epochs / backbone_lr_scale / freeze_backbone_epochs）。
+    若只用 11 维分组 ⇒ **同 mix 同 lr、只差 init/epochs 的两条臂会被并成一组**
+    ⇒ 实测"种子噪声带"里混进了**配置间差异** ⇒ 噪声带虚高
+    ⇒ 交接判据会把明明可分的 U 误判成"不可分"。
+
+    ⇒ **凡是 CSV 里存在的扩展列都纳入分组键**；老 CSV（GMC 侧 / 旧 no-GMC 侧）
+    没有这些列 ⇒ 取空串 ⇒ 分组结果与旧版**逐位一致** ✅。
+    """
+    base = tuple((row.get(k) or "") for k in PARAMS)
+    extra = tuple(str(row.get(k) or "").strip() for k in EXTRA_PARAMS)
+    return base + extra
 
 
 def collect_pairs(gmc_csv: Path, nogmc_csv: Path, max_trials: int,

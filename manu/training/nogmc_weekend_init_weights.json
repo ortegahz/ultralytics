@@ -1,0 +1,11 @@
+{
+  "_comment": [
+    "周末 no-GMC 复现实验（2026-10-30）的**初始化权重映射**。",
+    "base474 = 冻结基线 trial_0474 best.pt（去 P0）—— 旧 no-GMC 实验的起点。",
+    "rc2     = GMC RC2 trial_0080 epoch3.pt —— 新假设的起点（最强难例表征 + 最高 T3 0.897694）。",
+    "两者 ckpt 结构实测同构（523 张量 / 29 个 p0_highway / p0_kwargs 一致）⇒ 可直接互换。",
+    "路径相对项目根 /tmp/pycharm_project_10ae9e2e；调度器会自动归一成绝对路径。"
+  ],
+  "base474": "runs/optuna_p0_nas/trial_0474/weights/best.pt",
+  "rc2": "runs/optuna_mix_ratio/trials/trial_0080/weights/epoch3.pt"
+}

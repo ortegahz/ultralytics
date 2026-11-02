@@ -1084,6 +1084,45 @@ typedef void (*MosaicFrameCallback)(void* user, int32_t index, const char* frame
 int32_t mosaic_pipeline_config_preset(MosaicPipelineConfig* cfg, int32_t preset);
 int32_t mosaic_pipeline_config_set_paths(MosaicPipelineConfig* cfg, const char* model_path,
                                          const char* kernel_dir, const char* sequence);
+
+/* Set the RESOLUTION the GMC estimates at (gmc_downscale).
+ *
+ * WHAT IT IS: the 640x512 feature frame is downscaled by this factor BEFORE any
+ * corner detection / LK fitting happens.  The transform is scaled back up when
+ * it is applied, so the mosaic alignment stays in native pixels.
+ *
+ *   2 = the FROZEN production value -> the GMC fits at **320x256**
+ *       (gmc_stream_ocl.cpp: "half-res already: 640x512 -> 320x256 before any
+ *       fitting").  This is what the certified arm used.
+ *   4 -> the GMC fits at **160x128** (a quarter of the pixels, and a quarter of
+ *       the corner-finding and LK work).
+ *
+ * ⚠️ This is NOT a free knob: a different resolution means a different
+ * transform, so the mosaic alignment -- and therefore the detections -- CHANGE.
+ * Any accuracy claim made with it must be measured, not assumed.
+ *
+ * Returns 0 on success, non-zero on invalid arguments (NULL cfg, out of range).
+ */
+int32_t mosaic_pipeline_config_set_gmc_downscale(MosaicPipelineConfig* cfg, int32_t downscale);
+
+/* Set the GMC anchor step (how many lags each fit is chained over).
+ *
+ *   2 = the FROZEN production value -> every lag of the 21-frame window
+ *       (lags 2,4,...,42) is fitted DIRECTLY over the long baseline, with zero
+ *       composition, so the board output is BIT-IDENTICAL to the server's frozen
+ *       official features.  That is 21 anchors per fit.
+ *   10 = the "tree" anchor cascade -> only lags 10,20,30,40 and 42 are fitted
+ *       (5 anchors) and the other 16 lags are composed from them.  Roughly 3.4x
+ *       cheaper, but NOT equivalent: 40.7% of the frames differ from the server
+ *       reference, so it breaks the certification chain.
+ *
+ * ⚠️ anchor_step must be a multiple of stride_step (2), or the chain recursion
+ * would not land exactly on the anchors (the engine refuses to start).
+ *
+ * Returns 0 on success, non-zero on invalid arguments (NULL cfg, out of range).
+ */
+int32_t mosaic_pipeline_config_set_gmc_anchor_step(MosaicPipelineConfig* cfg, int32_t anchor_step);
+
 int32_t mosaic_pipeline_env_check(const MosaicPipelineConfig* cfg, const char* raw_root,
                                    MosaicEnvReport* out);
 int32_t mosaic_pipeline_list_frames(const char* seq_dir, MosaicFrameCallback cb, void* user,

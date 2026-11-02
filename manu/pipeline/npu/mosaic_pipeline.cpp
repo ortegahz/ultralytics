@@ -2384,6 +2384,42 @@ int32_t mosaic_pipeline_config_set_paths(MosaicPipelineConfig* cfg, const char* 
   return 0;
 }
 
+// v10.4: the resolution the GMC estimates at.
+//
+// 2 = the frozen production value -> the GMC fits at 320x256.
+// 4 -> the GMC fits at 160x128.
+//
+// ⚠️ The range is deliberately 1..4, the same range the library already
+// accepts in mosaic_pipeline_create()'s clamp table: a bigger factor would
+// starve the corner detector (fewer than a handful of corners) and a smaller
+// one buys nothing.
+int32_t mosaic_pipeline_config_set_gmc_downscale(MosaicPipelineConfig* cfg, int32_t downscale) {
+  if (!cfg) return -1;
+  if (downscale < 1 || downscale > 4) return -2;
+  cfg->gmc_downscale = downscale;
+  return 0;
+}
+
+// v10.5: the GMC anchor step.
+//
+// 2  = the frozen value: every lag of the 21-frame window (2,4,...,42) is an
+//      anchor, fitted directly over the long baseline -- 21 fits, bit-identical
+//      to the server's frozen official features.
+// 10 = the "tree" cascade: only lags 10,20,30,40,42 are fitted (5 anchors) and
+//      the other lags are composed from them -- ~3.4x cheaper, but 40.7% of the
+//      frames differ from the server reference.
+//
+// The range mirrors the library's own clamp table (2..64), and the value must
+// stay a multiple of stride_step (2) or the chain recursion would not land on
+// the anchors -- the engine refuses to start in that case.
+int32_t mosaic_pipeline_config_set_gmc_anchor_step(MosaicPipelineConfig* cfg, int32_t anchor_step) {
+  if (!cfg) return -1;
+  if (anchor_step < 2 || anchor_step > 64) return -2;
+  if (anchor_step % 2 != 0) return -3;  // stride_step is frozen at 2
+  cfg->gmc_anchor_step = anchor_step;
+  return 0;
+}
+
 // Check that this machine can actually run the pipeline, and write a
 // human-readable report.
 //
@@ -2545,6 +2581,73 @@ MosaicPipeline* mosaic_pipeline_open(const MosaicOpenOptions* opt, char* errbuf,
   MosaicPipelineConfig cfg;
   mosaic_pipeline_config_preset(&cfg, opt->preset);
   mosaic_pipeline_config_set_paths(&cfg, opt->model_path, opt->kernel_dir, opt->sequence);
+
+  // v10.4: the GMC estimation resolution, as a DEPLOYMENT knob.
+  //
+  // Why an environment variable and not a field: `MosaicOpenOptions` is a
+  // public struct and its LAYOUT IS FROZEN -- growing it would break every
+  // client compiled against v10.2 (the library would read past the end of the
+  // client's struct).  The knob therefore rides on the environment, exactly
+  // like MOSAIC_POST_MODE, and the programmatic path is
+  // mosaic_pipeline_config_set_gmc_downscale() for callers that build their
+  // own config.
+  //
+  //   MOSAIC_GMC_DOWNSCALE=2  (default) -> the GMC fits at 320x256
+  //   MOSAIC_GMC_DOWNSCALE=4            -> the GMC fits at 160x128
+  //
+  // ⚠️ A different resolution means a different transform, so the detections
+  // CHANGE.  Any accuracy claim made with it must be measured.
+  {
+    const char* ds = getenv("MOSAIC_GMC_DOWNSCALE");
+    if (ds && *ds) {
+      const int v = atoi(ds);
+      if (v < 1 || v > 4) {
+        fprintf(stderr, "[WARN] MOSAIC_GMC_DOWNSCALE='%s' is out of range (1..4); "
+                        "keeping the default (2)\n", ds);
+      } else {
+        mosaic_pipeline_config_set_gmc_downscale(&cfg, v);
+        fprintf(stderr, "[i] gmc downscale = %d (the GMC fits at %dx%d)\n", v,
+                (int)(mosaic::kSrcW / v), (int)(mosaic::kSrcH / v));
+      }
+    }
+  }
+
+  // v10.5: the GMC anchor step, as a DEPLOYMENT knob (same reasoning as above:
+  // `MosaicOpenOptions` is frozen, so the knob rides on the environment and the
+  // programmatic path is mosaic_pipeline_config_set_gmc_anchor_step()).
+  //
+  //   MOSAIC_GMC_ANCHOR_STEP=2  (default) -> 21 anchors: every lag of the
+  //                                 21-frame window is fitted directly over the
+  //                                 long baseline, bit-identical to the server's
+  //                                 frozen official features.
+  //   MOSAIC_GMC_ANCHOR_STEP=10           -> 5 anchors (lags 10,20,30,40,42);
+  //                                 the other lags are composed from them.
+  //                                 ~3.4x cheaper, but 40.7% of the frames
+  //                                 differ from the server reference.
+  {
+    const char* as = getenv("MOSAIC_GMC_ANCHOR_STEP");
+    if (as && *as) {
+      const int v = atoi(as);
+      if (mosaic_pipeline_config_set_gmc_anchor_step(&cfg, v) != 0) {
+        fprintf(stderr, "[WARN] MOSAIC_GMC_ANCHOR_STEP='%s' is not a valid anchor step "
+                        "(2..64, and a multiple of stride_step=2); keeping the default (2)\n", as);
+      } else {
+        // The anchor grid, exactly as anchor_grid() builds it: the lags
+        // stride_step, stride_step+anchor_step, ... up to max_lag, plus max_lag
+        // itself (if it is not already in that list), keeping only the multiples
+        // of stride_step.
+        const int stride = 2, window = 21, max_lag = window * stride;
+        int n_anchor = 0;
+        bool max_lag_in_list = false;
+        for (int lag = stride; lag <= max_lag; lag += v) {
+          if (lag % stride == 0) n_anchor++;
+          if (lag == max_lag) max_lag_in_list = true;
+        }
+        if (!max_lag_in_list && max_lag % stride == 0) n_anchor++;  // max_lag itself
+        fprintf(stderr, "[i] gmc anchor step = %d (%d anchors per fit)\n", v, n_anchor);
+      }
+    }
+  }
 
   // The environment check is OPTIONAL.  It runs only when the caller asked
   // for it AND gave a raw root to look at: a client that streams live frames

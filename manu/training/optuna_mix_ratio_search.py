@@ -131,7 +131,11 @@ MIX_SPECS = [
 # ⚠️ **默认关闭**（EXTENDED_SPACE=False ⇒ suggest_params 与旧版逐位相同），
 #    只有显式传 --extended-space 才启用 ⇒ **GMC 侧既有 study 的搜索空间不受污染**。
 INIT_CHOICES = ["base474", "rc2"]
-EPOCH_CHOICES = [3, 6, 10, 15]
+# ⚠️ **这里必须覆盖对照矩阵用到的每一个 epoch 数**（含 8）。
+#    Optuna 的 suggest_categorical 对"固定参数不在 choices 里"会直接抛
+#    `ValueError: '8' not in (3, 6, 10, 15)` ⇒ **入队阶段就炸**（实测踩过）。
+#    改这个列表时，必须同步改 nogmc_weekend_plan.json。
+EPOCH_CHOICES = [3, 6, 8, 10, 15]
 BACKBONE_LR_SCALE_CHOICES = [1.0, 0.3, 0.1, 0.0]
 FREEZE_BB_EPOCH_CHOICES = [0, 2]
 # lr_scale 下探到 0.2（RC2 初始化需要小步长；旧版下限 0.3）
@@ -141,6 +145,34 @@ WARMUP_EPOCHS_LOW, WARMUP_EPOCHS_HIGH = 0.2, 1.5
 
 # 由调度器按 --extended-space 设置（worker 进程不读它）
 EXTENDED_SPACE = False
+
+# ==============================================================================
+# 聚焦搜索空间（2026-11-02 定点打靶模式，--focus-space）
+# ==============================================================================
+# 为什么要它：周末 114 个 trial 已把**宏观规律**打透（rc2 起步 / 6~15 ep / lr 1.0~2.9 /
+# 骨干保护 / mix 2.0~6.0），但 TPE 仍在 11~15 维全空间里盲搜 ⇒ 大部分算力浪费在
+# 3ep、w8.0、lr>3.0、base474+大 lr 这类**已知无望的角落**。
+# ⇒ 聚焦模式把每一维**收窄到贴着已知好点**的区间/取值，
+#    让同样的算力换成确定性最高的收敛收益（"定点打靶"而非"发散盲搜"）。
+#
+# ⚠️ 用在**新 study**上（换 study-name）：categorical 取值集合一旦被某 study 记录，
+#    换集合会触发 Optuna 的 "dynamic value space" 报错。
+FOCUS_SPACE = False
+FOCUS_CHOICES = {
+    # 初始化权重：rc2 是主力（周末实测 init 效应 +1.6~2.9 pp），
+    # 保留 base474 只作**对照**（同参成对比较要用）
+    "init_from": ["rc2", "base474"],
+    # epoch：3 ep 已被证"半夹生"，从 6 起（甜点 6~8，探顶 15）
+    "epochs": [6, 8, 10, 15],
+    # 混合比：2.0~8.0（w1.0/w1.5 已被证无望；w6.0/w8.0 是源域高占比方向）
+    "mix_spec": ["w2.0", "w3.0", "w6.0", "w8.0", "natural"],
+    # 骨干 lr 倍率：0（整段冻结）/0.1/0.3/1.0（不缩放）
+    "backbone_lr_scale": [0.0, 0.1, 0.3, 1.0],
+    # 渐进解冻：0（不解冻）/2（前 2 ep 锁骨干）
+    "freeze_backbone_epochs": [0, 2],
+}
+# lr 区间：weekend 实测有效带 1.0~2.92；收窄到 [0.8, 3.0]
+FOCUS_LR_SCALE = (0.8, 3.0)
 
 # 路线 B 已验证的超参（作为种子与缩放中心）
 ROUTE_B_DEFAULTS = {
@@ -219,12 +251,20 @@ def suggest_params(trial: optuna.Trial) -> dict:
 
     ⚠️ **EXTENDED_SPACE=False 时与旧版逐位相同**（11 维），保证 GMC 侧既有 study
     的搜索空间不被新维度污染；只有新实验（传 --extended-space）才走 15 维分支。
+
+    ⚠️ **FOCUS_SPACE=True（--focus-space）时**再进一步把每一维收窄到"贴着已知好点"的
+    取值/区间（见 FOCUS_CHOICES / FOCUS_LR_SCALE）⇒ 定点打靶而非发散盲搜。
+    ⚠️ 聚焦模式**必须用新 study-name**（categorical 取值集合被 study 记录后不可改）。
     """
     params = {
         # ★ 关键参数：dataloader 混合比例（口径 1 = Batch 内采样概率）
-        "mix_spec": trial.suggest_categorical("mix_spec", MIX_SPECS),
+        "mix_spec": trial.suggest_categorical(
+            "mix_spec", FOCUS_CHOICES["mix_spec"] if FOCUS_SPACE else MIX_SPECS),
         # 其余超参
-        "lr_scale": trial.suggest_float("lr_scale", LR_SCALE_LOW, LR_SCALE_HIGH, log=True),
+        "lr_scale": trial.suggest_float(
+            "lr_scale",
+            *(FOCUS_LR_SCALE if FOCUS_SPACE else (LR_SCALE_LOW, LR_SCALE_HIGH)),
+            log=True),
         "warmup_epochs": trial.suggest_float("warmup_epochs", WARMUP_EPOCHS_LOW, WARMUP_EPOCHS_HIGH),
         "weight_decay": trial.suggest_float("weight_decay", 1e-5, 5e-4, log=True),
         "focal_beta": trial.suggest_float("focal_beta", 2.2, 2.9, step=0.05),
@@ -237,13 +277,17 @@ def suggest_params(trial: optuna.Trial) -> dict:
     }
     if EXTENDED_SPACE:
         # ---- 周末扩展 4 维（2026-10-30）----
-        params["init_from"] = trial.suggest_categorical("init_from", INIT_CHOICES)
-        params["epochs"] = trial.suggest_categorical("epochs", EPOCH_CHOICES)
+        params["init_from"] = trial.suggest_categorical(
+            "init_from", FOCUS_CHOICES["init_from"] if FOCUS_SPACE else INIT_CHOICES)
+        params["epochs"] = trial.suggest_categorical(
+            "epochs", FOCUS_CHOICES["epochs"] if FOCUS_SPACE else EPOCH_CHOICES)
         params["backbone_lr_scale"] = trial.suggest_categorical(
-            "backbone_lr_scale", BACKBONE_LR_SCALE_CHOICES
+            "backbone_lr_scale",
+            FOCUS_CHOICES["backbone_lr_scale"] if FOCUS_SPACE else BACKBONE_LR_SCALE_CHOICES
         )
         params["freeze_backbone_epochs"] = trial.suggest_categorical(
-            "freeze_backbone_epochs", FREEZE_BB_EPOCH_CHOICES
+            "freeze_backbone_epochs",
+            FOCUS_CHOICES["freeze_backbone_epochs"] if FOCUS_SPACE else FREEZE_BB_EPOCH_CHOICES
         )
     return params
 
@@ -838,6 +882,26 @@ def run_worker() -> int:
         print("[SMOKE] --skip-gate，跳过门禁", flush=True)
         cmd = ["true"]
     t_gate = time.time()
+    # ⚠️⚠️ **2026-11-02 关键修复：调门禁前必须把训练模型从显存里放掉**。
+    #    门禁的龙泉山热图缓存重建（multiscale_heatmap_cache.py）是**独立子进程**，
+    #    且跑在**本 trial 自己的那张卡**上（--cache-gpus = 本卡）；而训练用的模型
+    #    此时仍驻留在同一张卡上（约 11 GB）⇒ 11 GB + 缓存峰值 ⇒ **CUDA OOM**
+    #    （2026-10-30 傍晚实测炸掉 3 条 trial 的门禁：trial_0006 / 0011 / 0068）。
+    #    ⇒ 这里显式把模型搬回 CPU 并释放引用 + 清空分配器，把整张卡让给门禁子进程。
+    #    （`model` 在权重落盘后不再被使用，此处 del 是安全的。）
+    try:
+        model.to("cpu")
+        del model
+        import gc
+        gc.collect()
+        if torch.cuda.is_available():
+            free_gib = torch.cuda.mem_get_info()[0] / (1024 ** 3)
+            torch.cuda.empty_cache()
+        else:
+            free_gib = float("nan")
+        print(f"[GATE-MEM] 已释放训练模型显存（free={free_gib:.1f} GiB）", flush=True)
+    except Exception as _e:
+        print(f"[GATE-MEM] 释放显存失败（忽略，不影响门禁）：{_e}", flush=True)
     rc = subprocess.call(cmd, cwd=str(REPO_ROOT))
     print(f"[GATE] rc={rc} 用时 {time.time()-t_gate:.1f}s", flush=True)
 
@@ -1029,6 +1093,14 @@ def main() -> int:
         help="参照系包 JSON（透传给每个 worker）。换特征语义（如 no-GMC）时必传；不传 = 现有 GMC 语义。",
     )
     ap.add_argument(
+        "--focus-space",
+        action="store_true",
+        help="**定点打靶模式**（2026-11-02）：把搜索空间每一维收窄到贴着已知好点的区间/取值"
+             "（mix ∈ {w2.0,w3.0,w6.0,w8.0,natural}；lr ∈ [0.8,3.0]；ep ∈ {6,8,10,15}；"
+             "骨干倍率 ∈ {0,0.1,0.3,1.0}；锁骨干 ∈ {0,2}）⇒ 算力换成确定性最高的收敛收益。"
+             "⚠️ **必须用新 study-name**（categorical 取值集合被 study 记录后不可改）。",
+    )
+    ap.add_argument(
         "--extended-space",
         action="store_true",
         help="启用周末扩展搜索空间（+init_from / +epochs / +backbone_lr_scale / +freeze_backbone_epochs）。"
@@ -1050,17 +1122,29 @@ def main() -> int:
     )
     args = ap.parse_args()
 
-    global EXTENDED_SPACE
+    global EXTENDED_SPACE, FOCUS_SPACE
     EXTENDED_SPACE = bool(args.extended_space)
+    FOCUS_SPACE = bool(args.focus_space)
+    if FOCUS_SPACE:
+        EXTENDED_SPACE = True   # 聚焦模式隐含扩展空间（要用 init/epochs/骨干 4 维）
+        print("[FOCUS] 定点打靶模式已启用：搜索空间收窄到已知好点附近", flush=True)
 
     # ---- 初始化权重映射（扩展空间用）----
     init_map: dict[str, str] = {}
     if args.init_weights_map:
         init_map = json.loads(Path(args.init_weights_map).read_text(encoding="utf-8"))
         print(f"[INIT-MAP] {json.dumps(init_map, ensure_ascii=False)}", flush=True)
-        for _k, _v in init_map.items():
-            if not Path(_v).is_file():
-                raise FileNotFoundError(f"初始化权重不存在：{_k} → {_v}")
+        for _k, _v in list(init_map.items()):
+            if not isinstance(_v, str):
+                # 允许 JSON 里放说明性字段（如 "_comment": [...]）⇒ 非字符串一律跳过
+                continue
+            _p = Path(_v)
+            if not _p.is_absolute():
+                _p = REPO_ROOT / _p
+            if not _p.is_file():
+                raise FileNotFoundError(f"初始化权重不存在：{_k} → {_p}")
+            init_map[_k] = str(_p)  # 归一成绝对路径 ⇒ worker 直接可用
+        print(f"[INIT-MAP] 归一后 {json.dumps(init_map, ensure_ascii=False)}", flush=True)
     if EXTENDED_SPACE and not init_map:
         raise RuntimeError("[INIT-MAP] 扩展空间必须提供 --init-weights-map（每个 init_from 都要有对应权重）")
 
@@ -1132,6 +1216,51 @@ def main() -> int:
     # ---- 确定性对照臂（--enqueue-plan）------------------------------------
     # 为什么要有它：TPE 是概率性的；用户点名要验的 4 组假设（对照组/A/B/C）
     # **必须保证被跑到**，不能靠"运气"。入队后 study.ask() 会优先取走。
+    #
+    # ⚠️ **去重护栏**：看门狗会在调度器意外退出后**重启调度器**；若每次启动都把
+    #    整份计划重新入队，同一条臂会被重复跑（浪费 GPU，且拿到的是同一个 seed）。
+    #    ⇒ 入队前按**参数集 + 种子**指纹比对 study 里已有 trial（任何状态都算），命中就跳过。
+    #
+    # ⚠️ **为什么指纹里必须带种子**：复现阶段（plan_replication.py）要干的正是
+    #    「同一条配方、换一组种子再跑」⇒ 参数集与已有 trial **完全相同**。
+    #    若只按参数集去重，复现臂会被**全部跳过** ⇒ 复现阶段等于没跑。
+    #    带种子后：Phase-1 臂（seed 100）在看门狗重启时被跳过 ✅；Phase-3 复现臂（seed 900+）正常入队 ✅。
+    def _cfg_sig(d: dict, seed=None) -> tuple:
+        sig = []
+        for k in sorted(d.keys()):
+            v = d[k]
+            if isinstance(v, bool):
+                sig.append((k, bool(v)))
+            elif isinstance(v, (int, float)):
+                sig.append((k, round(float(v), 6)))
+            else:
+                sig.append((k, str(v)))
+        sig.append(("__seed__", None if seed is None else int(seed)))
+        return tuple(sig)
+
+    existing_sigs = set()
+    for _t in study.get_trials(deepcopy=False):
+        pr = dict(getattr(_t, "params", None) or {})
+        if not pr:
+            # ⚠️ **WAITING trial 的 `.params` 是空的**（入队参数存在 system_attrs 里，
+            #    要等 `study.ask()` 取走、真正 suggest_* 之后才落到 `.params`）。
+            #    只看 `.params` 会把"已入队但还没跑"的臂当成不存在 ⇒ 看门狗重启时**重复入队**。
+            try:
+                pr = dict((getattr(_t, "system_attrs", None) or {}).get("fixed_params") or {})
+            except Exception:
+                pr = {}
+        if not pr:
+            continue
+        try:
+            _seed = (getattr(_t, "user_attrs", None) or {}).get("seed")
+        except Exception:
+            _seed = None
+        try:
+            existing_sigs.add(_cfg_sig(pr, _seed))
+        except Exception:
+            continue
+    print(f"[PLAN] study 已有 {len(study.trials)} 个 trial（{len(existing_sigs)} 个不同「参数集+种子」指纹）", flush=True)
+
     if args.enqueue_plan:
         allowed = {"mix_spec", "lr_scale", "warmup_epochs", "weight_decay", "focal_beta",
                    "offset_weight", "mosaic", "scale", "translate", "clip_max_norm", "freeze_bn"}
@@ -1139,17 +1268,28 @@ def main() -> int:
             allowed |= {"init_from", "epochs", "backbone_lr_scale", "freeze_backbone_epochs"}
         plan = json.loads(Path(args.enqueue_plan).read_text(encoding="utf-8"))
         n_enq = 0
+        n_skip = 0
         for item in plan:
             raw = dict(item.get("params") or {})
             p = {k: v for k, v in raw.items() if k in allowed}
+            item_seed = item.get("seed")
+            sig = _cfg_sig(p, item_seed)
+            if sig in existing_sigs:
+                n_skip += 1
+                print(f"[PLAN] 跳过（已存在同「参数集+种子」）role={item.get('role')} "
+                      f"init={p.get('init_from')} ep={p.get('epochs')} lr={p.get('lr_scale')} "
+                      f"seed={item_seed}", flush=True)
+                continue
             ua = {"role": str(item.get("role", "")), "enqueued_by": "enqueue_plan"}
-            if item.get("seed") is not None:
-                ua["seed"] = int(item["seed"])
+            if item_seed is not None:
+                ua["seed"] = int(item_seed)
             study.enqueue_trial(p, skip_if_exists=False, user_attrs=ua)
+            existing_sigs.add(sig)
             n_enq += 1
             print(f"[PLAN] 入队 #{n_enq} role={ua['role']} init={p.get('init_from')} "
-                  f"ep={p.get('epochs')} lr={p.get('lr_scale')} mix={p.get('mix_spec')}", flush=True)
-        print(f"[PLAN] 共注入 {n_enq} 个确定性对照臂（优先于 TPE 采样）", flush=True)
+                  f"ep={p.get('epochs')} lr={p.get('lr_scale')} mix={p.get('mix_spec')} "
+                  f"seed={item_seed}", flush=True)
+        print(f"[PLAN] 注入 {n_enq} 个确定性对照臂（跳过已存在 {n_skip} 个）", flush=True)
 
     stop_flag = {"stop": False}
 
@@ -1231,7 +1371,12 @@ def main() -> int:
             freeze_bb_epochs = int(params.get("freeze_backbone_epochs", 0) or 0)
             # cosine 周期：3 epoch 仍用 5（与 RC1/Ep3 同 LR 轨迹，保留旧口径）；
             # ≥6 epoch 用自身长度 ⇒ 让 lr 在整段训练里走完一整个 cosine。
-            sched_epochs = 5 if trial_epochs == 3 else trial_epochs
+            #
+            # ⚠️ **只在扩展模式才由调度器显式传 --sched-epochs**：
+            #    旧版调度器从不传这个参数 ⇒ worker 用自己的默认值 5。
+            #    若在非扩展模式下也显式传值，当 --epochs≠3 时 cosine 周期会从 5 变成 trial_epochs
+            #    ⇒ **GMC 老路径的行为回归**。故此处必须保持逐位不变（None = 不传该参数）。
+            sched_epochs = (5 if trial_epochs == 3 else trial_epochs) if EXTENDED_SPACE else None
 
             trial_name = f"trial_{trial.number:04d}"
             log_file = out_root / "logs" / f"{trial_name}.log"
@@ -1247,7 +1392,6 @@ def main() -> int:
                 "--gate-script", args.gate_script,
                 "--baseline-cache", args.baseline_cache,
                 "--epochs", str(trial_epochs),
-                "--sched-epochs", str(sched_epochs),
                 "--batch", str(args.batch),
                 "--imgsz", str(args.imgsz),
                 "--workers", str(workers),
@@ -1269,6 +1413,9 @@ def main() -> int:
                 "--freeze-backbone-epochs", str(freeze_bb_epochs),
                 "--init-key", init_key,
             ]
+            if sched_epochs is not None:
+                # 只在扩展模式传（见上方注释）⇒ 非扩展模式与旧版**逐位一致**
+                cmd += ["--sched-epochs", str(sched_epochs)]
             if args.reference_frame:
                 cmd += ["--reference-frame", args.reference_frame]
             fh = log_file.open("w", encoding="utf-8")

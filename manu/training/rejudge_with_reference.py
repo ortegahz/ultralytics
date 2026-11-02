@@ -94,9 +94,20 @@ def main() -> int:
     total = 0
     judged: dict[str, dict] = {}   # trial_name → 重判后的 result（落盘用，勿再从磁盘重读）
     for tr in sorted(out_root.glob("trials/trial_*/trial_result.json")):
-        rep = tr.parent / "gate" / f"epoch{args.epochs}" / "gate_report.json"
-        if not rep.is_file():
+        # ⚠️ **不能把 gate 目录硬编码成 `epoch3`**：
+        #    周末扩展实验的每 trial epoch 数是**可变的**（3/6/8/10/15），
+        #    门禁目录名 = 实际训练的末 epoch（epoch8 / epoch10 / epoch15 …）。
+        #    硬编码会让**所有长 epoch 的 trial 被整批跳过** ⇒ 重判形同虚设。
+        #    修法：先按 --epochs 精确匹配（保持旧行为逐位一致），匹配不到再取**最新的一个**。
+        gate_dir = tr.parent / "gate"
+        reps = sorted(gate_dir.glob("epoch*/gate_report.json")) if gate_dir.is_dir() else []
+        if args.epochs > 0:
+            exact = [r for r in reps if r.parent.name == f"epoch{args.epochs}"]
+            if exact:
+                reps = exact
+        if not reps:
             continue  # 基础设施失败：没有指标可重判，保持原样
+        rep = reps[-1]
         try:
             res = json.loads(tr.read_text(encoding="utf-8"))
         except Exception:

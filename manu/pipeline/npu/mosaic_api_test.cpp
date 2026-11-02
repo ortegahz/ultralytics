@@ -253,6 +253,35 @@ int main(int argc, char** argv)
                (long long)t.detections_dropped, (long long)t.gmc_groups_done,
                (long long)t.bufA_dropped,
                post_ms);
+        // ---- GMC 拟合的分布 ---------------------------------------------
+        // GMC 的拟合分辨率由 MOSAIC_GMC_DOWNSCALE 决定（2 = 320x256，冻结值；
+        // 4 = 160x128）。分辨率变了，变换就变了，检测结果也会变 —— 所以这两个数
+        // 必须一起看：**快了多少** 和 **准了多少**。
+        // ⚠️ 分母是 gmc_fit_samples（**拟合帧数**），不是 frames（有检测的帧数）
+        // —— 与 e2e 的双分母口径一致（见 MOSAIC_RK3588_REPORT.md 的教训 #18）。
+        {
+            const char* ds_env = getenv("MOSAIC_GMC_DOWNSCALE");
+            const char* as_env = getenv("MOSAIC_GMC_ANCHOR_STEP");
+            const int ds = (ds_env && *ds_env) ? atoi(ds_env) : 2;
+            const int as = (as_env && *as_env) ? atoi(as_env) : 2;
+            // anchor 网格与引擎的 anchor_grid() 同构：从 stride_step 起、每次
+            // +anchor_step、到 max_lag 为止，再补上 max_lag 本身（若不在表里），
+            // 只保留 stride_step 的倍数。
+            const int stride = 2, max_lag = 21 * stride;
+            int n_anchor = 0;
+            bool max_lag_in_list = false;
+            for (int lag = stride; lag <= max_lag; lag += as) {
+                if (lag % stride == 0) n_anchor++;
+                if (lag == max_lag) max_lag_in_list = true;
+            }
+            if (!max_lag_in_list && max_lag % stride == 0) n_anchor++;
+            const double fit_n = t.gmc_fit_samples > 0 ? (double)t.gmc_fit_samples : 1.0;
+            printf("[demo] GMC 拟合：分辨率 downscale=%d（%dx%d）｜anchor step=%d（每帧 %d 个锚点）｜"
+                   "拟合耗时：均值 %.3f ms｜p50 %.3f｜p95 %.3f｜p99 %.3f｜max %.3f｜样本 %lld\n",
+                   ds, 640 / ds, 512 / ds, as, n_anchor, t.gmc_fit_ms / fit_n,
+                   t.gmc_fit_p50_ms, t.gmc_fit_p95_ms, t.gmc_fit_p99_ms, t.gmc_fit_max_ms,
+                   (long long)t.gmc_fit_samples);
+        }
     }
 
     // ---- 后处理耗时的分布（均值会掩盖抖动，抖动才是延时预算要吸收的）-----
@@ -263,6 +292,19 @@ int main(int argc, char** argv)
                "p50 %.3f｜p90 %.3f｜p95 %.3f｜p99 %.3f｜min %.3f｜max %.3f\n",
                pt.frames, pt.mean_ms, pt.stddev_ms, pt.p50_ms, pt.p90_ms, pt.p95_ms,
                pt.p99_ms, pt.min_ms, pt.max_ms);
+    }
+    // ---- GMC 拟合的分布 -------------------------------------------------
+    // GMC 的拟合分辨率由 MOSAIC_GMC_DOWNSCALE 决定（2 = 320x256，冻结值；
+    // 4 = 160x128）。分辨率变了，变换就变了，检测结果也会变 —— 所以这两个数
+    // 必须一起看：**快了多少** 和 **准了多少**。
+    {
+        const char* ds_env = getenv("MOSAIC_GMC_DOWNSCALE");
+        const int ds = (ds_env && *ds_env) ? atoi(ds_env) : 2;
+        printf("[demo] GMC 拟合分辨率 downscale=%d（%dx%d）｜拟合耗时：均值 %.3f ms｜"
+               "p50 %.3f｜p95 %.3f｜p99 %.3f｜max %.3f｜样本 %lld\n",
+               ds, 640 / ds, 512 / ds, t.gmc_fit_ms / (t.gmc_fit_samples > 0 ? (double)t.gmc_fit_samples : 1.0),
+               t.gmc_fit_p50_ms, t.gmc_fit_p95_ms, t.gmc_fit_p99_ms, t.gmc_fit_max_ms,
+               (long long)t.gmc_fit_samples);
     }
     MosaicGpuPostTiming gt;
     if (mosaic_pipeline_get_gpu_post_timing(pipeline, &gt) == 0 && gt.frames > 0)
