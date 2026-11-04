@@ -95,14 +95,16 @@ purpose_of() {
     README.md)                    echo "使用说明（四条命令 + 交付/零参数/NFS/一键拷贝 各节）" ;;
     MANIFEST.md)                  echo "**本交付清单**（由 make_build_dir.sh 生成）" ;;
     build_lib.sh)                 echo "构建脚本①：只编译库 -> out/libmosaic_pipeline.a" ;;
-    build_demo.sh)                echo "构建脚本②：只编译测试程序 -> out/mosaic_api_test + out/mosaic_contract_test" ;;
+    build_demo.sh)                echo "构建脚本②：只编译测试程序 -> out/mosaic_api_test + out/mosaic_contract_test + out/rknn_mosaic_e2e" ;;
     copy_to_nfs.sh)               echo "一键脚本：编译 + 拷贝到 NFS + md5 回验 +（可选）板卡验证" ;;
+    known_hosts)                  echo "板卡主机密钥基线（ssh 严格校验用；板卡换密钥会直接失败，这是故意的）" ;;
     src/npu/mosaic_pipeline.cpp)  echo "库实现（GMC/OpenCL + RGA mosaic + RKNN fp16 + 反投影）" ;;
     src/npu/mosaic_pipeline.h)    echo "**公开 C ABI 头**（集成方写代码时 include 它）" ;;
     src/npu/mosaic_core.h)        echo "库内部核心头（GMC / RGA / RKNN 胶水层 + 后处理三路径）" ;;
     src/npu/mosaic_post_gpu.h)    echo "GPU 后处理路径（OpenCL 局部极大；kernel 已内嵌，**不需要**外置 .cl）" ;;
     src/npu/mosaic_api_test.cpp)  echo "示例 demo 源（只调公开 C ABI）" ;;
     src/npu/mosaic_contract_test.cpp) echo "契约测试源（验收门禁）" ;;
+    src/npu/rknn_mosaic_e2e.cpp)  echo "**端到端测试程序源**（吞吐/延时测量，只调公开 C ABI）" ;;
     src/cpp/gmc_stream_ocl.cpp)   echo "GMC/OpenCL 引擎（被 mosaic_pipeline.cpp 以 ../cpp/ 相对包含）" ;;
     src/cpp/md5.h)                echo "MD5 实现（被 gmc_stream_ocl.cpp 以 md5.h 相对包含）" ;;
     src/opencl/host/ocl_host.h)   echo "OpenCL host 封装（被 gmc_stream_ocl.cpp 以 ../opencl/host/ 相对包含）" ;;
@@ -127,6 +129,7 @@ out_note_of() {
     out/libmosaic_pipeline.a)  echo "**静态库**（客户链接它）" ;;
     out/mosaic_api_test)       echo "示例 demo 可执行文件（给客户的示例）" ;;
     out/mosaic_contract_test)  echo "契约测试可执行文件（验收门禁）" ;;
+    out/rknn_mosaic_e2e)       echo "端到端测试程序（吞吐/延时测量）" ;;
     *)                         echo "构建产物" ;;
   esac
 }
@@ -180,6 +183,7 @@ copy_one "$ROOT/mosaic_core.h"                  "src/npu/mosaic_core.h"
 copy_one "$ROOT/mosaic_post_gpu.h"              "src/npu/mosaic_post_gpu.h"
 copy_one "$ROOT/mosaic_api_test.cpp"            "src/npu/mosaic_api_test.cpp"
 copy_one "$ROOT/mosaic_contract_test.cpp"       "src/npu/mosaic_contract_test.cpp"
+copy_one "$ROOT/rknn_mosaic_e2e.cpp"            "src/npu/rknn_mosaic_e2e.cpp"
 # 被相对包含的引擎 / 工具 / OpenCL host
 copy_one "$ROOT/../cpp/gmc_stream_ocl.cpp"      "src/cpp/gmc_stream_ocl.cpp"
 copy_one "$ROOT/../cpp/md5.h"                   "src/cpp/md5.h"
@@ -197,6 +201,7 @@ copy_one "$ROOT/../opencl/kernels/gmc_feature_gpu.cl"    "runtime/kernels/gmc_fe
 copy_one "$HERE/build_lib.sh"       "build_lib.sh"
 copy_one "$HERE/build_demo.sh"      "build_demo.sh"
 copy_one "$HERE/copy_to_nfs.sh"     "copy_to_nfs.sh"
+copy_one "$HERE/known_hosts"        "known_hosts"
 chmod +x "$DEST/build_lib.sh" "$DEST/build_demo.sh" "$DEST/copy_to_nfs.sh"
 EXPECTED+=("README.md")   # 生成物，但在交付清单里（md5 在生成后才有）
 

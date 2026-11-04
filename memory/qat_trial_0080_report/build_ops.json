@@ -1,0 +1,11098 @@
+{
+ "a2f_qatw_toolkit_int8": {
+  "log": "/mnt/data/siping/ptq_work/logs/a2f_build.log",
+  "n_operators": 149,
+  "input_op_dtype": "INT8",
+  "input_op_device": "CPU",
+  "input_op_shape": "\\",
+  "dtype_all": {
+   "INT8": 149
+  },
+  "dtype_npu": {
+   "INT8": 146
+  },
+  "dtype_cpu": {
+   "INT8": 3
+  },
+  "n_npu_ops": 146,
+  "n_cpu_ops": 3,
+  "top_ops": {
+   "ConvExSwish": 76,
+   "Concat": 22,
+   "Add": 16,
+   "Split": 10,
+   "Resize": 5,
+   "Conv": 4,
+   "MaxPool": 3,
+   "Reshape": 3,
+   "ConvAdd": 2,
+   "ConvRelu": 2,
+   "OutputOperator": 2,
+   "InputOperator": 1
+  },
+  "rows": [
+   {
+    "op": "InputOperator",
+    "dtype": "INT8",
+    "dev": "CPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "exSDPAttention",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvAdd",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvAdd",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvRelu",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvRelu",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "OutputOperator",
+    "dtype": "INT8",
+    "dev": "CPU"
+   },
+   {
+    "op": "ConvSigmoid",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Clip",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "OutputOperator",
+    "dtype": "INT8",
+    "dev": "CPU"
+   }
+  ],
+  "name": "a2f_qatw_toolkit_int8"
+ },
+ "qat_arms": {
+  "log": "/mnt/data/siping/ptq_work/logs/qat_build_arms.log",
+  "n_operators": 1246,
+  "input_op_dtype": "FLOAT16",
+  "input_op_device": "CPU",
+  "input_op_shape": "\\",
+  "dtype_all": {
+   "FLOAT16": 1204,
+   "INT8": 42
+  },
+  "dtype_npu": {
+   "FLOAT16": 1186,
+   "INT8": 36
+  },
+  "dtype_cpu": {
+   "FLOAT16": 18,
+   "INT8": 6
+  },
+  "n_npu_ops": 1222,
+  "n_cpu_ops": 24,
+  "top_ops": {
+   "ConvExSwish": 608,
+   "Concat": 176,
+   "Add": 128,
+   "Split": 80,
+   "Conv": 44,
+   "exDataConvert": 42,
+   "Resize": 40,
+   "MaxPool": 24,
+   "Reshape": 24,
+   "ConvAdd": 16,
+   "OutputOperator": 16,
+   "Relu": 12
+  },
+  "rows": [
+   {
+    "op": "InputOperator",
+    "dtype": "FLOAT16",
+    "dev": "CPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exSDPAttention",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvAdd",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvAdd",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Relu",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Relu",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "OutputOperator",
+    "dtype": "FLOAT16",
+    "dev": "CPU"
+   },
+   {
+    "op": "ConvSigmoid",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Clip",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "OutputOperator",
+    "dtype": "INT8",
+    "dev": "CPU"
+   },
+   {
+    "op": "InputOperator",
+    "dtype": "FLOAT16",
+    "dev": "CPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exSDPAttention",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvAdd",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvAdd",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Relu",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Relu",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "OutputOperator",
+    "dtype": "FLOAT16",
+    "dev": "CPU"
+   },
+   {
+    "op": "ConvSigmoid",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Clip",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "OutputOperator",
+    "dtype": "INT8",
+    "dev": "CPU"
+   },
+   {
+    "op": "InputOperator",
+    "dtype": "FLOAT16",
+    "dev": "CPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exSDPAttention",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvAdd",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvAdd",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Relu",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Relu",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "OutputOperator",
+    "dtype": "FLOAT16",
+    "dev": "CPU"
+   },
+   {
+    "op": "ConvSigmoid",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Clip",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "OutputOperator",
+    "dtype": "INT8",
+    "dev": "CPU"
+   },
+   {
+    "op": "InputOperator",
+    "dtype": "FLOAT16",
+    "dev": "CPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exSDPAttention",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvAdd",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvAdd",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Relu",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Relu",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "OutputOperator",
+    "dtype": "FLOAT16",
+    "dev": "CPU"
+   },
+   {
+    "op": "ConvSigmoid",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Clip",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "OutputOperator",
+    "dtype": "INT8",
+    "dev": "CPU"
+   },
+   {
+    "op": "InputOperator",
+    "dtype": "FLOAT16",
+    "dev": "CPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exSDPAttention",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvAdd",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvAdd",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvRelu",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvRelu",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "OutputOperator",
+    "dtype": "FLOAT16",
+    "dev": "CPU"
+   },
+   {
+    "op": "ConvSigmoid",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Clip",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "OutputOperator",
+    "dtype": "FLOAT16",
+    "dev": "CPU"
+   },
+   {
+    "op": "InputOperator",
+    "dtype": "FLOAT16",
+    "dev": "CPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exSDPAttention",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvAdd",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvAdd",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvRelu",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvRelu",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "OutputOperator",
+    "dtype": "FLOAT16",
+    "dev": "CPU"
+   },
+   {
+    "op": "ConvSigmoid",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Clip",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "OutputOperator",
+    "dtype": "FLOAT16",
+    "dev": "CPU"
+   },
+   {
+    "op": "InputOperator",
+    "dtype": "FLOAT16",
+    "dev": "CPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exSDPAttention",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvAdd",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvAdd",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Relu",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Relu",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "OutputOperator",
+    "dtype": "FLOAT16",
+    "dev": "CPU"
+   },
+   {
+    "op": "ConvSigmoid",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Clip",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "OutputOperator",
+    "dtype": "INT8",
+    "dev": "CPU"
+   },
+   {
+    "op": "InputOperator",
+    "dtype": "FLOAT16",
+    "dev": "CPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exSDPAttention",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvAdd",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvAdd",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Relu",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Relu",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "OutputOperator",
+    "dtype": "FLOAT16",
+    "dev": "CPU"
+   },
+   {
+    "op": "ConvSigmoid",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Clip",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "OutputOperator",
+    "dtype": "INT8",
+    "dev": "CPU"
+   }
+  ],
+  "name": "qat_arms"
+ },
+ "a2_qat_learned": {
+  "log": "/mnt/data/siping/ptq_work/logs/._section_a2_qat_learned.log",
+  "n_operators": 158,
+  "input_op_dtype": "FLOAT16",
+  "input_op_device": "CPU",
+  "input_op_shape": "\\",
+  "dtype_all": {
+   "FLOAT16": 151,
+   "INT8": 7
+  },
+  "dtype_npu": {
+   "FLOAT16": 149,
+   "INT8": 6
+  },
+  "dtype_cpu": {
+   "FLOAT16": 2,
+   "INT8": 1
+  },
+  "n_npu_ops": 155,
+  "n_cpu_ops": 3,
+  "top_ops": {
+   "ConvExSwish": 76,
+   "Concat": 22,
+   "Add": 16,
+   "Split": 10,
+   "exDataConvert": 7,
+   "Conv": 6,
+   "Resize": 5,
+   "MaxPool": 3,
+   "Reshape": 3,
+   "ConvAdd": 2,
+   "Relu": 2,
+   "OutputOperator": 2
+  },
+  "rows": [
+   {
+    "op": "InputOperator",
+    "dtype": "FLOAT16",
+    "dev": "CPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exSDPAttention",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvAdd",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvAdd",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Relu",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Relu",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "OutputOperator",
+    "dtype": "FLOAT16",
+    "dev": "CPU"
+   },
+   {
+    "op": "ConvSigmoid",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Clip",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "OutputOperator",
+    "dtype": "INT8",
+    "dev": "CPU"
+   }
+  ],
+  "name": "a2_qat_learned",
+  "mean_std": 1
+ },
+ "a1_qat_maxclip": {
+  "log": "/mnt/data/siping/ptq_work/logs/._section_a1_qat_maxclip.log",
+  "n_operators": 158,
+  "input_op_dtype": "FLOAT16",
+  "input_op_device": "CPU",
+  "input_op_shape": "\\",
+  "dtype_all": {
+   "FLOAT16": 151,
+   "INT8": 7
+  },
+  "dtype_npu": {
+   "FLOAT16": 149,
+   "INT8": 6
+  },
+  "dtype_cpu": {
+   "FLOAT16": 2,
+   "INT8": 1
+  },
+  "n_npu_ops": 155,
+  "n_cpu_ops": 3,
+  "top_ops": {
+   "ConvExSwish": 76,
+   "Concat": 22,
+   "Add": 16,
+   "Split": 10,
+   "exDataConvert": 7,
+   "Conv": 6,
+   "Resize": 5,
+   "MaxPool": 3,
+   "Reshape": 3,
+   "ConvAdd": 2,
+   "Relu": 2,
+   "OutputOperator": 2
+  },
+  "rows": [
+   {
+    "op": "InputOperator",
+    "dtype": "FLOAT16",
+    "dev": "CPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exSDPAttention",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvAdd",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvAdd",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Relu",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Relu",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "OutputOperator",
+    "dtype": "FLOAT16",
+    "dev": "CPU"
+   },
+   {
+    "op": "ConvSigmoid",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Clip",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "OutputOperator",
+    "dtype": "INT8",
+    "dev": "CPU"
+   }
+  ],
+  "name": "a1_qat_maxclip",
+  "mean_std": 1
+ },
+ "a0_qat_float": {
+  "log": "/mnt/data/siping/ptq_work/logs/._section_a0_qat_float.log",
+  "n_operators": 149,
+  "input_op_dtype": "FLOAT16",
+  "input_op_device": "CPU",
+  "input_op_shape": "\\",
+  "dtype_all": {
+   "FLOAT16": 149
+  },
+  "dtype_npu": {
+   "FLOAT16": 146
+  },
+  "dtype_cpu": {
+   "FLOAT16": 3
+  },
+  "n_npu_ops": 146,
+  "n_cpu_ops": 3,
+  "top_ops": {
+   "ConvExSwish": 76,
+   "Concat": 22,
+   "Add": 16,
+   "Split": 10,
+   "Resize": 5,
+   "Conv": 4,
+   "MaxPool": 3,
+   "Reshape": 3,
+   "ConvAdd": 2,
+   "ConvRelu": 2,
+   "OutputOperator": 2,
+   "InputOperator": 1
+  },
+  "rows": [
+   {
+    "op": "InputOperator",
+    "dtype": "FLOAT16",
+    "dev": "CPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exSDPAttention",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvAdd",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvAdd",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvRelu",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvRelu",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "OutputOperator",
+    "dtype": "FLOAT16",
+    "dev": "CPU"
+   },
+   {
+    "op": "ConvSigmoid",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Clip",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "OutputOperator",
+    "dtype": "FLOAT16",
+    "dev": "CPU"
+   }
+  ],
+  "name": "a0_qat_float",
+  "mean_std": 1
+ },
+ "a1b_base_maxclip": {
+  "log": "/mnt/data/siping/ptq_work/logs/._section_a1b_base_maxclip.log",
+  "n_operators": 158,
+  "input_op_dtype": "FLOAT16",
+  "input_op_device": "CPU",
+  "input_op_shape": "\\",
+  "dtype_all": {
+   "FLOAT16": 151,
+   "INT8": 7
+  },
+  "dtype_npu": {
+   "FLOAT16": 149,
+   "INT8": 6
+  },
+  "dtype_cpu": {
+   "FLOAT16": 2,
+   "INT8": 1
+  },
+  "n_npu_ops": 155,
+  "n_cpu_ops": 3,
+  "top_ops": {
+   "ConvExSwish": 76,
+   "Concat": 22,
+   "Add": 16,
+   "Split": 10,
+   "exDataConvert": 7,
+   "Conv": 6,
+   "Resize": 5,
+   "MaxPool": 3,
+   "Reshape": 3,
+   "ConvAdd": 2,
+   "Relu": 2,
+   "OutputOperator": 2
+  },
+  "rows": [
+   {
+    "op": "InputOperator",
+    "dtype": "FLOAT16",
+    "dev": "CPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exSDPAttention",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvAdd",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvAdd",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Relu",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Relu",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "OutputOperator",
+    "dtype": "FLOAT16",
+    "dev": "CPU"
+   },
+   {
+    "op": "ConvSigmoid",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "exDataConvert",
+    "dtype": "FLOAT16",
+    "dev": "NPU"
+   },
+   {
+    "op": "Clip",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "OutputOperator",
+    "dtype": "INT8",
+    "dev": "CPU"
+   }
+  ],
+  "name": "a1b_base_maxclip",
+  "mean_std": 1
+ },
+ "base_weights_toolkit_int8": {
+  "log": "/mnt/data/siping/ptq_work/logs/base_verbose_build.log",
+  "n_operators": 149,
+  "input_op_dtype": "INT8",
+  "input_op_device": "CPU",
+  "input_op_shape": "\\",
+  "dtype_all": {
+   "INT8": 149
+  },
+  "dtype_npu": {
+   "INT8": 146
+  },
+  "dtype_cpu": {
+   "INT8": 3
+  },
+  "n_npu_ops": 146,
+  "n_cpu_ops": 3,
+  "top_ops": {
+   "ConvExSwish": 76,
+   "Concat": 22,
+   "Add": 16,
+   "Split": 10,
+   "Resize": 5,
+   "Conv": 4,
+   "MaxPool": 3,
+   "Reshape": 3,
+   "ConvAdd": 2,
+   "ConvRelu": 2,
+   "OutputOperator": 2,
+   "InputOperator": 1
+  },
+  "rows": [
+   {
+    "op": "InputOperator",
+    "dtype": "INT8",
+    "dev": "CPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "MaxPool",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "exSDPAttention",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Reshape",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvAdd",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvAdd",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Split",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Add",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Resize",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Concat",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvExSwish",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvRelu",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "ConvRelu",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Conv",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "OutputOperator",
+    "dtype": "INT8",
+    "dev": "CPU"
+   },
+   {
+    "op": "ConvSigmoid",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "Clip",
+    "dtype": "INT8",
+    "dev": "NPU"
+   },
+   {
+    "op": "OutputOperator",
+    "dtype": "INT8",
+    "dev": "CPU"
+   }
+  ],
+  "name": "base_weights_toolkit_int8"
+ }
+}

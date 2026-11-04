@@ -1,8 +1,9 @@
-> ⚠️ **本文件是模板，不是交付物本身。**
-> 交付物 `build/MANIFEST.md` 由
-> `{{SRC_ROOT}}/packaging/make_build_dir.sh` 从本文件生成，**请勿手改生成物**。
-> 占位符（双花括号形式）由脚本按实况填充；`MD5_TABLE` 标记之间的表由脚本自动生成。
-> 模板若漏改一个，脚本会检查到残留的双花括号并直接报错退出。
+> ℹ️ **这份文件怎么来的**：交付物 `MANIFEST.md` 由工程里的
+> `{{SRC_ROOT}}/packaging/MANIFEST.template.md` 生成（占位符由脚本按实况填充；
+> `MD5_TABLE` 标记之间的表由脚本自动生成；模板漏改一个，脚本会当场报错退出）。
+> **请勿手改交付物。**
+>
+> ℹ️ **命令里的绝对路径（`/media/manu/...`）是作者机器上的**：换成你自己的包目录即可。
 
 # MANIFEST.md —— 嵌入式组集成交付清单
 
@@ -14,7 +15,39 @@
 ## A. 包内容总览
 
 包根目录：`manu/pipeline/npu/build/`（仓库内路径
-`{{PKG_ROOT}}/`）。
+`{{PKG_ROOT}}/`）。**交付给集成方的目录名是 `mosaic_sdk/`**（本机
+`{{NFS_ROOT}}/mosaic_sdk/`，板卡侧 `/mnt/manu/mosaic_sdk/`），**内容与 `build/` 一致**。
+
+### 交付到板卡后的目录结构
+
+```
+/mnt/manu/mosaic_sdk/
+├── README.md / MANIFEST.md / build_lib.sh / build_demo.sh / copy_to_nfs.sh
+├── src/
+│   ├── npu/    mosaic_pipeline.cpp/.h, mosaic_core.h, mosaic_post_gpu.h,
+│   │           mosaic_api_test.cpp, mosaic_contract_test.cpp,
+│   │           rknn_mosaic_e2e.cpp
+│   ├── cpp/    gmc_stream_ocl.cpp, md5.h
+│   └── opencl/host/   ocl_host.h, post_local_max.cl
+├── include/    rknn_api.h, stb_image.h, stb_image_resize.h, stb_image_write.h,
+│               rga/×18, CL/×20
+├── runtime/kernels/    warp_median_fused.cl, sortnet_generated.inc, gmc_feature_gpu.cl
+├── out/        mosaic_pipeline.o, libmosaic_pipeline.a,
+│               mosaic_api_test, mosaic_contract_test, rknn_mosaic_e2e
+└── 兼容别名（相对符号链接）：
+    mosaic_api_test       -> out/mosaic_api_test
+    mosaic_contract_test  -> out/mosaic_contract_test
+    libmosaic_pipeline.a  -> out/libmosaic_pipeline.a
+    mosaic_pipeline.h     -> src/npu/mosaic_pipeline.h
+    kernels               -> runtime/kernels
+```
+
+* `mosaic_sdk/` 是 `build/` 的**整树镜像**：源＝包目录下的每个普通文件，
+  目标＝**同名相对路径**（`src/`、`include/`、`runtime/kernels/`、`out/` 整树照搬）。
+* 顶层那 5 个**兼容别名是符号链接**（不是副本），分别指向 `out/` 与 `src/npu/`，
+  为的是**旧的平铺命令**（`./mosaic_api_test --kernel-dir ./kernels`）继续可用。
+* `out/` 的 5 个产物在交付包里**已预编译**（RK3588 / aarch64），嵌入式组
+  **不必**先编译即可直接跑；确实要重编时在交付目录原地编（见 §B、§F）。
 
 <!-- MD5_TABLE:BEGIN -->
 （本段由 `make_build_dir.sh` 自动生成，勿手改）
@@ -39,23 +72,44 @@
 | 库实现 | `src/npu/mosaic_pipeline.cpp` | 库的编译单元 |
 | 公开 ABI | `src/npu/mosaic_pipeline.h` | 客户写代码时 include 它（C ABI） |
 | 内部头 | `src/npu/mosaic_core.h` | GMC / RGA / RKNN 胶水层 |
+| 内部头 | `src/npu/mosaic_post_gpu.h` | GPU 后处理路径（头内已内嵌同一份 kernel 源码） |
 | 引擎 | `src/cpp/gmc_stream_ocl.cpp` | GMC/OpenCL 引擎 |
 | 工具 | `src/cpp/md5.h` | MD5 实现 |
 | OpenCL host | `src/opencl/host/ocl_host.h` | OpenCL 封装 |
+| OpenCL 副本 | `src/opencl/host/post_local_max.cl` | GPU 后处理 kernel 的**可读副本**（运行时**不需要**） |
 | 示例 demo | `src/npu/mosaic_api_test.cpp` | 只调公开 C ABI 的示例 |
 | 契约测试 | `src/npu/mosaic_contract_test.cpp` | 库的验收门禁 |
-| 第三方头 | `include/rknn_api.h`、`include/stb_image*.h` | RKNN API + stb 图像库 |
+| 端到端测试程序 | `src/npu/rknn_mosaic_e2e.cpp` | **吞吐/延时测量**（12.9 fps 那个数就是它测的），只调公开 C ABI |
+| 第三方头 | `include/rknn_api.h` | RKNN API |
+| 第三方头 | `include/stb_image.h`、`include/stb_image_resize.h`、`include/stb_image_write.h` | stb 图像库 |
 | 第三方头 | `include/rga/*`（18 个） | RGA API 头 |
 | 第三方头 | `include/CL/*`（20 个） | Khronos OpenCL 头 |
 | **kernel 资产** | `runtime/kernels/warp_median_fused.cl` | **运行时必需** |
 | **kernel 资产** | `runtime/kernels/sortnet_generated.inc` | **运行时必需** |
 | kernel 资产 | `runtime/kernels/gmc_feature_gpu.cl` | 可选（仅探针用，库不加载） |
 | 构建脚本 | `build_lib.sh` / `build_demo.sh` | 交叉编译库 / 测试程序 |
-| 一键脚本 | `copy_to_nfs.sh` | 编译 + 拷贝到 NFS + md5 回验 +（可选）板卡验证 |
+| 一键脚本 | `copy_to_nfs.sh` | 编译 + 整树拷贝到 NFS + md5 回验 +（可选）板卡验证 |
 | 文档 | `README.md` / `MANIFEST.md` | 使用说明 / 本清单 |
 
-**这些文件不含任何板卡私有路径**——换一块 RK3588 板子，只要 BSP 里有同版本的
-交叉工具链与 OpenCV 安装，照样能编译。
+**交付包是自包含的**：源码（`src/**`）、第三方头（`include/**`）、kernel 资产
+（`runtime/kernels/**`）、构建脚本（`build_lib.sh` / `build_demo.sh`）全都在包里，
+集成方**可以在交付目录原地重编**——构建脚本用相对路径，不依赖仓库里的其它文件：
+
+```bash
+cd <交付目录>            # 例如 /mnt/manu/mosaic_sdk
+bash build_lib.sh        # → out/libmosaic_pipeline.a
+bash build_demo.sh       # → out/mosaic_api_test, out/mosaic_contract_test, out/rknn_mosaic_e2e
+```
+
+**源码与头文件不含任何板卡私有路径**——`src/**`、`include/**`、
+`runtime/kernels/**` 里只有相对 include 与公开 API 声明，换一块 RK3588 板子，
+只要 BSP 里有同版本的交叉工具链与 OpenCV 安装，照样能编译。
+
+> ⚠️ **但构建脚本的默认路径是作者机器的**：`build_lib.sh` / `build_demo.sh` /
+> `copy_to_nfs.sh` 里 `RK3588_TOOLCHAIN` / `OPENCV_INSTALL` / `BOARD_LIBS` /
+> `RT_LIB_DIR` 四个环境变量的**默认值指向我们这台开发机**的交叉工具链、
+> OpenCV 安装树与板卡库目录。集成方**必须**用这四个环境变量覆盖成他们自己
+> 板子 BSP 的路径（README 里也有一份同样的说明），否则脚本会去找不存在的目录。
 
 > ⚠️ **kernel 目录的相对布局不能改**：源码用相对 include
 > （`mosaic_pipeline.cpp` → `../cpp/gmc_stream_ocl.cpp` → `../opencl/host/ocl_host.h`），
@@ -167,7 +221,7 @@ cfg.npu_workers        = 2;       /* 若他们的 NPU 只支持 1 个上下文 �
 
 ## E. 运行时依赖（`readelf -d` 实测的 DT_NEEDED）
 
-`out/mosaic_api_test` / `out/mosaic_contract_test` 的动态依赖：
+`out/mosaic_api_test` / `out/mosaic_contract_test` / `out/rknn_mosaic_e2e` 三个可执行文件的动态依赖：
 
 ```
 librknnrt.so      ← 板卡 BSP 的 RKNN Runtime
@@ -195,32 +249,66 @@ libc.so.6
 ```bash
 # 1) 拿包、解包
 cd /path/to/manu/pipeline/npu/build
+#    ⚠️ 交付给集成方的是同内容的 mosaic_sdk/（本机 {{NFS_ROOT}}/mosaic_sdk，
+#       板卡侧 /mnt/manu/mosaic_sdk），目录结构见 §A
 
-# 2) 编译库
+# 2) 编译库（交付包里已预编译，可跳过）
 bash build_lib.sh          # → out/libmosaic_pipeline.a
 
-# 3) 编译测试程序（链接上面那个 .a）
-bash build_demo.sh         # → out/mosaic_api_test, out/mosaic_contract_test
+# 3) 编译测试程序（链接上面那个 .a；交付包里已预编译，可跳过）
+bash build_demo.sh         # → out/mosaic_api_test, out/mosaic_contract_test, out/rknn_mosaic_e2e
 
-# 4) 拷贝到目标板（或直接留在本地跑）
-#    按 README「NFS 交付目录内容」一节的命令，把
-#    mosaic_api_test / mosaic_contract_test / libmosaic_pipeline.a /
-#    mosaic_pipeline.h / kernels/ / README.md / MANIFEST.md 一起放好
+# 4) 拷贝到目标板：整树镜像 + 递归 md5 回验
+bash copy_to_nfs.sh        # → {{NFS_ROOT}}/mosaic_sdk/
+#    手工拷等价于：把 build/ 下的每个普通文件按【同名相对路径】拷进交付目录
+#    （src/、include/、runtime/kernels/、out/ 整树照搬），再按 §A 建 5 个兼容别名
+#    ⚠️ --kernel-dir 必须指向 <交付目录>/runtime/kernels（新布局），
+#       不是旧的平铺 kernels/
 
 # 5) 在目标板上跑（路径按他们的布局改）
-./mosaic_api_test \
+./out/mosaic_api_test \
   --model      /path/to/model.rknn \
-  --kernel-dir /path/to/kernels \
+  --kernel-dir <交付目录>/runtime/kernels \
   --raw-root   /path/to/frames \
   --sequence   THEIR_SEQUENCE \
   --limit 12
+
+#    契约测试用同样的参数
+./out/mosaic_contract_test \
+  --model      /path/to/model.rknn \
+  --kernel-dir <交付目录>/runtime/kernels \
+  --raw-root   /path/to/frames \
+  --sequence   THEIR_SEQUENCE \
+  --limit 12
+
+#    端到端吞吐/延时测量（只调公开 C ABI；--out 必填，TSV 落在 <out>/）
+./out/rknn_mosaic_e2e \
+  --model      /path/to/model.rknn \
+  --kernel-dir <交付目录>/runtime/kernels \
+  --raw-root   /path/to/frames \
+  --sequence   THEIR_SEQUENCE \
+  --out        /path/to/out \
+  --decoupled-stages --buffer-a-depth 3
+```
+
+**板卡侧权威运行命令**（照抄即可）：
+
+```
+/mnt/manu/mosaic_sdk/out/mosaic_api_test \
+  --kernel-dir /mnt/manu/mosaic_sdk/runtime/kernels \
+  --model ... --raw-root ... --sequence ... --limit 12
 ```
 
 **换板子必改的两处**（其余照搬）：
 
 1. **构建期**：`RK3588_TOOLCHAIN` / `OPENCV_INSTALL` / `BOARD_LIBS` / `RT_LIB_DIR`
-   四个环境变量指向**他们板子 BSP** 的交叉工具链、OpenCV 安装树、板卡库目录。
+   四个环境变量指向**他们板子 BSP** 的交叉工具链、OpenCV 安装树、板卡库目录
+   （脚本里的**默认值是作者机器的**，见 §B）。
 2. **运行期**：**绑核参数必须重设**（见 §D），否则会绑错核而不报错。
 
-验收门禁：先跑 `mosaic_contract_test`（我们这块板实测 **196 passed / 0 failed**），
-过了再跑 `mosaic_api_test`。
+验收门禁：先跑 `./out/mosaic_contract_test`（我们这块板实测 **196 passed / 0 failed**），
+过了再跑 `./out/mosaic_api_test`。
+
+吞吐声明的复现：`./out/rknn_mosaic_e2e` 用 **decoupled + buffer-a-depth 3 +
+sparse 后处理**，在我们这块板上实测 **12.868 fps / 6,084 交付帧 / p50 313.6 ms**
+（11,810 帧全序列），精度与官方黄金基线 **ΔF1 = +0.000000**。

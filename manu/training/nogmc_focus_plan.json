@@ -4,11 +4,21 @@
     "seed": 200,
     "note": "★最优严格 PASS（trial_0025: T1 0.897516/FP47/T3 0.850972）换种子 ⇒ 补交接多种子证据",
     "params": {
-      "mix_spec": "w6.0", "lr_scale": 2.80528, "warmup_epochs": 1.463,
-      "weight_decay": 0.0002641, "focal_beta": 2.85, "offset_weight": 0.55,
-      "mosaic": 0.1, "scale": 0.15, "translate": 0.05, "clip_max_norm": 2.437,
+      "mix_spec": "w6.0",
+      "lr_scale": 2.80528,
+      "warmup_epochs": 1.463,
+      "weight_decay": 0.0002641,
+      "focal_beta": 2.85,
+      "offset_weight": 0.55,
+      "mosaic": 0.1,
+      "scale": 0.15,
+      "translate": 0.05,
+      "clip_max_norm": 2.437,
       "freeze_bn": false,
-      "init_from": "rc2", "epochs": 6, "backbone_lr_scale": 1.0, "freeze_backbone_epochs": 0
+      "init_from": "rc2",
+      "epochs": 6,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
     }
   },
   {
@@ -16,11 +26,21 @@
     "seed": 201,
     "note": "★trial_0025 第三个种子",
     "params": {
-      "mix_spec": "w6.0", "lr_scale": 2.80528, "warmup_epochs": 1.463,
-      "weight_decay": 0.0002641, "focal_beta": 2.85, "offset_weight": 0.55,
-      "mosaic": 0.1, "scale": 0.15, "translate": 0.05, "clip_max_norm": 2.437,
+      "mix_spec": "w6.0",
+      "lr_scale": 2.80528,
+      "warmup_epochs": 1.463,
+      "weight_decay": 0.0002641,
+      "focal_beta": 2.85,
+      "offset_weight": 0.55,
+      "mosaic": 0.1,
+      "scale": 0.15,
+      "translate": 0.05,
+      "clip_max_norm": 2.437,
       "freeze_bn": false,
-      "init_from": "rc2", "epochs": 6, "backbone_lr_scale": 1.0, "freeze_backbone_epochs": 0
+      "init_from": "rc2",
+      "epochs": 6,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
     }
   },
   {
@@ -28,11 +48,21 @@
     "seed": 202,
     "note": "★变体A：trial_0009(T3 0.857880 严格最优但 FP64 偏高) 把 mix w3.0→w6.0 ⇒ 源域权重↑ ⇒ 期望保 T1、压虚警、留 T3",
     "params": {
-      "mix_spec": "w6.0", "lr_scale": 1.0, "warmup_epochs": 1.5,
-      "weight_decay": 0.0002690, "focal_beta": 2.75, "offset_weight": 0.4,
-      "mosaic": 0.15, "scale": 0.1, "translate": 0.05, "clip_max_norm": 5.65,
+      "mix_spec": "w6.0",
+      "lr_scale": 1.0,
+      "warmup_epochs": 1.5,
+      "weight_decay": 0.000269,
+      "focal_beta": 2.75,
+      "offset_weight": 0.4,
+      "mosaic": 0.15,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 5.65,
       "freeze_bn": false,
-      "init_from": "rc2", "epochs": 15, "backbone_lr_scale": 1.0, "freeze_backbone_epochs": 0
+      "init_from": "rc2",
+      "epochs": 15,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
     }
   },
   {
@@ -40,11 +70,21 @@
     "seed": 203,
     "note": "★变体A 更激进：mix w8.0（源域 UAV 占 88.9%）+ 小 lr 1.0 + 15ep",
     "params": {
-      "mix_spec": "w8.0", "lr_scale": 1.0, "warmup_epochs": 1.5,
-      "weight_decay": 0.0002690, "focal_beta": 2.75, "offset_weight": 0.4,
-      "mosaic": 0.15, "scale": 0.1, "translate": 0.05, "clip_max_norm": 5.65,
+      "mix_spec": "w8.0",
+      "lr_scale": 1.0,
+      "warmup_epochs": 1.5,
+      "weight_decay": 0.000269,
+      "focal_beta": 2.75,
+      "offset_weight": 0.4,
+      "mosaic": 0.15,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 5.65,
       "freeze_bn": false,
-      "init_from": "rc2", "epochs": 15, "backbone_lr_scale": 1.0, "freeze_backbone_epochs": 0
+      "init_from": "rc2",
+      "epochs": 15,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
     }
   },
   {
@@ -52,11 +92,21 @@
     "seed": 204,
     "note": "★变体A 在甜点 epoch 上：trial_0025 配方把 mix w6.0→w8.0",
     "params": {
-      "mix_spec": "w8.0", "lr_scale": 2.80528, "warmup_epochs": 1.463,
-      "weight_decay": 0.0002641, "focal_beta": 2.85, "offset_weight": 0.55,
-      "mosaic": 0.1, "scale": 0.15, "translate": 0.05, "clip_max_norm": 2.437,
+      "mix_spec": "w8.0",
+      "lr_scale": 2.80528,
+      "warmup_epochs": 1.463,
+      "weight_decay": 0.0002641,
+      "focal_beta": 2.85,
+      "offset_weight": 0.55,
+      "mosaic": 0.1,
+      "scale": 0.15,
+      "translate": 0.05,
+      "clip_max_norm": 2.437,
       "freeze_bn": false,
-      "init_from": "rc2", "epochs": 6, "backbone_lr_scale": 1.0, "freeze_backbone_epochs": 0
+      "init_from": "rc2",
+      "epochs": 6,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
     }
   },
   {
@@ -64,11 +114,21 @@
     "seed": 205,
     "note": "★★变体B 核心：trial_0060（全局最高 T3 0.890979 但 T1 0.892473 触线）加骨干 0.1×+前2ep锁死，并把 warmup 0.77→1.2（用户要求 ≥1 ep）⇒ 直瞄『把 0.89 保在红线内』",
     "params": {
-      "mix_spec": "w3.0", "lr_scale": 2.91912, "warmup_epochs": 1.2,
-      "weight_decay": 0.0002131, "focal_beta": 2.9, "offset_weight": 0.55,
-      "mosaic": 0.15, "scale": 0.15, "translate": 0.1, "clip_max_norm": 6.396,
+      "mix_spec": "w3.0",
+      "lr_scale": 2.91912,
+      "warmup_epochs": 1.2,
+      "weight_decay": 0.0002131,
+      "focal_beta": 2.9,
+      "offset_weight": 0.55,
+      "mosaic": 0.15,
+      "scale": 0.15,
+      "translate": 0.1,
+      "clip_max_norm": 6.396,
       "freeze_bn": false,
-      "init_from": "rc2", "epochs": 15, "backbone_lr_scale": 0.1, "freeze_backbone_epochs": 2
+      "init_from": "rc2",
+      "epochs": 15,
+      "backbone_lr_scale": 0.1,
+      "freeze_backbone_epochs": 2
     }
   },
   {
@@ -76,11 +136,21 @@
     "seed": 206,
     "note": "★变体B：trial_0087/0113（T3 0.874/0.872 但 T1 触线）把骨干 0（全冻）改成 0.1×+前2ep锁死 ⇒ 期望 T1 回到线上",
     "params": {
-      "mix_spec": "w2.0", "lr_scale": 2.66688, "warmup_epochs": 1.241,
-      "weight_decay": 2.2712116e-05, "focal_beta": 2.5, "offset_weight": 0.6,
-      "mosaic": 0.15, "scale": 0.15, "translate": 0.05, "clip_max_norm": 5.266,
+      "mix_spec": "w2.0",
+      "lr_scale": 2.66688,
+      "warmup_epochs": 1.241,
+      "weight_decay": 2.2712116e-05,
+      "focal_beta": 2.5,
+      "offset_weight": 0.6,
+      "mosaic": 0.15,
+      "scale": 0.15,
+      "translate": 0.05,
+      "clip_max_norm": 5.266,
       "freeze_bn": false,
-      "init_from": "rc2", "epochs": 8, "backbone_lr_scale": 0.1, "freeze_backbone_epochs": 2
+      "init_from": "rc2",
+      "epochs": 8,
+      "backbone_lr_scale": 0.1,
+      "freeze_backbone_epochs": 2
     }
   },
   {
@@ -88,11 +158,21 @@
     "seed": 207,
     "note": "★变体B：trial_0009（严格最优 T3 0.857880 但 FP64）加骨干 0.1×+前2ep锁死 ⇒ 期望压虚警、保 T3",
     "params": {
-      "mix_spec": "w3.0", "lr_scale": 1.0, "warmup_epochs": 1.5,
-      "weight_decay": 0.0002690, "focal_beta": 2.75, "offset_weight": 0.4,
-      "mosaic": 0.15, "scale": 0.1, "translate": 0.05, "clip_max_norm": 5.65,
+      "mix_spec": "w3.0",
+      "lr_scale": 1.0,
+      "warmup_epochs": 1.5,
+      "weight_decay": 0.000269,
+      "focal_beta": 2.75,
+      "offset_weight": 0.4,
+      "mosaic": 0.15,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 5.65,
       "freeze_bn": false,
-      "init_from": "rc2", "epochs": 15, "backbone_lr_scale": 0.1, "freeze_backbone_epochs": 2
+      "init_from": "rc2",
+      "epochs": 15,
+      "backbone_lr_scale": 0.1,
+      "freeze_backbone_epochs": 2
     }
   },
   {
@@ -100,11 +180,21 @@
     "seed": 208,
     "note": "★变体B：trial_0018（严格 PASS T3 0.849318，骨干已全冻）再加『前2ep锁骨干』",
     "params": {
-      "mix_spec": "natural", "lr_scale": 2.92230, "warmup_epochs": 1.205,
-      "weight_decay": 0.0001496, "focal_beta": 2.45, "offset_weight": 0.45,
-      "mosaic": 0.1, "scale": 0.1, "translate": 0.05, "clip_max_norm": 5.563,
+      "mix_spec": "natural",
+      "lr_scale": 2.9223,
+      "warmup_epochs": 1.205,
+      "weight_decay": 0.0001496,
+      "focal_beta": 2.45,
+      "offset_weight": 0.45,
+      "mosaic": 0.1,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 5.563,
       "freeze_bn": false,
-      "init_from": "rc2", "epochs": 6, "backbone_lr_scale": 0.0, "freeze_backbone_epochs": 2
+      "init_from": "rc2",
+      "epochs": 6,
+      "backbone_lr_scale": 0.0,
+      "freeze_backbone_epochs": 2
     }
   },
   {
@@ -112,11 +202,21 @@
     "seed": 209,
     "note": "源域↑ + 中 lr + 中 epoch 的中间档（w6.0/lr2.0/10ep）",
     "params": {
-      "mix_spec": "w6.0", "lr_scale": 2.0, "warmup_epochs": 1.3,
-      "weight_decay": 0.0002641, "focal_beta": 2.85, "offset_weight": 0.55,
-      "mosaic": 0.1, "scale": 0.15, "translate": 0.05, "clip_max_norm": 2.437,
+      "mix_spec": "w6.0",
+      "lr_scale": 2.0,
+      "warmup_epochs": 1.3,
+      "weight_decay": 0.0002641,
+      "focal_beta": 2.85,
+      "offset_weight": 0.55,
+      "mosaic": 0.1,
+      "scale": 0.15,
+      "translate": 0.05,
+      "clip_max_norm": 2.437,
       "freeze_bn": false,
-      "init_from": "rc2", "epochs": 10, "backbone_lr_scale": 1.0, "freeze_backbone_epochs": 0
+      "init_from": "rc2",
+      "epochs": 10,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
     }
   },
   {
@@ -124,11 +224,21 @@
     "seed": 210,
     "note": "变体A 的多种子确认（trial_0009 配方 + mix w6.0，第二个种子）",
     "params": {
-      "mix_spec": "w6.0", "lr_scale": 1.0, "warmup_epochs": 1.5,
-      "weight_decay": 0.0002690, "focal_beta": 2.75, "offset_weight": 0.4,
-      "mosaic": 0.15, "scale": 0.1, "translate": 0.05, "clip_max_norm": 5.65,
+      "mix_spec": "w6.0",
+      "lr_scale": 1.0,
+      "warmup_epochs": 1.5,
+      "weight_decay": 0.000269,
+      "focal_beta": 2.75,
+      "offset_weight": 0.4,
+      "mosaic": 0.15,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 5.65,
       "freeze_bn": false,
-      "init_from": "rc2", "epochs": 15, "backbone_lr_scale": 1.0, "freeze_backbone_epochs": 0
+      "init_from": "rc2",
+      "epochs": 15,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
     }
   },
   {
@@ -136,11 +246,21 @@
     "seed": 211,
     "note": "★base474 对照臂（w6.0/lr2.8821/8ep）⇒ 与 rc2 同参成对，干净分离 init 效应",
     "params": {
-      "mix_spec": "w6.0", "lr_scale": 2.8821, "warmup_epochs": 1.5,
-      "weight_decay": 0.0002690, "focal_beta": 2.75, "offset_weight": 0.4,
-      "mosaic": 0.15, "scale": 0.1, "translate": 0.05, "clip_max_norm": 5.65,
+      "mix_spec": "w6.0",
+      "lr_scale": 2.8821,
+      "warmup_epochs": 1.5,
+      "weight_decay": 0.000269,
+      "focal_beta": 2.75,
+      "offset_weight": 0.4,
+      "mosaic": 0.15,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 5.65,
       "freeze_bn": false,
-      "init_from": "base474", "epochs": 8, "backbone_lr_scale": 1.0, "freeze_backbone_epochs": 0
+      "init_from": "base474",
+      "epochs": 8,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
     }
   },
   {
@@ -148,11 +268,21 @@
     "seed": 212,
     "note": "base474 对照臂（w6.0/lr2.8821/10ep）",
     "params": {
-      "mix_spec": "w6.0", "lr_scale": 2.8821, "warmup_epochs": 1.5,
-      "weight_decay": 0.0002690, "focal_beta": 2.75, "offset_weight": 0.4,
-      "mosaic": 0.15, "scale": 0.1, "translate": 0.05, "clip_max_norm": 5.65,
+      "mix_spec": "w6.0",
+      "lr_scale": 2.8821,
+      "warmup_epochs": 1.5,
+      "weight_decay": 0.000269,
+      "focal_beta": 2.75,
+      "offset_weight": 0.4,
+      "mosaic": 0.15,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 5.65,
       "freeze_bn": false,
-      "init_from": "base474", "epochs": 10, "backbone_lr_scale": 1.0, "freeze_backbone_epochs": 0
+      "init_from": "base474",
+      "epochs": 10,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
     }
   },
   {
@@ -160,11 +290,21 @@
     "seed": 213,
     "note": "源域↑ + 小 lr 1.0 + 中 epoch 10（trial_0009 的 15ep 可能过长 ⇒ 折中档）",
     "params": {
-      "mix_spec": "w6.0", "lr_scale": 1.0, "warmup_epochs": 1.5,
-      "weight_decay": 0.0002690, "focal_beta": 2.75, "offset_weight": 0.4,
-      "mosaic": 0.15, "scale": 0.1, "translate": 0.05, "clip_max_norm": 5.65,
+      "mix_spec": "w6.0",
+      "lr_scale": 1.0,
+      "warmup_epochs": 1.5,
+      "weight_decay": 0.000269,
+      "focal_beta": 2.75,
+      "offset_weight": 0.4,
+      "mosaic": 0.15,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 5.65,
       "freeze_bn": false,
-      "init_from": "rc2", "epochs": 10, "backbone_lr_scale": 1.0, "freeze_backbone_epochs": 0
+      "init_from": "rc2",
+      "epochs": 10,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
     }
   },
   {
@@ -172,11 +312,683 @@
     "seed": 214,
     "note": "trial_0009 的 mix 换成 natural（源域比例介于 w3.0 与 w6.0 之间 ⇒ 探测最优点）",
     "params": {
-      "mix_spec": "natural", "lr_scale": 1.0, "warmup_epochs": 1.5,
-      "weight_decay": 0.0002690, "focal_beta": 2.75, "offset_weight": 0.4,
-      "mosaic": 0.15, "scale": 0.1, "translate": 0.05, "clip_max_norm": 5.65,
+      "mix_spec": "natural",
+      "lr_scale": 1.0,
+      "warmup_epochs": 1.5,
+      "weight_decay": 0.000269,
+      "focal_beta": 2.75,
+      "offset_weight": 0.4,
+      "mosaic": 0.15,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 5.65,
       "freeze_bn": false,
-      "init_from": "rc2", "epochs": 15, "backbone_lr_scale": 1.0, "freeze_backbone_epochs": 0
+      "init_from": "rc2",
+      "epochs": 15,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "FOCUS_T0008_REPLAY",
+    "seed": 215,
+    "note": "★★最高优先靶心：trial_0008（rc2/w3.0/lr2.8821/8ep）T1=0.895661 仅差红线 0.000236、T2 FP=45、T3=0.867711 ⇒ 原配方换种子复现，赌 T1 的种子噪声即可过线 ⇒ 期望产出『严格 PASS + T3≥0.86 + T2 FP≤52』的交接候选",
+    "params": {
+      "mix_spec": "w3.0",
+      "lr_scale": 2.8821,
+      "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906,
+      "focal_beta": 2.75,
+      "offset_weight": 0.4,
+      "mosaic": 0.15,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 5.65,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 8,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "FOCUS_T0008_PROT8",
+    "seed": 216,
+    "note": "★★变体B 打在最准的靶心上：trial_0008 配方 + 骨干 0.1× + 前2ep锁死（warmup 保持 1.5 不动 ⇒ 只动『骨干保护』这一个机制）⇒ 期望把 T1 从 0.895661 推过 0.8958967 且 T3 守在 0.86 上方",
+    "params": {
+      "mix_spec": "w3.0",
+      "lr_scale": 2.8821,
+      "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906,
+      "focal_beta": 2.75,
+      "offset_weight": 0.4,
+      "mosaic": 0.15,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 5.65,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 8,
+      "backbone_lr_scale": 0.1,
+      "freeze_backbone_epochs": 2
+    }
+  },
+  {
+    "role": "FOCUS_RC2_W6_LR28821_8EP",
+    "seed": 219,
+    "note": "★mix 插值点：trial_0008 配方只改 mix w3.0→w6.0（单变量）⇒ 实测权衡是 mix↑⇒T1↑/T3↓（w3.0:T1 0.8957/T3 0.8677，w8.0:trial_0083 T1 0.897014/T3 0.841839）⇒ w6.0 期望 T1 过线且 T3 落 0.855 附近",
+    "params": {
+      "mix_spec": "w6.0",
+      "lr_scale": 2.8821,
+      "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906,
+      "focal_beta": 2.75,
+      "offset_weight": 0.4,
+      "mosaic": 0.15,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 5.65,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 8,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "FOCUS_T0008_SEED2",
+    "seed": 220,
+    "note": "★★靶心多种子#2：trial_0008 原配方（w3.0/lr2.8821/8ep/bb1）第二个种子 ⇒ 周末同簇 T1 抖动跨度 0.0023、而 T3 稳定在 0.864~0.868 ⇒ 赌种子噪声把 T1 推过 0.8958967（缺口仅 0.000236）",
+    "params": {
+      "mix_spec": "w3.0",
+      "lr_scale": 2.8821,
+      "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906,
+      "focal_beta": 2.75,
+      "offset_weight": 0.4,
+      "mosaic": 0.15,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 5.65,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 8,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "FOCUS_T0077_PROT8",
+    "seed": 217,
+    "note": "★★变体B 打在『唯一 T3 已过 0.87』的靶心上：trial_0077 原配方（精确复制）+ 骨干 0.1× + 前2ep锁死 ⇒ 期望 T1 推过 0.8958967 而 T3 守住 ≥0.87（warmup 1.448 不动 ⇒ 只动『骨干保护』这一个机制）",
+    "params": {
+      "mix_spec": "w3.0",
+      "lr_scale": 2.7676,
+      "warmup_epochs": 1.448,
+      "weight_decay": 3.132e-05,
+      "focal_beta": 2.5,
+      "offset_weight": 0.55,
+      "mosaic": 0.15,
+      "scale": 0.2,
+      "translate": 0.05,
+      "clip_max_norm": 4.05,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 8,
+      "backbone_lr_scale": 0.1,
+      "freeze_backbone_epochs": 2
+    }
+  },
+  {
+    "role": "FOCUS_T0077_SEED2",
+    "seed": 224,
+    "note": "★★唯一 T3 已过 0.87 的近靶心原配方换种子（精确复制 ⇒ 与周末 trial_0077 构成**逐位相同**的多种子对照）⇒ 赌种子噪声把 T1 推过线即三要素全中",
+    "params": {
+      "mix_spec": "w3.0",
+      "lr_scale": 2.7676,
+      "warmup_epochs": 1.448,
+      "weight_decay": 3.132e-05,
+      "focal_beta": 2.5,
+      "offset_weight": 0.55,
+      "mosaic": 0.15,
+      "scale": 0.2,
+      "translate": 0.05,
+      "clip_max_norm": 4.05,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 8,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "FOCUS_T0082_PROT8",
+    "seed": 218,
+    "note": "★★缺口最小靶心（T1 缺 0.000146）+ 骨干 0.1× + 前2ep锁死 ⇒ 与 T0077/T0008 构成『同一手段 × 三个近靶点』的可交叉验证",
+    "params": {
+      "mix_spec": "w3.0",
+      "lr_scale": 2.422,
+      "warmup_epochs": 1.359,
+      "weight_decay": 2.059e-05,
+      "focal_beta": 2.5,
+      "offset_weight": 0.6000000000000001,
+      "mosaic": 0.15,
+      "scale": 0.2,
+      "translate": 0.05,
+      "clip_max_norm": 5.09,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 8,
+      "backbone_lr_scale": 0.1,
+      "freeze_backbone_epochs": 2
+    }
+  },
+  {
+    "role": "FOCUS_T0082_SEED2",
+    "seed": 221,
+    "note": "★★缺口最小靶心（trial_0082，T1 缺 0.000146、T3 0.865458、T2 FP 45）原配方换种子（精确复制）⇒ 过线概率最高的一条",
+    "params": {
+      "mix_spec": "w3.0",
+      "lr_scale": 2.422,
+      "warmup_epochs": 1.359,
+      "weight_decay": 2.059e-05,
+      "focal_beta": 2.5,
+      "offset_weight": 0.6000000000000001,
+      "mosaic": 0.15,
+      "scale": 0.2,
+      "translate": 0.05,
+      "clip_max_norm": 5.09,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 8,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "FOCUS_T0008_W20_LR30",
+    "seed": 248,
+    "note": "★★★★**模型驱动的联合靶心**（2026-11-02 15:30 新增）：全库 122 条的受控对 + 家族回归给出：family C 里 T3~lr 斜率 +0.0170/unit、T1~lr −0.00135/unit；T3~mix 斜率 −0.00365/unit 而 T1~mix 仅 +0.00012/unit ⇒ **mix↓ 几乎免费地换 T3**。相对 trial_0008 只动两个维度：mix w3.0→w2.0（+0.0036 T3）、lr 2.8821→3.0（+0.0020 T3）⇒ 预测 T3≈0.8734（**过 0.87**）、T1≈0.89556（差 0.0003，在种子噪声 σ(T1)≈0.0005 内）⇒ 本轮最可能同时过线的一条。",
+    "params": {
+      "mix_spec": "w2.0",
+      "lr_scale": 3.0,
+      "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906,
+      "focal_beta": 2.75,
+      "offset_weight": 0.4,
+      "mosaic": 0.15,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 5.65,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 8,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "FOCUS_T0008_W20_LR30_SEED2",
+    "seed": 252,
+    "note": "★★★★★**模型靶点的第 2 个种子**（2026-11-02 15:40 新增）：w2.0+lr3.0 是模型预测的联合靶点（T3≈0.8734 过 0.87、T1≈0.89556 差 0.0003）；**种子噪声 |ΔT1| 中位 0.0025 ≫ 该缺口 0.0003** ⇒ 单种子结果无法判定，必须 n≥2 才能进交接口径 ⇒ 这条是它的必需配套。",
+    "params": {
+      "mix_spec": "w2.0",
+      "lr_scale": 3.0,
+      "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906,
+      "focal_beta": 2.75,
+      "offset_weight": 0.4,
+      "mosaic": 0.15,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 5.65,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 8,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "FOCUS_T0008_SEED3",
+    "seed": 253,
+    "note": "★★★★★**离双目标最近点的第 3 个种子**（trial_0008 配方 w3.0·lr2.8821·8ep·rc2）：T3 0.867711 / T1 缺口仅 0.000236（0.10 σ）⇒ n=2 的中位仍很脆 ⇒ 补到 n=3。",
+    "params": {
+      "mix_spec": "w3.0",
+      "lr_scale": 2.8821,
+      "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906,
+      "focal_beta": 2.75,
+      "offset_weight": 0.4,
+      "mosaic": 0.15,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 5.65,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 8,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "FOCUS_T0077_SEED3",
+    "seed": 254,
+    "note": "★★★★★**唯一 T3 已过 0.87 的配方的第 3 个种子**（trial_0077 配方 w3.0·lr2.7676·8ep·rc2）：T3 0.871475（过线）/ T1 缺口 0.001234（0.50 σ）⇒ 它的 T1 是**种子运气问题**，补到 n=3 才能给出可信中位。",
+    "params": {
+      "mix_spec": "w3.0",
+      "lr_scale": 2.7675790243131346,
+      "warmup_epochs": 1.4480592521676685,
+      "weight_decay": 3.132e-05,
+      "focal_beta": 2.5,
+      "offset_weight": 0.55,
+      "mosaic": 0.15,
+      "scale": 0.2,
+      "translate": 0.05,
+      "clip_max_norm": 4.05,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 8,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "FOCUS_T0082_SEED3",
+    "seed": 255,
+    "note": "★★★★**T1 缺口最小的配方的第 3 个种子**（trial_0082 配方 w3.0·lr2.422·8ep·rc2）：T1 缺口 0.000146（0.06 σ，最小）/ T3 0.865458 ⇒ 一旦某个种子过线就是最稳的交接线。",
+    "params": {
+      "mix_spec": "w3.0",
+      "lr_scale": 2.422,
+      "warmup_epochs": 1.359,
+      "weight_decay": 2.059e-05,
+      "focal_beta": 2.5,
+      "offset_weight": 0.6,
+      "mosaic": 0.15,
+      "scale": 0.15,
+      "translate": 0.05,
+      "clip_max_norm": 5.09,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 8,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "FOCUS_T0008_W20_LR275",
+    "seed": 247,
+    "note": "★★★★同上，与 W20_LR30 构成**干净的 lr 受控对**（只有 lr 2.75 vs 3.0 不同）：预测 T3≈0.8691、T1≈0.89590（**正好压在线上**）⇒ 与上一条一起可把『T3=0.87 与 T1 红线』的交点夹出来。",
+    "params": {
+      "mix_spec": "w2.0",
+      "lr_scale": 2.75,
+      "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906,
+      "focal_beta": 2.75,
+      "offset_weight": 0.4,
+      "mosaic": 0.15,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 5.65,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 8,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "FOCUS_T0008_LR30",
+    "seed": 249,
+    "note": "★★★★**纯 lr↑ 受控对**（相对 trial_0008 只动 lr 2.8821→3.0，mix 仍 w3.0）：验证 T3~lr 斜率是否真的 +0.017/unit（家族回归 R²=0.607）⇒ 同时给出 T3≈0.8697 / T1≈0.89550 的第二个联合点。",
+    "params": {
+      "mix_spec": "w3.0",
+      "lr_scale": 3.0,
+      "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906,
+      "focal_beta": 2.75,
+      "offset_weight": 0.4,
+      "mosaic": 0.15,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 5.65,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 8,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "FOCUS_T0008_W25",
+    "seed": 243,
+    "note": "[2026-11-02 15:30 修订] 原 mix w2.5 越界 ⇒ 改成 w2.0。**保留它的独特价值**：相对 trial_0008 只动 mix 一个维度 ⇒ 干净的 mix↓ 受控对 || 原备注：★同上，把最准靶心的 mix w3.0→w2.5（trial_0056/0034 也在 w2.5 且缺口 < 0.001 ⇒ 方向合理；与 w3.0/w6.0/w8.0 构成完整 mix 梯度）",
+    "params": {
+      "mix_spec": "w2.0",
+      "lr_scale": 2.8821,
+      "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906,
+      "focal_beta": 2.75,
+      "offset_weight": 0.4,
+      "mosaic": 0.15,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 5.65,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 8,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "FOCUS_SOUSTRICT3_W3_LR28821_8EP",
+    "seed": 225,
+    "note": "[2026-11-02 15:30 修订] soup init 不能写进 init_from（study 级分布兼容性检查会炸）⇒ init_from 留在白名单内的 rc2，另用新参数名 init_from_x 带 soup 权重 || 原备注：★★★变体C 的反向用法（**目前唯一有望一步命中三要素的臂**）：把 soup_strict3（T1 0.896846 **已过红线** / T2 FP56 / T3 0.847521）当**初始化权重**继续微调（其余超参与 trial_0008 逐位相同 ⇒ 与 trial_0008 构成干净成对，只变 init 一个变量）⇒ 期望 T1 守住 ≥0.8959、T3 从 0.8475 上抬 ⇒ 直瞄『T3≥0.87 + T1 过线 + 虚警低位』",
+    "params": {
+      "mix_spec": "w3.0",
+      "lr_scale": 2.8821,
+      "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906,
+      "focal_beta": 2.75,
+      "offset_weight": 0.4,
+      "mosaic": 0.15,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 5.65,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 8,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0,
+      "init_from_x": "soup_strict3"
+    }
+  },
+  {
+    "role": "FOCUS_SOUHIGH3NOBIN_W3_LR28821_8EP",
+    "seed": 226,
+    "note": "[2026-11-02 15:30 修订] 同上，走 init_from_x || 原备注：★★★同配方换 init：soup_high3_nobn（T1 0.893832 差 0.0021 / T2 FP **39** / **T3 0.874746 已过 0.87**）当初始化，超参逐位照 trial_0008 ⇒ 与 trial_0008 严格成对，干净分离『init 效应』⇒ 期望从『T3 已达标』的起点把 T1 拉过线",
+    "params": {
+      "mix_spec": "w3.0",
+      "lr_scale": 2.8821,
+      "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906,
+      "focal_beta": 2.75,
+      "offset_weight": 0.4,
+      "mosaic": 0.15,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 5.65,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 8,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0,
+      "init_from_x": "soup_high3_nobn"
+    }
+  },
+  {
+    "role": "FOCUS_T0008_W20_LR25",
+    "seed": 250,
+    "note": "★★★**T1 修复端**：mix w2.0 + lr 2.5 ⇒ 预测 T1≈0.89618（过线 +0.028pp）、T3≈0.86484 ⇒ 若预测兑现就是一条**严格 PASS 且 T3 明显高于 trial_0009 的 0.8579** 的交接线。",
+    "params": {
+      "mix_spec": "w2.0",
+      "lr_scale": 2.5,
+      "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906,
+      "focal_beta": 2.75,
+      "offset_weight": 0.4,
+      "mosaic": 0.15,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 5.65,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 8,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "FOCUS_T0009_SEED2",
+    "seed": 234,
+    "note": "★★★交接口径最关键的一条：trial_0009 是**严格 PASS 里 T3 最高**（0.857880）、T1 余量 +0.0274 pp（约 1.8 倍种子噪声 σ）⇒ 换种子验证『多种子中位 T1 仍在线上、T3 保住 0.85+』⇒ 最可能真正满足交接口径的配置",
+    "params": {
+      "mix_spec": "w3.0",
+      "lr_scale": 1.0,
+      "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906,
+      "focal_beta": 2.75,
+      "offset_weight": 0.4,
+      "mosaic": 0.15,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 5.65,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 15,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "FOCUS_T0008_LR26",
+    "seed": 241,
+    "note": "★★同上，封堵 TPE 的 lr 分布偏低端（中位 1.61 vs 好点 2.4~2.9）⇒ 把最准靶心的 lr 钉在 2.6（trial_0082 用 2.42 且 T1 余量最大 ⇒ 邻近点）",
+    "params": {
+      "mix_spec": "w3.0",
+      "lr_scale": 2.6,
+      "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906,
+      "focal_beta": 2.75,
+      "offset_weight": 0.4,
+      "mosaic": 0.15,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 5.65,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 8,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "FOCUS_T0083_SEED2",
+    "seed": 237,
+    "note": "★★trial_0083 原配方换种子（精确复制，w8.0/lr2.8819/8ep）⇒ T1 余量 **+0.1117 pp = 严格 PASS 里最大**（能扛 ~3 倍种子噪声）⇒ 最可能多种子中位仍在线上的配置",
+    "params": {
+      "mix_spec": "w8.0",
+      "lr_scale": 2.881949823772581,
+      "warmup_epochs": 1.4047079462837466,
+      "weight_decay": 0.00012294446485271553,
+      "focal_beta": 2.8000000000000003,
+      "offset_weight": 0.4,
+      "mosaic": 0.15,
+      "scale": 0.15000000000000002,
+      "translate": 0.05,
+      "clip_max_norm": 5.034881167903607,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 8,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "FOCUS_T0018_SEED2",
+    "seed": 235,
+    "note": "★★trial_0018 原配方换种子（精确复制，natural/lr2.9223/6ep/bb0/fbb2，T1 余量 +0.0308 pp、T3 0.849318）⇒ 与 FOCUS_B_T0018_PROT6(seed208) 构成多种子",
+    "params": {
+      "mix_spec": "natural",
+      "lr_scale": 2.922306436248727,
+      "warmup_epochs": 1.2055599542047064,
+      "weight_decay": 0.00014963699994362378,
+      "focal_beta": 2.45,
+      "offset_weight": 0.45,
+      "mosaic": 0.1,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 5.563409172338667,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 6,
+      "backbone_lr_scale": 0.0,
+      "freeze_backbone_epochs": 2
+    }
+  },
+  {
+    "role": "FOCUS_T0018_SEED3",
+    "seed": 236,
+    "note": "★★trial_0018 原配方第三个种子（精确复制）⇒ 凑够 3 种子做『极差/2/√n』噪声带",
+    "params": {
+      "mix_spec": "natural",
+      "lr_scale": 2.922306436248727,
+      "warmup_epochs": 1.2055599542047064,
+      "weight_decay": 0.00014963699994362378,
+      "focal_beta": 2.45,
+      "offset_weight": 0.45,
+      "mosaic": 0.1,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 5.563409172338667,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 6,
+      "backbone_lr_scale": 0.0,
+      "freeze_backbone_epochs": 2
+    }
+  },
+  {
+    "role": "FOCUS_T0034_SEED2",
+    "seed": 233,
+    "note": "[2026-11-02 15:30 修订] 原 mix w2.5 越界 ⇒ 改成 w2.0（最近的合法低-mix 档，方向不变） || 原备注：★★近靶心原配方换种子（精确复制）：trial_0034 T1 缺口 0.000922、T3 0.862606 ⇒ 换种子过线",
+    "params": {
+      "mix_spec": "w2.0",
+      "lr_scale": 2.804129139041618,
+      "warmup_epochs": 1.2144444646061032,
+      "weight_decay": 0.00039459375616545056,
+      "focal_beta": 2.6,
+      "offset_weight": 0.5,
+      "mosaic": 0.15,
+      "scale": 0.15000000000000002,
+      "translate": 0.05,
+      "clip_max_norm": 3.8256165042882406,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 8,
+      "backbone_lr_scale": 0.3,
+      "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "FOCUS_T0056_SEED2",
+    "seed": 230,
+    "note": "[2026-11-02 15:30 修订] 原 mix w2.5 越界 ⇒ 改成 w2.0（最近的合法低-mix 档，方向不变） || 原备注：★★近靶心原配方换种子（精确复制）：trial_0056 T1 缺口 0.000725、T3 0.860100 ⇒ 换种子过线",
+    "params": {
+      "mix_spec": "w2.0",
+      "lr_scale": 2.4620435398041756,
+      "warmup_epochs": 1.1250008111127368,
+      "weight_decay": 0.0004613690202763629,
+      "focal_beta": 2.8000000000000003,
+      "offset_weight": 0.5,
+      "mosaic": 0.15,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 4.785749624745362,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 8,
+      "backbone_lr_scale": 0.3,
+      "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "FOCUS_T0064_SEED2",
+    "seed": 231,
+    "note": "★★近靶心原配方换种子（精确复制）：trial_0064 T1 缺口 0.000788、T3 0.862429 ⇒ 换种子过线（6ep 更快）",
+    "params": {
+      "mix_spec": "w3.0",
+      "lr_scale": 2.775013678719828,
+      "warmup_epochs": 1.2442818916250784,
+      "weight_decay": 0.00019711836044126855,
+      "focal_beta": 2.85,
+      "offset_weight": 0.45,
+      "mosaic": 0.15,
+      "scale": 0.15000000000000002,
+      "translate": 0.05,
+      "clip_max_norm": 6.3264455174135845,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 6,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "FOCUS_T0108_SEED2",
+    "seed": 232,
+    "note": "★★近靶心原配方换种子（精确复制）：trial_0108 T1 缺口 0.000914、T3 0.862801、T2 FP 45 ⇒ 换种子过线",
+    "params": {
+      "mix_spec": "w3.0",
+      "lr_scale": 2.367002421759685,
+      "warmup_epochs": 1.4338521113149756,
+      "weight_decay": 0.0002886378510318681,
+      "focal_beta": 2.8000000000000003,
+      "offset_weight": 0.5,
+      "mosaic": 0.15,
+      "scale": 0.1,
+      "translate": 0.1,
+      "clip_max_norm": 3.091922858339717,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 8,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "FOCUS_T0008_W20_SEED2",
+    "seed": 251,
+    "note": "★★w2.0@lr2.8821 这条 mix↓ 受控对的**第二个种子** ⇒ 交接口径（同超参多种子中位）需要 n>=2 ⇒ 若 w2.0 成为赢家，这条是交接证据的必需项。",
+    "params": {
+      "mix_spec": "w2.0",
+      "lr_scale": 2.8821,
+      "warmup_epochs": 1.5,
+      "weight_decay": 0.00026906,
+      "focal_beta": 2.75,
+      "offset_weight": 0.4,
+      "mosaic": 0.15,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 5.65,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 8,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
+    }
+  },
+  {
+    "role": "FOCUS_T0008_WARMUP12",
+    "seed": 239,
+    "note": "★★★**封堵 TPE 浪费**（11-02 12:00 补）：TPE 冷启动采样 warmup 中位仅 0.795（75% < 1.08，违反『warmup ≥ 1 ep』要求）⇒ 用确定性臂把最准靶心 trial_0008 的 warmup 钉在 1.2（用户指定下限之上、trial_0060 修订版的同值）",
+    "params": {
+      "mix_spec": "w3.0",
+      "lr_scale": 2.8821,
+      "warmup_epochs": 1.2,
+      "weight_decay": 0.00026906,
+      "focal_beta": 2.75,
+      "offset_weight": 0.4,
+      "mosaic": 0.15,
+      "scale": 0.1,
+      "translate": 0.05,
+      "clip_max_norm": 5.65,
+      "freeze_bn": false,
+      "init_from": "rc2",
+      "epochs": 8,
+      "backbone_lr_scale": 1.0,
+      "freeze_backbone_epochs": 0
     }
   }
 ]

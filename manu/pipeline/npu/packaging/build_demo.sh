@@ -7,8 +7,11 @@
 #                                 Calls ONLY the public C ABI:
 #                                 open / push / collect / destroy.
 #     out/mosaic_contract_test   the library's own API CONTRACT test.
+#     out/rknn_mosaic_e2e        the END-TO-END test program: measures
+#                                 throughput / latency (the 12.9 fps number).
+#                                 Calls ONLY the public C ABI.
 #
-# Both programs link out/libmosaic_pipeline.a, so run build_lib.sh FIRST.
+# All three programs link out/libmosaic_pipeline.a, so run build_lib.sh FIRST.
 #
 # This script is a self-contained extraction of the certified
 # manu/pipeline/npu/build_mosaic_pipeline_arm64.sh (demo half).  The link
@@ -60,6 +63,7 @@ die() { echo "[ERROR] $*" >&2; exit 1; }
 
 [ -f "$HERE/src/npu/mosaic_api_test.cpp" ]      || die "missing source: src/npu/mosaic_api_test.cpp"
 [ -f "$HERE/src/npu/mosaic_contract_test.cpp" ] || die "missing source: src/npu/mosaic_contract_test.cpp"
+[ -f "$HERE/src/npu/rknn_mosaic_e2e.cpp" ]     || die "missing source: src/npu/rknn_mosaic_e2e.cpp"
 
 mkdir -p "$OUT"
 
@@ -83,12 +87,22 @@ echo "== building mosaic_contract_test (library contract test) =="
   -L"$RT_LIB_DIR" -lrknnrt -lrga -Wl,-rpath-link,"$RT_LIB_DIR" \
   -L"$LIBDIR" -L"$INSTALL/lib" -L"$TP_LIB" $OPENCV_LIBS -lOpenCL -lpthread -ldl -lm
 
+# ---------------------------------------------------------------------------
+# 3. the END-TO-END test program (throughput / latency measurement)
+#    Same link line as the certified build_mosaic_pipeline_arm64.sh, only the
+#    source and artifact paths changed.
+# ---------------------------------------------------------------------------
+echo "== building rknn_mosaic_e2e (the end-to-end test program) =="
+"$CXX" $LIB_CXXFLAGS "$HERE/src/npu/rknn_mosaic_e2e.cpp" "$HERE/out/libmosaic_pipeline.a" -o "$HERE/out/rknn_mosaic_e2e" \
+  -L"$RT_LIB_DIR" -lrknnrt -lrga -Wl,-rpath-link,"$RT_LIB_DIR" \
+  -L"$LIBDIR" -L"$INSTALL/lib" -L"$TP_LIB" $OPENCV_LIBS -lOpenCL -lpthread -ldl -lm
+
 echo
 echo "== artifacts =="
-for f in "$OUT/mosaic_api_test" "$OUT/mosaic_contract_test"; do
+for f in "$OUT/mosaic_api_test" "$OUT/mosaic_contract_test" "$OUT/rknn_mosaic_e2e"; do
   echo "  path : $f"
   echo "  size : $(stat -c%s "$f") B"
   echo "  md5  : $(md5sum "$f" | cut -d' ' -f1)"
 done
 echo
-echo "[ok] demo programs built.  Copy out/* to the NFS mount -- see README.md section (3)."
+echo "[ok] test programs built.  Copy out/* to the NFS mount -- see README.md section (3)."

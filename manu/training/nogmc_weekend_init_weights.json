@@ -7,5 +7,7 @@
     "路径相对项目根 /tmp/pycharm_project_10ae9e2e；调度器会自动归一成绝对路径。"
   ],
   "base474": "runs/optuna_p0_nas/trial_0474/weights/best.pt",
-  "rc2": "runs/optuna_mix_ratio/trials/trial_0080/weights/epoch3.pt"
+  "rc2": "runs/optuna_mix_ratio/trials/trial_0080/weights/epoch3.pt",
+  "soup_strict3": "/mnt/data/siping/runs/nogmc_focus/soups/soup_strict3.pt",
+  "soup_high3_nobn": "/mnt/data/siping/runs/nogmc_focus/soups/soup_high3_nobn.pt"
 }

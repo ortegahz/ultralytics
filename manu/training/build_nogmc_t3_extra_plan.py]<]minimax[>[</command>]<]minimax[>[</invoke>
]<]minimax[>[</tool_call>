@@ -1,0 +1,130 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""生成「补投臂」清单（2026-11-03 T3 前沿轮中期自适应用）。
+
+用法
+====
+```bash
+# 看有哪些候选
+python manu/training/build_nogmc_t3_extra_plan.py --list
+
+# 选若干条生成补投计划
+python manu/training/build_nogmc_t3_extra_plan.py --pick T3_W2_LR30_15EP_S4,T3_W2_LR40_8EP \
+    --out manu/training/nogmc_t3_extra_plan.json
+
+# 然后（不重启调度器、不动正在跑的臂）执行
+python manu/training/enqueue_extra_arms.py \
+    --out-root /mnt/data/siping/runs/nogmc_t3 --study-name mix_ratio_search_nogmc_t3 \
+    --plan manu/training/nogmc_t3_plan.json --plan-extra manu/training/nogmc_t3_extra_plan.json
+```
+
+⚠️ **三条纪律**
+1. 补投的臂**排在队尾**（trial number 更大 ⇒ FIFO 靠后）⇒ 想让它们**优先**跑，
+   必须同时**剪掉**等量的低价值 WAITING 臂（`--prune-last N` 或 `--prune-roles`），
+   否则总臂数会超过调度器的 `--n-trials` 上限（30）⇒ **新臂永远不会被执行**。
+2. 剪掉的臂是**事前判断为低价值**的那些 ⇒ 剪错不可逆（Optuna 4.9 没有 `delete_trial`；
+   标 PRUNED 后指纹仍在去重表里 ⇒ 重新入队同参同种子会被跳过 ⇒ 想再跑它必须换 seed）。
+3. 形状超参**一律沿用 focus study 的同一组值** ⇒ 补投臂与原 30 条臂**受控可比**。
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+SHAPE = {
+    "warmup_epochs": 1.5,
+    "weight_decay": 0.000269,
+    "focal_beta": 2.75,
+    "offset_weight": 0.4,
+    "mosaic": 0.15,
+    "scale": 0.1,
+    "translate": 0.05,
+    "clip_max_norm": 5.65,
+    "freeze_bn": False,
+    "backbone_lr_scale": 1.0,
+    "freeze_backbone_epochs": 0,
+}
+
+# 候选：role → (mix, lr, epochs, seed, init_x, 说明)
+CANDIDATES: dict[str, tuple] = {
+    # ---- A 类：给「T3 最高家族」补种子（跨种子 soup 的燃料）----
+    "T3_W2_LR30_15EP_S4": ("w2.0", 3.0, 15, 340, "",
+                           "★w2.0·lr3.0·15ep 第 4 种子（ep15 家族 soup）"),
+    "T3_W3_LR30_15EP_S4": ("w3.0", 3.0, 15, 341, "",
+                           "★w3.0·lr3.0·15ep 第 4 种子（最可能的严格 PASS 家族）"),
+    "T3_W2_LR35_15EP_S2": ("w2.0", 3.5, 15, 342, "",
+                           "w2.0·lr3.5·15ep 第 2 种子"),
+    "T3_W3_LR2882_15EP_S2": ("w3.0", 2.8821, 15, 343, "",
+                             "cs_t0008 家族（严格 PASS 家族）加长训练的第 2 种子"),
+    # ---- B 类：把 lr 天花板再往上顶（ep8 ⇒ 便宜，92 min）----
+    "T3_W2_LR40_8EP": ("w2.0", 4.0, 8, 344, "",
+                       "★lr 首次到 4.0（+2.3 pp T3 预期）⇒ ep8 便宜探顶"),
+    "T3_W3_LR40_8EP": ("w3.0", 4.0, 8, 345, "",
+                       "w3.0 侧 lr=4.0（T1 更好）"),
+    "T3_W2_LR35_8EP_S2": ("w2.0", 3.5, 8, 346, "",
+                           "w2.0·lr3.5·8ep 第 2 种子"),
+    # ---- C 类：soup 家族补成员（ep8 ⇒ 便宜）----
+    "INS_T0033_S7": ("w3.0", 3.0, 8, 347, "",
+                     "trial_0033 家族补种子（4 种子 soup）"),
+    "INS_T0027_S6": ("w2.0", 3.0, 8, 348, "",
+                     "T3 最高家族（w2.0·lr3.0·8ep）补种子（4 种子 soup）"),
+    "INS_T0008_S6": ("w3.0", 2.8821, 8, 349, "",
+                     "cs_t0008 家族补种子（6 种子 soup）"),
+    # ---- D 类：init 换 soup_strict3（起点 T1 更高）----
+    "T3_W2_LR30_15EP_SOUPSRC_S2": ("w2.0", 3.0, 15, 350, "soup_strict3",
+                                   "soup_strict3 起手 + 15ep"),
+    # ---- E 类：ep 阶梯补点 ----
+    "T3_W2_LR30_20EP_S2": ("w2.0", 3.0, 20, 351, "",
+                           "w2.0·lr3.0·20ep 第 2 种子（ep20 家族）"),
+}
+
+
+def build(picks: list[str]) -> list[dict]:
+    out = []
+    for role in picks:
+        mix, lr, ep, seed, init_x, note = CANDIDATES[role]
+        p = dict(SHAPE)
+        p["mix_spec"] = mix
+        p["lr_scale"] = lr
+        p["epochs"] = ep
+        p["init_from"] = "rc2"
+        if init_x:
+            p["init_from_x"] = init_x
+        out.append({"role": role, "seed": seed, "note": note, "params": p})
+    return out
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--list", action="store_true")
+    ap.add_argument("--pick", default="", help="逗号分隔的 role")
+    ap.add_argument("--out", default="manu/training/nogmc_t3_extra_plan.json")
+    args = ap.parse_args()
+
+    if args.list or not args.pick:
+        print("候选补投臂：")
+        for role, (mix, lr, ep, seed, init_x, note) in CANDIDATES.items():
+            print(f"  {role:<28} mix={mix:<8} lr={lr:<7} ep={ep:<3} seed={seed} "
+                  f"init_x={init_x or '-':<14} {note}")
+        return 0
+
+    picks = [x.strip() for x in args.pick.split(",") if x.strip()]
+    miss = [x for x in picks if x not in CANDIDATES]
+    if miss:
+        print("❌ 未知 role：%s" % miss)
+        return 1
+    items = build(picks)
+    Path(args.out).write_text(json.dumps(items, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    print("已写 %s：%d 条" % (args.out, len(items)))
+    for it in items:
+        p = it["params"]
+        print("  %-28s mix=%-8s lr=%-7s ep=%-3s seed=%s init_x=%s" % (
+            it["role"], p["mix_spec"], p["lr_scale"], p["epochs"], it["seed"],
+            p.get("init_from_x", "-")))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

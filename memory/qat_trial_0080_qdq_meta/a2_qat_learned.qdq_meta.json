@@ -1,0 +1,322 @@
+{
+ "ckpt": "/mnt/data/siping/ptq_work/qat/trial_0080/qat_epoch3.pt",
+ "mode": "qat",
+ "weights_source": "qat",
+ "onnx": "/mnt/data/siping/ptq_work/qat/trial_0080/onnx/a2_qat_learned.onnx",
+ "opset": 13,
+ "uint8_input": false,
+ "qdq": [
+  {
+   "node": "/model/head/feat_conv/feat_conv.1/fq/QuantizeLinear",
+   "op": "QuantizeLinear",
+   "role": "scale",
+   "value": 0.018707169219851494,
+   "dtype": "float32",
+   "shape": [
+    1
+   ],
+   "initializer": "/model/head/feat_conv/feat_conv.1/fq/Constant_1_output_0",
+   "was_initializer": false
+  },
+  {
+   "node": "/model/head/feat_conv/feat_conv.1/fq/QuantizeLinear",
+   "op": "QuantizeLinear",
+   "role": "zero_point",
+   "value": 0.0,
+   "dtype": "uint8",
+   "shape": [
+    1
+   ],
+   "initializer": "/model/head/feat_conv/feat_conv.1/fq/Constant_output_0",
+   "was_initializer": false
+  },
+  {
+   "node": "/model/head/feat_conv/feat_conv.1/fq/DequantizeLinear",
+   "op": "DequantizeLinear",
+   "role": "scale",
+   "value": 0.018707169219851494,
+   "dtype": "float32",
+   "shape": [
+    1
+   ],
+   "initializer": "/model/head/feat_conv/feat_conv.1/fq/Constant_1_output_0",
+   "was_initializer": false
+  },
+  {
+   "node": "/model/head/feat_conv/feat_conv.1/fq/DequantizeLinear",
+   "op": "DequantizeLinear",
+   "role": "zero_point",
+   "value": 0.0,
+   "dtype": "uint8",
+   "shape": [
+    1
+   ],
+   "initializer": "/model/head/feat_conv/feat_conv.1/fq/Constant_output_0",
+   "was_initializer": false
+  },
+  {
+   "node": "/model/head/heatmap/heatmap.0/fq/QuantizeLinear",
+   "op": "QuantizeLinear",
+   "role": "scale",
+   "value": 0.16061057150363922,
+   "dtype": "float32",
+   "shape": [
+    1
+   ],
+   "initializer": "/model/head/heatmap/heatmap.0/fq/Constant_1_output_0",
+   "was_initializer": false
+  },
+  {
+   "node": "/model/head/heatmap/heatmap.0/fq/QuantizeLinear",
+   "op": "QuantizeLinear",
+   "role": "zero_point",
+   "value": 0.0,
+   "dtype": "uint8",
+   "shape": [
+    1
+   ],
+   "initializer": "/model/head/heatmap/heatmap.0/fq/Constant_output_0",
+   "was_initializer": false
+  },
+  {
+   "node": "/model/head/heatmap/heatmap.0/fq/DequantizeLinear",
+   "op": "DequantizeLinear",
+   "role": "scale",
+   "value": 0.16061057150363922,
+   "dtype": "float32",
+   "shape": [
+    1
+   ],
+   "initializer": "/model/head/heatmap/heatmap.0/fq/Constant_1_output_0",
+   "was_initializer": false
+  },
+  {
+   "node": "/model/head/heatmap/heatmap.0/fq/DequantizeLinear",
+   "op": "DequantizeLinear",
+   "role": "zero_point",
+   "value": 0.0,
+   "dtype": "uint8",
+   "shape": [
+    1
+   ],
+   "initializer": "/model/head/heatmap/heatmap.0/fq/Constant_output_0",
+   "was_initializer": false
+  },
+  {
+   "node": "/model/head/offset/offset.0/fq/QuantizeLinear",
+   "op": "QuantizeLinear",
+   "role": "scale",
+   "value": 0.14610670506954193,
+   "dtype": "float32",
+   "shape": [
+    1
+   ],
+   "initializer": "/model/head/offset/offset.0/fq/Constant_1_output_0",
+   "was_initializer": false
+  },
+  {
+   "node": "/model/head/offset/offset.0/fq/QuantizeLinear",
+   "op": "QuantizeLinear",
+   "role": "zero_point",
+   "value": 0.0,
+   "dtype": "uint8",
+   "shape": [
+    1
+   ],
+   "initializer": "/model/head/offset/offset.0/fq/Constant_output_0",
+   "was_initializer": false
+  },
+  {
+   "node": "/model/head/offset/offset.0/fq/DequantizeLinear",
+   "op": "DequantizeLinear",
+   "role": "scale",
+   "value": 0.14610670506954193,
+   "dtype": "float32",
+   "shape": [
+    1
+   ],
+   "initializer": "/model/head/offset/offset.0/fq/Constant_1_output_0",
+   "was_initializer": false
+  },
+  {
+   "node": "/model/head/offset/offset.0/fq/DequantizeLinear",
+   "op": "DequantizeLinear",
+   "role": "zero_point",
+   "value": 0.0,
+   "dtype": "uint8",
+   "shape": [
+    1
+   ],
+   "initializer": "/model/head/offset/offset.0/fq/Constant_output_0",
+   "was_initializer": false
+  },
+  {
+   "node": "/model/head/QuantizeLinear",
+   "op": "QuantizeLinear",
+   "role": "scale",
+   "value": 0.003921568859368563,
+   "dtype": "float32",
+   "shape": [
+    1
+   ],
+   "initializer": "/model/head/Constant_3_output_0",
+   "was_initializer": false
+  },
+  {
+   "node": "/model/head/QuantizeLinear",
+   "op": "QuantizeLinear",
+   "role": "zero_point",
+   "value": 0.0,
+   "dtype": "uint8",
+   "shape": [
+    1
+   ],
+   "initializer": "/model/head/Constant_2_output_0",
+   "was_initializer": false
+  },
+  {
+   "node": "/model/head/DequantizeLinear",
+   "op": "DequantizeLinear",
+   "role": "scale",
+   "value": 0.003921568859368563,
+   "dtype": "float32",
+   "shape": [
+    1
+   ],
+   "initializer": "/model/head/Constant_3_output_0",
+   "was_initializer": false
+  },
+  {
+   "node": "/model/head/DequantizeLinear",
+   "op": "DequantizeLinear",
+   "role": "zero_point",
+   "value": 0.0,
+   "dtype": "uint8",
+   "shape": [
+    1
+   ],
+   "initializer": "/model/head/Constant_2_output_0",
+   "was_initializer": false
+  }
+ ],
+ "qdq_final": [
+  {
+   "site": "feat_conv1",
+   "node": "/model/head/feat_conv/feat_conv.1/fq/QuantizeLinear",
+   "op": "QuantizeLinear",
+   "input_tensor": "/model/head/feat_conv/feat_conv.1/block/act/Mul_output_0",
+   "scale": 0.018707169219851494,
+   "n_scales": 1,
+   "scale_dtype": "float32",
+   "zero_point": 0,
+   "zp_dtype": "uint8"
+  },
+  {
+   "site": "feat_conv1",
+   "node": "/model/head/feat_conv/feat_conv.1/fq/DequantizeLinear",
+   "op": "DequantizeLinear",
+   "input_tensor": "/model/head/feat_conv/feat_conv.1/fq/QuantizeLinear_output_0",
+   "scale": 0.018707169219851494,
+   "n_scales": 1,
+   "scale_dtype": "float32",
+   "zero_point": 0,
+   "zp_dtype": "uint8"
+  },
+  {
+   "site": "heatmap0",
+   "node": "/model/head/heatmap/heatmap.0/fq/QuantizeLinear",
+   "op": "QuantizeLinear",
+   "input_tensor": "/model/head/heatmap/heatmap.0/block/Conv_output_0",
+   "scale": 0.16061057150363922,
+   "n_scales": 1,
+   "scale_dtype": "float32",
+   "zero_point": 0,
+   "zp_dtype": "uint8"
+  },
+  {
+   "site": "heatmap0",
+   "node": "/model/head/heatmap/heatmap.0/fq/DequantizeLinear",
+   "op": "DequantizeLinear",
+   "input_tensor": "/model/head/heatmap/heatmap.0/fq/QuantizeLinear_output_0",
+   "scale": 0.16061057150363922,
+   "n_scales": 1,
+   "scale_dtype": "float32",
+   "zero_point": 0,
+   "zp_dtype": "uint8"
+  },
+  {
+   "site": "offset0",
+   "node": "/model/head/offset/offset.0/fq/QuantizeLinear",
+   "op": "QuantizeLinear",
+   "input_tensor": "/model/head/offset/offset.0/block/Conv_output_0",
+   "scale": 0.14610670506954193,
+   "n_scales": 1,
+   "scale_dtype": "float32",
+   "zero_point": 0,
+   "zp_dtype": "uint8"
+  },
+  {
+   "site": "offset0",
+   "node": "/model/head/offset/offset.0/fq/DequantizeLinear",
+   "op": "DequantizeLinear",
+   "input_tensor": "/model/head/offset/offset.0/fq/QuantizeLinear_output_0",
+   "scale": 0.14610670506954193,
+   "n_scales": 1,
+   "scale_dtype": "float32",
+   "zero_point": 0,
+   "zp_dtype": "uint8"
+  },
+  {
+   "site": "heatmap_out",
+   "node": "/model/head/QuantizeLinear",
+   "op": "QuantizeLinear",
+   "input_tensor": "/model/head/Clip_output_0",
+   "scale": 0.003921568859368563,
+   "n_scales": 1,
+   "scale_dtype": "float32",
+   "zero_point": 0,
+   "zp_dtype": "uint8"
+  },
+  {
+   "site": "heatmap_out",
+   "node": "/model/head/DequantizeLinear",
+   "op": "DequantizeLinear",
+   "input_tensor": "/model/head/QuantizeLinear_output_0",
+   "scale": 0.003921568859368563,
+   "n_scales": 1,
+   "scale_dtype": "float32",
+   "zero_point": 0,
+   "zp_dtype": "uint8"
+  }
+ ],
+ "scales": {
+  "feat_conv1": 0.018707169219851494,
+  "heatmap0": 0.16061057150363922,
+  "offset0": 0.14610670506954193
+ },
+ "out_scale": 0.00392156862745098,
+ "ablate_p0": true,
+ "op_histogram": {
+  "Conv": 85,
+  "Sigmoid": 77,
+  "Mul": 93,
+  "Shape": 8,
+  "Constant": 69,
+  "Gather": 8,
+  "Add": 26,
+  "Div": 8,
+  "Slice": 16,
+  "Concat": 22,
+  "MaxPool": 3,
+  "Split": 2,
+  "Reshape": 3,
+  "Transpose": 2,
+  "MatMul": 2,
+  "Softmax": 1,
+  "Resize": 5,
+  "QuantizeLinear": 4,
+  "DequantizeLinear": 4,
+  "Relu": 2,
+  "Clip": 1
+ }
+}

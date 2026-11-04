@@ -1,8 +1,11 @@
-> ⚠️ **本文件是模板，不是交付物本身。**
-> 交付物 `build/README.md` 由
-> `{{SRC_ROOT}}/packaging/make_build_dir.sh` 从本文件生成，**请勿手改生成物**。
-> 本文件里的占位符（双花括号形式）由脚本按实况填充；模板若漏改一个，
-> 脚本会检查到残留的双花括号并直接报错退出，不会产出一份带占位符的文档。
+> ℹ️ **这份文件怎么来的**：交付物 `README.md` 由工程里的
+> `manu/pipeline/npu/packaging/README.template.md` 生成（占位符由脚本按实况填充；
+> 模板漏改一个，脚本会当场报错，不会产出带双花括号的文档）。**请勿手改交付物**。
+>
+> ℹ️ **命令里的绝对路径（`/media/manu/...`）是作者机器上的**：把 `cd <路径>` 换成
+> 你自己的包目录即可 —— **所有构建脚本都按脚本自身所在目录定位，拷到哪个目录都能编**；
+> 工具链 / OpenCV / 板卡运行时库的位置用 `RK3588_TOOLCHAIN` / `OPENCV_INSTALL` /
+> `BOARD_LIBS` / `RT_LIB_DIR` 四个环境变量覆盖。
 
 # mosaic_pipeline SDK —— 独立构建包（RK3588 / aarch64）
 
@@ -10,22 +13,31 @@
 拷在这里面，可以**脱离仓库单独编译**。
 
 ```
-build/
+包根目录（仓库内是 build/，交付给集成方时是 mosaic_sdk/）
 ├── README.md          ← 你正在看的这份（四条命令）  ★由 packaging/README.template.md 生成
 ├── MANIFEST.md        ← 交付清单（md5 表自动生成）★由 packaging/MANIFEST.template.md 生成
 ├── build_lib.sh       ← 只编译库
 ├── build_demo.sh      ← 只编译测试程序
-├── copy_to_nfs.sh     ← 一键拷贝到 NFS（可选带板卡验证）
+├── copy_to_nfs.sh     ← 一键整树拷贝到 NFS（可选带板卡验证）
 ├── src/
-│   ├── npu/           mosaic_pipeline.{cpp,h}, mosaic_core.h,
-│   │                  mosaic_api_test.cpp, mosaic_contract_test.cpp
+│   ├── npu/           mosaic_pipeline.{cpp,h}, mosaic_core.h, mosaic_post_gpu.h,
+│   │                  mosaic_api_test.cpp, mosaic_contract_test.cpp,
+│   │                  rknn_mosaic_e2e.cpp
 │   ├── cpp/           gmc_stream_ocl.cpp, md5.h
-│   └── opencl/host/   ocl_host.h
+│   └── opencl/host/   ocl_host.h, post_local_max.cl（kernel 可读副本，运行时不需要）
 ├── include/           rknn_api.h, stb_image*.h, rga/ + CL/
 ├── runtime/kernels/   warp_median_fused.cl, sortnet_generated.inc（运行时必需）,
 │                      gmc_feature_gpu.cl（可选，库不加载）
 └── out/               ← 产物落在这里
+    ├── mosaic_pipeline.o
+    ├── libmosaic_pipeline.a
+    ├── mosaic_api_test
+    ├── mosaic_contract_test
+    └── rknn_mosaic_e2e
 ```
+
+> **交付到 NFS 时是整棵树一起拷**（不是只拷几个产物文件）：板卡侧看到的目录
+> 结构与这里一一对应——`src/ include/ runtime/ out/` + 顶层 5 个文件。
 
 交付包共 **{{FILE_COUNT}}** 个文件：源码 **{{SRC_COUNT}}** 个（`src/`）、
 第三方头 **{{HDR_COUNT}}** 个（`include/`）、kernel 资产 **{{KERNEL_COUNT}}** 个
@@ -38,6 +50,7 @@ build/
 | `out/libmosaic_pipeline.a` | **库**：GMC/OpenCL + RGA mosaic + RKNN fp16 + 反投影，公开 C ABI 在 `src/npu/mosaic_pipeline.h` |
 | `out/mosaic_api_test` | **给客户的示例 demo**：只调公开 C ABI（open / push / collect / destroy） |
 | `out/mosaic_contract_test` | **库的契约测试**（验收门禁） |
+| `out/rknn_mosaic_e2e` | **端到端测试程序**：测吞吐/延时（12.9 fps 那个数就是它测的），只调公开 C ABI |
 
 当前产物的 md5（**本次构建的快照**；`libmosaic_pipeline.a` 每次构建都会变，
 见文末「md5 的两个已知假差异」）：
@@ -86,7 +99,7 @@ cd {{PKG_ROOT}}
 bash build_demo.sh
 ```
 
-产物：`out/mosaic_api_test`、`out/mosaic_contract_test`。
+产物：`out/mosaic_api_test`、`out/mosaic_contract_test`、`out/rknn_mosaic_e2e`。
 
 **等价的一行命令**（示例 demo；把源文件换成 `src/npu/mosaic_contract_test.cpp`、
 产物换成 `out/mosaic_contract_test` 即得契约测试）：
@@ -110,40 +123,84 @@ mkdir -p out && \
 
 ---
 
-## ③ 把编译产物拷到 NFS 挂载点
+## ③ 把整包拷到 NFS 挂载点
+
+交付包是**自包含源码包**，所以这一步拷的是**整棵树**：源码 + 第三方头 +
+kernel 资产 + 编译产物 + 脚本 + 文档（不再是拷几个产物文件）。
+
+**推荐：一键脚本**（整树镜像 + 递归 md5 回验 + 建兼容别名）：
 
 ```bash
-mkdir -p {{NFS_ROOT}}/mosaic_sdk
-cp -f {{PKG_ROOT}}/out/mosaic_api_test \
-      {{PKG_ROOT}}/out/mosaic_contract_test \
-      {{PKG_ROOT}}/out/libmosaic_pipeline.a \
-      {{PKG_ROOT}}/src/npu/mosaic_pipeline.h \
-      {{NFS_ROOT}}/mosaic_sdk/
+bash {{PKG_ROOT}}/copy_to_nfs.sh
 ```
 
-> `mosaic_pipeline.h` 一起拷过去，是为了让客户能自己写代码链接这个库。
+**手写等价命令**（脚本不可用时）：
+
+```bash
+SRC={{PKG_ROOT}}
+DST={{NFS_ROOT}}/mosaic_sdk
+mkdir -p "$DST"
+
+# ① 先删掉【上一版遗留的平铺实文件/实目录】—— cp -a 是「合并」语义，
+#    不会删；不删就会留下**旧二进制**，让人误以为在跑新版
+rm -f  "$DST/mosaic_api_test" "$DST/mosaic_contract_test" \
+       "$DST/libmosaic_pipeline.a" "$DST/mosaic_pipeline.h"
+rm -rf "$DST/kernels"
+
+# ② 整树镜像
+cp -a "$SRC/src" "$SRC/include" "$SRC/runtime" "$SRC/out" "$DST/"
+cp -a "$SRC/README.md" "$SRC/MANIFEST.md" \
+      "$SRC/build_lib.sh" "$SRC/build_demo.sh" "$SRC/copy_to_nfs.sh" "$DST/"
+chmod +x "$DST/build_lib.sh" "$DST/build_demo.sh" "$DST/copy_to_nfs.sh" \
+         "$DST/out/mosaic_api_test" "$DST/out/mosaic_contract_test" \
+         "$DST/out/rknn_mosaic_e2e"
+
+# ③ 建 5 个兼容符号链接（**相对路径**），旧命令才继续可用
+( cd "$DST" && \
+  ln -sfn out/mosaic_api_test      mosaic_api_test && \
+  ln -sfn out/mosaic_contract_test mosaic_contract_test && \
+  ln -sfn out/libmosaic_pipeline.a libmosaic_pipeline.a && \
+  ln -sfn src/npu/mosaic_pipeline.h mosaic_pipeline.h && \
+  ln -sfn runtime/kernels           kernels )
+```
+
+> ⚠️ **别省 ① 和 ③**：少了 ① 会留下**上一版的旧二进制**（跑的是旧程序却以为是新版）；
+> 少了 ③ 则「旧写法仍然可用」这句话不成立。
+> **更省心的做法是用 `bash {{PKG_ROOT}}/copy_to_nfs.sh`**（它三步全做，还带递归 md5 回验）。
+
+> **拷完必须验这两样**，缺一个就说明交付包是残的：
+>
+> ```bash
+> ls {{NFS_ROOT}}/mosaic_sdk/src/npu/mosaic_api_test.cpp   # 源码在（客户能参考、能重编）
+> ls {{NFS_ROOT}}/mosaic_sdk/out/mosaic_api_test          # 产物在
+> ```
 
 **挂载点对应关系**：NFS 在本机是 `{{NFS_ROOT}}`，在板卡上是
-`/mnt/manu` ⇒ 拷过去之后，板卡从 `/mnt/manu/mosaic_sdk/` 就能看到这些文件。
+`/mnt/manu` ⇒ 拷过去之后，板卡从 `/mnt/manu/mosaic_sdk/` 就能看到这整棵树。
 
 ---
 
 ## ④ 运行命令（板卡 `{{BOARD}}:{{BOARD_PORT}}`）
 
 ```bash
-ssh -p {{BOARD_PORT}} {{BOARD}} '/mnt/manu/mosaic_sdk/mosaic_api_test \
+ssh -p {{BOARD_PORT}} {{BOARD}} '/mnt/manu/mosaic_sdk/out/mosaic_api_test \
   --raw-root   /mnt/manu/lq_ir_bmp \
   --sequence   VIDEO00007_19700101_001324 \
   --model      /root/psearch/models/p0_off_A_none.rknn \
-  --kernel-dir /root/psearch/kernels \
+  --kernel-dir /mnt/manu/mosaic_sdk/runtime/kernels \
   --limit 12'
 ```
+
+> **兼容别名**：交付根目录留了指向 `out/` 与 `runtime/kernels` 的相对符号链接，
+> 所以旧写法 `/mnt/manu/mosaic_sdk/mosaic_api_test --kernel-dir /mnt/manu/mosaic_sdk/kernels`
+> **仍然可用**（`kernels` 是 `runtime/kernels` 的别名）。新代码一律用上面
+> `out/` + `runtime/kernels` 的写法。
 
 ---
 
 ## 注意事项
 
-* **契约测试**：`/mnt/manu/mosaic_sdk/mosaic_contract_test`（同样参数）。
+* **契约测试**：`/mnt/manu/mosaic_sdk/out/mosaic_contract_test`（同样参数）。
   板卡实测 **196 passed / 0 failed**。它是库的验收门禁——客户环境跑通这个，
   说明库的行为是符合契约的。
 * **demo 的全部选项与默认值**（`src/npu/mosaic_api_test.cpp`）：
@@ -200,7 +257,7 @@ ssh -p {{BOARD_PORT}} {{BOARD}} '/mnt/manu/mosaic_sdk/mosaic_api_test \
      ⇒ 净交付帧只 +20.7 %，不是拟合帧的 +43 %。
   程序化用法：`mosaic_pipeline_config_set_gmc_anchor_step(&cfg, 10)`；e2e 侧用 `--anchor-step 10`。
 * **NFS 上直接执行慢**：先拷到本地再跑——
-  `cp /mnt/manu/mosaic_sdk/mosaic_api_test /tmp/ && /tmp/mosaic_api_test ...`。
+  `cp /mnt/manu/mosaic_sdk/out/mosaic_api_test /tmp/ && /tmp/mosaic_api_test ...`。
 * **板卡根分区 `/root` 的 ext4 已损坏**：**不要往 `/root` scp 大文件**。本包走
   NFS，不受影响。
 * **必须「一推一收」**：流水线是「机会主义最新帧」调度，一次只推一帧；
@@ -236,7 +293,8 @@ int32_t nd = mosaic_pipeline_collect(p, &fid, dets, 64);   // 检测框出来
 mosaic_pipeline_destroy(p);
 ```
 
-`mosaic_pipeline.h` 在 `src/npu/`，已经随 ③ 一起拷到 NFS 挂载点了。
+`mosaic_pipeline.h` 在 `src/npu/`（NFS 交付目录里是
+`src/npu/mosaic_pipeline.h`，顶层另有一个指向它的兼容别名），随 ③ 整树拷过去了。
 
 ---
 
@@ -301,58 +359,126 @@ mosaic_pipeline_destroy(p);
 | 项 | demo 默认值 | 本板是否存在 |
 |---|---|:--:|
 | 模型 | `/mnt/manu/ptq/models/p0_off_A_none.rknn` | ✅ |
-| kernel 目录 | `/root/kernels` | ✅ |
+| kernel 目录 | `/root/kernels` | ✅（仅本板碰巧有，见下） |
 | 帧目录 | `/mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324` | ✅ |
 
 所以**不带任何参数就能直接跑**：
 
 ```bash
-ssh -p {{BOARD_PORT}} {{BOARD}} '/mnt/manu/mosaic_sdk/mosaic_api_test --limit 12'
+ssh -p {{BOARD_PORT}} {{BOARD}} '/mnt/manu/mosaic_sdk/out/mosaic_api_test --limit 12'
 ```
 
 > **换板子时这三个默认路径大概率不同**（模型放哪、kernel 放哪、帧从哪来，都
 > 取决于他们的系统布局）⇒ 用 `--model` / `--kernel-dir` / `--raw-root` /
 > `--sequence` 显式覆盖，别照抄默认值。
 >
-> 注：上面零参数运行依赖的是**本板已有的 `/root/kernels`**。如果按下面
-> 「NFS 交付目录内容」把 kernel 放到 `/mnt/manu/mosaic_sdk/kernels/`，那就必须
-> 显式加 `--kernel-dir /mnt/manu/mosaic_sdk/kernels`。
+> ⚠️ **`--kernel-dir` 的默认值 `/root/kernels` 是这块开发板上碰巧存在的路径**，
+> **不是交付包的一部分**。交付包自带 kernel（`runtime/kernels/`），在交付目录
+> 里跑就应当显式写 `--kernel-dir /mnt/manu/mosaic_sdk/runtime/kernels`。
+
+## 源码在哪 / 怎么自己重编
+
+交付目录是**自包含源码包**：源码、第三方头、OpenCL kernel、构建脚本全在里面，
+**不依赖本仓库**，放到哪都能原地重编。
+
+| 我要改什么 | 在哪 |
+|---|---|
+| 示例 demo（跑流水线拿检测框） | `src/npu/mosaic_api_test.cpp` |
+| 契约测试（验收门禁） | `src/npu/mosaic_contract_test.cpp` |
+| 端到端测试程序（测吞吐/延时，12.9 fps 那个数就是它测的） | `src/npu/rknn_mosaic_e2e.cpp` |
+| 库实现 | `src/npu/mosaic_pipeline.cpp` |
+| 公开 C ABI 头（自己写程序就 include 它） | `src/npu/mosaic_pipeline.h` |
+| GMC / OpenCL 引擎 | `src/cpp/gmc_stream_ocl.cpp` |
+| OpenCL host 封装 | `src/opencl/host/ocl_host.h` |
+
+原地重编（**构建脚本按脚本自身所在目录定位，拷到哪个目录都能编**）：
+
+```bash
+cd <交付目录>                # 例：cd /mnt/manu/mosaic_sdk
+bash build_lib.sh            # -> out/mosaic_pipeline.o, out/libmosaic_pipeline.a
+bash build_demo.sh           # -> out/mosaic_api_test, out/mosaic_contract_test, out/rknn_mosaic_e2e
+```
+
+> 第三方头（`include/`：rknn_api.h / stb_image*.h / rga/ / CL/）已随包，
+> OpenCL kernel 资产在 `runtime/kernels/`（运行时 `--kernel-dir` 指这里）。
+> 交叉工具链 / OpenCV / 板卡运行时库的位置用环境变量改：
+> `RK3588_TOOLCHAIN`、`OPENCV_INSTALL`、`BOARD_LIBS`、`RT_LIB_DIR`。
+
+---
 
 ## NFS 交付目录内容
 
-`{{NFS_ROOT}}/mosaic_sdk/`（板卡侧 = `/mnt/manu/mosaic_sdk/`）
-应当包含这些：
+`{{NFS_ROOT}}/mosaic_sdk/`（板卡侧 = `/mnt/manu/mosaic_sdk/`）是**整棵源码包**：
 
 ```
 {{NFS_ROOT}}/mosaic_sdk/
-├── mosaic_api_test          ← 示例 demo 可执行文件
-├── mosaic_contract_test     ← 契约测试可执行文件
-├── libmosaic_pipeline.a     ← 静态库
-├── mosaic_pipeline.h        ← 公开 C ABI 头（客户自己写代码要用）
-├── kernels/
+├── README.md                 ← 本文件
+├── MANIFEST.md               ← 交付清单
+├── build_lib.sh              ← 编译库（+x）
+├── build_demo.sh             ← 编译 demo / 契约测试 / 端到端测试程序（+x）
+├── copy_to_nfs.sh            ← 一键整树拷贝（+x）
+├── src/                      ← 全部源码（可参考、可改、可原地重编）
+│   ├── npu/    mosaic_pipeline.{cpp,h}, mosaic_core.h, mosaic_post_gpu.h,
+│   │           mosaic_api_test.cpp, mosaic_contract_test.cpp,
+│   │           rknn_mosaic_e2e.cpp
+│   ├── cpp/    gmc_stream_ocl.cpp, md5.h
+│   └── opencl/host/   ocl_host.h, post_local_max.cl
+├── include/                  ← 第三方头：rknn_api.h, stb_image*.h, rga/×18, CL/×20
+├── runtime/kernels/          ← OpenCL kernel 资产
 │   ├── warp_median_fused.cl     ← 运行时必需
 │   ├── sortnet_generated.inc    ← 运行时必需
 │   └── gmc_feature_gpu.cl       ← 可选（探针用，库不加载）
-├── README.md                ← 本文件
-└── MANIFEST.md              ← 交付清单
+├── out/                      ← 编译产物
+│   ├── mosaic_pipeline.o
+│   ├── libmosaic_pipeline.a
+│   ├── mosaic_api_test           ← 示例 demo 可执行文件
+│   ├── mosaic_contract_test      ← 契约测试可执行文件
+│   └── rknn_mosaic_e2e           ← 端到端测试程序（吞吐/延时测量）
+└── 兼容别名（相对符号链接）
+    mosaic_api_test       -> out/mosaic_api_test
+    mosaic_contract_test  -> out/mosaic_contract_test
+    libmosaic_pipeline.a  -> out/libmosaic_pipeline.a
+    mosaic_pipeline.h     -> src/npu/mosaic_pipeline.h
+    kernels               -> runtime/kernels
 ```
 
-拷贝命令（**由 Leader / 使用者执行**）：
+拷贝命令（**由 Leader / 使用者执行**）：整树镜像
 
 ```bash
 SRC={{PKG_ROOT}}
 DST={{NFS_ROOT}}/mosaic_sdk
-mkdir -p "$DST/kernels"
-cp -f "$SRC/out/mosaic_api_test" "$SRC/out/mosaic_contract_test" \
-      "$SRC/out/libmosaic_pipeline.a" "$SRC/src/npu/mosaic_pipeline.h" \
-      "$SRC/README.md" "$SRC/MANIFEST.md" "$DST/"
-cp -f "$SRC/runtime/kernels/gmc_feature_gpu.cl" \
-      "$SRC/runtime/kernels/warp_median_fused.cl" \
-      "$SRC/runtime/kernels/sortnet_generated.inc" "$DST/kernels/"
+mkdir -p "$DST"
+
+# ① 先删掉【上一版遗留的平铺实文件/实目录】—— cp -a 是「合并」语义，
+#    不会删；不删就会留下**旧二进制**，让人误以为在跑新版
+rm -f  "$DST/mosaic_api_test" "$DST/mosaic_contract_test" \
+       "$DST/libmosaic_pipeline.a" "$DST/mosaic_pipeline.h"
+rm -rf "$DST/kernels"
+
+# ② 整树镜像
+cp -a "$SRC/src" "$SRC/include" "$SRC/runtime" "$SRC/out" "$DST/"
+cp -a "$SRC/README.md" "$SRC/MANIFEST.md" \
+      "$SRC/build_lib.sh" "$SRC/build_demo.sh" "$SRC/copy_to_nfs.sh" "$DST/"
+chmod +x "$DST/build_lib.sh" "$DST/build_demo.sh" "$DST/copy_to_nfs.sh" \
+         "$DST/out/mosaic_api_test" "$DST/out/mosaic_contract_test" \
+         "$DST/out/rknn_mosaic_e2e"
+
+# ③ 建 5 个兼容符号链接（**相对路径**），旧命令才继续可用
+( cd "$DST" && \
+  ln -sfn out/mosaic_api_test      mosaic_api_test && \
+  ln -sfn out/mosaic_contract_test mosaic_contract_test && \
+  ln -sfn out/libmosaic_pipeline.a libmosaic_pipeline.a && \
+  ln -sfn src/npu/mosaic_pipeline.h mosaic_pipeline.h && \
+  ln -sfn runtime/kernels           kernels )
 ```
 
-> **板卡上的 `--kernel-dir` 要指向放 kernel 的那个目录**：如果按上面这样放，
-> 就是 `--kernel-dir /mnt/manu/mosaic_sdk/kernels`。
+> ⚠️ **别省 ① 和 ③**：少了 ① 会留下**上一版的旧二进制**（跑的是旧程序却以为是新版）；
+> 少了 ③ 则「旧写法仍然可用」这句话不成立。
+> **更省心的做法是用 `bash {{PKG_ROOT}}/copy_to_nfs.sh`**（它三步全做，还带递归 md5 回验）。
+
+> **板卡上的 `--kernel-dir` 指向 `runtime/kernels`**：
+> `--kernel-dir /mnt/manu/mosaic_sdk/runtime/kernels`
+> （旧写法 `/mnt/manu/mosaic_sdk/kernels` 是**兼容别名**，仍然可用）。
 
 ---
 
@@ -365,9 +491,10 @@ cd {{PKG_ROOT}}
 bash copy_to_nfs.sh --build --verify      # 编译 + 拷贝 + 上板验证，一条命令
 ```
 
-`copy_to_nfs.sh` 会做这些事：拷贝 10 个文件到 NFS（产物 + 头文件 + kernel 资产 +
-README + MANIFEST + 脚本自身）→ **逐文件 md5 回验**（NFS 写坏了立刻报错）→
-打印目标清单、板卡侧路径和运行命令。
+`copy_to_nfs.sh` 会做这些事：**整树镜像**到 NFS（`src/` `include/` `runtime/`
+`out/` + 顶层 5 个文件，不是零散拷几个产物）→ **递归 md5 回验**
+（NFS 写坏了立刻报错）→ 在交付根目录建好指向 `out/` 与 `runtime/kernels` 的
+**相对符号链接**（兼容别名）→ 打印目标清单、板卡侧路径和运行命令。
 
 | 变体 | 命令 | 说明 |
 |:--|:--|:--|
@@ -375,11 +502,22 @@ README + MANIFEST + 脚本自身）→ **逐文件 md5 回验**（NFS 写坏了�
 | 编译 + 拷贝 | `bash copy_to_nfs.sh --build` | 拷贝前先跑 `build_lib.sh` + `build_demo.sh` |
 | 换 NFS 目录 | `bash copy_to_nfs.sh --nfs /tmp/test_nfs` | 覆盖 NFS 根目录（**不碰真 NFS**），用于试跑 |
 | 换板卡 | `bash copy_to_nfs.sh --board root@1.2.3.4:2222` | 覆盖 ssh 目标与端口 |
-| 上板验证 | `bash copy_to_nfs.sh --verify` | 拷贝后 ssh 到板卡跑一次 demo（零参数，`--limit 6`） |
+| 换板卡落点 | `bash copy_to_nfs.sh --board-dest /mnt/manu/mosaic_sdk` | 板卡侧交付目录（NFS 根不可写、需经板卡中转时用它） |
+| 上板验证 | `bash copy_to_nfs.sh --verify` | 拷贝后 ssh 到板卡**串行**跑：契约测试（`--limit 60`）→ demo（`--limit 6`），**任一非 0 退出即失败** |
 
-> ⚠️ 脚本**绝不 scp / rsync 到板卡**：板卡根分区 `/root` 的 ext4 已损坏，
-> >1 MB 的二进制会被写坏。`--verify` 只在 NFS 上**执行**已有的程序，
-> **不往板卡写任何东西**。
+> ⚠️ **NFS 根只读时**：本机 NFS 根不可写 ⇒ 脚本把整树**先经板卡 `/tmp`（tmpfs）
+> 中转**，再落到板卡上的交付目录（`--board-dest` 指定）。
+>
+> ⚠️ **绝不能往板卡 `/root` 写大文件**：板卡根分区 `/root` 的 ext4 已损坏，
+> >1 MB 的二进制会被写坏。中转只走 `/tmp`（tmpfs），用完自动清理；
+> `--verify` 只**执行**已有的程序，**不往板卡 `/root` 写任何东西**。
+>
+> ℹ️ `--verify` 的两个测试**任一失败会自动重试一次**（等 5 s）并打印 `[retry]`：
+> 板卡上的 NFS 是 **soft 挂载**，刚写完 25 MB 产物就立刻读帧可能撞上瞬时 I/O 错误
+> （帧文件明明在，OpenCV 却报 `can't open/read file`）——**重试仍失败才是真回归**。
+>
+> ℹ️ **主机密钥是钉死的**：交付包带一份 `known_hosts`（板卡的 ed25519/rsa/ecdsa 公钥），
+> 脚本用 `StrictHostKeyChecking=yes` 校验 ⇒ 板卡换密钥会**直接失败**（这是故意的）。
 
 ---
 

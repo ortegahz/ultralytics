@@ -1,0 +1,138 @@
+[
+  {
+    "role": "FOCUS_T0077_PROT8",
+    "seed": 217,
+    "trial": 77,
+    "note": "★★变体B 打在『唯一 T3 已过 0.87』的靶心上：trial_0077 原配方（精确复制）+ 骨干 0.1× + 前2ep锁死 ⇒ 期望 T1 推过 0.8958967 而 T3 守住 ≥0.87（warmup 1.448 不动 ⇒ 只动『骨干保护』这一个机制）",
+    "override": {"backbone_lr_scale": 0.1, "freeze_backbone_epochs": 2}
+  },
+  {
+    "role": "FOCUS_T0077_SEED2",
+    "seed": 224,
+    "trial": 77,
+    "note": "★★唯一 T3 已过 0.87 的近靶心原配方换种子（精确复制 ⇒ 与周末 trial_0077 构成**逐位相同**的多种子对照）⇒ 赌种子噪声把 T1 推过线即三要素全中"
+  },
+  {
+    "role": "FOCUS_T0082_PROT8",
+    "seed": 218,
+    "trial": 82,
+    "note": "★★缺口最小靶心（T1 缺 0.000146）+ 骨干 0.1× + 前2ep锁死 ⇒ 与 T0077/T0008 构成『同一手段 × 三个近靶点』的可交叉验证",
+    "override": {"backbone_lr_scale": 0.1, "freeze_backbone_epochs": 2}
+  },
+  {
+    "role": "FOCUS_T0082_SEED2",
+    "seed": 221,
+    "trial": 82,
+    "note": "★★缺口最小靶心（trial_0082，T1 缺 0.000146、T3 0.865458、T2 FP 45）原配方换种子（精确复制）⇒ 过线概率最高的一条"
+  },
+  {
+    "role": "FOCUS_T0056_SEED2",
+    "seed": 230,
+    "trial": 56,
+    "note": "★★近靶心原配方换种子（精确复制）：trial_0056 T1 缺口 0.000725、T3 0.860100 ⇒ 换种子过线"
+  },
+  {
+    "role": "FOCUS_T0064_SEED2",
+    "seed": 231,
+    "trial": 64,
+    "note": "★★近靶心原配方换种子（精确复制）：trial_0064 T1 缺口 0.000788、T3 0.862429 ⇒ 换种子过线（6ep 更快）"
+  },
+  {
+    "role": "FOCUS_T0108_SEED2",
+    "seed": 232,
+    "trial": 108,
+    "note": "★★近靶心原配方换种子（精确复制）：trial_0108 T1 缺口 0.000914、T3 0.862801、T2 FP 45 ⇒ 换种子过线"
+  },
+  {
+    "role": "FOCUS_T0034_SEED2",
+    "seed": 233,
+    "trial": 34,
+    "note": "★★近靶心原配方换种子（精确复制）：trial_0034 T1 缺口 0.000922、T3 0.862606 ⇒ 换种子过线"
+  },
+  {
+    "role": "FOCUS_T0018_SEED2",
+    "seed": 235,
+    "trial": 18,
+    "note": "★★trial_0018 原配方换种子（精确复制，natural/lr2.9223/6ep/bb0/fbb2，T1 余量 +0.0308 pp、T3 0.849318）⇒ 与 FOCUS_B_T0018_PROT6(seed208) 构成多种子"
+  },
+  {
+    "role": "FOCUS_T0018_SEED3",
+    "seed": 236,
+    "trial": 18,
+    "note": "★★trial_0018 原配方第三个种子（精确复制）⇒ 凑够 3 种子做『极差/2/√n』噪声带"
+  },
+  {
+    "role": "FOCUS_T0083_SEED2",
+    "seed": 237,
+    "trial": 83,
+    "note": "★★trial_0083 原配方换种子（精确复制，w8.0/lr2.8819/8ep）⇒ T1 余量 **+0.1117 pp = 严格 PASS 里最大**（能扛 ~3 倍种子噪声）⇒ 最可能多种子中位仍在线上的配置"
+  },
+  {
+    "role": "FOCUS_T0021_SEED2",
+    "seed": 238,
+    "trial": 21,
+    "note": "★trial_0021 原配方换种子（精确复制，w4.0/lr2.4169/6ep/bb0.1，T1 余量 +0.0397 pp、T3 0.842445、T2 FP 52）"
+  },
+  {
+    "role": "FOCUS_T0009_SEED2",
+    "seed": 234,
+    "trial": 9,
+    "note": "★★★交接口径最关键的一条：trial_0009 是**严格 PASS 里 T3 最高**（0.857880）、T1 余量 +0.0274 pp（约 1.8 倍种子噪声 σ）⇒ 换种子验证『多种子中位 T1 仍在线上、T3 保住 0.85+』⇒ 最可能真正满足交接口径的配置"
+  },
+  {
+    "role": "FOCUS_T0008_WARMUP12",
+    "seed": 239,
+    "trial": 8,
+    "note": "★★★**封堵 TPE 浪费**（11-02 12:00 补）：TPE 冷启动采样 warmup 中位仅 0.795（75% < 1.08，违反『warmup ≥ 1 ep』要求）⇒ 用确定性臂把最准靶心 trial_0008 的 warmup 钉在 1.2（用户指定下限之上、trial_0060 修订版的同值）",
+    "override": {"warmup_epochs": 1.2}
+  },
+  {
+    "role": "FOCUS_T0008_WARMUP18",
+    "seed": 240,
+    "trial": 8,
+    "note": "★★同上，补 warmup 1.8 这一端 ⇒ 探测『更长 warmup 能否稳住 T1 而不动 T3』",
+    "override": {"warmup_epochs": 1.8}
+  },
+  {
+    "role": "FOCUS_T0008_LR26",
+    "seed": 241,
+    "trial": 8,
+    "note": "★★同上，封堵 TPE 的 lr 分布偏低端（中位 1.61 vs 好点 2.4~2.9）⇒ 把最准靶心的 lr 钉在 2.6（trial_0082 用 2.42 且 T1 余量最大 ⇒ 邻近点）",
+    "override": {"lr_scale": 2.6}
+  },
+  {
+    "role": "FOCUS_T0008_BB03",
+    "seed": 242,
+    "trial": 8,
+    "note": "★★同上，补『骨干倍率 0.3× 但不锁骨』这一档（trial_0056/0034 用 bb0.3 且 T1 余量同样高 ⇒ 值得独立验证；与 PROT8 的 bb0.1×+锁2ep 构成三档梯度）",
+    "override": {"backbone_lr_scale": 0.3, "freeze_backbone_epochs": 0}
+  },
+  {
+    "role": "FOCUS_T0008_W25",
+    "seed": 243,
+    "trial": 8,
+    "note": "★同上，把最准靶心的 mix w3.0→w2.5（trial_0056/0034 也在 w2.5 且缺口 < 0.001 ⇒ 方向合理；与 w3.0/w6.0/w8.0 构成完整 mix 梯度）",
+    "override": {"mix_spec": "w2.5"}
+  },
+  {
+    "role": "FOCUS_T0008_W6_SEED3",
+    "seed": 244,
+    "trial": 8,
+    "note": "★★★★**受控对补全**（11-02 14:15 补）：受控对分析给出 mix↑ 的**汇率 = T1 +0.0007 / T3 −0.0072（10:1 赔率）**，而 lr↑ 一档给 T3 +0.045 ⇒ 单靠 mix↑ 补不上 T1 缺口。本条是 mix 的**干净单变量受控对**（w3.0→w6.0，其余逐位不变）⇒ 用来标定 mix 的真实效应量，供后续组合臂定量推算",
+    "override": {"mix_spec": "w6.0"}
+  },
+  {
+    "role": "FOCUS_T0008_W6_LR30",
+    "seed": 245,
+    "trial": 8,
+    "note": "★★★★**双目标组合臂 #1**：mix↑(w6.0) 提 T1 + **lr↑(3.0) 提 T3** ⇒ 受控对推算：T1 ≈ +0.0007−0.0020（≈0.896~0.897，若过线即达标）、T3 ≈ +0.045−0.007（≈0.905 ⇒ 远超 0.87）⇒ **本轮第一次真正针对『T1 过线 AND T3≥0.87』设计的组合**",
+    "override": {"mix_spec": "w6.0", "lr_scale": 3.0}
+  },
+  {
+    "role": "FOCUS_T0008_W6_PROT8",
+    "seed": 246,
+    "trial": 8,
+    "note": "★★★★**双目标组合臂 #2**：mix↑(w6.0) 提 T1 + **骨干保护(0.1×+锁2ep) 保 T1**（受控对里骨干保护的汇率优于 mix：T1 +0.0011 / T3 仅 −0.0021）⇒ 期望 T1 过线且 T3 只掉一点 ⇒ 组合臂 #1（用 lr 换 T3）与本条（用骨干保 T1）构成两种互补机制",
+    "override": {"mix_spec": "w6.0", "backbone_lr_scale": 0.1, "freeze_backbone_epochs": 2}
+  }
+]

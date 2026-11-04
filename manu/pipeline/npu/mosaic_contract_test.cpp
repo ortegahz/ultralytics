@@ -1068,8 +1068,22 @@ static int RunContractTests(const DemoArgs& args) {
     // The COUNT is the guard: a dropped assertion (an edit that removed one,
     // or a branch that stopped running one) shows up here instead of silently
     // making the test weaker.
-    Check(g_pass + g_fail >= 108,
-          "self-check: the contract test still runs at least 108 assertions");
+    //
+    // 195, not 108: on a healthy board this test runs 196 assertions in all,
+    // and THIS one is the last of them -- it is evaluated before it is
+    // counted, so the counter reads 195 at exactly this point (board run:
+    // "[RESULT] 196 passed, 0 failed", with 195 [PASS] lines ahead of this
+    // one).  The old floor of 108 was left over from the 104-assertion era
+    // and let 88 assertions be deleted without anyone noticing.
+    // 把当前计数打进失败信息：否则「被删了断言」与「某个运行期分支没走到」
+    // 会显示成同一句话，看着像测试被人改过。
+    char self_check_msg[192];
+    snprintf(self_check_msg, sizeof(self_check_msg),
+             "self-check: the contract test still runs at least 195 assertions "
+             "(counted %d before this check; fewer means an assertion was "
+             "dropped OR a runtime branch did not run)",
+             g_pass + g_fail);
+    Check(g_pass + g_fail >= 195, self_check_msg);
   }
 
   // ---- 7. the golden fingerprint -------------------------------------------

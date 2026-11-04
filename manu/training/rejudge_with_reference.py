@@ -127,7 +127,6 @@ def main() -> int:
         )
         u_base, _ = utility(m, base)
         u_rc1 = utility(m, rc1)[0] if rc1 else None
-        new_status = _status_of(res, ok, u_base if ok else None)
 
         old = (
             res.get("status"), res.get("gate_verdict"), res.get("tier1_ok"),
@@ -136,10 +135,29 @@ def main() -> int:
         res["gate_verdict"] = reason
         res["tier1_ok"] = bool(ok)
         res["tier1_reason"] = reason
-        res["status"] = new_status
         res["utility"] = u_base if ok else None
         res["utility_vs_rc1"] = u_rc1
         res["gate_detail"] = gdetail
+        # ⚠️ **回填真实指标**（2026-11-02 修，第 10 个真 bug）。
+        #    根因链：门禁**基础设施失败**（如 Track1 推理 CUDA OOM）时，worker 写
+        #    `result["metrics"]=None` + `gate_verdict="GATE_REPORT_INCOMPLETE"`；
+        #    **后来门禁重跑成功了，但 trial_result.json 再没人更新过**（worker 已退出）
+        #    ⇒ metrics 永久为 null ⇒ worker 写 CSV 时指标列全空 ⇒
+        #    `summarize_nogmc_search.py` 直接跳过这些行（`any(v is None ...): continue`）
+        #    ⇒ **严格 PASS 的强候选在汇总里凭空消失**。
+        #    修法：重判手里已有完整 gate_report（口径纪律"只用落盘的 gate_report、
+        #    指标一个都不重算"），那就顺手把真实指标回填进 trial_result.json，
+        #    并在 CSV 同步段回填 6 个指标列。
+        res["metrics"] = m
+        # 基础设施失败已被"重判拿到了完整 gate_report"这一事实证伪 ⇒ 清掉旧错误标记
+        if res.get("gate_error"):
+            res["gate_error_resolved_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            res["gate_error"] = None
+        res["infrastructure_failure"] = False
+        # ⚠️ status 必须在**回填之后**算：`_status_of` 会看 infrastructure_failure，
+        #    而它已被证伪并清掉 ⇒ 指标不达标时应当判 PRUNED（剪枝）而不是 CRASHED。
+        new_status = _status_of(res, ok, u_base if ok else None)
+        res["status"] = new_status
         res["rejudged_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
         res["rejudged_with_reference"] = str(ref_path)
         new = (res["status"], res["gate_verdict"], res["tier1_ok"], res["utility"], res["utility_vs_rc1"])
@@ -168,6 +186,7 @@ def main() -> int:
             csv_rows = list(rd)
         by_name = dict(judged)
         n_csv = 0
+        init_fixed = []
         for row in csv_rows:
             r = by_name.get(row.get("trial"))
             if not r:
@@ -176,6 +195,33 @@ def main() -> int:
             row["gate_verdict"] = r.get("gate_verdict", row.get("gate_verdict"))
             row["utility"] = r.get("utility", "")
             row["utility_vs_rc1"] = r.get("utility_vs_rc1", "")
+            # ⚠️ ⚠️ **修正「有效初始化」**：CSV 的 `init_from` 列写的是 `init_from` 这个
+            #    categorical 的取值，而**真正加载的权重**由 `init_from_x` 决定
+            #    （新参数名 ⇒ 不在 15 维配方键里，也**没进 CSV**）⇒
+            #    **soup 起手的 trial 在 CSV 里长得和 rc2 起手的一模一样**
+            #    ⇒ 判定器按配方分组时会把**两个不同的模型并进同一组**、
+            #       组内中位数变成「不存在的中位」⇒ 交接判定被污染。
+            #    实测：focus 的 trial_0035 用 soup_strict3 起手（T3 0.878782），
+            #    CSV 却写 init_from=rc2 ⇒ 与 trial_0015/0020/0029 混成一组。
+            #    ⇒ 这里把有效初始化写成 `rc2+soup_strict3`（**`init_from` 本身在配方键里**
+            #      ⇒ 不用改判定器就能自然分组开）。
+            #    对 init_key 与 CSV 值本来就一致的 trial（绝大多数）**逐位不变**。
+            _ik = (r.get("init_key") or "").strip()
+            _if_now = (row.get("init_from") or "").strip()
+            if _ik and _if_now and _ik != _if_now and "init_from" in fieldnames:
+                row["init_from"] = f"{_if_now}+{_ik}"
+                init_fixed.append((row.get("trial"), _if_now, row["init_from"]))
+            # ⚠️ **一并回填 6 个指标列**（同上根因：指标为空 ⇒ 汇总器直接跳过该行）
+            _mm = r.get("metrics") or {}
+            for _csv_key, _m_key in (("t1_f1", "track1_f1"), ("t1_fp", "track1_fp"),
+                                     ("t2_f1", "track2_f1"), ("t2_fp", "track2_fp"),
+                                     ("t3_f1", "track3_f1"), ("t3_fp", "track3_fp")):
+                if _csv_key not in fieldnames:
+                    continue
+                _v = _mm.get(_m_key)
+                if _v is None:
+                    continue                      # 不覆盖成空，保持原值
+                row[_csv_key] = (f"{_v:.6f}" if isinstance(_v, float) else str(_v))
             n_csv += 1
         if args.apply and n_csv:
             bak = csv_path.with_suffix(csv_path.suffix + ".bak_rejudge")
@@ -185,6 +231,11 @@ def main() -> int:
                 wr.writeheader()
                 wr.writerows(csv_rows)
             print(f"[REJUDGE] CSV 已同步 {n_csv} 行（备份 {bak}）")
+            if init_fixed:
+                print(f"[REJUDGE] ⚠️ 修正「有效初始化」{len(init_fixed)} 行"
+                      f"（soup 起手的 trial 原本与 rc2 起手的混在同一配置组）：")
+                for _t, _a, _b in init_fixed:
+                    print(f"           {_t}: init_from {_a} → {_b}")
 
     # ---------------------------------------------------------------- 报告
     print(f"\n[REJUDGE] 共重判 {total} 个 trial，判定发生变化 {len(changed)} 个")

@@ -174,6 +174,13 @@ FOCUS_CHOICES = {
 # lr 区间：weekend 实测有效带 1.0~2.92；收窄到 [0.8, 3.0]
 FOCUS_LR_SCALE = (0.8, 3.0)
 
+# 扩展 init 来源（soup 融合权重等）。
+# ⚠️ **只能用在新参数名 `init_from_x` 下**，原因见 suggest_params() 里的长注释：
+#    Optuna 的分布兼容性检查是 **study 级**的，换 choices 会让本 study 的
+#    **所有**新 trial 报 "CategoricalDistribution does not support dynamic value space"，
+#    而 Optuna 4.9 没有 optuna.delete_trial ⇒ 删不掉历史 trial ⇒ 换不了 study。
+INIT_X_CHOICES = ["rc2", "base474", "soup_strict3", "soup_high3_nobn"]
+
 # 路线 B 已验证的超参（作为种子与缩放中心）
 ROUTE_B_DEFAULTS = {
     "lr_scale": 1.0,
@@ -246,6 +253,192 @@ def weighted_sampler_patch(weights: np.ndarray, num_samples: int, seed: int):
 # ==============================================================================
 # 2. 参数空间
 # ==============================================================================
+# ------------------------------------------------------------------------------
+# 2.0 搜索空间覆盖（命令行可改；**只能配新 study-name 用**）
+# ------------------------------------------------------------------------------
+# 为什么需要它
+# ------------
+# Optuna 的分布兼容性检查是 **study 级**的：
+#   `optuna/storages/_rdb/storage.py::_set_trial_param_without_commit` 按
+#   **(study_id, param_name)** 查历史分布，再 `check_distribution_compatibility(old, new)`：
+#     · CategoricalDistribution 换 choices ⇒ `ValueError: CategoricalDistribution does
+#       not support dynamic value space`
+#     · FloatDistribution 改范围 ⇒ `ValueError: FloatDistribution does not support
+#       dynamic value space`（或 range 不兼容）
+#   ⇒ **同一个 study 记录过某个参数名之后，该 study 之后所有新 trial 都会炸**，
+#     跟那个 trial 是不是老 trial 无关。
+#   而 Optuna 4.9 **没有** `optuna.delete_trial` ⇒ 历史 trial 删不掉 ⇒ 换不了 study。
+# ⇒ 唯一合法路径：**换新 study-name**（如 mix_ratio_search_nogmc_t3）
+#    + 让空间**可被命令行覆盖**（本节）。
+#
+# ⚠️ **默认值 = 空 ⇒ 行为逐位不变**：GMC 侧与既有 no-GMC study 的空间完全不受污染。
+#
+# 本文件的"两套空间常量"与覆盖的关系
+# ----------------------------------
+#   · focus 套：FOCUS_CHOICES / FOCUS_LR_SCALE        ⇒ 只在 --focus-space 时被读
+#   · legacy 套：MIX_SPECS / (LR_SCALE_LOW,LR_SCALE_HIGH) / EPOCH_CHOICES /
+#                INIT_CHOICES / INIT_X_CHOICES         ⇒ 非 focus 分支被读
+# 本节的覆盖**两边都同步改**（唯一例外是 lr：只覆盖 focus 套的 FOCUS_LR_SCALE，
+# 因为 legacy 套的 (LR_SCALE_LOW, LR_SCALE_HIGH) 属于"既有 GMC study 的空间"，不能碰）
+# ⇒ 一套 CLI 参数在两种模式下语义一致，不会两处漂移。
+
+SPACE_OVERRIDE_FIELDS = ("lr_scale", "epochs", "mix_spec", "init_from", "init_from_x")
+
+
+def _split_csv(raw) -> list[str]:
+    """逗号分隔解析：去首尾空格、忽略空项。"""
+    return [tok.strip() for tok in str(raw).split(",") if tok.strip()]
+
+
+def parse_int_list(raw, field: str) -> list[int]:
+    """把逗号分隔字符串解析成 int 列表（容错 + 中文报错）。"""
+    items = _split_csv(raw)
+    if not items:
+        raise ValueError(f"[SPACE-OVERRIDE] {field} 解析后为空（原始：{raw!r}）")
+    out: list[int] = []
+    for tok in items:
+        try:
+            out.append(int(tok))
+        except ValueError:
+            raise ValueError(
+                f"[SPACE-OVERRIDE] {field} 必须是逗号分隔的整数，非法项 {tok!r}（原始：{raw!r}）"
+            ) from None
+    return out
+
+
+def parse_str_list(raw, field: str) -> list[str]:
+    """把逗号分隔字符串解析成 str 列表（容错 + 中文报错）。"""
+    items = _split_csv(raw)
+    if not items:
+        raise ValueError(f"[SPACE-OVERRIDE] {field} 解析后为空（原始：{raw!r}）")
+    return items
+
+
+def apply_space_overrides(args) -> dict:
+    """把命令行覆盖应用到模块级空间常量，并返回**生效后的空间快照**。
+
+    ⚠️ **纯逻辑**：不连数据库、不起训练、不读数据文件 ⇒ 可以被
+       `manu/training/check_space_override.py` 直接导入复用（同一份逻辑 ⇒ 不会两处漂移）。
+
+    ⚠️ **调用时机**：必须在 ``optuna.create_study()`` **之前**调用 ——
+       study 一旦建好并记录了分布，之后再改空间就会触发上面说的兼容性报错。
+
+    参数
+    ----
+    args : argparse.Namespace
+        需要含 lr_scale_low / lr_scale_high / epoch_choices / mix_choices /
+        init_choices / init_x_choices（缺失 ⇒ 视为"不覆盖"）。
+
+    返回
+    ----
+    dict：空间快照 —— ``focus`` / ``legacy`` 两套取值 + ``effective``（当前模式实际生效的
+    那套）+ ``overridden``（哪些维度被覆盖了）+ ``epoch_min_est``（耗时表）。
+    """
+    global FOCUS_LR_SCALE, EPOCH_CHOICES, MIX_SPECS, INIT_CHOICES, INIT_X_CHOICES
+
+    low = getattr(args, "lr_scale_low", None)
+    high = getattr(args, "lr_scale_high", None)
+    epochs_raw = str(getattr(args, "epoch_choices", "") or "")
+    mix_raw = str(getattr(args, "mix_choices", "") or "")
+    init_raw = str(getattr(args, "init_choices", "") or "")
+    init_x_raw = str(getattr(args, "init_x_choices", "") or "")
+
+    # ---- lr 区间（只覆盖 focus 套：FOCUS_LR_SCALE；legacy 的 LR_SCALE_* 不动）----
+    lo, hi = FOCUS_LR_SCALE
+    if low is not None:
+        lo = float(low)
+    if high is not None:
+        hi = float(high)
+    if low is not None or high is not None:
+        if not lo > 0:
+            raise ValueError(f"[SPACE-OVERRIDE] lr 下界必须 > 0（Optuna log 采样要求），当前 {lo}")
+        if not hi > lo:
+            raise ValueError(f"[SPACE-OVERRIDE] lr 上界必须 > 下界，当前 lo={lo} hi={hi}")
+        FOCUS_LR_SCALE = (lo, hi)
+
+    # ---- epochs（focus 套 + legacy 套同步改）----
+    if epochs_raw.strip():
+        epochs = parse_int_list(epochs_raw, "epochs")
+        if any(e <= 0 for e in epochs):
+            raise ValueError(f"[SPACE-OVERRIDE] epochs 必须为正整数：{epochs}")
+        FOCUS_CHOICES["epochs"] = list(epochs)
+        EPOCH_CHOICES = list(epochs)
+
+    # ---- mix_spec（focus 套 + legacy 套同步改）----
+    if mix_raw.strip():
+        mix = parse_str_list(mix_raw, "mix_spec")
+        FOCUS_CHOICES["mix_spec"] = list(mix)
+        MIX_SPECS = list(mix)
+
+    # ---- init_from（focus 套 + legacy 套同步改）----
+    if init_raw.strip():
+        init = parse_str_list(init_raw, "init_from")
+        FOCUS_CHOICES["init_from"] = list(init)
+        INIT_CHOICES = list(init)
+
+    # ---- init_from_x（两套共用同一个常量）----
+    if init_x_raw.strip():
+        INIT_X_CHOICES = list(parse_str_list(init_x_raw, "init_from_x"))
+
+    overridden = {
+        "lr_scale": low is not None or high is not None,
+        "epochs": bool(epochs_raw.strip()),
+        "mix_spec": bool(mix_raw.strip()),
+        "init_from": bool(init_raw.strip()),
+        "init_from_x": bool(init_x_raw.strip()),
+    }
+
+    if any(overridden.values()):
+        print(
+            f"[SPACE-OVERRIDE] lr=({FOCUS_LR_SCALE[0]},{FOCUS_LR_SCALE[1]}) "
+            f"epochs={FOCUS_CHOICES['epochs']} mix={FOCUS_CHOICES['mix_spec']} "
+            f"init={FOCUS_CHOICES['init_from']} init_x={INIT_X_CHOICES}",
+            flush=True,
+        )
+        if not FOCUS_SPACE:
+            print(
+                "[SPACE-OVERRIDE] ⚠️ 未启用 --focus-space ⇒ lr 覆盖不生效"
+                "（非 focus 分支读的是 LR_SCALE_LOW/LR_SCALE_HIGH，本节不动它们）",
+                flush=True,
+            )
+        missing = [e for e in FOCUS_CHOICES["epochs"] if e not in EPOCH_MIN_EST]
+        if missing:
+            print(
+                f"[SPACE-OVERRIDE] ⚠️ epoch {missing} 不在 EPOCH_MIN_EST 表里 ⇒ 派单前"
+                f"「这条臂能不能在 hard_cut 前跑完」的判断会回落到默认值 "
+                f"{EPOCH_MIN_EST_DEFAULT} 分钟（可能误判）",
+                flush=True,
+            )
+
+    focus = {
+        "lr_scale": (FOCUS_LR_SCALE[0], FOCUS_LR_SCALE[1]),
+        "epochs": list(FOCUS_CHOICES["epochs"]),
+        "mix_spec": list(FOCUS_CHOICES["mix_spec"]),
+        "init_from": list(FOCUS_CHOICES["init_from"]),
+        "init_from_x": list(INIT_X_CHOICES),
+        "backbone_lr_scale": list(FOCUS_CHOICES["backbone_lr_scale"]),
+        "freeze_backbone_epochs": list(FOCUS_CHOICES["freeze_backbone_epochs"]),
+    }
+    legacy = {
+        "lr_scale": (LR_SCALE_LOW, LR_SCALE_HIGH),
+        "epochs": list(EPOCH_CHOICES),
+        "mix_spec": list(MIX_SPECS),
+        "init_from": list(INIT_CHOICES),
+        "init_from_x": list(INIT_X_CHOICES),
+        "backbone_lr_scale": list(BACKBONE_LR_SCALE_CHOICES),
+        "freeze_backbone_epochs": list(FREEZE_BB_EPOCH_CHOICES),
+    }
+    return {
+        "focus_space": bool(FOCUS_SPACE),
+        "extended_space": bool(EXTENDED_SPACE),
+        "focus": focus,
+        "legacy": legacy,
+        "effective": focus if FOCUS_SPACE else legacy,
+        "overridden": overridden,
+        "epoch_min_est": {int(k): v for k, v in sorted(EPOCH_MIN_EST.items())},
+    }
+
+
 def suggest_params(trial: optuna.Trial) -> dict:
     """搜索空间。
 
@@ -289,6 +482,29 @@ def suggest_params(trial: optuna.Trial) -> dict:
             "freeze_backbone_epochs",
             FOCUS_CHOICES["freeze_backbone_epochs"] if FOCUS_SPACE else FREEZE_BB_EPOCH_CHOICES
         )
+        # ---- 扩展 init（soup 融合权重等）：走**新参数名** init_from_x ----
+        #
+        # ⚠️ **为什么不能直接给 init_from 换 choices**（2026-11-02 实测踩过）：
+        #    Optuna 的分布兼容性检查是 **study 级**的 ——
+        #    `optuna/storages/_rdb/storage.py::_set_trial_param_without_commit` 里
+        #    `previous_distribution` 是按 **(study_id, param_name)** 查
+        #    `TrialParamModel` 里的**任意一条**记录拿到的（不是同一个 trial！），
+        #    然后 `check_distribution_compatibility(old, new)` 对 CategoricalDistribution
+        #    直接抛 `ValueError: CategoricalDistribution does not support dynamic value space`。
+        #    ⇒ 本 study 一旦记录过 `init_from=(rc2, base474)`，
+        #      **之后任何用新 choices 的 trial 都会炸**，跟那个 trial 是不是老 trial 无关。
+        #    ⇒ 而 Optuna 4.9 **没有** `optuna.delete_trial`（实测 hasattr=False），
+        #      删不掉历史 trial ⇒ 也换不了 study-name。
+        # ⇒ **解法：换一个新参数名 `init_from_x`**。这个名字在本 study 里没有历史记录
+        #    ⇒ 不触发兼容性检查 ⇒ 可以安全地承载 soup_* 这类新 init。
+        #
+        # ⚠️ **只在「固定参数里显式带了 init_from_x」时才 suggest**：
+        #    · 已入队的 11 条 WAITING 臂没有这个键 ⇒ 不会被 suggest ⇒ 行为逐位不变；
+        #    · TPE 臂（study.ask() 出来的）也没有 ⇒ 不会被 suggest ⇒ TPE 采样空间不变。
+        #    ⇒ 只有 plan 里显式写了这个键的确定性臂才会走新分支。
+        _fx = (trial.system_attrs or {}).get("fixed_params") or {}
+        if "init_from_x" in _fx:
+            params["init_from_x"] = trial.suggest_categorical("init_from_x", INIT_X_CHOICES)
     return params
 
 
@@ -310,6 +526,12 @@ def read_runtime_config(out_root: Path) -> dict:
       · ``train_epochs`` (int)  后续 trial 训练几个 epoch
       · ``gate_epoch``   (int)  门禁量第几个 epoch（0/缺省 = 最后一个）
       · ``workers``      (int)  dataloader worker 数
+      · ``stop_at``      (str)  **墙钟截止**（``"2026-11-03 04:00"`` 或 epoch 秒）——
+                          过了这个时刻就**不再派新 trial**，开始收尾。
+                          用途：给「主机定时关机」留出**门禁 + 收尾**的时间窗。
+      · ``hard_cut``     (str)  **硬截止**（同上格式）—— 不派「**预计跑不完**」的臂
+                          （按实测 epoch→耗时表判断），保证在跑的臂都能在 hard_cut 前跑完。
+                          ⇒ 这两个键都**可在运行期改**（不重启调度器）。
     """
     path = Path(out_root) / "runtime_config.json"
     if not path.is_file():
@@ -318,10 +540,51 @@ def read_runtime_config(out_root: Path) -> dict:
         data = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             return {}
-        return {k: data[k] for k in ("train_epochs", "gate_epoch", "workers") if k in data}
+        return {k: data[k] for k in ("train_epochs", "gate_epoch", "workers",
+                                     "stop_at", "hard_cut") if k in data}
     except Exception as exc:
         print(f"[RUNTIME] runtime_config.json 解析失败（忽略，用启动参数）：{exc}", flush=True)
         return {}
+
+
+# ==============================================================================
+# 每 epoch 的**实测**臂耗时（分钟）
+# ==============================================================================
+# 来源：周末 study（mix_ratio_search_nogmc_weekend）80 条 COMPLETE 的
+#   datetime_start → datetime_complete 中位数（每档 min/max 极差 < 2 min ⇒ 极稳）：
+#     ep=3 → 46.9 ｜ ep=6 → 73.8 ｜ ep=8 → 92.2 ｜ ep=10 → 110.3 ｜ ep=15 → 154.8
+# 用途：调度器在**派单前**判断「这条臂能不能在 hard_cut 前跑完」
+#       ⇒ 主机定时关机前，**最后一条臂也能准时跑完**（不会拖到关机之后）。
+#
+# ⚠️ **新增 epoch 档位必须同步补这张表**（否则 `.get(ep, EPOCH_MIN_EST_DEFAULT)`
+#    回落到 110 分钟 ⇒ 派单前的超时判断失真 ⇒ 臂会被拖到 hard_cut 之后才跑完）。
+# ep=20 / ep=25 的推算依据（2026-11-03）：8ep=92、10ep=110、15ep=155（含末尾门禁
+#   ~19.5 min）⇒ 每 epoch 训练 ≈ 9.15 min ⇒ 20ep ≈ 202、25ep ≈ 248 ⇒ 取整 205 / 250。
+EPOCH_MIN_EST = {3: 47, 6: 74, 8: 92, 10: 110, 15: 155, 20: 205, 25: 250}
+EPOCH_MIN_EST_DEFAULT = 110
+EPOCH_MIN_EST_MARGIN = 1.10   # 10% 余量（保守估计，宁可早停不可超时）
+
+
+def parse_wallclock(value) -> float | None:
+    """把墙钟时刻解析成 epoch 秒（失败返回 None）。
+
+    支持 ``"2026-11-03 04:00"`` / ``"2026-11-03 04:00:00"`` / epoch 秒（数字或数字串）。
+    ⚠️ 用**本机本地时区**解释（与流水线的 `date -d` 一致）。
+    """
+    if value in (None, "", 0):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    txt = str(value).strip()
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return float(time.mktime(time.strptime(txt, fmt)))
+        except Exception:
+            pass
+    try:
+        return float(txt)
+    except Exception:
+        return None
 
 
 # ==============================================================================
@@ -1106,6 +1369,51 @@ def main() -> int:
         help="启用周末扩展搜索空间（+init_from / +epochs / +backbone_lr_scale / +freeze_backbone_epochs）。"
              "**不传 ⇒ 搜索空间与旧版逐位相同**（GMC 侧既有 study 不受污染）。",
     )
+    # ---- 搜索空间覆盖（2026-11-03）：让**新 study** 能用比现有 study 更宽的空间 ----
+    # ⚠️ 默认值全为空 ⇒ **行为逐位不变**（GMC 侧与既有 no-GMC study 的空间不受污染）。
+    # ⚠️ 覆盖只能在**新 study-name** 上用：Optuna 的分布兼容性检查是 study 级的，
+    #    同一 study 里换 choices / 改 Float 范围 ⇒ 之后所有新 trial 报 ValueError。
+    ap.add_argument(
+        "--lr-scale-low",
+        type=float,
+        default=None,
+        help="覆盖聚焦模式的 lr_scale 下界（默认 = FOCUS_LR_SCALE 的 0.8）。**必须 > 0**"
+             "（Optuna log 采样要求）。不传 ⇒ 不覆盖。",
+    )
+    ap.add_argument(
+        "--lr-scale-high",
+        type=float,
+        default=None,
+        help="覆盖聚焦模式的 lr_scale 上界（默认 = FOCUS_LR_SCALE 的 3.0）。不传 ⇒ 不覆盖。",
+    )
+    ap.add_argument(
+        "--epoch-choices",
+        type=str,
+        default="",
+        help="逗号分隔的 epoch 取值，覆盖 FOCUS_CHOICES['epochs']（同时同步 EPOCH_CHOICES）。"
+             "例：--epoch-choices 6,8,10,15,20,25。不传 ⇒ 不覆盖。",
+    )
+    ap.add_argument(
+        "--mix-choices",
+        type=str,
+        default="",
+        help="逗号分隔的 mix_spec 取值，覆盖 FOCUS_CHOICES['mix_spec']（同时同步 MIX_SPECS）。"
+             "例：--mix-choices natural,w2.0,w2.5,w3.0,w6.0。不传 ⇒ 不覆盖。",
+    )
+    ap.add_argument(
+        "--init-choices",
+        type=str,
+        default="",
+        help="逗号分隔的 init_from 取值，覆盖 FOCUS_CHOICES['init_from']（同时同步 INIT_CHOICES）。"
+             "例：--init-choices rc2,base474。不传 ⇒ 不覆盖。",
+    )
+    ap.add_argument(
+        "--init-x-choices",
+        type=str,
+        default="",
+        help="逗号分隔的 init_from_x 取值，覆盖 INIT_X_CHOICES（soup 融合权重等）。"
+             "例：--init-x-choices rc2,soup_strict3。不传 ⇒ 不覆盖。",
+    )
     ap.add_argument(
         "--init-weights-map",
         type=str,
@@ -1128,6 +1436,12 @@ def main() -> int:
     if FOCUS_SPACE:
         EXTENDED_SPACE = True   # 聚焦模式隐含扩展空间（要用 init/epochs/骨干 4 维）
         print("[FOCUS] 定点打靶模式已启用：搜索空间收窄到已知好点附近", flush=True)
+
+    # ---- 搜索空间覆盖（**必须在 create_study 之前**）----
+    # ⚠️ 顺序是硬要求：study 一旦建好并记录了某个参数名的分布，之后再改空间就会触发
+    #    Optuna 的 **study 级**分布兼容性报错（CategoricalDistribution 不支持动态取值空间）
+    #    ⇒ 该 study 之后所有新 trial 全炸。先覆盖、再建 study ⇒ 空间从头就是新的。
+    space_snapshot = apply_space_overrides(args)
 
     # ---- 初始化权重映射（扩展空间用）----
     init_map: dict[str, str] = {}
@@ -1165,6 +1479,9 @@ def main() -> int:
     print(f"                UAV {args.uav_data}", flush=True)
     print(f"   GPU        : {gpu_list}（{len(gpu_list)} 并行，每 trial 单卡）", flush=True)
     print(f"   Trial/Epoch: {args.n_trials} / {args.epochs}", flush=True)
+    _eff = space_snapshot["effective"]
+    print(f"   空间       : mix={_eff['mix_spec']} lr=({_eff['lr_scale'][0]},{_eff['lr_scale'][1]}) "
+          f"epochs={_eff['epochs']}", flush=True)
     print(f"   截止       : {args.max_hours} 小时后自动收尾", flush=True)
     print(f"   输出       : {out_root.resolve()}", flush=True)
     print("=" * 100 + "\n", flush=True)
@@ -1265,7 +1582,8 @@ def main() -> int:
         allowed = {"mix_spec", "lr_scale", "warmup_epochs", "weight_decay", "focal_beta",
                    "offset_weight", "mosaic", "scale", "translate", "clip_max_norm", "freeze_bn"}
         if EXTENDED_SPACE:
-            allowed |= {"init_from", "epochs", "backbone_lr_scale", "freeze_backbone_epochs"}
+            allowed |= {"init_from", "init_from_x", "epochs", "backbone_lr_scale",
+                        "freeze_backbone_epochs"}
         plan = json.loads(Path(args.enqueue_plan).read_text(encoding="utf-8"))
         n_enq = 0
         n_skip = 0
@@ -1306,7 +1624,8 @@ def main() -> int:
     done_count = len([t for t in study.trials if t.state in (optuna.trial.TrialState.COMPLETE, optuna.trial.TrialState.PRUNED)])
     registry_path = out_root / "workers.json"
 
-    def save_registry() -> None:
+    def save_registry(workers=None) -> None:
+        ws = running if workers is None else workers
         payload = {
             "updated": time.time(),
             "workers": {
@@ -1316,15 +1635,99 @@ def main() -> int:
                     "trial_name": info["trial_name"],
                     "started_at": info["start_time"],
                 }
-                for info in running
+                for info in ws
             },
         }
         registry_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
+    def harvest(workers: list[dict]) -> tuple[list[dict], int]:
+        """收割已结束的 worker：写 study.tell / user_attrs / summary CSV。
+
+        ⚠️ **为什么必须抽成函数**（2026-11-02 18:2x 修 bug #12）：
+        收割逻辑原来**只写在主循环里** ⇒ 调度器一旦 break（收到 SIGTERM / 到达截止时间），
+        主循环已经退出 ⇒ **在跑臂的结果永远不会被收割**：
+          · trial 永远停在 RUNNING（backfill 也补不回来 —— 没有 user_attrs 就没法补）
+          · summary CSV 缺行
+          · 权重还在，但判定器看不到它 ⇒ 一条 92 分钟的训练**白跑**
+        ⇒ 现在**收尾路径也调用它** ⇒ 停机不丢结果。
+
+        返回 ``(仍在跑的, 本次收割条数)``。
+        """
+        still: list[dict] = []
+        n_done = 0
+        for info in workers:
+            ret = info["process"].poll()
+            if ret is None:
+                still.append(info)
+                continue
+            try:
+                info["log_handle"].close()
+            except Exception:
+                pass
+            available.append(info["gpu_id"])
+            save_registry(still)
+            res = read_trial_result(out_root / "trials" / info["trial_name"] / "trial_result.json")
+            dur = (time.time() - info["start_time"]) / 60.0
+            trial = info["trial"]
+            if res is None:
+                study.tell(trial, state=optuna.trial.TrialState.FAIL)
+                write_summary_row(summary_csv, info["trial_name"], info["params"], None, "CRASHED", dur)
+                print(f"[CRASH] {info['trial_name']} rc={ret}（{dur:.1f} min）", flush=True)
+            else:
+                if res.get("tier1_ok") and res.get("utility") is not None:
+                    score = float(res["utility"])
+                    study.tell(trial, score)
+                    status = "SUCCESS"
+                    for k, v in res.items():
+                        try:
+                            trial.set_user_attr(k, v)
+                        except Exception:
+                            pass
+                elif res.get("infrastructure_failure"):
+                    # 门禁**基础设施失败**（如 Track1 CUDA OOM）⇒ 记 FAIL 而不是"触红线被剪枝"，
+                    # 两者语义不同：剪枝会进 TPE 的"已探索"统计，失败则应视为"没测成"。
+                    study.tell(trial, state=optuna.trial.TrialState.FAIL)
+                    status = "CRASHED"
+                    for k, v in res.items():
+                        try:
+                            trial.set_user_attr(k, v)
+                        except Exception:
+                            pass
+                    print(f"[INFRA-FAIL] {info['trial_name']} 门禁基础设施失败：{res.get('gate_error')}",
+                          flush=True)
+                else:
+                    # 一级红线失败 ⇒ 剪枝（不参与 TPE 采样）
+                    study.tell(trial, state=optuna.trial.TrialState.PRUNED)
+                    status = "PRUNED"
+                    for k, v in res.items():
+                        try:
+                            trial.set_user_attr(k, v)
+                        except Exception:
+                            pass
+                write_summary_row(summary_csv, info["trial_name"], info["params"], res, status, dur)
+                m = res.get("metrics") or {}
+                print(
+                    f"[{status}] {info['trial_name']} mix={info['params']['mix_spec']} "
+                    f"实测 1:{res.get('measured_ratio', 0):.2f} | {res.get('gate_verdict')} | "
+                    f"U={res.get('utility')} | UvsRC1={res.get('utility_vs_rc1')} | {dur:.1f} min",
+                    flush=True,
+                )
+            n_done += 1
+        return still, n_done
+
+    hard_cut_hit = False
     while True:
         now = time.time()
         if stop_flag["stop"]:
             print("[STOP] 不再派新 trial", flush=True)
+            break
+        # ---- 墙钟硬截止（runtime_config.json 的 stop_at）------------------
+        # ⚠️ **优先级高于 --max-hours**：主机定时关机前必须留出「门禁 + 收尾」的时间窗。
+        #    这个键**运行期可改**（不重启调度器）⇒ 需要时可以临场放宽/收紧。
+        _rc = read_runtime_config(out_root)
+        _stop_at = parse_wallclock(_rc.get("stop_at"))
+        if _stop_at and now > _stop_at:
+            print(f"[DEADLINE] 到达 runtime_config.stop_at={_rc.get('stop_at')} ⇒ 收尾 …", flush=True)
             break
         if now > deadline:
             print(f"[DEADLINE] 到达 {args.max_hours} 小时截止时间，收尾 …", flush=True)
@@ -1360,7 +1763,36 @@ def main() -> int:
             # ---- 扩展维度（周末，2026-10-30）：每 trial 的 epoch / 初始化权重 / 骨干保护 ----
             # 优先级：user_attrs 覆盖 > 搜索参数 > runtime_config > 启动参数
             trial_epochs = int(ua.get("epochs") or params.get("epochs") or default_epochs)
-            init_key = str(params.get("init_from") or "")
+            # ---- 硬截止：不派「预计跑不完」的臂 --------------------------------
+            # ⚠️ 为什么需要（2026-11-03 主机 06:30 定时关机）：
+            #    只按墙钟停派单 ⇒ 最后派出的 15ep 臂还要再跑 155 min
+            #    ⇒ 门禁被推到关机之后 ⇒ 交付物残缺。
+            #    ⇒ 用**实测 epoch→耗时表**判断「这条臂能不能在 hard_cut 前跑完」。
+            #    跑不完的臂直接记 PRUNED（不进判定池，也不浪费 GPU）。
+            #
+            # ⚠️ **必须连带跳出外层主循环**（2026-11-02 18:2x 沙箱冒烟实测抓到）：
+            #    只 break 内层派单循环的话，外层会**再进来一次** ⇒ 又 ask 一条臂
+            #    ⇒ 又 CUT ⇒ 循环下去 ⇒ 把**所有**待派臂逐个 PRUNED；
+            #    待派臂用完后 `study.ask()` 还会**不停新建 TPE trial** 再 PRUNED
+            #    ⇒ 直到 deadline 为止 ⇒ 凭空造出成百上千条 PRUNED trial（污染 study）。
+            #    ⇒ 用 `hard_cut_hit` 标志把外层一起带出。
+            _rc2 = read_runtime_config(out_root)
+            _hard_cut = parse_wallclock(_rc2.get("hard_cut"))
+            if _hard_cut:
+                _est_min = float(EPOCH_MIN_EST.get(trial_epochs, EPOCH_MIN_EST_DEFAULT)) * EPOCH_MIN_EST_MARGIN
+                if time.time() + _est_min * 60 > _hard_cut:
+                    print(f"[CUT] trial_{trial.number:04d} 不派（ep={trial_epochs} 预估 "
+                          f"{_est_min:.0f} min ⇒ 会超过 hard_cut={_rc2.get('hard_cut')}）", flush=True)
+                    try:
+                        study.tell(trial, state=optuna.trial.TrialState.PRUNED)
+                        trial.set_user_attr("skipped_reason",
+                                            f"hard_cut {_rc2.get('hard_cut')}: 预计完成时间超限")
+                    except Exception:
+                        pass
+                    available.append(gpu_id)
+                    hard_cut_hit = True
+                    break
+            init_key = str(params.get("init_from_x") or params.get("init_from") or "")
             if init_key:
                 if init_key not in init_map:
                     raise RuntimeError(f"[INIT-MAP] 未知 init_from={init_key}（map={list(init_map)}）")
@@ -1423,7 +1855,7 @@ def main() -> int:
             running.append({
                 "trial": trial, "trial_number": trial.number, "trial_name": trial_name,
                 "gpu_id": gpu_id, "params": params, "process": proc, "log_file": log_file,
-                "log_handle": fh, "start_time": time.time(),
+                "log_handle": fh, "start_time": time.time(), "epochs": trial_epochs,
             })
             save_registry()
             gate_desc = "量末Ep" if gate_epoch in (0, trial_epochs) else f"量Ep{gate_epoch}"
@@ -1435,64 +1867,14 @@ def main() -> int:
                       f"freeze_backbone_epochs={freeze_bb_epochs} | cosine周期={sched_epochs}ep | "
                       f"role={ua.get('role', '')}", flush=True)
 
-        # 收割
-        still = []
-        for info in running:
-            ret = info["process"].poll()
-            if ret is None:
-                still.append(info)
-                continue
-            info["log_handle"].close()
-            available.append(info["gpu_id"])
-            save_registry()
-            res = read_trial_result(out_root / "trials" / info["trial_name"] / "trial_result.json")
-            dur = (time.time() - info["start_time"]) / 60.0
-            trial = info["trial"]
-            if res is None:
-                study.tell(trial, state=optuna.trial.TrialState.FAIL)
-                write_summary_row(summary_csv, info["trial_name"], info["params"], None, "CRASHED", dur)
-                print(f"[CRASH] {info['trial_name']} rc={ret}（{dur:.1f} min）", flush=True)
-            else:
-                if res.get("tier1_ok") and res.get("utility") is not None:
-                    score = float(res["utility"])
-                    study.tell(trial, score)
-                    status = "SUCCESS"
-                    for k, v in res.items():
-                        try:
-                            trial.set_user_attr(k, v)
-                        except Exception:
-                            pass
-                elif res.get("infrastructure_failure"):
-                    # 门禁**基础设施失败**（如 Track1 CUDA OOM）⇒ 记 FAIL 而不是"触红线被剪枝"，
-                    # 两者语义不同：剪枝会进 TPE 的"已探索"统计，失败则应视为"没测成"。
-                    study.tell(trial, state=optuna.trial.TrialState.FAIL)
-                    status = "CRASHED"
-                    for k, v in res.items():
-                        try:
-                            trial.set_user_attr(k, v)
-                        except Exception:
-                            pass
-                    print(f"[INFRA-FAIL] {info['trial_name']} 门禁基础设施失败：{res.get('gate_error')}",
-                          flush=True)
-                else:
-                    # 一级红线失败 ⇒ 剪枝（不参与 TPE 采样）
-                    study.tell(trial, state=optuna.trial.TrialState.PRUNED)
-                    status = "PRUNED"
-                    for k, v in res.items():
-                        try:
-                            trial.set_user_attr(k, v)
-                        except Exception:
-                            pass
-                write_summary_row(summary_csv, info["trial_name"], info["params"], res, status, dur)
-                m = res.get("metrics") or {}
-                print(
-                    f"[{status}] {info['trial_name']} mix={info['params']['mix_spec']} "
-                    f"实测 1:{res.get('measured_ratio', 0):.2f} | {res.get('gate_verdict')} | "
-                    f"U={res.get('utility')} | UvsRC1={res.get('utility_vs_rc1')} | {dur:.1f} min",
-                    flush=True,
-                )
-            done_count += 1
-        running = still
+        # ⚠️ 硬截止触发 ⇒ **跳出外层主循环**（否则会不停 ask/CUT，详见 CUT 分支注释）
+        if hard_cut_hit:
+            print("[CUT] 硬截止已触发 ⇒ 不再派新 trial，进入收尾", flush=True)
+            break
+
+        # 收割（已结束的 worker ⇒ study.tell / user_attrs / summary CSV 行）
+        running, n_done = harvest(running)
+        done_count += n_done
         save_registry()
 
         # 心跳（供状态查询）
@@ -1518,15 +1900,33 @@ def main() -> int:
         )
         time.sleep(3)
 
-    # 收尾：等在跑的 trial 结束（或杀掉）
+    # 收尾：等在跑的 trial 结束（或杀掉）⇒ **然后收割**（bug #12 的修复点）
+    #
+    # ⚠️ 等待超时**不能写死 1800 s**：15ep 臂要跑 155 min（从派单起算），
+    #    固定 30 min 超时会把**还在正常训练**的臂杀掉 ⇒ 白跑 92~155 min。
+    #    ⇒ 按实测耗时表算「这条臂还需要多久」+ 10 min 宽限。
     if running:
         print(f"[WAIT] 等待 {len(running)} 个在跑的 trial 收尾 …", flush=True)
         for info in running:
+            est_total = float(EPOCH_MIN_EST.get(info.get("epochs"), EPOCH_MIN_EST_DEFAULT))
+            elapsed = (time.time() - info["start_time"]) / 60.0
+            remain_s = max(300.0, (est_total - elapsed) * 60.0 + 600.0)
             try:
-                info["process"].wait(timeout=1800)
+                info["process"].wait(timeout=remain_s)
             except Exception:
-                info["process"].kill()
-            info["log_handle"].close()
+                try:
+                    info["process"].kill()
+                except Exception:
+                    pass
+                try:
+                    info["process"].wait(timeout=60)
+                except Exception:
+                    pass
+        time.sleep(3)
+        # ★ 收割刚跑完的臂 —— **不收割 ⇒ 结果丢失 / trial 卡 RUNNING / CSV 缺行**
+        running, n_done = harvest(running)
+        done_count += n_done
+        print(f"[WAIT] 收尾收割 {n_done} 条；仍在跑 {len(running)} 条", flush=True)
     save_registry()
 
     complete = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]

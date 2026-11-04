@@ -1,0 +1,24 @@
+[
+ {
+  "role": "INS_T0033_S5",
+  "seed": 382,
+  "note": "★★★★★补回判断文档点名的 t0033 家族第 2 粒子（w3.0·lr3.0·8ep·rc2-init，与 focus 的 trial_0033 同配方同权重空间） ⇒ 让 t0033 家族能真正构建跨种子 soup（吃 76 个 TP 的路径）",
+  "params": {
+   "warmup_epochs": 1.5,
+   "weight_decay": 0.000269,
+   "focal_beta": 2.75,
+   "offset_weight": 0.4,
+   "mosaic": 0.15,
+   "scale": 0.1,
+   "translate": 0.05,
+   "clip_max_norm": 5.65,
+   "freeze_bn": false,
+   "backbone_lr_scale": 1.0,
+   "freeze_backbone_epochs": 0,
+   "mix_spec": "w3.0",
+   "lr_scale": 3.0,
+   "epochs": 8,
+   "init_from": "rc2"
+  }
+ }
+]
