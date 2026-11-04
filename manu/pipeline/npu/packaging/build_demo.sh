@@ -6,12 +6,14 @@
 #     out/mosaic_api_test        the EXAMPLE DEMO third parties copy.
 #                                 Calls ONLY the public C ABI:
 #                                 open / push / collect / destroy.
+#     out/mosaic_client_example  the MINIMAL INTEGRATION example -- the one
+#                                 an embedded integrator copies.
 #     out/mosaic_contract_test   the library's own API CONTRACT test.
 #     out/rknn_mosaic_e2e        the END-TO-END test program: measures
 #                                 throughput / latency (the 12.9 fps number).
 #                                 Calls ONLY the public C ABI.
 #
-# All three programs link out/libmosaic_pipeline.a, so run build_lib.sh FIRST.
+# All four programs link out/libmosaic_pipeline.a, so run build_lib.sh FIRST.
 #
 # This script is a self-contained extraction of the certified
 # manu/pipeline/npu/build_mosaic_pipeline_arm64.sh (demo half).  The link
@@ -62,6 +64,7 @@ die() { echo "[ERROR] $*" >&2; exit 1; }
   die "out/libmosaic_pipeline.a not found -- run 'bash build_lib.sh' FIRST"
 
 [ -f "$HERE/src/npu/mosaic_api_test.cpp" ]      || die "missing source: src/npu/mosaic_api_test.cpp"
+[ -f "$HERE/src/npu/mosaic_client_example.cpp" ] || die "missing source: src/npu/mosaic_client_example.cpp"
 [ -f "$HERE/src/npu/mosaic_contract_test.cpp" ] || die "missing source: src/npu/mosaic_contract_test.cpp"
 [ -f "$HERE/src/npu/rknn_mosaic_e2e.cpp" ]     || die "missing source: src/npu/rknn_mosaic_e2e.cpp"
 
@@ -76,6 +79,15 @@ LIB_CXXFLAGS="-std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter -Wno-unused-fun
 # ---------------------------------------------------------------------------
 echo "== building mosaic_api_test (the example demo) =="
 "$CXX" $LIB_CXXFLAGS "$HERE/src/npu/mosaic_api_test.cpp" "$HERE/out/libmosaic_pipeline.a" -o "$HERE/out/mosaic_api_test" \
+  -L"$RT_LIB_DIR" -lrknnrt -lrga -Wl,-rpath-link,"$RT_LIB_DIR" \
+  -L"$LIBDIR" -L"$INSTALL/lib" -L"$TP_LIB" $OPENCV_LIBS -lOpenCL -lpthread -ldl -lm
+
+# ---------------------------------------------------------------------------
+# 1b. the MINIMAL INTEGRATION EXAMPLE (what an embedded integrator copies)
+#     Same link line as the demo; only the source path differs.
+# ---------------------------------------------------------------------------
+echo "== building mosaic_client_example (the minimal integration example) =="
+"$CXX" $LIB_CXXFLAGS "$HERE/src/npu/mosaic_client_example.cpp" "$HERE/out/libmosaic_pipeline.a" -o "$HERE/out/mosaic_client_example" \
   -L"$RT_LIB_DIR" -lrknnrt -lrga -Wl,-rpath-link,"$RT_LIB_DIR" \
   -L"$LIBDIR" -L"$INSTALL/lib" -L"$TP_LIB" $OPENCV_LIBS -lOpenCL -lpthread -ldl -lm
 
@@ -99,7 +111,7 @@ echo "== building rknn_mosaic_e2e (the end-to-end test program) =="
 
 echo
 echo "== artifacts =="
-for f in "$OUT/mosaic_api_test" "$OUT/mosaic_contract_test" "$OUT/rknn_mosaic_e2e"; do
+for f in "$OUT/mosaic_api_test" "$OUT/mosaic_client_example" "$OUT/mosaic_contract_test" "$OUT/rknn_mosaic_e2e"; do
   echo "  path : $f"
   echo "  size : $(stat -c%s "$f") B"
   echo "  md5  : $(md5sum "$f" | cut -d' ' -f1)"

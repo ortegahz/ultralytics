@@ -249,5 +249,10 @@ say "✅ 收尾完成；备份 $BAK"
 
 say "──────── 交接摘要 ────────"
 if [ -f "$OUT_ROOT/HANDOVER.md" ]; then
-  sed -n '/## 3. 判定链/,/## 6/p' "$OUT_ROOT/HANDOVER.md" | head -40
+  # ⚠️ **2026-11-04 11:10 修**：本脚本开了 `set -o pipefail`（第 26 行），而这行是**脚本的最后一条命令**
+  #    ⇒ `sed | head -40` 里 head 读够 40 行就退出 ⇒ sed 收到 SIGPIPE 退 141
+  #    ⇒ pipefail 把 141 传成**整个 finalize 的退出码** ⇒ 上层续跑链全部记成「finalize rc=141 失败」
+  #    （实际交付件全部正常产出，只是退出码脏了）。
+  #    ⇒ 加 `|| true` 吞掉管道里的 SIGPIPE，不影响真正的失败语义。
+  sed -n '/## 3. 判定链/,/## 6/p' "$OUT_ROOT/HANDOVER.md" | head -40 || true
 fi

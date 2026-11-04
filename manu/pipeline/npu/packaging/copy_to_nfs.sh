@@ -13,7 +13,7 @@
 #   （无参）        整树镜像 + 逐文件 md5 回验 + 打印板卡侧路径与运行命令
 #   --build        拷贝前先跑 build_lib.sh && build_demo.sh（失败即退出）
 #   --nfs <目录>   覆盖 NFS 根目录（默认 /run/media/manu/SSD960-LOCAL/nfs）
-#   --verify       拷贝后 ssh 到板卡跑契约测试 + demo（严格串行）
+#   --verify       拷贝后 ssh 到板卡跑契约测试 + demo + 最小集成示范（严格串行）
 #   --board <目标[:端口]>    覆盖 ssh 目标（默认 root@192.168.0.64，端口 22）
 #   --board-dest <绝对路径>  板卡侧交付目录（默认 /mnt/manu/mosaic_sdk）
 #
@@ -22,6 +22,16 @@
 #    * 本机 NFS 根若是只读挂载（当前开发机就是），走【板卡 /tmp 中转】：
 #      tar -> 板卡 /tmp (tmpfs 3.9G) -> cp -a -> 板卡交付目录。
 #      中转只碰 /tmp，绝不往板卡 /root 落大文件。
+#
+# 🔴 安全铁律（板卡把 NFS【soft 挂载】(soft,proto=tcp)）：
+#    * 从 soft 挂载上【读取 >1 MB 的二进制】会污染板卡客户端页缓存
+#      （实测：同尺寸但内容被清零 3741 字节，首个差异 offset 5046273），
+#      直接执行会 SIGILL(132) —— 板卡 dmesg 出现 "RKNPU job timeout" +
+#      "soft reset"，看着像驱动中毒，其实不是。
+#    * ⇒ 板卡侧要跑 >1 MB 的二进制，必须先流式落到板卡 /tmp（tmpfs 3.9 G）：
+#      cat > /tmp/x && chmod +x，再用 md5 与【本机源文件】对账，一致才执行。
+#      落在 /tmp 的临时文件用完即删（带前缀的唯一名，别误删板卡上别人的东西）。
+#    * 判别口诀：「同尺寸、不同内容」= 传输/缓存损坏，不是算法 bug。
 # ===========================================================================
 set -euo pipefail
 export LC_ALL=C
@@ -66,7 +76,7 @@ usage() {
 
   --build              拷贝前先编译（build_lib.sh + build_demo.sh）
   --nfs <目录>         覆盖 NFS 根目录（默认 /run/media/manu/SSD960-LOCAL/nfs）
-  --verify             拷贝后 ssh 到板卡跑契约测试 + demo（串行，非 0 退出即失败）
+  --verify             拷贝后 ssh 到板卡跑契约测试 + demo + 最小集成示范（串行，非 0 退出即失败）
   --board <目标[:端口]>  覆盖 ssh 目标（默认 root@192.168.0.64，端口 22）
   --board-dest <路径>  板卡侧交付目录（默认 /mnt/manu/mosaic_sdk；
                        NFS 根不是默认根时必须显式给出）
@@ -193,6 +203,7 @@ EXEC_FILES=(
   "build_demo.sh"
   "copy_to_nfs.sh"
   "out/mosaic_api_test"
+  "out/mosaic_client_example"
   "out/mosaic_contract_test"
   "out/rknn_mosaic_e2e"
 )
@@ -203,14 +214,14 @@ REQUIRED_FILES=(
   "src/npu/mosaic_pipeline.cpp" "src/npu/mosaic_pipeline.h"
   "src/npu/mosaic_core.h" "src/npu/mosaic_post_gpu.h"
   "src/npu/mosaic_api_test.cpp" "src/npu/mosaic_contract_test.cpp"
-  "src/npu/rknn_mosaic_e2e.cpp"
+  "src/npu/rknn_mosaic_e2e.cpp" "src/npu/mosaic_client_example.cpp"
   "src/cpp/gmc_stream_ocl.cpp" "src/cpp/md5.h"
   "src/opencl/host/ocl_host.h" "src/opencl/host/post_local_max.cl"
   "include/rknn_api.h" "runtime/kernels/warp_median_fused.cl"
   "runtime/kernels/sortnet_generated.inc" "runtime/kernels/gmc_feature_gpu.cl"
   "out/mosaic_pipeline.o" "out/libmosaic_pipeline.a"
   "out/mosaic_api_test" "out/mosaic_contract_test"
-  "out/rknn_mosaic_e2e"
+  "out/rknn_mosaic_e2e" "out/mosaic_client_example"
 )
 
 # ssh 通用参数：本机 ~/.ssh 只读（known_hosts 写不了），但**主机密钥必须钉死**
@@ -241,6 +252,20 @@ if [ "$DO_BUILD" = "1" ]; then
   echo "== [1/5] 编译 =="
   bash "$PKG_DIR/build_lib.sh"  || die "build_lib.sh 失败（编译错误见上）"
   bash "$PKG_DIR/build_demo.sh" || die "build_demo.sh 失败（编译错误见上）"
+  # ⚠️ 编译完之后**必须再刷一次交付文档**。make_build_dir.sh 生成的 README/MANIFEST
+  #    里记着「out/ 产物的 md5」和「包内文件总数」：如果在编译**之前**打包，
+  #    README 会写成「（尚未编译）」+ 文件数少 6 ⇒ **交付出去的 README 是错的**。
+  #    （仓库里 ../packaging/make_build_dir.sh 存在时自动补这一步；交付态的包
+  #      没有这个脚本，就只能由构建者自己再跑一次。）
+  if [ -f "$PKG_DIR/../packaging/make_build_dir.sh" ]; then
+    echo
+    echo "  [刷新交付文档] 再跑一次 make_build_dir.sh（把新产物 md5 与文件总数写回 README/MANIFEST）"
+    bash "$PKG_DIR/../packaging/make_build_dir.sh" || die "make_build_dir.sh 失败"
+  else
+    echo
+    echo "  [提示] 本包是**交付态**（没有 ../packaging/make_build_dir.sh）"
+    echo "         ⇒ 请自行再跑一次打包脚本，否则 README 里的产物 md5 会停留在「（尚未编译）」"
+  fi
 else
   echo
   echo "== [1/5] 跳过编译（用已有的 out/ 产物）=="
@@ -567,7 +592,7 @@ cat <<EOF
 ssh -p $BOARD_PORT $BOARD '$BD/mosaic_api_test \\
   --raw-root   /mnt/manu/lq_ir_bmp \\
   --sequence   VIDEO00007_19700101_001324 \\
-  --model      /root/psearch/models/p0_off_A_none.rknn \\
+  --model      /mnt/manu/ptq/models/p0_off_A_none.rknn \\
   --kernel-dir $BD/kernels \\
   --limit 12'
 EOF
@@ -583,35 +608,93 @@ if [ "$DO_VERIFY" = "1" ]; then
   # 板卡上的 NFS 是【soft 挂载】（soft,proto=tcp,timeo=5,retrans=2）：
   # 刚往同一个 export 写了 25 MB 产物就立刻让板卡去读帧，可能撞上瞬时 I/O 错误
   # （实测：帧文件明明在，OpenCV 却报 "can't open/read file"）。
-  # ⇒ 先让写回落定，再跑；失败再自动重试一次（重试仍失败才是真回归）。
+  # 🔴 更狠的一条：从 soft 挂载上【读 >1 MB 二进制】会污染板卡客户端页缓存，
+  #    直接执行 SIGILL(132)（详见文件头铁律）。所以板卡侧要跑的每个 >1 MB
+  #    二进制都必须先流式落到板卡 /tmp(tmpfs) + md5 对账，再执行。
+  # ⇒ 先让写回落定，再跑；失败再自动重试一次（重试前先清板卡页缓存）。
   echo "  [等待 3 s 让 NFS 写回落定]"
   sleep 3
 
+  # 板卡 /tmp 里的暂存前缀：带本机 PID，绝不撞板卡上别人的文件
+  VERIFY_TMP_PREFIX="/tmp/mosaic_verify_$$"
+
+  # 板卡侧跑一个二进制：NFS(soft) -> cat 到板卡 /tmp(tmpfs) -> chmod +x ->
+  # md5 与【本机源文件】对账（不一致 = NFS 传输损坏，退出码 3）-> 执行 -> 删 /tmp。
+  # 用法：run_board_test <标签> <板卡 out/ 里的文件名> [传给程序的参数...]
   run_board_test() {
-    local label="$1" cmd="$2" attempt rc out
+    local label="$1" tag="$2" attempt rc out args want_md5
+    shift 2
+    want_md5="$(md5sum "$PKG_DIR/out/$tag" 2>/dev/null | cut -d' ' -f1)" || want_md5=""
+    [ -n "$want_md5" ] || die "算不出本机源文件 md5：$PKG_DIR/out/$tag"
+    args=""
+    if [ $# -gt 0 ]; then args="$(printf '%q ' "$@")"; fi
     for attempt in 1 2; do
+      if [ "$attempt" = "2" ]; then
+        echo "  [retry] $label 第 1 次失败 —— 重试前先 sync + drop_caches 清掉板卡页缓存"
+        echo "          （页缓存污染是持久的，不清缓存重试必然复现同一个 SIGILL）"
+        if ! ssh_board "sync; echo 3 > /proc/sys/vm/drop_caches"; then
+          echo "  [warn] 板卡 drop_caches 失败（/proc/sys 只读？），继续重试"
+        fi
+        sleep 5
+      fi
       rc=0
-      out="$(ssh_board "$cmd" 2>&1)" || rc=$?
-      printf '%s\n' "$out" | tail -n 12
+      # ⚠️ `2>&1` 必须有：mosaic_contract_test 把 `[RESULT] N passed, 0 failed`
+      #    打到 **stderr**（mosaic_contract_test.cpp:1098），只捕获 stdout 会让
+      #    下面的 `grep '0 failed'` 必然落空 ⇒ 误报「没找到 0 failed」。
+      out="$(ssh_board "bash -s -- '$VERIFY_TMP_PREFIX' '$tag' '$want_md5' '$BOARD_DEST/out/$tag' $args" 2>&1 <<'REMOTE'
+set -uo pipefail
+export LC_ALL=C
+tmp_prefix="$1"; tag="$2"; want_md5="$3"; src="$4"; shift 4
+tmp="${tmp_prefix}_${tag}"
+
+# 用完就删（只删自己那一个带前缀的文件，不碰板卡上别人的东西）
+cleanup() { rm -f "$tmp"; }
+trap cleanup EXIT
+
+[ -f "$src" ] || { echo "[ERROR] 板卡交付目录里没有可执行文件：$src" >&2; exit 1; }
+
+# 铁律：板卡 NFS 是 soft 挂载，直接从 NFS 执行 >1 MB 二进制会污染页缓存 ->
+# SIGILL(132)。必须先流式落到板卡 /tmp（tmpfs）再执行。
+cat "$src" > "$tmp" || { echo "[ERROR] 从 NFS 读取 $src 失败" >&2; exit 1; }
+chmod +x "$tmp" || { echo "[ERROR] chmod +x $tmp 失败" >&2; exit 1; }
+[ -x "$tmp" ] || { echo "[ERROR] $tmp 没落到板卡 /tmp（或不可执行）" >&2; exit 1; }
+
+got="$(md5sum "$tmp" | cut -d' ' -f1)"
+if [ "$got" != "$want_md5" ]; then
+  echo "[ERROR] NFS 传输损坏：$tag 落到板卡 /tmp 后 md5=$got，与本机源文件 md5=$want_md5 不一致" >&2
+  echo "        （同尺寸、不同内容 = soft 挂载的传输/页缓存损坏，不是算法 bug）" >&2
+  exit 3
+fi
+echo "  [stage] $tag -> $tmp（已落板卡 /tmp，md5 与本机源文件一致：$got）"
+
+rc=0
+"$tmp" "$@" || rc=$?
+exit $rc
+REMOTE
+)" || rc=$?
+      printf '%s\n' "$out" | grep -E '\[stage\]' || true
+      printf '%s\n' "$out" | grep -vE '\[stage\]' | tail -n 12 || true
       echo "  退出码: $rc"
       if [ "$rc" = "0" ]; then
         LAST_OUT="$out"
         return 0
       fi
-      if [ "$attempt" = "1" ]; then
-        echo "  [retry] $label 第 1 次失败 —— NFS soft 挂载的瞬时 I/O 错误，等 5 s 重试一次"
-        sleep 5
+      if [ "$rc" = "3" ]; then
+        die "NFS 传输损坏：$label 的二进制落到板卡 /tmp 后 md5 与本机源文件不一致 —— 同尺寸、不同内容 = 传输/页缓存损坏，不是算法 bug"
       fi
     done
     LAST_OUT="$out"
+    echo "  [fail] $label 重试后仍失败 —— 两种可能："
+    echo "         ① 疑似 NFS 页缓存损坏（已先落 /tmp + 已 drop_caches 仍失败）"
+    echo "         ② 真回归（板卡侧逻辑/数据真的变了）"
     return 1
   }
 
   echo
-  echo "  [1/2] 契约测试：$BOARD_DEST/out/mosaic_contract_test --limit 60"
+  echo "  [1/3] 契约测试：mosaic_contract_test --limit 60（先落板卡 /tmp 再执行）"
   rc=0
-  run_board_test "契约测试" "'$BOARD_DEST/out/mosaic_contract_test' --limit 60 --kernel-dir '$BOARD_DEST/runtime/kernels'" || rc=$?
-  [ "$rc" = "0" ] || die "板卡契约测试失败（退出码 $rc）"
+  run_board_test "契约测试" "mosaic_contract_test" --limit 60 --kernel-dir "$BOARD_DEST/runtime/kernels" || rc=$?
+  [ "$rc" = "0" ] || die "板卡契约测试失败（退出码 $rc）—— 疑似 NFS 页缓存损坏（已先落 /tmp + 已 drop_caches 仍失败）或真回归"
   if printf '%s\n' "$LAST_OUT" | grep -q '\[RESULT\] .* 0 failed'; then
     echo "  [ok] 契约测试 0 failed"
   else
@@ -619,11 +702,27 @@ if [ "$DO_VERIFY" = "1" ]; then
   fi
 
   echo
-  echo "  [2/2] demo：$BOARD_DEST/out/mosaic_api_test --limit 6"
+  echo "  [2/3] demo：mosaic_api_test --limit 6（先落板卡 /tmp 再执行）"
   rc=0
-  run_board_test "demo" "'$BOARD_DEST/out/mosaic_api_test' --limit 6 --kernel-dir '$BOARD_DEST/runtime/kernels'" || rc=$?
-  [ "$rc" = "0" ] || die "板卡 demo 失败（退出码 $rc）"
+  run_board_test "demo" "mosaic_api_test" --limit 6 --kernel-dir "$BOARD_DEST/runtime/kernels" || rc=$?
+  [ "$rc" = "0" ] || die "板卡 demo 失败（退出码 $rc）—— 疑似 NFS 页缓存损坏（已先落 /tmp + 已 drop_caches 仍失败）或真回归"
   echo "  [ok] 板卡从交付目录跑通"
+
+  # 第三步：最小集成示范（嵌入式组照着抄的那份）。⚠️ 它的接口是**四个位置
+  # 参数**（帧目录 / 模型 / kernel 目录 / 帧数），**不是**命名开关 —— 与上面
+  # 两步的 mosaic_contract_test / mosaic_api_test 不同，别照抄它们的写法。
+  # **必须串行**：板卡 RKNN context 上限 2，并发跑会互相抢 context。跟前两步
+  # 一样，二进制先落板卡 /tmp(tmpfs) + md5 对账再执行。
+  echo
+  echo "  [3/3] 最小集成示范：mosaic_client_example <帧目录> <模型> <kernel> 6（先落板卡 /tmp 再执行）"
+  rc=0
+  run_board_test "最小集成示范" "mosaic_client_example" \
+    "/mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324" \
+    "/mnt/manu/ptq/models/p0_off_A_none.rknn" \
+    "$BOARD_DEST/runtime/kernels" \
+    6 || rc=$?
+  [ "$rc" = "0" ] || die "板卡最小集成示范失败（退出码 $rc）—— 疑似 NFS 页缓存损坏（已先落 /tmp + 已 drop_caches 仍失败）或真回归"
+  echo "  [ok] 板卡从交付目录跑通（demo + 最小集成示范）"
 fi
 
 echo

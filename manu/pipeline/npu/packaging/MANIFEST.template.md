@@ -25,15 +25,16 @@
 ├── README.md / MANIFEST.md / build_lib.sh / build_demo.sh / copy_to_nfs.sh
 ├── src/
 │   ├── npu/    mosaic_pipeline.cpp/.h, mosaic_core.h, mosaic_post_gpu.h,
-│   │           mosaic_api_test.cpp, mosaic_contract_test.cpp,
-│   │           rknn_mosaic_e2e.cpp
+│   │           mosaic_api_test.cpp, mosaic_client_example.cpp,
+│   │           mosaic_contract_test.cpp, rknn_mosaic_e2e.cpp
 │   ├── cpp/    gmc_stream_ocl.cpp, md5.h
 │   └── opencl/host/   ocl_host.h, post_local_max.cl
 ├── include/    rknn_api.h, stb_image.h, stb_image_resize.h, stb_image_write.h,
 │               rga/×18, CL/×20
 ├── runtime/kernels/    warp_median_fused.cl, sortnet_generated.inc, gmc_feature_gpu.cl
 ├── out/        mosaic_pipeline.o, libmosaic_pipeline.a,
-│               mosaic_api_test, mosaic_contract_test, rknn_mosaic_e2e
+│               mosaic_api_test, mosaic_client_example,
+│               mosaic_contract_test, rknn_mosaic_e2e
 └── 兼容别名（相对符号链接）：
     mosaic_api_test       -> out/mosaic_api_test
     mosaic_contract_test  -> out/mosaic_contract_test
@@ -46,7 +47,7 @@
   目标＝**同名相对路径**（`src/`、`include/`、`runtime/kernels/`、`out/` 整树照搬）。
 * 顶层那 5 个**兼容别名是符号链接**（不是副本），分别指向 `out/` 与 `src/npu/`，
   为的是**旧的平铺命令**（`./mosaic_api_test --kernel-dir ./kernels`）继续可用。
-* `out/` 的 5 个产物在交付包里**已预编译**（RK3588 / aarch64），嵌入式组
+* `out/` 的 6 个产物在交付包里**已预编译**（RK3588 / aarch64），嵌入式组
   **不必**先编译即可直接跑；确实要重编时在交付目录原地编（见 §B、§F）。
 
 <!-- MD5_TABLE:BEGIN -->
@@ -78,6 +79,7 @@
 | OpenCL host | `src/opencl/host/ocl_host.h` | OpenCL 封装 |
 | OpenCL 副本 | `src/opencl/host/post_local_max.cl` | GPU 后处理 kernel 的**可读副本**（运行时**不需要**） |
 | 示例 demo | `src/npu/mosaic_api_test.cpp` | 只调公开 C ABI 的示例 |
+| 最小集成示范 | `src/npu/mosaic_client_example.cpp` | **嵌入方照着抄的最简调用骨架**（open / set_post_mode / push / collect / destroy） |
 | 契约测试 | `src/npu/mosaic_contract_test.cpp` | 库的验收门禁 |
 | 端到端测试程序 | `src/npu/rknn_mosaic_e2e.cpp` | **吞吐/延时测量**（12.9 fps 那个数就是它测的），只调公开 C ABI |
 | 第三方头 | `include/rknn_api.h` | RKNN API |
@@ -98,7 +100,8 @@
 ```bash
 cd <交付目录>            # 例如 /mnt/manu/mosaic_sdk
 bash build_lib.sh        # → out/libmosaic_pipeline.a
-bash build_demo.sh       # → out/mosaic_api_test, out/mosaic_contract_test, out/rknn_mosaic_e2e
+bash build_demo.sh       # → out/mosaic_api_test, out/mosaic_client_example,
+#                            out/mosaic_contract_test, out/rknn_mosaic_e2e
 ```
 
 **源码与头文件不含任何板卡私有路径**——`src/**`、`include/**`、
@@ -221,7 +224,8 @@ cfg.npu_workers        = 2;       /* 若他们的 NPU 只支持 1 个上下文 �
 
 ## E. 运行时依赖（`readelf -d` 实测的 DT_NEEDED）
 
-`out/mosaic_api_test` / `out/mosaic_contract_test` / `out/rknn_mosaic_e2e` 三个可执行文件的动态依赖：
+`out/mosaic_api_test` / `out/mosaic_client_example` / `out/mosaic_contract_test` /
+`out/rknn_mosaic_e2e` 四个可执行文件的动态依赖：
 
 ```
 librknnrt.so      ← 板卡 BSP 的 RKNN Runtime
@@ -256,7 +260,8 @@ cd /path/to/manu/pipeline/npu/build
 bash build_lib.sh          # → out/libmosaic_pipeline.a
 
 # 3) 编译测试程序（链接上面那个 .a；交付包里已预编译，可跳过）
-bash build_demo.sh         # → out/mosaic_api_test, out/mosaic_contract_test, out/rknn_mosaic_e2e
+bash build_demo.sh         # → out/mosaic_api_test, out/mosaic_client_example,
+#                              out/mosaic_contract_test, out/rknn_mosaic_e2e
 
 # 4) 拷贝到目标板：整树镜像 + 递归 md5 回验
 bash copy_to_nfs.sh        # → {{NFS_ROOT}}/mosaic_sdk/

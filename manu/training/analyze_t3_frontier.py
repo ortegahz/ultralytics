@@ -110,6 +110,17 @@ def load_study(db_path: str, study_name: str, tag: str,
             continue
         a = t["attrs"]
         m = a.get("metrics") or {}
+        # ⚠️⚠️ **2026-11-04 15:25 修（键名不对 ⇒ 既丢 user_attrs 又跳过 CSV 兜底）**：
+        #    `user_attrs["metrics"]` 是把 `trial_result.json` 的 `metrics` 段**原样**写进去的
+        #    ⇒ 键名是 `track1_f1/track2_f1/t3_fp…`，而下游统一用 `t1_f1/t2_f1/t3_f1…`。
+        #    ⇒ `m` 非空 ⇒ **CSV 兜底被跳过** ⇒ 取 `m.get("t1_f1")` 全是 None
+        #    ⇒ 该 trial 的 T1/T3 变 None ⇒ **被静默排除出配置组**（实测 t49/t50 归组后 n 仍是 1）。
+        #    ⇒ 这里先做一次**键名归一化**，再决定要不要走 CSV 兜底。
+        if m:
+            _alias = {"track1_f1": "t1_f1", "track1_fp": "t1_fp",
+                      "track2_f1": "t2_f1", "track2_fp": "t2_fp",
+                      "track3_f1": "t3_f1", "track3_fp": "t3_fp"}
+            m = {_alias.get(k, k): v for k, v in m.items()}
         if not m and csv_metrics:
             # CSV 兜底：指标键名与 metrics 一致（t1_f1/t2_f1/t2_fp/t3_f1/t3_fp）
             row = csv_metrics.get("trial_%04d" % t["num"]) or {}

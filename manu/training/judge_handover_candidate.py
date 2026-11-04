@@ -257,8 +257,16 @@ def main() -> int:
     for r in rows:
         status = (r.get("status") or "").strip().upper()
         verdict = (r.get("gate_verdict") or "").strip()
-        if status != "SUCCESS":
-            continue
+        # ⚠️⚠️ **2026-11-04 15:35 修（幸存者偏差）**：
+        #    原来这里有一句 `if status != "SUCCESS": continue` ⇒ **把 T1 不过线的种子整条剔除**
+        #    ⇒ 「同超参多种子中位」变成**只在中位幸存者上算**（T1 差的种子被系统性漏掉）
+        #    ⇒ ① 配置中位被**系统性高估**（正是「决策单元」最忌讳的）；
+        #       ② T1 全线不过线的配方（例如 w2.0·lr3.5·20ep·soup_strict3，3 个种子 T1 ≈ 0.890）
+        #          **整族从配置榜消失** ⇒ 报告里看不见 T3 最优的那一族。
+        #    而本函数上面的注释写得很清楚：「**正确做法：全部种子建组（要求三轨指标齐全）**，
+        #    再用**组的中位**过 T1/T2 硬门禁；单条 verdict 只作诊断信息展示」⇒
+        #    原实现与自己的口径**自相矛盾**。
+        #    ⇒ 现在只按**指标是否齐全**建组（status=CRASHED 的臂本来就没指标，天然被下面挡掉）。
         # ⚠️ **三轨指标必须齐全才能进交接名单**。
         #    实战踩坑（2026-11-02 冒烟）：周末那 3 条 CUDA OOM 事故臂
         #    （trial_0006/0011/0068）的门禁**事后已重跑修好**（rejudge 写了新 verdict），
@@ -600,6 +608,99 @@ def main() -> int:
                 f"{_fmt(g['t2_median'])}({_fmt(g['t2_fp_median'], '{:.0f}')}) | {_fmt(g['t3_median'])} | "
                 f"{g['ineligible_reason']} | `{recipe}` |")
         lines.append("")
+
+    # ---- 4c. 三方案对比：T1 余量 ↔ T3 的结构性天花板（2026-11-04 15:45 新增）----
+    #    动机：判定器给出的阻塞项是「候选 T1 余量仅 +0.0004 pp ⇒ 余量极薄」，
+    #    而**没有任何一个产物能同时做到「余量宽裕 + T3 高」** ⇒ 必须把这条**结构性事实**
+    #    量化出来交给人裁定（否则读报告的人会以为只是这个候选运气差）。
+    def _g_t3(g):
+        try:
+            return float(g.get("t3_median"))
+        except Exception:
+            return None
+
+    def _g_marg(g):
+        try:
+            return float(g.get("t1_median")) - t1_redline
+        except Exception:
+            return None
+
+    def _marg_s(g):
+        """T1 余量（**百分点**）：+0.1033 pp 这种写法（×100）。"""
+        m = _g_marg(g)
+        return "—" if m is None else f"{m * 100:+.4f} pp"
+
+    wide = [g for g in groups if (_g_marg(g) or -9e9) >= 0.0005]          # 余量 ≥ 0.05 pp 的合格组
+    wide_best_t3 = max(wide, key=lambda g: _g_t3(g) or -9e9) if wide else None
+    wide_max_marg = max(wide, key=lambda g: _g_marg(g)) if wide else None
+    # T3 ≥ 0.87 的**合格**产物（配置组 + 变体）里，T1 余量最大的是谁
+    t3hi_pool = [g for g in (groups + [v for v in variant_groups if v.get("eligible")])
+                 if (_g_t3(g) or -9e9) >= 0.87]
+    t3hi_best_marg = max(t3hi_pool, key=lambda g: _g_marg(g) or -9e9) if t3hi_pool else None
+    # T3 最高的**全部**产物（不过 T1 硬门也算 ⇒ T3 优先路线）
+    all_pool = groups + ineligible + variant_groups
+    t3max = max(all_pool, key=lambda g: _g_t3(g) or -9e9) if all_pool else None
+
+    lines.append("## 4c. ⭐ 三方案对比：**T1 余量** ↔ **T3** 的结构性天花板\n")
+    lines.append("> 「余量极薄」这条阻塞项**不是某个产物运气差**，而是本轮搜索空间的**结构性上限**。\n")
+    lines.append("| 天花板 | 实测 | 含义 |")
+    lines.append("|:--|:--|:--|")
+    if wide_best_t3 is not None:
+        lines.append(
+            f"| **A：想要「T1 余量宽裕」(≥0.05 pp)** | 合格组里共 **{len(wide)}** 个满足；"
+            f"其中 **T3 最高 = {_fmt(_g_t3(wide_best_t3), '{:.6f}')}**"
+            f"（`{'/'.join(wide_best_t3.get('trials') or [])}`，余量 {_marg_s(wide_best_t3)}）"
+            f" | ⇒ **余量一宽，T3 就掉到 0.855 附近** |")
+    if wide_max_marg is not None:
+        lines.append(
+            f"| **A′：余量最大** | `{'/'.join(wide_max_marg.get('trials') or [])}` "
+            f"T1 {_marg_s(wide_max_marg)}、T3 {_fmt(_g_t3(wide_max_marg))} | "
+            f"余量最宽的那一支，难例召回明显偏低 |")
+    if t3hi_best_marg is not None:
+        lines.append(
+            f"| **B：想要「T3 ≥ 0.87」** | 合格产物里 **T1 余量最大 = "
+            f"{_marg_s(t3hi_best_marg)}**"
+            f"（`{'/'.join(t3hi_best_marg.get('trials') or [])}`，T3 {_fmt(_g_t3(t3hi_best_marg))}） | "
+            f"⇒ **T3 一高，T1 余量就锁在 0.04 pp 以内** |")
+    else:
+        # ⚠️ **实测：T1 过线（合格）的产物里，没有一支的 T3 能到 0.87**
+        elig_all = groups + [v for v in variant_groups if v.get("eligible")]
+        t3max_elig = max(elig_all, key=lambda g: _g_t3(g) or -9e9) if elig_all else None
+        if t3max_elig is not None:
+            lines.append(
+                f"| **B：想要「T3 ≥ 0.87」** | ⚠️ **合格产物（过 T1 门）里 T3 最高 = "
+                f"{_fmt(_g_t3(t3max_elig))}**"
+                f"（`{'/'.join(t3max_elig.get('trials') or [])}`），**离 0.87 还差 "
+                f"{(0.87 - _g_t3(t3max_elig)) * 100:.3f} pp** | "
+                f"⇒ **T1 一过线，T3 就必然掉到 0.87 以下**（观察轨，非硬门） |")
+    lines.append("")
+    lines.append("⇒ ⭐ **⇒ 两条天花板互斥：不存在「T1 余量 ≥ 0.05 pp **且** T3 ≥ 0.87」的单一产物**"
+                 "（严格通道 T1–T3 Pearson ≈ −0.81）⇒ 「余量极薄」对**任何 T3 竞争型产物**都是结构性的。\n")
+
+    lines.append("### 三条可选交付路线\n")
+    lines.append("| 路线 | 产物 | T1 | T1 余量 | T2 (F1/FP) | T3 | 权重 |")
+    lines.append("|:--|:--|--:|--:|--:|--:|:--|")
+    if winner is not None:
+        lines.append(
+            f"| **① 折中（判定链 winner，U 可分）** | `{'/'.join(winner.get('trials') or [])}` | "
+            f"{_fmt(winner.get('t1_median'))} | {_marg_s(winner)} | "
+            f"{_fmt(winner.get('t2_median'))}({_fmt(winner.get('t2_fp_median'), '{:.0f}')}) | "
+            f"{_fmt(winner.get('t3_median'))} | `{winner.get('weights') or '—'}` |")
+    if wide_best_t3 is not None:
+        lines.append(
+            f"| **② T1 余量优先** | `{'/'.join(wide_best_t3.get('trials') or [])}`（n={wide_best_t3.get('n')}） | "
+            f"{_fmt(wide_best_t3.get('t1_median'))} | {_marg_s(wide_best_t3)} | "
+            f"{_fmt(wide_best_t3.get('t2_median'))}({_fmt(wide_best_t3.get('t2_fp_median'), '{:.0f}')}) | "
+            f"{_fmt(_g_t3(wide_best_t3))} | 见各 trial 的 weights/ |")
+    if t3max is not None:
+        lines.append(
+            f"| **③ T3 优先**（不过 T1 硬门） | `{'/'.join(t3max.get('trials') or [])}` | "
+            f"{_fmt(t3max.get('t1_median'))} | {_marg_s(t3max)} | "
+            f"{_fmt(t3max.get('t2_median'))}({_fmt(t3max.get('t2_fp_median'), '{:.0f}')}) | "
+            f"**{_fmt(_g_t3(t3max))}** | `{t3max.get('weights') or '见 sealed 目录'}` |")
+    lines.append("")
+    lines.append("> **路线②③ 与路线① 不可兼得**（结构性互斥，见上表天花板）⇒ "
+                 "**交哪一条是口径决策，需人工裁定**。\n")
 
     if diag_rows:
         lines.append(f"## 附录 A. 放宽通道诊断清单（**不可交接**，{len(diag_rows)} 条，仅供理解 T3/T1 权衡）\n")

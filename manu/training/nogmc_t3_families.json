@@ -156,6 +156,265 @@
           "role": "T3_W2_LR35_15EP_SOUPSRC_S2"
         }
       ]
+    },
+    "t0043": {
+      "recipe": "w2.0·lr3.5·20ep·**soup_strict3 起手**（**T3 冠军家族** · trial_0043 单种子 T3=0.901305 ⇒ 补到 3 种子让「T3 超 RC2」有多种子证据）",
+      "nobn": false,
+      "members": [
+        {
+          "root": "/mnt/data/siping/runs/nogmc_t3",
+          "study": "mix_ratio_search_nogmc_t3",
+          "role": "T3_W2_LR35_20EP_SOUPSRC"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_t3",
+          "study": "mix_ratio_search_nogmc_t3",
+          "role": "INS_T0043_S1"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_t3",
+          "study": "mix_ratio_search_nogmc_t3",
+          "role": "INS_T0043_S2"
+        }
+      ]
+    },
+    "t3top3": {
+      "recipe": "**跨配方 soup**（w2.0 的 T3 前 3 名：lr3.5·20ep + lr4.0·15ep + lr3.0·20ep，**全部 soup_strict3 起手 ⇒ 同权重空间**）",
+      "nobn": false,
+      "members": [
+        {
+          "root": "/mnt/data/siping/runs/nogmc_t3",
+          "study": "mix_ratio_search_nogmc_t3",
+          "role": "T3_W2_LR35_20EP_SOUPSRC"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_t3",
+          "study": "mix_ratio_search_nogmc_t3",
+          "role": "T3_W2_LR40_15EP_SOUPSRC"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_t3",
+          "study": "mix_ratio_search_nogmc_t3",
+          "role": "T3_W2_LR30_20EP_SOUPSRC"
+        }
+      ]
+    },
+    "t0033clip": {
+      "recipe": "**clip_max_norm 6.5 受控实验的 4 粒子同配方 soup**（w3.0·lr3.0·8ep·rc2-init，其余超参与 t0033 家族逐键一致）⇒ 检验「clip 抬高 T1」是真效应还是种子噪声",
+      "nobn": false,
+      "members": [
+        {
+          "root": "/mnt/data/siping/runs/nogmc_t3",
+          "study": "mix_ratio_search_nogmc_t3",
+          "role": "INS_T0033_C1"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_t3",
+          "study": "mix_ratio_search_nogmc_t3",
+          "role": "INS_T0033_C2"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_t3",
+          "study": "mix_ratio_search_nogmc_t3",
+          "role": "INS_T0033_C3"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_t3",
+          "study": "mix_ratio_search_nogmc_t3",
+          "role": "INS_T0033_C4"
+        }
+      ]
+    },
+    "t3top2": {
+      "recipe": "**跨配方 soup**（T3 前 2 名：lr3.5·20ep + lr4.0·15ep，均 soup_strict3 起手 ⇒ 同权重空间）",
+      "nobn": false,
+      "members": [
+        {
+          "root": "/mnt/data/siping/runs/nogmc_t3",
+          "study": "mix_ratio_search_nogmc_t3",
+          "role": "T3_W2_LR35_20EP_SOUPSRC"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_t3",
+          "study": "mix_ratio_search_nogmc_t3",
+          "role": "T3_W2_LR40_15EP_SOUPSRC"
+        }
+      ]
+    },
+    "t0008p2": {
+      "recipe": "**混合 soup（5 粒子）**：T1 过线的 t0008 家族 4 粒子 + T3 过线的 focus trial_0033（**全部 rc2-init ⇒ 同权重空间**）⇒ 冲「T1 过线 + T3 ≥ 0.87 同一产物」",
+      "nobn": false,
+      "members": [
+        {
+          "root": "/mnt/data/siping/runs/nogmc_weekend",
+          "study": "mix_ratio_search_nogmc_weekend",
+          "trial": "trial_0008"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_focus",
+          "study": "mix_ratio_search_nogmc_focus",
+          "role": "FOCUS_T0008_REPLAY"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_focus",
+          "study": "mix_ratio_search_nogmc_focus",
+          "role": "FOCUS_T0008_SEED2"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_focus",
+          "study": "mix_ratio_search_nogmc_focus",
+          "role": "FOCUS_T0008_SEED3"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_focus",
+          "study": "mix_ratio_search_nogmc_focus",
+          "role": "FOCUS_T0008_LR30"
+        }
+      ]
+    },
+    "t0008p3": {
+      "recipe": "**混合 soup（6 粒子）**：t0008 家族 4 粒子 + focus trial_0033 + t48（**全部 rc2-init ⇒ 同权重空间**）⇒ 冲「T1 过线 + T3 ≥ 0.87 同一产物」",
+      "nobn": false,
+      "members": [
+        {
+          "root": "/mnt/data/siping/runs/nogmc_weekend",
+          "study": "mix_ratio_search_nogmc_weekend",
+          "trial": "trial_0008"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_focus",
+          "study": "mix_ratio_search_nogmc_focus",
+          "role": "FOCUS_T0008_REPLAY"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_focus",
+          "study": "mix_ratio_search_nogmc_focus",
+          "role": "FOCUS_T0008_SEED2"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_focus",
+          "study": "mix_ratio_search_nogmc_focus",
+          "role": "FOCUS_T0008_SEED3"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_focus",
+          "study": "mix_ratio_search_nogmc_focus",
+          "role": "FOCUS_T0008_LR30"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_t3",
+          "study": "mix_ratio_search_nogmc_t3",
+          "role": "INS_T0033_S7"
+        }
+      ]
+    },
+    "t0008p4": {
+      "recipe": "**混合 soup（7 粒子）**：t0008 家族 4 粒子 + **全部 rc2-init 且 T3 ≥ 0.87 的臂**（focus trial_0033 / t45 / t48）⇒ T3 侧重版",
+      "nobn": false,
+      "members": [
+        {
+          "root": "/mnt/data/siping/runs/nogmc_weekend",
+          "study": "mix_ratio_search_nogmc_weekend",
+          "trial": "trial_0008"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_focus",
+          "study": "mix_ratio_search_nogmc_focus",
+          "role": "FOCUS_T0008_REPLAY"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_focus",
+          "study": "mix_ratio_search_nogmc_focus",
+          "role": "FOCUS_T0008_SEED2"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_focus",
+          "study": "mix_ratio_search_nogmc_focus",
+          "role": "FOCUS_T0008_SEED3"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_focus",
+          "study": "mix_ratio_search_nogmc_focus",
+          "role": "FOCUS_T0008_LR30"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_t3",
+          "study": "mix_ratio_search_nogmc_t3",
+          "role": "INS_T0033_S5"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_t3",
+          "study": "mix_ratio_search_nogmc_t3",
+          "role": "INS_T0033_S7"
+        }
+      ]
+    },
+    "t3top4": {
+      "recipe": "**跨配方 soup**（T3 前 4 名：+ lr3.0·15ep，均 soup_strict3 起手 ⇒ 同权重空间）",
+      "nobn": false,
+      "members": [
+        {
+          "root": "/mnt/data/siping/runs/nogmc_t3",
+          "study": "mix_ratio_search_nogmc_t3",
+          "role": "T3_W2_LR35_20EP_SOUPSRC"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_t3",
+          "study": "mix_ratio_search_nogmc_t3",
+          "role": "T3_W2_LR40_15EP_SOUPSRC"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_t3",
+          "study": "mix_ratio_search_nogmc_t3",
+          "role": "T3_W2_LR30_20EP_SOUPSRC"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_t3",
+          "study": "mix_ratio_search_nogmc_t3",
+          "role": "T3_W2_LR30_15EP_SOUPSRC"
+        }
+      ]
+    },
+    "t3top7": {
+      "recipe": "**跨配方 soup**（w2.0 × soup_strict3 起手的**全部 7 条臂**：lr3.5·20ep / lr4.0·15ep / lr3.0·20ep / lr3.0·15ep×2 / lr3.5·15ep×2）",
+      "nobn": false,
+      "members": [
+        {
+          "root": "/mnt/data/siping/runs/nogmc_t3",
+          "study": "mix_ratio_search_nogmc_t3",
+          "role": "T3_W2_LR35_20EP_SOUPSRC"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_t3",
+          "study": "mix_ratio_search_nogmc_t3",
+          "role": "T3_W2_LR40_15EP_SOUPSRC"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_t3",
+          "study": "mix_ratio_search_nogmc_t3",
+          "role": "T3_W2_LR30_20EP_SOUPSRC"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_t3",
+          "study": "mix_ratio_search_nogmc_t3",
+          "role": "T3_W2_LR30_15EP_SOUPSRC"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_t3",
+          "study": "mix_ratio_search_nogmc_t3",
+          "role": "T3_W2_LR30_15EP_SOUPSRC_S2"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_t3",
+          "study": "mix_ratio_search_nogmc_t3",
+          "role": "T3_W2_LR35_15EP_SOUPSRC"
+        },
+        {
+          "root": "/mnt/data/siping/runs/nogmc_t3",
+          "study": "mix_ratio_search_nogmc_t3",
+          "role": "T3_W2_LR35_15EP_SOUPSRC_S2"
+        }
+      ]
     }
   }
 }

@@ -206,11 +206,23 @@ def main() -> int:
             #    ⇒ 这里把有效初始化写成 `rc2+soup_strict3`（**`init_from` 本身在配方键里**
             #      ⇒ 不用改判定器就能自然分组开）。
             #    对 init_key 与 CSV 值本来就一致的 trial（绝大多数）**逐位不变**。
+            #
+            # ⚠️⚠️ **2026-11-04 15:20 修（追加 ⇒ 累加 ⇒ 配置组被打散）**：
+            #    原实现是 `row["init_from"] = f"{_if_now}+{_ik}"` —— **每次重判都追加一次**！
+            #    而 finalize 每次都会跑重判 ⇒ 一条被重判 N 次的臂，它的 init_from 变成
+            #    `rc2+soup_strict3+soup_strict3+…`（实测 trial_0043 累到 **7 次**）。
+            #    ⇒ **同一个配方被切成不同的「配置组」** ⇒ 判定器/前沿分析算的
+            #    **「同超参多种子中位」是错的**（决策单元被污染，n 被拆散）。
+            #    实测：t3 的 CSV 里 **11 行**的 init_from 被累加。
+            #    ⇒ 改成**从基础值重算**（幂等）：取 init_from 的**第一段**（基础 categorical）
+            #       再拼有效初始化 ⇒ 重判多少次都得到同一个字符串。
             _ik = (r.get("init_key") or "").strip()
             _if_now = (row.get("init_from") or "").strip()
-            if _ik and _if_now and _ik != _if_now and "init_from" in fieldnames:
-                row["init_from"] = f"{_if_now}+{_ik}"
-                init_fixed.append((row.get("trial"), _if_now, row["init_from"]))
+            _base = _if_now.split("+")[0].strip() if _if_now else ""
+            if _ik and _base and _ik != _base and "init_from" in fieldnames:
+                row["init_from"] = f"{_base}+{_ik}"
+                if row["init_from"] != _if_now:
+                    init_fixed.append((row.get("trial"), _if_now, row["init_from"]))
             # ⚠️ **一并回填 6 个指标列**（同上根因：指标为空 ⇒ 汇总器直接跳过该行）
             _mm = r.get("metrics") or {}
             for _csv_key, _m_key in (("t1_f1", "track1_f1"), ("t1_fp", "track1_fp"),

@@ -62,9 +62,12 @@ fill_placeholders() {
     -e "s|\{\{SRC_COUNT\}\}|$SRC_COUNT|g" \
     -e "s|\{\{HDR_COUNT\}\}|$HDR_COUNT|g" \
     -e "s|\{\{KERNEL_COUNT\}\}|$KERNEL_COUNT|g" \
+    -e "s|\{\{OUT_COUNT\}\}|$OUT_COUNT|g" \
+    -e "s|\{\{TOTAL_COUNT\}\}|$TOTAL_COUNT|g" \
     -e "s|\{\{OBJ_MD5\}\}|$OBJ_MD5|g" \
     -e "s|\{\{LIB_A_MD5\}\}|$LIB_A_MD5|g" \
     -e "s|\{\{API_TEST_MD5\}\}|$API_TEST_MD5|g" \
+    -e "s|\{\{CLIENT_EXAMPLE_MD5\}\}|$CLIENT_EXAMPLE_MD5|g" \
     -e "s|\{\{CONTRACT_TEST_MD5\}\}|$CONTRACT_TEST_MD5|g" \
     "$src" > "$dst"
 }
@@ -95,7 +98,7 @@ purpose_of() {
     README.md)                    echo "使用说明（四条命令 + 交付/零参数/NFS/一键拷贝 各节）" ;;
     MANIFEST.md)                  echo "**本交付清单**（由 make_build_dir.sh 生成）" ;;
     build_lib.sh)                 echo "构建脚本①：只编译库 -> out/libmosaic_pipeline.a" ;;
-    build_demo.sh)                echo "构建脚本②：只编译测试程序 -> out/mosaic_api_test + out/mosaic_contract_test + out/rknn_mosaic_e2e" ;;
+    build_demo.sh)                echo "构建脚本②：只编译测试程序 -> out/mosaic_api_test + out/mosaic_client_example + out/mosaic_contract_test + out/rknn_mosaic_e2e" ;;
     copy_to_nfs.sh)               echo "一键脚本：编译 + 拷贝到 NFS + md5 回验 +（可选）板卡验证" ;;
     known_hosts)                  echo "板卡主机密钥基线（ssh 严格校验用；板卡换密钥会直接失败，这是故意的）" ;;
     src/npu/mosaic_pipeline.cpp)  echo "库实现（GMC/OpenCL + RGA mosaic + RKNN fp16 + 反投影）" ;;
@@ -103,6 +106,7 @@ purpose_of() {
     src/npu/mosaic_core.h)        echo "库内部核心头（GMC / RGA / RKNN 胶水层 + 后处理三路径）" ;;
     src/npu/mosaic_post_gpu.h)    echo "GPU 后处理路径（OpenCL 局部极大；kernel 已内嵌，**不需要**外置 .cl）" ;;
     src/npu/mosaic_api_test.cpp)  echo "示例 demo 源（只调公开 C ABI）" ;;
+    src/npu/mosaic_client_example.cpp) echo "**最简集成示范源**（嵌入方照着抄；含 set_post_mode 钉死 sparse）" ;;
     src/npu/mosaic_contract_test.cpp) echo "契约测试源（验收门禁）" ;;
     src/npu/rknn_mosaic_e2e.cpp)  echo "**端到端测试程序源**（吞吐/延时测量，只调公开 C ABI）" ;;
     src/cpp/gmc_stream_ocl.cpp)   echo "GMC/OpenCL 引擎（被 mosaic_pipeline.cpp 以 ../cpp/ 相对包含）" ;;
@@ -128,6 +132,7 @@ out_note_of() {
     out/mosaic_pipeline.o)     echo "编译中间产物（库的 .o）" ;;
     out/libmosaic_pipeline.a)  echo "**静态库**（客户链接它）" ;;
     out/mosaic_api_test)       echo "示例 demo 可执行文件（给客户的示例）" ;;
+    out/mosaic_client_example) echo "**最简集成示范可执行文件**（嵌入方照着抄这份）" ;;
     out/mosaic_contract_test)  echo "契约测试可执行文件（验收门禁）" ;;
     out/rknn_mosaic_e2e)       echo "端到端测试程序（吞吐/延时测量）" ;;
     *)                         echo "构建产物" ;;
@@ -182,6 +187,7 @@ copy_one "$ROOT/mosaic_pipeline.h"              "src/npu/mosaic_pipeline.h"
 copy_one "$ROOT/mosaic_core.h"                  "src/npu/mosaic_core.h"
 copy_one "$ROOT/mosaic_post_gpu.h"              "src/npu/mosaic_post_gpu.h"
 copy_one "$ROOT/mosaic_api_test.cpp"            "src/npu/mosaic_api_test.cpp"
+copy_one "$ROOT/mosaic_client_example.cpp"      "src/npu/mosaic_client_example.cpp"
 copy_one "$ROOT/mosaic_contract_test.cpp"       "src/npu/mosaic_contract_test.cpp"
 copy_one "$ROOT/rknn_mosaic_e2e.cpp"            "src/npu/rknn_mosaic_e2e.cpp"
 # 被相对包含的引擎 / 工具 / OpenCL host
@@ -251,15 +257,19 @@ SRC_COUNT=$(find "$DEST/src" -type f 2>/dev/null | wc -l)
 HDR_COUNT=$(find "$DEST/include" -type f 2>/dev/null | wc -l)
 KERNEL_COUNT=$(find "$DEST/runtime" -type f 2>/dev/null | wc -l)
 FILE_COUNT=$(( ${#EXPECTED[@]} + 1 ))   # + MANIFEST.md 自身
+# out/ 的产物**不进受管清单**（md5 会随构建变），单独计数后再加总
+if [ -d "$DEST/out" ]; then OUT_COUNT=$(find "$DEST/out" -type f | wc -l); else OUT_COUNT=0; fi
+TOTAL_COUNT=$(( FILE_COUNT + OUT_COUNT ))   # 磁盘上真实存在的文件总数
 OBJ_MD5=$(md5_or_placeholder "$DEST/out/mosaic_pipeline.o")
 LIB_A_MD5=$(md5_or_placeholder "$DEST/out/libmosaic_pipeline.a")
 API_TEST_MD5=$(md5_or_placeholder "$DEST/out/mosaic_api_test")
+CLIENT_EXAMPLE_MD5=$(md5_or_placeholder "$DEST/out/mosaic_client_example")
 CONTRACT_TEST_MD5=$(md5_or_placeholder "$DEST/out/mosaic_contract_test")
 
 README_TMP="$(mktemp)"
 fill_placeholders "$README_TPL" "$README_TMP"
 check_no_placeholder "$README_TMP"
-echo "  [ok] README 内容已生成（计数：$FILE_COUNT / $SRC_COUNT / $HDR_COUNT / $KERNEL_COUNT）"
+echo "  [ok] README 内容已生成（计数：$TOTAL_COUNT = $FILE_COUNT + $OUT_COUNT / $SRC_COUNT / $HDR_COUNT / $KERNEL_COUNT）"
 
 # ---------------------------------------------------------------------------
 # 5. 生成 build/MANIFEST.md（模板 + 自动生成的 md5 表）
@@ -273,7 +283,7 @@ TABLE="$(mktemp)"
 trap 'rm -f "$TABLE" "$README_TMP"' EXIT
 
 {
-  echo "**共 ${#EXPECTED[@]} 个交付文件（不含 \`out/\` 与本清单自身）。**"
+  echo "**共 ${#EXPECTED[@]} 个交付文件（不含 \`out/\` 的 $OUT_COUNT 个编译产物与本清单自身）。**"
   echo
   echo "### 交付文件清单"
   echo
@@ -383,6 +393,10 @@ echo "  源码/脚本      : $src_n 个（src/）"
 echo "  第三方头       : $inc_n 个（include/）"
 echo "  kernel 资产    : $ker_n 个（runtime/kernels/）"
 echo
-echo "  下一步："
-echo "    cd $DEST && bash build_lib.sh && bash build_demo.sh   # 编译"
-echo "    cd $DEST && bash copy_to_nfs.sh --build --verify     # 拷贝 + 上板验证"
+echo "  下一步（⚠️ 顺序不能颠倒）："
+echo "    cd $DEST && bash build_lib.sh && bash build_demo.sh   # ① 编译（库 + 4 个测试程序）"
+echo "    cd <repo>/manu/pipeline/npu && bash packaging/make_build_dir.sh   # ② 再打包一次"
+echo "         └─ 把新产物的 md5 和「包内文件总数」写回 README/MANIFEST"
+echo "           （不重跑的话，交付出去的 README 会写着「（尚未编译）」+ 文件数少 6）"
+echo "    cd $DEST && bash copy_to_nfs.sh --verify              # ③ 拷贝 + 上板验证"
+echo "         └─ 已编好时用 --verify；想让它自己编用 --build --verify（会自动补②）"
