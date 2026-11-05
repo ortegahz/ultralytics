@@ -38,6 +38,9 @@ ARM_LABELS = {
 }
 ARM_ORDER = ["original", "stale", "kinematic", "replay"]
 
+# 报告里出现的「物理滞后」毫秒数；由 main() 按 --delta 覆盖（Δ 帧 × 40ms @25Hz）。
+LATENCY_MS = 320
+
 # (键, 名称, 数值格式, 差值格式, 方向)；方向 +1 = 越高越好，-1 = 越低越好
 # cle_* 五项的数值取自 servo 的**全帧池化**字段（cle_pooled_*，缺池化样本时回退 cle_*）
 METRICS = [
@@ -253,15 +256,69 @@ def _framing_note(rows, baseline):
     """
     out = ["### 口径声明（先读这一段，否则结论会做反）", ""]
     out.append("- `original` 臂 = **零延迟天花板（oracle 上界）**：离线可以把检测器跑在每一帧上，"
-               "**没有 320 ms 物理滞后** ⇒ 它是运行时**不可能达到**的上界，**不是交付基线**。")
+               f"**没有 {LATENCY_MS} ms 物理滞后** ⇒ 它是运行时**不可能达到**的上界，**不是交付基线**。")
     out.append("- **交付基线 = `stale` 臂**（老逻辑：把第 t−Δ 帧的旧框原样甩给转台）——"
                "这才是今天物理上在跑的行为。")
     out.append("- 因此「退化」一节里的负号 = **未能追回的滞后代价**，**不是「精度被做坏」**。")
     out.append("- 判定「能不能交付」只看两件事：**尺子1 Δ = 0.000000pp**（外挂没动既有跟踪资产）"
-               "＋ 下一节「相对硬吃 320ms 滞后的收益」的**追回占比**。")
+               f"＋ 下一节「相对硬吃 {LATENCY_MS}ms 滞后的收益」的**追回占比**。")
     out.append("- 总体表的 **CLE 列 = 全帧池化分位数**（把各序列的逐帧 CLE 样本拼接后计算，"
                "对应产物里的 `cle_pooled_p50/p90/p95/p99/max`）；产物自带的 `worst_over_sequences`"
                "（**逐序列最差值**）口径**不用于总体表**，另见逐序列明细表。")
+    out.append(f"- ⚠️ **Δ = {LATENCY_MS} ms 是「假设/标称」延时**（{LATENCY_MS // 40} 帧 @25 Hz），"
+               "**不是实测链路延时**；下表所有 Δ 结论都在这个假设下成立。")
+    out.append("- **交付三门**（判定能不能交付）：**F1 ≥ 0.88 / Recall ≥ 0.85 / FAR ≤ 0.030**。")
+    # ---- 出框门口径：**从本表产物现算**（不写死 ⇒ 产物变了口径也不会说谎）----
+    _fovs = sorted({float(((r.doc.get("lookahead") or {}).get("replay_fov_margin_px", 0.0)) or 0.0) for r in rows})
+    if len(_fovs) == 1:
+        _m = _fovs[0]
+        out.append(
+            f"- ⚠️ **出框门口径**：本表产物的 `--replay-fov-margin-px` = **{_m:g}**"
+            + (
+                "（**裸配置，未开出框门**）⇒ 交付推荐档（m=6）的数字**不在本表**，见 `FINAL_REPORT.md` §9.4 / §12。"
+                if _m == 0.0
+                else "（**含出框门**）⇒ 与裸配置（m=0）的数字不同，裸配置见 `FINAL_REPORT.md` §2.9。"
+            )
+        )
+    else:
+        out.append(f"- ⚠️ **出框门口径**：本表产物**混合**了 `--replay-fov-margin-px` = {_fovs} ⇒ 逐行看表头标注。")
+    out.append("- ⚠️ **8 序 ≠ 24 序**：8 序 gate 集只覆盖 24 序官方口径的一小部分 GT ⇒ "
+               "**8 序只做机理筛选 / A/B，不能给交付档排序**；本表若同时含 8 序与 24 序行，**交付判据以 24 序为准**；"
+               "**精确覆盖率每次重算**（见 `runs/lookahead/fi_nogmc/report.md` §0 纪律 6 与 §7 表头）。")
+    out.append("")
+
+    # ---- 以下三条**全部从本表产物现算**（不写死任何覆盖率 / 红线结论）----
+    _seq_gt: dict[str, dict[str, int]] = {}
+    for r in rows:
+        arm_doc = (r.doc.get("arms") or {}).get(r.arm) or {}
+        ps = (arm_doc.get("current_frame") or {}).get("per_sequence") or r.doc.get("per_sequence") or {}
+        if ps:
+            _seq_gt.setdefault(r.run_label, {k: (v or {}).get("gt", 0) for k, v in ps.items()})
+    _seen_gt_sets: set[tuple] = set()
+    for _lbl, _ps in _seq_gt.items():
+        _tot = sum(_ps.values())
+        if not _tot:
+            continue
+        _top = max(_ps.items(), key=lambda kv: kv[1])
+        _key = (_top[0], _top[1], _tot)
+        if _key in _seen_gt_sets:      # 同一 GT 集（不同模型包）只印一次
+            continue
+        _seen_gt_sets.add(_key)
+        out.append(
+            f"- 🔴 **GT 集中度（`{_lbl}` 等同一 GT 集，从产物现算）**：逐序 GT 最多的一序 **`{_top[0]}`** 占该集 GT 的 "
+            f"**{_top[1] / _tot * 100:.2f}%**（{_top[1]} / {_tot}）⇒ **任何单序列级的效果头条都必须先做逐序列归因**。"
+        )
+    _replay_fars = [(r.run_label, r.arm, r.metrics.get("far")) for r in rows if r.arm == "replay"]
+    _replay_fars = [(lbl, arm, f) for lbl, arm, f in _replay_fars if f is not None]
+    if _replay_fars:
+        _worst = max(_replay_fars, key=lambda x: x[2])
+        _ok = _worst[2] <= 0.030
+        out.append(
+            f"- 🔴 **FAR 红线（≤ 0.030）核对（从产物现算）**：本表 `replay` 臂 FAR 最大值 = "
+            f"**{_worst[2]:.6f}**（`{_worst[0]}`）⇒ **{'✅ 过线' if _ok else '❌ 破线'}**；"
+            f"**本表只覆盖 Δ={LATENCY_MS // 40} 档**，其它 Δ 的 FAR 红线结论以 24 序官方口径为准"
+            f"（见 `runs/lookahead/fi_nogmc/report.md` §7 与 `FINAL_REPORT.md` §7/§11）。"
+        )
     out.append("")
 
     stale_by_run, original_by_run = _run_peers(rows)
@@ -330,7 +387,7 @@ def _framing_note(rows, baseline):
             out.append(f"- {arm_label} 的 CLE {label}：stale {base_value:.2f}px → {value:.2f}px（{verdict}）")
         out.append("")
 
-    out.append("> 读法：`stale → 外挂` 的绝对提升就是**把 320 ms 滞后造成的脱靶追回了多少**；"
+    out.append(f"> 读法：`stale → 外挂` 的绝对提升就是**把 {LATENCY_MS} ms 滞后造成的脱靶追回了多少**；"
                "`追回 %` 是它相对天花板的总账里拿回的比例。")
     return out + [""]
 
@@ -421,9 +478,9 @@ def _gain_section(rows):
     """"相对硬吃 Δ 帧滞后的收益"小节：外挂臂 vs 同产物的 stale 臂。"""
     plugins = [r for r in rows if r.arm not in ("", "original", "stale")]
     if not plugins:
-        return ["### 相对硬吃 320ms 滞后的收益（无外挂臂）", ""]
+        return [f"### 相对硬吃 {LATENCY_MS}ms 滞后的收益（无外挂臂）", ""]
     out = [
-        "### 相对硬吃 320ms 滞后的收益",
+        f"### 相对硬吃 {LATENCY_MS}ms 滞后的收益",
         "",
         "| 方案 | F1(臂) | F1(stale) | 追回(pp) | 追回占比 | hit@5px(臂) | hit@5px(stale) | 提升(pp) "
         "| CLE p95(池,臂) | CLE p95(池,stale) | 降幅(px) | 降幅(%) |",
@@ -525,12 +582,15 @@ def main() -> None:
     args = ap.parse_args()
     assert len(args.runs) == len(args.labels), "--runs 与 --labels 数量必须一致"
 
+    global LATENCY_MS
+    LATENCY_MS = args.delta * 40
+
     rows, skipped = _build_rows(args.runs, args.labels)
     refs = _ruler1_reference(rows)
     baseline = _pick_baseline(rows, args.baseline)
 
     lines = [
-        f"## {args.title}（Δ={args.delta} = {args.delta * 40}ms @25Hz，{args.model}）",
+        f"## {args.title}（Δ={args.delta} 帧 = **标称** {args.delta * 40} ms @25 Hz（**假设值**），{args.model}）",
         "",
         "> **尺子1（历史帧等价性）** = 源帧 f 的历史估计对 GT_f 的评测；外挂是纯后处理、绝不回写历史估计 "
         "⇒ 同一产物内所有臂的尺子1 F1 必须逐位相等（Δ = 0.000000pp）。",

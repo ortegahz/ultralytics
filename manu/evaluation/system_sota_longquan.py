@@ -38,6 +38,7 @@ from manu.evaluation.eval_multiscale_cache_th import (  # noqa: E402
     load_ground_truth,
     load_predictions,
     merge_scales,
+    merge_scales_with_attrs,
     metrics,
 )
 
@@ -117,18 +118,48 @@ def load_cache_meta(cache_root, sequence: str) -> dict:
     return _META_CACHE[key]
 
 
-def build_candidates(cache_root, sequence: str, dedup_radius: float, floor: float = 0.0) -> dict[int, tuple]:
+def build_candidate_gate(params: dict):
+    """Return the candidate gate described by ``params``, or ``None`` when the gate is absent or disabled.
+
+    The gate is an optional, disabled-by-default decision-layer step.  When ``params`` has no ``cand_gate``
+    key -- the frozen delivery configuration has none -- the returned value is ``None`` and every caller keeps
+    exactly its current code path, so the frozen numbers are reproduced bit for bit.
+
+    The import is local because ``manu.evaluation.candidate_gate`` reuses the quantile table of
+    ``manu.evaluation.sweep_decision_layer``, which imports this module.
+    """
+    block = params.get("cand_gate")
+    if not isinstance(block, dict) or not bool(block.get("enabled", False)):
+        return None
+    from manu.evaluation.candidate_gate import CandidateGate
+
+    return CandidateGate.from_params(block)
+
+
+def build_candidates(
+    cache_root, sequence: str, dedup_radius: float, floor: float = 0.0, cand_gate=None
+) -> dict[int, tuple]:
     """Union of the three per-scale cache rows, greedily de-duplicated across scales by score.
 
     The baked fused row (tag 255) is excluded on purpose: its floor is 0.22, which would empty the weak-pulse
     salvage pool the system pipeline relies on. ``dedup_radius`` must be > 0 because ``merge_scales`` overwrites
     scales instead of merging them when the radius is not positive.
+
+    ``cand_gate`` is optional; when it is ``None`` (the default, i.e. the frozen delivery configuration) the
+    candidate pool is built exactly as before.  When it is given, the de-duplication keeps the attributes of
+    the surviving candidates so that the gate can filter them.
     """
     if dedup_radius <= 0:
         raise ValueError("dedup_radius must be > 0; merge_scales overwrites scales for radius <= 0")
-    meta, by_tag = load_predictions(cache_root, sequence, list(SCALE_TAGS), floor)
+    if cand_gate is None:
+        meta, by_tag = load_predictions(cache_root, sequence, list(SCALE_TAGS), floor)
+        _META_CACHE[(str(cache_root), sequence)] = meta
+        return merge_scales(by_tag, dedup_radius)
+    from manu.evaluation.candidate_gate import filter_merged_frames, load_predictions_with_attrs
+
+    meta, by_tag = load_predictions_with_attrs(cache_root, sequence, list(SCALE_TAGS), floor)
     _META_CACHE[(str(cache_root), sequence)] = meta
-    return merge_scales(by_tag, dedup_radius)
+    return filter_merged_frames(merge_scales_with_attrs(by_tag, dedup_radius), cand_gate)
 
 
 def apply_persistence_filter(
@@ -178,14 +209,17 @@ def build_records(
     persist_min_hits: int = 0,
     persist_window: int = 0,
     persist_tol: float = 4.0,
+    cand_gate=None,
 ) -> list[dict]:
     """Build the per-frame records the system pipeline consumes for one sequence.
 
     Every record carries the native-pixel candidate pool, the ground-truth centres and the ground-truth boxes
     (cx, cy, w, h). The frame set is the union of candidate frames and ground-truth frames so that a frame
     without any detection still contributes to the false-negative denominator.
+
+    ``cand_gate`` is optional; ``None`` (the default) keeps the frozen behaviour.
     """
-    candidates = build_candidates(cache_root, sequence, dedup_radius, floor)
+    candidates = build_candidates(cache_root, sequence, dedup_radius, floor, cand_gate)
     candidates = apply_persistence_filter(candidates, persist_min_hits, persist_window, persist_tol)
 
     meta = load_cache_meta(cache_root, sequence)
@@ -613,6 +647,7 @@ def main() -> None:
     per_sequence_rows = {}
     per_sequence_metrics = {}
     num_frames = 0
+    cand_gate = build_candidate_gate(params)
     for sequence in sequences:
         records = build_records(
             cache_root,
@@ -623,6 +658,7 @@ def main() -> None:
             int(params["persist_min_hits"]),
             int(params["persist_window"]),
             float(params["persist_tol"]),
+            cand_gate,
         )
         frames = load_cache_meta(cache_root, sequence)["frames"]
         if args.no_pipeline:

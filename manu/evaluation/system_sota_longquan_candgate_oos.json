@@ -1,0 +1,140 @@
+{
+  "_provenance": {
+    "what": "Candidate working point of the Longquanshan delivery chain with the PER-TAG QUANTILE form of the discriminative candidate gate, wired in but DISABLED.  The frozen delivery file (manu/evaluation/system_sota_longquan_delivery_params.json) is untouched; this is a new file.",
+    "source": "manu/evaluation/system_sota_longquan_delivery_params.json -- the 'params' block is copied verbatim (every frozen value is byte-identical, only the new 'cand_gate' key was added) -- plus the out-of-sample sweep manu/evaluation/sweep_decision_layer.py (decision_sweep/20261105_093017_k2k3_oos, sum_quantile_scope=exclude-primary).",
+    "frozen_params_md5_of_source_file": "0ca8267f4ad340df11b3aa7d679d9068",
+    "delivered_metrics": {
+      "tp": 114443,
+      "fp": 4919,
+      "fn": 18814,
+      "gt": 133257,
+      "recall": 0.8588141711129622,
+      "precision": 0.9587892294029926,
+      "f1": 0.9060521971823182,
+      "far_per_frame": 0.02977188405972534
+    },
+    "delivery_criteria": {
+      "f1_min": 0.88,
+      "recall_min": 0.85,
+      "far_max": 0.03
+    },
+    "usage": "python manu/evaluation/system_sota_longquan.py --params-json <this file> --seqs <pool> ...  The behaviour is identical to the frozen file while cand_gate.enabled is false.",
+    "cand_gate": {
+      "what": "A per-candidate predicate applied to the candidates that survived the cross-scale de-duplication (gate_stage=post): area >= area_min AND sums >= threshold(tag) AND tag in tag_allow.",
+      "form": "sum_mode='tagq': the floor is a per-tag quantile level of the 'sums' distribution; the resolved per-tag values are frozen in params.cand_gate.thresholds and are NOT recomputed at runtime.",
+      "how_the_threshold_was_chosen": "The quantile level was re-selected OUT OF SAMPLE (the blind hold-out is excluded from the population that defines the threshold).  The level that was picked inside the sample (q0.2 for trial_0049) fails out of sample and breaks the T2 hard gate, so it was discarded; q0.05 is the level that survives on the reference arm.",
+      "status": "EXPLORATORY EVIDENCE -- NOT RELEASED, NOT ONLINE, NOT A DELIVERY",
+      "evidence": {
+        "measured_out_of_sample": {
+          "note": "area_min=1, tag_allow=[0,1,2], th_base=0.30 (frozen), gate_stage=post, quantile level re-selected out of sample.  'T2 hard gate' = F1 >= 0.985 and FP <= 112 on the golden pool.",
+          "trial_0049_tagq_q0.05_post": {
+            "t3": {
+              "tp": 8924,
+              "fp": 159,
+              "fn": 1611,
+              "f1": 0.9097767356509328,
+              "delta_f1_pp": 0.3385
+            },
+            "t2": {
+              "tp": 16484,
+              "fp": 31,
+              "fn": 154,
+              "f1": 0.9944198111784756
+            },
+            "t2_hard_gate": "PASS"
+          },
+          "cs_t0008p2_tagq_q0.10_post": {
+            "note": "the p2 arm needs its own table and its own level; the equivalent thresholds of the p2 golden pool are tag0=20.160724, tag1=9.923620, tag2=22.585932 at q0.10",
+            "t3": {
+              "tp": 8518,
+              "fp": 314,
+              "fn": 2017,
+              "f1": 0.8796406258067848,
+              "delta_f1_pp": 1.0097
+            },
+            "t2": {
+              "tp": 16228,
+              "fp": 28,
+              "fn": 410,
+              "f1": 0.9866845017328388
+            },
+            "t2_hard_gate": "PASS"
+          },
+          "in_sample_level_discarded": {
+            "trial_0049_tagq_q0.2_post": {
+              "t3": {
+                "tp": 7799,
+                "fp": 150,
+                "fn": 2736,
+                "f1": 0.843864964293443,
+                "delta_f1_pp": -6.2527
+              },
+              "t2": {
+                "tp": 13885,
+                "fp": 30,
+                "fn": 2753,
+                "f1": 0.9089123817628384
+              },
+              "t2_hard_gate": "FAIL"
+            }
+          }
+        },
+        "status_of_the_whole_result": "Choosing WHICH quantile level to use was still done on the evaluation pools, so the evidence as a whole remains EXPLORATORY.  The gate ships disabled and is not a delivery.",
+        "reproduce": "python manu/evaluation/verify_candidate_gate.py --arm trial_0049=<cache> --arm cs_t0008p2=<cache> --labels-root <Final_Labels dir>"
+      }
+    },
+    "note": "The frozen delivery configuration is a separate file and was NOT edited in place.  This file is a new working point.  While cand_gate.enabled is false the pipeline is bit-identical to the frozen chain."
+  },
+  "params": {
+    "th_base": 0.3,
+    "th_salvage": 0.06,
+    "th_ground": 0.22,
+    "sky_ratio": 0.6,
+    "min_hits": 3,
+    "max_age": 3,
+    "match_dist": 16.0,
+    "max_match_dist": 24.0,
+    "instant_conf": 0.25,
+    "min_disp": 2.5,
+    "min_track_score": 0.08,
+    "stitch_gap": 6,
+    "infill_gap": 3,
+    "min_hits_infill": 5,
+    "min_rigid_disp": 2.0,
+    "max_rigid_var": 1.0,
+    "min_hits_prune": 4,
+    "dedup_radius": 768.0,
+    "th_deep": 0.0,
+    "min_hits_deep": 3,
+    "min_rigid_disp_sky": -1.0,
+    "hover_vel": 0.0,
+    "hover_infill_gap": 15,
+    "coast_frames": 0,
+    "min_hits_hover": 8,
+    "hover_sky_only": 1,
+    "stitch_long_gap": 0,
+    "stitch_vel_diff": 4.0,
+    "confirm_consec": 6,
+    "confirm_gap_tol": 0,
+    "confirm_trim_prefix": 1,
+    "persist_min_hits": 0,
+    "persist_window": 0,
+    "persist_tol": 4.0,
+    "cand_gate": {
+      "enabled": false,
+      "area_min": 1,
+      "sum_mode": "tagq",
+      "sum_value": 0.05,
+      "tag_allow": [0, 1, 2],
+      "gate_stage": "post",
+      "thresholds": {
+        "0": 18.318253326416016,
+        "1": 4.522056722640992,
+        "2": 9.01346206665039
+      },
+      "threshold_scope": "golden pool only (the 7 Longquanshan golden sequences of the reference arm trial_0049); the blind hold-out VIDEO00007_19700101_001324 is excluded from the quantile population (out-of-sample measurement)",
+      "reference_arm": "trial_0049 (runs/nogmc_t3/trials/trial_0049/gate/epoch20)",
+      "note": "The per-tag quantile form needs a threshold table, therefore it is kept in its own file.  The distribution-free form (an absolute energy floor) is in manu/evaluation/system_sota_longquan_candgate_params.json.  Shipped DISABLED."
+    }
+  }
+}

@@ -1,0 +1,242 @@
+{
+  "_provenance": {
+    "what": "Candidate working point of the Longquanshan delivery chain with the discriminative candidate gate (area / sum / tag) wired in but DISABLED.  The frozen delivery file (manu/evaluation/system_sota_longquan_delivery_params.json) is untouched; this is a new file.",
+    "source": "manu/evaluation/system_sota_longquan_delivery_params.json -- the 'params' block is copied verbatim (every frozen value is byte-identical, only the new 'cand_gate' key was added) -- plus the out-of-sample sweep manu/evaluation/sweep_decision_layer.py (decision_sweep/20261105_093017_k2k3_oos, sum_quantile_scope=exclude-primary).",
+    "frozen_params_md5_of_source_file": "0ca8267f4ad340df11b3aa7d679d9068",
+    "delivered_metrics": {
+      "tp": 114443,
+      "fp": 4919,
+      "fn": 18814,
+      "gt": 133257,
+      "recall": 0.8588141711129622,
+      "precision": 0.9587892294029926,
+      "f1": 0.9060521971823182,
+      "far_per_frame": 0.02977188405972534
+    },
+    "delivery_criteria": {
+      "f1_min": 0.88,
+      "recall_min": 0.85,
+      "far_max": 0.03
+    },
+    "usage": "python manu/evaluation/system_sota_longquan.py --params-json <this file> --seqs <pool> ...  The behaviour is identical to the frozen file while cand_gate.enabled is false.",
+    "cand_gate": {
+      "what": "A per-candidate predicate applied to the candidates that survived the cross-scale de-duplication (gate_stage=post): area >= area_min AND sums >= sum_value AND tag in tag_allow.",
+      "form": "sum_mode='abs': an ABSOLUTE energy floor (sums >= 10.0).  It is a hard constant, so it does not depend on any dataset distribution and needs no per-tag quantile table (thresholds is empty).  This makes it the distribution-free form of the gate and the one that can be shipped as a fixed threshold.  The per-tag quantile form lives in the separate file manu/evaluation/system_sota_longquan_candgate_oos.json.",
+      "how_the_threshold_was_chosen": "The absolute floor was picked on the evaluation pools of the out-of-sample sweep (decision_sweep/20261105_093017_k2k3_oos).  It was chosen on the evaluation set, therefore the evidence as a whole stays EXPLORATORY -- but, unlike a quantile, the constant itself carries no dataset-specific calibration, so it transfers between arms and sequences.",
+      "status": "EXPLORATORY EVIDENCE -- NOT RELEASED, NOT ONLINE, NOT A DELIVERY",
+      "evidence": {
+        "measured_out_of_sample": {
+          "note": "All rows below are the out-of-sample sweep (the blind hold-out is excluded from the quantile population; the absolute floor needs no population at all).  area_min=1, tag_allow=[0,1,2], th_base=0.30 (frozen), gate_stage=post.  'T2 hard gate' is the current gate chain rule on the golden pool: F1 >= 0.985 and FP <= 112.",
+          "abs_sums_ge_20": {
+            "cs_t0008p2": {
+              "t3": {
+                "tp": 8520,
+                "fp": 314,
+                "fn": 2015,
+                "f1": 0.8797563116319891,
+                "delta_f1_pp": 1.0213
+              },
+              "t2": {
+                "tp": 16264,
+                "fp": 28,
+                "fn": 374,
+                "f1": 0.9877922866686912
+              },
+              "t2_hard_gate": "PASS",
+              "verdict": "T3 +1.0213 pp, the golden pool still clears the hard gate"
+            },
+            "trial_0049": {
+              "t3": {
+                "tp": 8890,
+                "fp": 157,
+                "fn": 1645,
+                "f1": 0.9079767133081402,
+                "delta_f1_pp": 0.1585
+              },
+              "t2": {
+                "tp": 15966,
+                "fp": 31,
+                "fn": 672,
+                "f1": 0.9784587099739545
+              },
+              "t2_hard_gate": "FAIL",
+              "verdict": "T3 still improves, but sums >= 20 breaks the T2 hard gate on this arm -- do not apply this value to trial_0049; sums >= 10 is the arm-robust value."
+            }
+          },
+          "abs_sums_ge_10_arm_robust": {
+            "trial_0049": {
+              "t3": {
+                "tp": 8991,
+                "fp": 261,
+                "fn": 1544,
+                "f1": 0.9087784909283874,
+                "delta_f1_pp": 0.2387
+              },
+              "t2": {
+                "tp": 16635,
+                "fp": 32,
+                "fn": 3,
+                "f1": 0.9989491067407296
+              },
+              "t2_hard_gate": "PASS"
+            },
+            "cs_t0008p2": {
+              "t3": {
+                "tp": 8566,
+                "fp": 487,
+                "fn": 1969,
+                "f1": 0.874617112517868,
+                "delta_f1_pp": 0.5074
+              },
+              "t2": {
+                "tp": 16634,
+                "fp": 31,
+                "fn": 4,
+                "f1": 0.998949043629703
+              },
+              "t2_hard_gate": "PASS"
+            },
+            "verdict": "sums >= 10 improves T3 and keeps the T2 hard gate on BOTH arms."
+          }
+        },
+        "in_sample_measurement": {
+          "warning": "These are the numbers the first (in-sample) sweep reported.  Their energy quantile population INCLUDES the blind hold-out, i.e. the blind sequence helped define the threshold that is then applied to it.",
+          "trial_0049_t3": {
+            "gate_closed": {
+              "tp": 9005,
+              "fp": 330,
+              "fn": 1530,
+              "f1": 0.906391545042778
+            },
+            "gate_open": {
+              "tp": 8955,
+              "fp": 171,
+              "fn": 1580,
+              "f1": 0.910940440465897
+            },
+            "fp_change": "-48.2%"
+          },
+          "cs_t0008p2_t3": {
+            "gate_closed": {
+              "tp": 8575,
+              "fp": 613,
+              "fn": 1960,
+              "f1": 0.8695431729452923
+            },
+            "gate_open": {
+              "tp": 8524,
+              "fp": 315,
+              "fn": 2011,
+              "f1": 0.8799421905646744
+            },
+            "fp_change": "-48.6%"
+          },
+          "swept_optimum": {
+            "trial_0049": {
+              "area_min": 1,
+              "sum_mode": "tagq",
+              "sum_value": 0.2,
+              "gate_stage": "post"
+            },
+            "cs_t0008p2": {
+              "area_min": 1,
+              "sum_mode": "tagq",
+              "sum_value": 0.3,
+              "gate_stage": "post"
+            }
+          }
+        },
+        "why_the_in_sample_optimum_fails_out_of_sample": {
+          "fact": "The configuration that was selected INSIDE the sample (tagq q0.2 for trial_0049, tagq q0.3 for cs_t0008p2) FAILS out of sample and breaks the T2 hard gate, so it was DISCARDED.",
+          "measured": {
+            "trial_0049_tagq_q0.2_post": {
+              "t3": {
+                "tp": 7799,
+                "fp": 150,
+                "fn": 2736,
+                "f1": 0.843864964293443,
+                "delta_f1_pp": -6.2527
+              },
+              "t2": {
+                "tp": 13885,
+                "fp": 30,
+                "fn": 2753,
+                "f1": 0.9089123817628384
+              },
+              "t2_hard_gate": "FAIL"
+            },
+            "cs_t0008p2_tagq_q0.3_post": {
+              "t3": {
+                "tp": 7410,
+                "fp": 307,
+                "fn": 3125,
+                "f1": 0.811965811965812,
+                "delta_f1_pp": -5.7577
+              },
+              "t2": {
+                "tp": 12632,
+                "fp": 27,
+                "fn": 4006,
+                "f1": 0.8623408540123562
+              },
+              "t2_hard_gate": "FAIL"
+            }
+          },
+          "root_cause": "The blind hold-out contributes many low-energy candidates, so the in-sample quantile is much lower than the golden-pool quantile (tag 0 at q0.2 for trial_0049: 14.947647 in-sample vs 28.321567 out-of-sample).  The in-sample threshold therefore removes mostly blind-sequence noise, while the out-of-sample threshold also removes real candidates.",
+          "consequence": "The gate itself is NOT invalidated -- only the in-sample level was.  Re-selecting the level out of sample keeps the gain: tagq q0.05 on trial_0049 (T3 +0.3385 pp, T2 hard gate PASS) and tagq q0.10 on cs_t0008p2 (T3 +1.0097 pp, T2 hard gate PASS); the absolute floor sums >= 10 keeps the T2 hard gate on both arms and the absolute floor sums >= 20 is the strongest point on cs_t0008p2."
+        },
+        "status_of_the_whole_result": "Choosing WHICH energy level to use was still done on the evaluation pools, so the evidence as a whole remains EXPLORATORY.  The gate ships disabled and is not a delivery.",
+        "reproduce": "python manu/evaluation/verify_candidate_gate.py --arm trial_0049=<cache> --arm cs_t0008p2=<cache> --labels-root <Final_Labels dir>"
+      }
+    },
+    "note": "The frozen delivery configuration is a separate file and was NOT edited in place.  This file is a new working point.  While cand_gate.enabled is false the pipeline is bit-identical to the frozen chain."
+  },
+  "params": {
+    "th_base": 0.3,
+    "th_salvage": 0.06,
+    "th_ground": 0.22,
+    "sky_ratio": 0.6,
+    "min_hits": 3,
+    "max_age": 3,
+    "match_dist": 16.0,
+    "max_match_dist": 24.0,
+    "instant_conf": 0.25,
+    "min_disp": 2.5,
+    "min_track_score": 0.08,
+    "stitch_gap": 6,
+    "infill_gap": 3,
+    "min_hits_infill": 5,
+    "min_rigid_disp": 2.0,
+    "max_rigid_var": 1.0,
+    "min_hits_prune": 4,
+    "dedup_radius": 768.0,
+    "th_deep": 0.0,
+    "min_hits_deep": 3,
+    "min_rigid_disp_sky": -1.0,
+    "hover_vel": 0.0,
+    "hover_infill_gap": 15,
+    "coast_frames": 0,
+    "min_hits_hover": 8,
+    "hover_sky_only": 1,
+    "stitch_long_gap": 0,
+    "stitch_vel_diff": 4.0,
+    "confirm_consec": 6,
+    "confirm_gap_tol": 0,
+    "confirm_trim_prefix": 1,
+    "persist_min_hits": 0,
+    "persist_window": 0,
+    "persist_tol": 4.0,
+    "cand_gate": {
+      "enabled": false,
+      "area_min": 1,
+      "sum_mode": "abs",
+      "sum_value": 10.0,
+      "tag_allow": [0, 1, 2],
+      "gate_stage": "post",
+      "thresholds": {},
+      "threshold_scope": "not applicable: the absolute energy floor is a hard constant (sums >= 10.0), it does not depend on any dataset distribution and therefore needs no per-tag quantile table",
+      "reference_arm": "both delivery members (cs_t0008p2 = runs/nogmc_t3/swa/gate/cs_t0008p2, trial_0049 = runs/nogmc_t3/trials/trial_0049/gate/epoch20).  The floor 10.0 is the only absolute value that keeps the T2 hard gate on BOTH arms; the stricter 20.0 is better on cs_t0008p2 (T3 +1.0213 pp) but BREAKS the T2 hard gate on trial_0049 (T2 F1 0.9785 < 0.985) and is therefore not shipped as the default.",
+      "note": "The gate is a post-processing step on the merged candidate pool (after the cross-scale de-duplication, before the score threshold).  It changes no frozen parameter: th_base, dedup_radius and the rest of the params block are byte-identical to the frozen delivery file.  The gate ships DISABLED -- see _provenance.cand_gate.evidence for the measured numbers and for the arm each configuration is valid on."
+    }
+  }
+}

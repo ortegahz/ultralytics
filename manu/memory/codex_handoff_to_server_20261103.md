@@ -733,3 +733,39 @@ rsync -a --checksum --omit-dir-times -e "ssh -F /dev/null -p $PORT -o ConnectTim
 
 > 教训（与 §15.1 一并记住）：**`scp`/`rsync` 成功返回 ≠ 内容已对齐**；
 > 同步类操作**一律以「双侧 md5 逐文件比对」为唯一判据**（与 `manu/AGENTS.md` 铁律〇一致）。
+
+### 15.4 🔴 `handoff/server_continue.sh` 的**陈旧会话 id 硬编码**（2026-11-04 17:47 实测并修掉）
+
+**现象**：2026-11-04 17:45 跑 `bash handoff/server_continue.sh` 做只读验收，脚本验的是
+**上一轮**（2026-11-03）的线程 `01a19eda-…`（`turns=23 / items=2523`），
+而本轮实际线程是 `01a1a5b5-…` ⇒ **验收对象错了，而它自己照样打印 `ok: true`**。
+
+**根因**：`server_continue.sh` 第 27 行把会话 id **写死**成上一轮的值
+（`SESSION="${HANDOFF_SESSION:-01a19eda-…}"`），而 `handoff/.handoff_session`（每次交接都会被正确写入）
+**根本没被读** ⇒ 脚本与自己配套的 `handoff_to_server.sh` 用的不是同一个 id 源。
+
+**修法**（已改，`bash -n` 通过）：
+
+```bash
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# 会话 id 默认从 handoff/.handoff_session 读（由 handoff_to_server.sh / prepare_host_repo.sh 写入），
+# 避免把上一次的陈旧 id 写死在脚本里 -> 会验收/续跑错线程。
+if [[ -z "${HANDOFF_SESSION:-}" && -f "$HERE/.handoff_session" ]]; then
+  HANDOFF_SESSION="$(awk -F= '/^SESSION=/{print $2}' "$HERE/.handoff_session" | tr -d '[:space:]')"
+fi
+SESSION="${HANDOFF_SESSION:-}"
+if [[ -z "$SESSION" ]]; then
+  echo "ERROR: 拿不到会话 id。设置 HANDOFF_SESSION，或写 handoff/.handoff_session（SESSION=<uuid>）。" >&2
+  exit 2
+fi
+```
+
+⚠️ 顺带修掉一个 `set -u` 崩溃：`HERE` 原定义在 `SESSION` **之后**，新代码要用它 ⇒ 必须把 `HERE` 提前。
+
+**改后实测**（2026-11-04 17:48）：验的已是**本轮**线程 `01a1a5b5-…`
+（`turns=3 / items=403 / history_mode=paginated / visible_in_picker=true / ok=true`）。
+
+**⇒ 教训（与 §15.2 / §15.3 同源）**：**「脚本打印 ok」不等于「验收对象正确」**。
+凡是**带会话 id 的验收/续跑脚本**，id 必须**只有一个真源**（`.handoff_session` 或显式参数），
+**绝不允许在多个脚本里各写一份常量** —— 否则**每次换会话都会静默验错对象**，
+而错对象的 `ok: true` 看起来一切正常。

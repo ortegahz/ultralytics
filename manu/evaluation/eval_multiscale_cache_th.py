@@ -66,35 +66,114 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def merge_scales(per_scale: dict[int, tuple], radius: float) -> dict[int, tuple]:
-    """Union several scale rows per frame, keeping the highest score inside each merge radius."""
+def _payload_rows(payload: tuple) -> list[tuple]:
+    """Expand one per-frame scale payload into the internal candidate-row form.
+
+    A payload is ``(scores, points)`` or ``(scores, points, area, sums, tag)``.  The returned rows are the
+    tuples ``(score, x, y, area, sums, tag)``; ``area`` / ``sums`` / ``tag`` are ``None`` when the payload did
+    not carry them.  The values are the plain Python numbers of the ``.tolist()`` views, i.e. exactly the
+    numbers the historical implementation compared and sorted.
+    """
+    scores, points = payload[0], payload[1]
+    area = payload[2] if len(payload) > 2 else None
+    sums = payload[3] if len(payload) > 3 else None
+    tag = payload[4] if len(payload) > 4 else None
+    score_values = scores.tolist()
+    point_values = points.tolist()
+    area_values = area.tolist() if area is not None else None
+    sum_values = sums.tolist() if sums is not None else None
+    tag_values = tag.tolist() if tag is not None else None
+    rows = []
+    for index, (score, point) in enumerate(zip(score_values, point_values)):
+        rows.append(
+            (
+                score,
+                point[0],
+                point[1],
+                None if area_values is None else area_values[index],
+                None if sum_values is None else sum_values[index],
+                None if tag_values is None else tag_values[index],
+            )
+        )
+    return rows
+
+
+def _merge_scale_rows(per_scale: dict[int, dict[int, tuple]], radius: float) -> dict[int, list[tuple]]:
+    """Cross-scale de-duplication shared by :func:`merge_scales` and :func:`merge_scales_with_attrs`.
+
+    The candidates of every scale are pooled scale by scale, the pool is sorted by descending score with a
+    stable sort, and a candidate is dropped when it lies within ``radius`` of an already kept candidate.  This
+    is the historical rule, kept in one place so that the plain and the attribute-carrying variant can never
+    drift apart.
+
+    ``per_scale`` maps a scale tag to ``{frame_index: payload}``; the returned mapping maps a frame index to the
+    list of the kept candidates, each candidate being the tuple ``(score, x, y, area, sums, tag)``.
+    """
     if radius <= 0:
-        merged = {}
+        # Historical behaviour: the scales overwrite each other instead of being merged.
+        merged: dict[int, list[tuple]] = {}
         for items in per_scale.values():
-            merged.update(items)
+            for frame_index, payload in items.items():
+                merged[frame_index] = _payload_rows(payload)
         return merged
     radius_squared = radius * radius
     merged = {}
     for frame_index in set().union(*(set(items) for items in per_scale.values())):
-        pooled = []
+        pooled: list[tuple] = []
         for items in per_scale.values():
             if frame_index in items:
-                scores, points = items[frame_index]
-                pooled.extend(zip(scores.tolist(), points.tolist()))
+                pooled.extend(_payload_rows(items[frame_index]))
         pooled.sort(key=lambda item: -item[0])
-        kept_scores, kept_points, kept_xy = [], [], []
-        for score, (x, y) in pooled:
+        kept: list[tuple] = []
+        kept_xy: list[tuple[float, float]] = []
+        for row in pooled:
+            score, x, y = row[0], row[1], row[2]
             if any((x - px) ** 2 + (y - py) ** 2 <= radius_squared for px, py in kept_xy):
                 continue
-            kept_scores.append(score)
-            kept_points.append((x, y))
+            kept.append(row)
             kept_xy.append((x, y))
-        if kept_scores:
-            merged[frame_index] = (
-                np.asarray(kept_scores, dtype=np.float32),
-                np.asarray(kept_points, dtype=np.float32),
-            )
+        if kept:
+            merged[frame_index] = kept
     return merged
+
+
+def merge_scales(per_scale: dict[int, dict[int, tuple]], radius: float) -> dict[int, tuple]:
+    """Union several scale rows per frame, keeping the highest score inside each merge radius.
+
+    Thin wrapper around :func:`_merge_scale_rows`: the kept candidates are returned as the
+    ``(scores, points)`` pair of every frame.
+    """
+    merged = _merge_scale_rows(per_scale, radius)
+    result: dict[int, tuple] = {}
+    for frame_index, rows in merged.items():
+        if rows:
+            scores = np.asarray([row[0] for row in rows], dtype=np.float32)
+            points = np.asarray([(row[1], row[2]) for row in rows], dtype=np.float32)
+        else:
+            scores = np.zeros((0,), dtype=np.float32)
+            points = np.zeros((0, 2), dtype=np.float32)
+        result[frame_index] = (scores, points)
+    return result
+
+
+def merge_scales_with_attrs(per_scale: dict[int, dict[int, tuple]], radius: float) -> dict[int, tuple]:
+    """Same de-duplication as :func:`merge_scales`, but the kept candidates also carry their cache attributes.
+
+    The per-frame payload of ``per_scale`` must be ``(scores, points, area, sums, tag)``; the returned payload
+    of every frame is ``(scores, points, area, sums, tag)`` with the same row order as the kept candidates.
+    The attribute dtypes match the ones the sweep and the gate use: ``area`` int32, ``sums`` float32 and
+    ``tag`` int16.
+    """
+    merged = _merge_scale_rows(per_scale, radius)
+    result: dict[int, tuple] = {}
+    for frame_index, rows in merged.items():
+        scores = np.asarray([row[0] for row in rows], dtype=np.float32)
+        points = np.asarray([(row[1], row[2]) for row in rows], dtype=np.float32).reshape(-1, 2)
+        area = np.asarray([0 if row[3] is None else row[3] for row in rows], dtype=np.int32)
+        sums = np.asarray([0.0 if row[4] is None else row[4] for row in rows], dtype=np.float32)
+        tag = np.asarray([-1 if row[5] is None else row[5] for row in rows], dtype=np.int16)
+        result[frame_index] = (scores, points, area, sums, tag)
+    return result
 
 
 def load_ground_truth(labels_root: Path, sequence: str, width: int, height: int) -> dict[int, np.ndarray]:

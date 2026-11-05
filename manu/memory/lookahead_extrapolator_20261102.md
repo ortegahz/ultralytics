@@ -4556,7 +4556,7 @@ bash /mnt/data/codex-overnight/gateA_newcode.sh     # --lookahead off --arms ori
 | | | **replay（交付档）** | **1.85** | 9.00 | **97.0%** |
 | | | original | 1.87 | 5.20 | 99.0% |
 
-⇒ **同一段画面：老逻辑 19.7% 命中（甩到 192 px 外）�� 外挂 90.3% 命中（1.98 px）** —— 最直观的交付证据。
+⇒ **同一段画面：老逻辑 19.7% 命中（甩到 192 px 外）⇒ 外挂 90.3% 命中（1.98 px）** —— 最直观的交付证据。
 
 ### 34.12 交付档最终形态（本轮**未改**，仅复验）
 
@@ -4741,3 +4741,4107 @@ rsync -a --checksum --omit-dir-times -e "ssh -F /dev/null -p  -o ConnectTimeout=
 | § | 标题（简） | 归档文件 | 起始行 |
 |:--|:--|:--|--:|
 | 三十五 | 专题档 §35 ⭐⭐⭐ 2026-11-04 早班：会话接管回 host ＋ 交付文档数字审计（9 项硬伤已修）＋ 5 档位全对齐 | lookahead_extrapolator_20261102.md | 4627 |
+
+---
+
+## 36. ⭐⭐⭐ 2026-11-04 17:15：**Δ=3（120 ms）比 Δ=8（320 ms）更好**，且 **120 ms 下老逻辑（stale）已破 FAR 红线** —— no-GMC 模型包在 look-ahead 链路上不劣于 GMC
+
+> **执行机**：服务器 `test-Super-Server`（cwd `/tmp/pycharm_project_10ae9e2e`，python `/home/huangzhe/anaconda3/envs/uav/bin/python`，conda env `uav`，`THREADS=8`）；产物已回收到 host `runs/lookahead/fi_nogmc/`
+> **目标工况**：**Δ=3 record = 120 ms @25 Hz**（同时扫 Δ=2/4/8 = 80/160/320 ms 做敏感性）
+> **唯一变量**：{模型包, 假设延时 Δ} —— 同一 8 序列 gate 集 / 28,997 帧 / 同一 GT / 同一原始灰度帧 / 同一工作点 params / 同一插件 CFG
+> **数字唯一真源**：`runs/lookahead/fi_nogmc/_facts/summary.md`（48 行，来自服务器产物 JSON，**未做任何重算**）；本节所有数字逐位照抄
+
+### 36.1 本轮做了什么（命令 / 执行机 / 产物路径 / 时间戳）
+
+| 项 | 内容 |
+|:--|:--|
+| 驱动脚本 | `manu/tracking/lookahead/server_overnight/run_fastinfer_nogmc_sweep.sh`（服务器执行：`cd /tmp/pycharm_project_10ae9e2e && bash manu/tracking/lookahead/server_overnight/run_fastinfer_nogmc_sweep.sh`；单点复跑 `env MODELS="cs_t0043" DELTAS="3" bash .../run_fastinfer_nogmc_sweep.sh`） |
+| 报告脚本 | `manu/tracking/lookahead/make_fastinfer_nogmc_report.py` → `report.md` / `report.json` / `report_house_style{,_d2,_d3,_d8}.md`（**所有数字均从产物 JSON 读出，不重算**） |
+| 单臂命令 | `"$PY" manu/tracking/lookahead/lookahead_longquan.py --cache-root <模型包 ms_cache> --labels-root "$GT" --frames-root "$FRAMES" [--frames-cache "$FC"] --params-json "$PARAMS" --all-seqs --lookahead replay --arms original,stale,kinematic,replay --delta "$d" $CFG --out-json "$OUT/$m/d$d/arms.json" --out-preds-dir "$OUT/$m/d$d/preds"` |
+| CFG 来源 | **单一真值**：脚本用 `awk` 从 `manu/tracking/lookahead/run_delivery.sh` 的多行续行 `CFG=` 整块取出再 `eval`，并对 7 个关键旋钮做**防截断断言**（`--replay-roi-selfpred-max-px 16` / `--replay-rollback-min-peak 0.90` / `--replay-polarity auto` / `--replay-xcorr-uniq-gate 0.6` / `--replay-mode perframe` / `--replay-abstain-peak-below 0.30` / `--replay-rollback-max-frames 16`）⇒ 杜绝「四份都叫交付档」的漂移 |
+| 产物路径 | 服务器 `/tmp/pycharm_project_10ae9e2e/runs/lookahead/fi_nogmc/<model>/d<Δ>/arms.json`（+ `preds/` + `run.log`）→ host `runs/lookahead/fi_nogmc/<model>/d<Δ>/arms.json`；汇总 `_facts/summary.md` + `_facts/all_metrics.json`；报告 `runs/lookahead/fi_nogmc/report.md` / `report_house_style.md` / `report.json` |
+| 模型包 | `rc2` = `runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/ms_cache`（**GMC 特征语义**）；`cs_t0043` = `/mnt/data/siping/runs/nogmc_t3/swa/gate/cs_t0043/ms_cache`；`trial_0049` = `/mnt/data/siping/runs/nogmc_t3/trials/trial_0049/gate/epoch20/ms_cache`（后两者 **no-GMC 特征语义**） |
+| 单次耗时 | rc2 Δ=3 **80.4 s** / cs_t0043 Δ=3 **61.7 s** / trial_0049 Δ=3 **61.0 s**（12 组 Δ×模型 全跑完约 14 min） |
+| 时间戳 | 服务器扫描 2026-11-04 下午（逐条进度在服务器 `runs/lookahead/fi_nogmc/progress.txt`，**未随产物回收**）；**报告生成 2026-11-04 17:09**（host 侧 `report.md` / `report.json` mtime）；本节落档 2026-11-04 17:15 |
+| 数字自检 | `_facts/summary.md` 的 48 行与 `_facts/all_metrics.json` 重算结果**逐格 0 mismatch**（本节落档时在 host 侧复核） |
+
+### 36.2 口径声明（先读这一节，写错方向就是反结论）
+
+| # | 纪律 | 说明 |
+|:--|:--|:--|
+| 1 | **`stale` 才是交付基线** | `original` 臂是**零延迟天花板（oracle 上界）**，**不是**基线；拿 original 当基线会写出「外挂把精度做坏」的反向结论 |
+| 2 | **总体表 CLE = 池化 `cle_pooled_*`** | 全帧池化；README 里的 `cle_p*` 是**逐序列最差值**（`worst_over_sequences`）；逐序表用 `servo.per_sequence.<seq>.cle_p*` —— **三者不可混用** |
+| 3 | **8 序 ≠ 24 序** | 8 序 gate 集只覆盖 24 序官方口径的 **20.39% GT**（GT 帧 27173 / 133257）、**17.55% 帧**（视频帧 28997 / 165223、序列 8 / 24）⇒ **本轮 8 序结果只能做机理筛选与 A/B，不能用来给交付档排序**，也不能替代 24 序官方口径复评 |
+| 4 | **两套 CFG 的数字不可并列引用** | 本轮 Δ 扫描用的是**当前交付档 CFG**；README §5.2 的 Δ 敏感性是 **WTH15 历史档 CFG**，两者**差 5 个开关**（见 §36.9）⇒ 引用时必须标注是哪一套 |
+| 5 | **模型包 = 权重 + 特征语义 + `--ablate-p0` 三者成套换** | 三个包的缓存 meta 除 `features_root` / `hm_weights` 外**逐字相同**：`scales=[0,160,80]` / `region_threshold=0.06` / `main_threshold=0.22` / `fusion_dilate=32` / `min_area=4` / `use_p0_highway=false` |
+| 6 | **Δ 是假设值不是实测值** | Δ=3 = 假设检测链路延时 3 个 record（**120 ms @25 Hz**）；管线自身绝对精度由模型决定，Δ 只决定外挂要补多少 |
+| 7 | **交付判据** | F1 ≥ **0.88** / Recall ≥ **0.85** / FAR ≤ **0.030**（业务域红线） |
+| 8 | **尺子 1 只在同一产物内可比** | 外挂是纯后处理、绝不回写历史估计 ⇒ **同一产物内四臂的 `source_frame.f1` 必须逐位相等**；**跨 Δ 时 ruler1 数值会变**（历史源帧本身随 Δ 变），**这不是门禁失败** |
+
+### 36.3 四臂对照 @ Δ=3（目标工况 120 ms）
+
+#### 36.3.1 RC2 trial_0080ep3（GMC 语义）
+
+| 臂 | 角色 | F1% | Recall% | Precision% | FAR/帧 | hit@5px% | hit@inbox% | CLE p50(池) | CLE p95(池) | 交付三门 |
+|:--|:--|--:|--:|--:|--:|--:|--:|--:|--:|:--|
+| original | 零延迟天花板（oracle 上界，**不是**基线） | 96.4002 | 93.6739 | 99.2901 | 0.006277 | 88.1316 | 93.6739 | 1.5679 | 5.9696 | PASS |
+| stale | 老逻辑硬吃滞后（**交付基线**） | 92.8584 | 90.2219 | 95.6535 | 0.038418 | 60.9097 | 90.2219 | 3.1755 | 22.1475 | **FAIL**（FAR） |
+| kinematic | 档位 A 纯运动学 | 91.6463 | 89.0443 | 94.4050 | 0.049453 | 63.5925 | 89.0443 | 3.1359 | 22.9719 | **FAIL**（FAR） |
+| replay | 档位 B 视觉重推 + xcorr（**交付方案**） | 96.2788 | 93.6923 | 99.0122 | 0.008760 | 87.0680 | 93.6923 | 1.6248 | 7.1559 | PASS |
+
+#### 36.3.2 cs_t0043（no-GMC 语义）
+
+| 臂 | 角色 | F1% | Recall% | Precision% | FAR/帧 | hit@5px% | hit@inbox% | CLE p50(池) | CLE p95(池) | 交付三门 |
+|:--|:--|--:|--:|--:|--:|--:|--:|--:|--:|:--|
+| original | 零延迟天花板（oracle 上界，**不是**基线） | 96.3693 | 93.4310 | 99.4984 | 0.004414 | 88.1647 | 93.4310 | 1.4257 | 5.5309 | PASS |
+| stale | 老逻辑硬吃滞后（**交付基线**） | 92.5764 | 89.7435 | 95.5939 | 0.038763 | 60.3908 | 89.7435 | 3.1746 | 21.8396 | **FAIL**（FAR） |
+| kinematic | 档位 A 纯运动学 | 92.1322 | 89.3129 | 95.1352 | 0.042798 | 63.9974 | 89.3129 | 2.9978 | 22.8818 | **FAIL**（FAR） |
+| replay | 档位 B 视觉重推 + xcorr（**交付方案**） | 96.1297 | 93.2801 | 99.1589 | 0.007415 | 87.3293 | 93.2801 | 1.4768 | 6.2009 | PASS |
+
+#### 36.3.3 trial_0049 ep20（no-GMC 语义）
+
+| 臂 | 角色 | F1% | Recall% | Precision% | FAR/帧 | hit@5px% | hit@inbox% | CLE p50(池) | CLE p95(池) | 交付三门 |
+|:--|:--|--:|--:|--:|--:|--:|--:|--:|--:|:--|
+| original | 零延迟天花板（oracle 上界，**不是**基线） | 96.3980 | 93.5156 | 99.4638 | 0.004725 | 88.0874 | 93.5156 | 1.4454 | 5.6518 | PASS |
+| stale | 老逻辑硬吃滞后（**交付基线**） | 92.5922 | 89.8134 | 95.5485 | 0.039211 | 60.3577 | 89.8134 | 3.1819 | 22.0281 | **FAIL**（FAR） |
+| kinematic | 档位 A 纯运动学 | 91.8259 | 89.0700 | 94.7577 | 0.046177 | 63.7177 | 89.0700 | 3.0169 | 23.4814 | **FAIL**（FAR） |
+| replay | 档位 B 视觉重推 + xcorr（**交付方案**） | 96.1003 | 93.2727 | 99.1046 | 0.007897 | 87.3073 | 93.2727 | 1.4954 | 6.2891 | PASS |
+
+**⇒ 结论：Δ=3（120 ms）下三个模型包的 `replay` 臂**全部过交付三门**（F1 ≥ 0.88 / Recall ≥ 0.85 / FAR ≤ 0.030），而 `stale`（老逻辑硬吃滞后）与 `kinematic`（纯运动学）**三个模型包全部 FAR 破线** ⇒ 120 ms 工况下**必须上视觉重推外挂**（详见 §36.6）。**
+
+### 36.4 Δ 敏感性扫描（结论 A：**Δ=3 比 Δ=8 更好**）
+
+#### 36.4.1 replay 臂（交付方案）逐 Δ
+
+| 模型包 | Δ | 延时(ms) | F1% | Recall% | FAR/帧 | hit@5px% | CLE p50(池) | CLE p95(池) | replay − stale 的 F1 增益(pp) |
+|:--|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| RC2 trial_0080ep3 (GMC) | 2 | 80 | 96.4062 | 93.8358 | 0.007794 | 87.4655 | 1.6064 | 6.7028 | +1.5894 |
+| RC2 trial_0080ep3 (GMC) | 3 | 120 | 96.2788 | 93.6923 | 0.008760 | 87.0680 | 1.6248 | 7.1559 | +3.4204 |
+| RC2 trial_0080ep3 (GMC) | 4 | 160 | 96.0660 | 93.4604 | 0.010449 | 86.6522 | 1.6275 | 7.6676 | +6.2609 |
+| RC2 trial_0080ep3 (GMC) | 8 | 320 | 95.4440 | 92.7833 | 0.015381 | 85.2206 | 1.6739 | 9.9352 | +18.2405 |
+| cs_t0043 (no-GMC) | 2 | 80 | 96.2886 | 93.4715 | 0.006345 | 87.7231 | 1.4697 | 5.9581 | +1.6013 |
+| cs_t0043 (no-GMC) | 3 | 120 | 96.1297 | 93.2801 | 0.007415 | 87.3293 | 1.4768 | 6.2009 | +3.5534 |
+| cs_t0043 (no-GMC) | 4 | 160 | 95.9440 | 93.0593 | 0.008691 | 86.9613 | 1.4912 | 6.4525 | +6.5304 |
+| cs_t0043 (no-GMC) | 8 | 320 | 95.3023 | 92.3527 | 0.013657 | 85.7690 | 1.5547 | 7.4970 | +18.4432 |
+| trial_0049 ep20 (no-GMC) | 2 | 80 | 96.2797 | 93.4788 | 0.006587 | 87.6642 | 1.4837 | 6.0633 | +1.5702 |
+| trial_0049 ep20 (no-GMC) | 3 | 120 | 96.1003 | 93.2727 | 0.007897 | 87.3073 | 1.4954 | 6.2891 | +3.5080 |
+| trial_0049 ep20 (no-GMC) | 4 | 160 | 95.9128 | 93.0519 | 0.009208 | 86.9613 | 1.5064 | 6.5444 | +6.4927 |
+| trial_0049 ep20 (no-GMC) | 8 | 320 | 95.2614 | 92.3306 | 0.014208 | 85.6990 | 1.5746 | 7.6631 | +18.3845 |
+
+#### 36.4.2 **Δ=3（120 ms）相对 Δ=8（320 ms）的逐项增益**
+
+| 模型包 | F1%（Δ=8 → Δ=3） | ΔF1 | FAR（Δ=8 → Δ=3） | ΔFAR | hit@5px%（Δ=8 → Δ=3） | Δhit | CLE p95(池)（Δ=8 → Δ=3） | ΔCLE p95 |
+|:--|:--|--:|--:|--:|--:|--:|--:|--:|
+| RC2 trial_0080ep3 (GMC) | 95.4440 → **96.2788** | **+0.8348pp** | 0.015381 → **0.008760** | **−0.006621** | 85.2206 → **87.0680** | **+1.8474pp** | 9.9352 → **7.1559** | **−2.7793px** |
+| cs_t0043 (no-GMC) | 95.3023 → **96.1297** | **+0.8274pp** | 0.013657 → **0.007415** | **−0.006242** | 85.7690 → **87.3293** | **+1.5603pp** | 7.4970 → **6.2009** | **−1.2961px** |
+| trial_0049 ep20 (no-GMC) | 95.2614 → **96.1003** | **+0.8389pp** | 0.014208 → **0.007897** | **−0.006311** | 85.6990 → **87.3073** | **+1.6083pp** | 7.6631 → **6.2891** | **−1.3740px** |
+
+#### 36.4.3 ★ 口径对齐验证：**逐位复现历史交付档**
+
+| 项 | README §5 红框「当前交付档唯一口径」（8 序） | 本轮 rc2 Δ=8 `replay`（当前交付档 CFG） | 结论 |
+|:--|:--|:--|:--|
+| F1 | **95.4440%** | **95.4440%** | **逐位相同** ✅ |
+| FAR/帧 | **0.015381** | **0.015381** | **逐位相同** ✅ |
+| hit@5px | **85.2206%** | **85.2206%** | **逐位相同** ✅ |
+| CLE p50(池) | 1.67 | 1.6739 | 一致 ✅ |
+| CLE p95(池) | 9.94 | 9.9352 | 一致 ✅ |
+| max_jitter | 60.00 | 59.998 | 一致 ✅ |
+
+**⇒ 结论 A（直接证据）：**「**小延时下精度提升**」在本轮被直接测到 —— **Δ=3（120 ms）比 Δ=8（320 ms）更好**，三个模型包方向完全一致（rc2：**F1 +0.8348pp / FAR −0.006621 / hit@5px +1.8474pp / CLE p95 −2.7793px**）。同时 **rc2 Δ=8 `replay` 的 F1 95.4440% / FAR 0.015381 / hit@5px 85.2206% 与 README §5 红框「当前交付档唯一口径」逐位相同 ⇒ 口径对齐验证通过**（本轮 CFG 取自 `run_delivery.sh` 的防截断解析，与历史交付档同一套旋钮）。**
+
+### 36.5 模型包对比（结论 C：**no-GMC 在 look-ahead 链路上不劣于 GMC**）
+
+#### 36.5.1 Δ=3（120 ms）replay 臂：rc2(GMC) vs cs_t0043(no-GMC) vs trial_0049(no-GMC)
+
+| 模型包 | 特征语义 | F1% | ΔF1 vs rc2(pp) | Recall% | FAR/帧 | ΔFAR vs rc2 | hit@5px% | Δhit vs rc2(pp) | CLE p95(池) | 交付三门 |
+|:--|:--|--:|--:|--:|--:|--:|--:|--:|--:|:--|
+| RC2 trial_0080ep3 | GMC | 96.2788 | — | 93.6923 | 0.008760 | — | 87.0680 | — | 7.1559 | PASS |
+| cs_t0043 | no-GMC | 96.1297 | **−0.1491** | 93.2801 | **0.007415** | **−0.001345（好 15.4%）** | **87.3293** | **+0.2613** | **6.2009** | PASS |
+| trial_0049 ep20 | no-GMC | 96.1003 | −0.1785 | 93.2727 | 0.007897 | −0.000863（好 9.9%） | 87.3073 | +0.2392 | 6.2891 | PASS |
+
+#### 36.5.2 oracle（`original` 臂，零延迟天花板）口径下的模型包对比
+
+| 模型包 | oracle F1% | oracle FAR/帧 | vs rc2 的 FAR 差 | vs rc2 的 FAR 相对差 | F1 差 |
+|:--|--:|--:|--:|--:|--:|
+| RC2 trial_0080ep3 (GMC) | 96.4002 | 0.006277 | — | — | — |
+| cs_t0043 (no-GMC) | 96.3693 | **0.004414** | −0.001863 | **低 29.7%** | −0.0309pp（基本打平） |
+| trial_0049 ep20 (no-GMC) | 96.3980 | 0.004725 | −0.001552 | 低 24.7% | −0.0022pp（基本打平） |
+
+#### 36.5.3 两个 no-GMC 包互比（Δ=3 replay）
+
+| 模型包 | F1% | FAR/帧 | hit@5px% | CLE p95(池) | 判读 |
+|:--|--:|--:|--:|--:|:--|
+| cs_t0043 | 96.1297 | 0.007415 | 87.3293 | 6.2009 | **全面略优** |
+| trial_0049 ep20 | 96.1003 | 0.007897 | 87.3073 | 6.2891 | 四项全面略差于 cs_t0043 |
+
+**⇒ 结论 C：**no-GMC 模型包**可以直接放进 look-ahead 链路**，在 Δ=3 下相对 RC2(GMC) —— F1 只低 **0.1491pp**、但 FAR **低 0.001345（好 15.4%）**、hit@5px **高 0.2613pp**、CLE p95 **低 0.9550px**；oracle 口径下 no-GMC 的 FAR **低 29.7%**、F1 基本打平（96.4002 vs 96.3693）。两个 no-GMC 包之间 **cs_t0043 全面略优于 trial_0049**。
+⚠️ **那 0.1491pp 的 F1 差距来自 recall**（93.6923 vs 93.2801），**必须回 24 序官方口径复核才能定档** —— 8 序只覆盖 24 序 20.39% GT / 17.55% 帧。
+
+### 36.6 红线 / 门禁小结（结论 B：**120 ms 下老逻辑本身破 FAR 红线**）
+
+交付判据：**F1 ≥ 0.88 / Recall ≥ 0.85 / FAR ≤ 0.030**。下表只列 FAR（越低越好，**> 0.030 即破线**）：
+
+| 模型包 | Δ | `stale` FAR | `kinematic` FAR | `replay` FAR | 破线情况 |
+|:--|--:|--:|--:|--:|:--|
+| RC2 trial_0080ep3 (GMC) | 2 | 0.020623 | **0.038142** | 0.007794 | stale 过 / kinematic **破** / replay 过 |
+| RC2 trial_0080ep3 (GMC) | 3 | **0.038418** | **0.049453** | 0.008760 | stale **破** / kinematic **破** / replay 过 |
+| RC2 trial_0080ep3 (GMC) | 4 | **0.066179** | **0.069835** | 0.010449 | stale **破** / kinematic **破** / replay 过 |
+| RC2 trial_0080ep3 (GMC) | 8 | **0.180743** | **0.177570** | 0.015381 | stale **破** / kinematic **破** / replay 过 |
+| cs_t0043 (no-GMC) | 2 | 0.019623 | **0.033900** | 0.006345 | stale 过 / kinematic **破** / replay 过 |
+| cs_t0043 (no-GMC) | 3 | **0.038763** | **0.042798** | 0.007415 | stale **破** / kinematic **破** / replay 过 |
+| cs_t0043 (no-GMC) | 4 | **0.067455** | **0.060179** | 0.008691 | stale **破** / kinematic **破** / replay 过 |
+| cs_t0043 (no-GMC) | 8 | **0.181329** | **0.166638** | 0.013657 | stale **破** / kinematic **破** / replay 过 |
+| trial_0049 ep20 (no-GMC) | 2 | 0.020002 | **0.035280** | 0.006587 | stale 过 / kinematic **破** / replay 过 |
+| trial_0049 ep20 (no-GMC) | 3 | **0.039211** | **0.046177** | 0.007897 | stale **破** / kinematic **破** / replay 过 |
+| trial_0049 ep20 (no-GMC) | 4 | **0.068007** | **0.065386** | 0.009208 | stale **破** / kinematic **破** / replay 过 |
+| trial_0049 ep20 (no-GMC) | 8 | **0.181846** | **0.172949** | 0.014208 | stale **破** / kinematic **破** / replay 过 |
+
+#### 36.6.1 尺子 1（历史帧等价性，**同一产物内四臂 `source_frame.f1` 必须逐位相等**）
+
+| 模型包 | Δ=2 | Δ=3 | Δ=4 | Δ=8 | 同一产物内四臂 |
+|:--|:--|:--|:--|:--|:--|
+| RC2 trial_0080ep3 (GMC) | 0.9640334097236689 | 0.9640489449558663 | 0.9640644831309553 | 0.9641266652769619 | **四臂逐位相等 ✅** |
+| cs_t0043 (no-GMC) | 0.9637236849598512 | 0.963739226183696 | 0.9637547703582753 | 0.9638169765807517 | **四臂逐位相等 ✅** |
+| trial_0049 ep20 (no-GMC) | 0.9640113069378309 | 0.9640268660114597 | 0.9640424280374186 | 0.9641047056813652 | **四臂逐位相等 ✅** |
+
+> ⚠️ **口径提醒**：**跨 Δ 时 ruler1 数值会变**（Δ=2/3/4/8 各不相同，因为历史源帧本身随 Δ 变）—— **这不是门禁失败**；硬门禁只要求「同一产物内四臂逐位相等」，本轮 **12 个产物全部 ΔF1 = 0.000000pp ⇒ 硬门禁通过**。
+
+#### 36.6.2 门禁健康度（replay 臂）
+
+| 模型包 | Δ | 尺子1 ΔF1(replay) | replay_steps/帧 | replay_failed | abstained | applied | max_jitter | fragmentation |
+|:--|--:|--:|--:|--:|--:|--:|--:|--:|
+| RC2 trial_0080ep3 (GMC) | 2 | 0.0 | 2.22 | 0 | 2801 | 25724 | 59.94 | 19 |
+| RC2 trial_0080ep3 (GMC) | 3 | 0.0 | 3.24 | 0 | 2812 | 25713 | 60.00 | 19 |
+| RC2 trial_0080ep3 (GMC) | 4 | 0.0 | 4.26 | 0 | 2826 | 25699 | 60.00 | 20 |
+| RC2 trial_0080ep3 (GMC) | 8 | 0.0 | 8.34 | 0 | 2867 | 25658 | 60.00 | 29 |
+| cs_t0043 (no-GMC) | 2 | 0.0 | 2.21 | 0 | 2786 | 25583 | 59.96 | 15 |
+| cs_t0043 (no-GMC) | 3 | 0.0 | 3.23 | 0 | 2807 | 25562 | 60.00 | 17 |
+| cs_t0043 (no-GMC) | 4 | 0.0 | 4.25 | 0 | 2830 | 25539 | 60.00 | 26 |
+| cs_t0043 (no-GMC) | 8 | 0.0 | 8.35 | 0 | 2878 | 25491 | 73.89 | 28 |
+| trial_0049 ep20 (no-GMC) | 2 | 0.0 | 2.22 | 0 | 2798 | 25592 | 59.94 | 19 |
+| trial_0049 ep20 (no-GMC) | 3 | 0.0 | 3.24 | 0 | 2816 | 25574 | 59.93 | 20 |
+| trial_0049 ep20 (no-GMC) | 4 | 0.0 | 4.27 | 0 | 2838 | 25552 | 59.96 | 27 |
+
+**⇒ 结论 B（本轮最重要的红线发现）：**在 **Δ=3（120 ms）** 下，`stale`（老逻辑硬吃滞后）的 FAR = rc2 **0.038418** / cs_t0043 **0.038763** / trial_0049 **0.039211**，**三个模型包全部破 0.030 红线**；`kinematic` 臂 Δ=3 的 FAR = 0.049453 / 0.042798 / 0.046177，**同样全部破线**，且 `kinematic` 臂在 **Δ=2（80 ms）也全部破线**（0.038142 / 0.033900 / 0.035280）。**只有 `replay` 臂在所有 Δ、所有模型上都过线**（最大值 = rc2 Δ=8 的 **0.015381**）。
+⇒ **120 ms 工况下「硬吃滞后」这条老逻辑已不可交付，必须上视觉重推外挂。**
+
+### 36.7 滞后代价与「追回占比」（结论 D：**基线 = stale，不是 original**）
+
+| 模型包 | Δ | original（天花板） | stale（**交付基线**） | 总账（pp） | `kinematic` F1 | `replay` F1 | replay 追回(pp) | **追回占比** | hit@5px 追回 |
+|:--|--:|--:|--:|--:|--:|--:|--:|--:|:--|
+| RC2 trial_0080ep3 (GMC) | 3 | 96.4002 | 92.8584 | **−3.5418** | 91.6463 | 96.2788 | **+3.4204** | **96.6%** | 60.9097 → 87.0680（+26.1583pp，96.1%） |
+| cs_t0043 (no-GMC) | 3 | 96.3693 | 92.5764 | **−3.7929** | 92.1322 | 96.1297 | **+3.5534** | **93.7%** | 60.3908 → 87.3293（+26.9385pp，97.0%） |
+| trial_0049 ep20 (no-GMC) | 3 | 96.3980 | 92.5922 | **−3.8058** | 91.8259 | 96.1003 | **+3.5080** | **92.2%** | 60.3577 → 87.3073（+26.9495pp，97.2%） |
+
+> 口径提示：`original → stale` 的差额是「**未挂外挂时的滞后总账**」，`stale → replay` 的提升是「**挂上外挂追回了多少**」；
+> **`kinematic` 一栏出现负号 = 未能追回的滞后代价，不是「精度被做坏」**（相对基线是 stale，不是 original）。
+> 追回占比按 summary.md 四位小数算 rc2 = 3.4204 / 3.5418 = 96.6%；`report_house_style.md` 按全精度写总账 **−3.5419pp**（四舍五入差 0.0001pp，非口径差异），其余两包两位一致。
+
+#### 36.7.1 `kinematic`（纯运动学前推）逐 Δ 净收益（F1 相对同 Δ 的 `stale`）
+
+| Δ | RC2 trial_0080ep3 (GMC) | cs_t0043 (no-GMC) | trial_0049 ep20 (no-GMC) |
+|--:|:--|:--|:--|
+| 2 | 92.8927 vs 94.8168 → **−1.9241** | 93.1157 vs 94.6873 → **−1.5716** | 93.0288 vs 94.7095 → **−1.6807** |
+| 3 | 91.6463 vs 92.8584 → **−1.2121** | 92.1322 vs 92.5764 → **−0.4442** | 91.8259 vs 92.5922 → **−0.7664** |
+| 4 | 89.4036 vs 89.8051 → **−0.4015** | 90.2147 vs 89.4136 → +0.8011 | 89.7084 vs 89.4201 → +0.2883 |
+| 8 | 77.5519 vs 77.2034 → +0.3485（**勉强不劣**） | 78.4766 vs 76.8591 → +1.6175 | 77.8560 vs 76.8770 → +0.9790 |
+
+**⇒ 结论 D：**在 120 ms（Δ=3）下，**三个模型包的 `replay` 臂都追回了滞后总账的 92%~97%**（rc2 **96.6%** / cs_t0043 **93.7%** / trial_0049 **92.2%**），而 **`kinematic` 臂在 Δ=2/3 全部净负收益**（rc2 Δ=3：91.6463 vs stale 92.8584，**−1.2121pp**），要到 Δ=8 才勉强不劣（rc2 77.5519 vs 77.2034）。
+⇒ **纯运动学前推不能单独用**（而且它在**所有 Δ、所有模型**上都破 FAR 0.030 红线，见 §36.6）；**交付方案只能是 `replay` 臂（档位 B 视觉重推 + xcorr）**。
+
+### 36.8 逐序归因 @ Δ=3（replay 相对 stale）
+
+| 序列 | GT帧 | rc2 stale→replay F1% | ΔF1(pp) | Δhit@5px(pp) | cs_t0043 stale→replay F1% | ΔF1(pp) | Δhit@5px(pp) | trial_0049 stale→replay F1% | ΔF1(pp) | Δhit@5px(pp) |
+|:--|--:|:--|--:|--:|:--|--:|--:|:--|--:|--:|
+| VIDEO00006_19700101_000703 | 1742 | 94.6735 → 99.6276 | +4.9541 | +44.4891 | 94.5799 → 99.7419 | +5.1620 | +47.8186 | 94.6372 → 99.7419 | +5.1047 | +47.7038 |
+| VIDEO00007_19700101_000818 | 8263 | 98.8925 → 99.9092 | +1.0168 | +34.0917 | 98.6141 → 99.9092 | +1.2952 | +34.0191 | 98.6019 → 99.9092 | +1.3073 | +33.9828 |
+| VIDEO00007_19700101_001324 | 10535 | 85.2548 → 90.3361 | +5.0813 | +12.8904 | 84.8532 → 89.8731 | +5.0199 | +13.7447 | 84.9192 → 89.7869 | +4.8677 | +13.8206 |
+| VIDEO00008_19700101_001307 | 3661 | 96.3520 → 99.8770 | +3.5251 | +27.3423 | 96.1060 → 99.8770 | +3.7710 | +28.1071 | 96.0787 → 99.8770 | +3.7983 | +28.0524 |
+| VIDEO00009_19700101_001531 | 115 | 84.8485 → 96.9697 | +12.1212 | +61.7391 | 84.3478 → 96.5217 | +12.1739 | +63.4783 | 84.3478 → 97.3913 | +13.0435 | +64.3478 |
+| VIDEO00029_19700101_014053 | 592 | 91.7230 → 99.1554 | +7.4324 | +56.0811 | 91.0473 → 99.0702 | +8.0229 | +56.9257 | 91.0473 → 99.0702 | +8.0229 | +56.4189 |
+| VIDEO00033_19700101_015000 | 1026 | 97.0789 → 99.2210 | +2.1422 | +37.1345 | 97.1290 → 99.2701 | +2.1411 | +38.5965 | 97.1290 → 99.2701 | +2.1411 | +38.4990 |
+| VIDEO00034_19700101_015052 | 1239 | 97.4545 → 99.8788 | +2.4242 | +30.1049 | 97.2929 → 99.8788 | +2.5859 | +31.7191 | 97.2929 → 99.8788 | +2.5859 | +32.1227 |
+
+**⇒ 结论：8 条序列 `replay` 相对 `stale` **全部为正增益**（ΔF1 +1.0168 ~ +13.0435pp，Δhit +12.8904 ~ +64.3478pp）⇒ 外挂收益不是被个别序列拉起来的平均值；唯一的老大难是 `VIDEO00007_19700101_001324`（replay 相对天花板的 hit 缺口 rc2 1.8700pp / cs 1.6042pp / t49 1.4998pp，对总缺口贡献 0.7250 / 0.6219 / 0.5815pp），但它在 Δ=3 下**已高于 stale 5pp 左右**。**
+
+### 36.9 本轮结论速览 ＋ 两套 CFG 的差 ＋ 已证伪方向
+
+#### 36.9.1 结论速览
+
+| # | 结论 | 关键数字 |
+|:--|:--|:--|
+| A | **Δ=3（120 ms）比 Δ=8（320 ms）更好** | rc2：F1 **+0.8348pp** / FAR **−0.006621** / hit@5px **+1.8474pp** / CLE p95 **−2.7793px**；且 rc2 Δ=8 replay 的 95.4440% / 0.015381 / 85.2206% 与 README §5 红框**逐位相同** |
+| B | **120 ms 下老逻辑（stale）本身破 FAR 红线** | Δ=3 stale FAR = 0.038418 / 0.038763 / 0.039211（**全破 0.030**）；kinematic Δ=3 = 0.049453 / 0.042798 / 0.046177，Δ=2 也全破；**只有 replay 全 Δ 全模型过线（最大 0.015381）** |
+| C | **no-GMC 在 look-ahead 链路上不劣于 GMC，误报率明显更低** | Δ=3 replay：F1 96.2788 vs 96.1297（rc2 高 **0.1491pp**）/ FAR 0.008760 vs **0.007415**（no-GMC 低 **0.001345**，好 15.4%）/ hit 87.0680 vs **87.3293**（no-GMC 高 0.2613pp）/ CLE p95 7.1559 vs **6.2009**（no-GMC 低 0.9550px）；oracle FAR 0.006277 vs **0.004414**（no-GMC 低 **29.7%**） |
+| D | **交付基线是 stale；replay 追回 92%~97%** | rc2 总账 **−3.5418pp**、追回 **+3.4204pp = 96.6%**；cs_t0043 −3.7929pp / +3.5534pp = **93.7%**；trial_0049 −3.8058pp / +3.5080pp = **92.2%**；`kinematic` 在 Δ=2/3 全负（rc2 Δ=3 **−1.2121pp**） |
+
+#### 36.9.2 ⚠️ 两套 CFG 的差（本轮 Δ 扫描 vs README §5.2 历史 WTH15 档）——**两套数字不可并列引用**
+
+| # | 开关 | 历史 WTH15 档（README §5.2 / §5.1） | 当前交付档（本轮用，`run_delivery.sh`） |
+|:--|:--|:--|:--|
+| 1 | `--replay-roi-selfpred-max-px` | **4** | **16**（roimax） |
+| 2 | 目标极性 | 无（固定极性） | `--replay-polarity auto`（**新增**） |
+| 3 | 相关峰唯一性门 | 无 | `--replay-xcorr-uniq-gate 0.6`（**新增**） |
+| 4 | 弃权门 | 无 | `--replay-abstain-peak-below 0.30` + `--replay-abstain-disp-px 24`（**新增**） |
+| 5 | 回退旋钮 | 无 | `--replay-rollback-max-frames 16` + `--replay-rollback-min-peak 0.90`（**新增**） |
+
+> 共同部分逐字相同：`--replay-mode perframe`（direct）/ `--replay-max-hold 8` / `--replay-fallback holdv` / `--no-replay-hold-use-ref` / `--output-max-step-px 30` / `--replay-anchor delta` / `--fast-win-size 52` / `--fast-bg-window 104` / `--fast-th-k 2.5` / `--fast-min-energy 50` / `--replay-roi-mode selfpred` / `--replay-roi-selfpred-window 3` / `--replay-xcorr-radius 32` / `--replay-xcorr-template 32` / `--replay-xcorr-th-k 1.5`。
+> ⇒ **README §5.2 的 WTH15 Δ 敏感性（Δ=2 96.211 / Δ=4 95.854 / Δ=8 95.077 / Δ=12 94.411）与本表不是同一套配置**，引用时**必须标注**，**不得并列比较或混算**。
+
+#### 36.9.3 ⛔ 已证伪方向（**不要再试、不要再建议**）
+
+`chain` / `chain_direct` / `rolling 链` / `stride` 分段配准 / 观测层收缩 / 位移层收缩 / 低速冻结 / 位移自适应融合 / `peak_centroid` / `refine` / 一致性门单独用 / `--replay-anchor pred` / `--fast-min-contrast` / `core_frac` / `th_k ≥ 2.5` / 大半径重试 / 唯一性门的「回退锚点·运动学·弃权」形态 / `kinematic` 兜底 / `win32`·`win64` / 锚点校验 / `replay_step_gate_px` / `holdc`
+
+**⇒ 结论：本轮没有发明任何新外挂机制，只是把「模型包（no-GMC）× 假设延时 Δ」这两个变量在受控条件下扫了一遍 ⇒ 得到的是**机理层结论**（A/B/D）＋**模型包选型结论**（C），**不是交付档排序结论**。**
+
+### 36.11 ⭐ 8→24 序 FAR 放大区间（**推导，不是实测** —— 回答「24 序官方口径能不能过线」）
+
+**推导依据（历史实测，出处 README §5.7 / §5.18.7）**：同一交付档在 8 序与 24 序官方口径上的 FAR 比值
+⇒ ⑤ 当前交付档 8 序 **0.015381** → 24 序 **0.029548**（**×1.92**）；
+① WTH15 历史档 8 序 **0.018036** → 24 序 **0.054200**（**×3.01**）。
+**倍数随档位而变 ⇒ 只给区间 [×1.92, ×3.01]，不给点估计。**
+⚠️ 这也正是 README §5.7 那句「**8 序列掩盖了 FAR 问题**」的量化形态。
+
+**Δ=3（120 ms）本轮实测 FAR → 按区间放大到 24 序口径**（执行机：host 2026-11-04 17:31；
+真源 `runs/lookahead/fi_nogmc/_facts/all_metrics.json`）：
+
+| 模型包 | 臂 | 8 序实测 FAR | ×1.92 | ×3.01 | 24 序区间 | 0.030 红线 |
+|:--|:--|--:|--:|--:|:--|:--|
+| rc2 (GMC) | stale | 0.038418 | 0.073762 | 0.115637 | 0.073762 ~ 0.115637 | **必然破线** |
+| rc2 (GMC) | kinematic | 0.049453 | 0.094951 | 0.148855 | 0.094951 ~ 0.148855 | **必然破线** |
+| rc2 (GMC) | replay | 0.008760 | 0.016818 | 0.026366 | 0.016818 ~ 0.026366 | **区间内全部在线** |
+| cs_t0043 (no-GMC) | stale | 0.038763 | 0.074424 | 0.116676 | 0.074424 ~ 0.116676 | **必然破线** |
+| cs_t0043 (no-GMC) | kinematic | 0.042798 | 0.082171 | 0.128821 | 0.082171 ~ 0.128821 | **必然破线** |
+| cs_t0043 (no-GMC) | replay | 0.007415 | 0.014236 | 0.022318 | 0.014236 ~ 0.022318 | **区间内全部在线** |
+| trial_0049 (no-GMC) | stale | 0.039211 | 0.075285 | 0.118025 | 0.075285 ~ 0.118025 | **必然破线** |
+| trial_0049 (no-GMC) | kinematic | 0.046177 | 0.088660 | 0.138993 | 0.088660 ~ 0.138993 | **必然破线** |
+| trial_0049 (no-GMC) | replay | 0.007897 | 0.015163 | 0.023771 | 0.015163 ~ 0.023771 | **区间内全部在线** |
+
+⇒ **方向性结论在 24 序只会更强、不会更弱**：即使按历史最坏的 **×3.01** 放大，**`replay` 臂仍在 0.030 红线内**，
+而 **`stale` / `kinematic` 臂必然破线（0.0738 ~ 0.1489）**
+⇒ **「120 ms 下只有视觉重推外挂可交付」这个结论在 24 序同样成立**。
+⚠️ **具体数值必须以 24 序官方口径复评为准**（夜间 P0 正在跑）；本表只是**区间推断**，**不是实测**。
+
+### 36.12 ✅ 缓存 meta 对齐复核（**8 序 gate ↔ 24 序官方 FPV8**，消除特征语义混淆）
+
+执行机：**服务器** `huangzhe@192.168.99.40`，2026-11-04 17:29，`/home/huangzhe/anaconda3/envs/uav/bin/python` 读三份缓存的 `meta`：
+
+| 缓存 | n_pkl | `scales` | `imgsz`/`stride` | `region_threshold` | `main_threshold` | `fusion_dilate` | `min_area` | `use_p0_highway` | `features_root` | `hm_weights` |
+|:--|--:|:--|:--|--:|--:|--:|--:|:--|:--|:--|
+| **24 序官方 FPV8**（rc2）`runs/optuna_mix_ratio/trials/trial_0080/lq_eval_fpv8/ms_cache` | 24 | `[0,160,80]` | 640 / 2 | 0.06 | 0.22 | 32 | 4 | **false** | `/mnt/data/siping/datasets/manu/longquanshan_ir_gmc_median/images/train` | `.../trial_0080/weights/epoch3.pt` |
+| **8 序 gate**（rc2）`runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/ms_cache` | 8 | `[0,160,80]` | 640 / 2 | 0.06 | 0.22 | 32 | 4 | **false** | （同上 GMC 数据集） | `.../trial_0080/weights/epoch3.pt` |
+| **8 序 gate**（cs_t0043）`/mnt/data/siping/runs/nogmc_t3/swa/gate/cs_t0043/ms_cache` | 8 | `[0,160,80]` | 640 / 2 | 0.06 | 0.22 | 32 | 4 | **false** | `/mnt/data/siping/datasets/manu/longquanshan_ft_gmc_median_nogmc/images/val` | `/mnt/data/siping/runs/nogmc_t3/swa/cs_t0043.pt` |
+
+⇒ **8 序与 24 序官方缓存的 meta 逐字相同** ⇒ **不存在「FPV8 vs gate 尺度不同」的特征语义混淆**
+（此前担心已用实测排除，**不要再当成风险点**）。
+⇒ **cs_t0043 的 24 序缓存必须照抄 24 序 FPV8 的 meta**（`--scales 160,80 --region-threshold 0.06 --main-threshold 0.22 --fusion-dilate 32 --min-area 4 --ablate-p0`），
+且 ⚠️ **24 序 GMC 特征根是 `longquanshan_ir_gmc_median`（不是 `longquanshan_ft_gmc_median_nogmc`）**
+⇒ **24 序 no-GMC 特征集要照 `longquanshan_ir_gmc_median` 的目录结构与帧清单建**，别照抄 8 序那份的 val 划分。
+
+### 36.13 ⭐ 严格报告新增 §1「精度对齐方法」与 §0.1「结论速览」
+
+- 生成脚本 `manu/tracking/lookahead/make_fastinfer_nogmc_report.py`（**已加两节**）：
+  - **§0.1 结论速览**：用**三个口径**分别回答「小延时下精度是否提升」（Q1 Δ=3 vs Δ=8 / Q2 vs oracle 天花板的追回占比 / Q3 老逻辑红线），
+    外加 Q4 no-GMC 能否替代 GMC、Q5 24 序能否过线、Q6 交付三门 —— **全部数字从产物 JSON 读出，不重算**。
+  - **§1 精度对齐方法**（照抄历史实验记录 = 用户要求的「读 fast infer 实验记录看以前怎么做精度对齐」）：
+    **四件套** ① **A1 尺子1 历史帧等价性**（README §2，`delta_f1_vs_original` 硬门禁，须 = 0.000000）
+    ② **A2 尺子2 当前帧伺服有效性**（复用冻结评测器 `eval_multiscale_cache_th.py` 的 `count_matches(..., 'inbox')`，口径一字未改）
+    ③ **A3 Gate A 关开关 ⇒ 与原脚本整份 JSON md5 逐位一致**（8 序 8/8、24 序 25/25 文件）
+    ④ **A4 交付判据以 24 序官方口径为准**（README §5.7「8 序列掩盖了 FAR 问题」）
+    ＋ §1.2 工作点/插件 CFG/特征语义/缓存 meta/历史档位的**逐项可比性核对表**（标出「两套 CFG 差 5 个开关 ⇒ 不可并列引用」）
+    ＋ §1.3 上面 §36.11 的 FAR 放大区间。
+- ✅ **A3 已在本轮闭合**：服务器 **2026-11-04 17:28** 跑完 **P2 Gate A**（`manu/evaluation/system_sota_longquan.py` 原脚本 vs
+  `manu/tracking/lookahead/lookahead_longquan.py --lookahead off`），产物 `runs/lookahead/gateA/gateA.json`（**verdict = PASS**）：
+  **cs_t0043 与 rc2 各 8/8 逐序列整份 JSON md5 全部相同**、跟踪资产 md5 全部相同、out-json 投影相同；
+  同时复核 **尺子1**：cs_t0043 Δ=3 四臂 `source_frame.overall.f1` = **0.963739226183696** **逐位相等**、`delta_f1_vs_original` 全 **0.0**。
+  ⇒ 报告脚本改为**从 `runs/lookahead/gateA/gateA.json` 读 verdict**（`--gate-a` 参数），不是写死的字符串 ⇒ 结论可随产物自动更新。
+
+### 36.14 ⭐⭐ 24 序**官方口径**第一个实测点（rc2 · Δ=2 = 80 ms）+ §36.11 推断区间的实测校验
+
+**执行机**：服务器 `test-Super-Server`，2026-11-04 17:30（`runs/lookahead/fi_nogmc24/rc2/d2/`，**DONE rc=0 用时 469 s**）；
+**24 序 = 133,257 GT 帧 / 123,673 帧**（8 序的 4.3 倍）。⚠️ **交付判据以本节为准**（README §5.7：「8 序列掩盖了 FAR 问题」）。
+
+| 臂 | F1% | Recall% | Precision% | FAR/帧 | hit@5px% | CLE p50(池) | CLE p95(池) |
+|:--|--:|--:|--:|--:|--:|--:|--:|
+| original | 94.7469 | 92.3419 | 97.2805 | 0.020820 | 85.8957 | 1.562 | 6.844 |
+| stale | 92.3116 | 89.9615 | 94.7878 | 0.039898 | 71.0777 | 2.272 | 17.292 |
+| kinematic | 90.4866 | 88.1830 | 92.9138 | 0.054242 | 71.7081 | 2.478 | 17.752 |
+| replay | 94.4595 | 92.0792 | 96.9662 | 0.023235 | 84.6815 | 1.610 | 8.075 |
+
+**追回占比**（口径 = `(replay−stale)/(original−stale)`）：F1 **88.2%** / hit@5px **91.8%** / FAR **87.3%** / CLE p95(池) **88.2%**。
+
+✅ **管线对齐锚点（逐位）**：`original`（零延迟天花板）F1 = **94.7469%**，与 README §5.7 历史 24 序天花板 **94.7469%** **逐位相同**
+⇒ **本轮 24 序管线的帧集 / GT / 工作点 / 评测器全部对齐**（尺子1 四臂 `source_frame.overall.f1` = **0.9474831252141838** 逐位相等、`delta_f1_vs_original` 全 0.0）。
+
+#### §36.11 的推断区间被**实测校验**（8 序 → 24 序 FAR 倍数）
+
+| 臂 | 8 序 FAR | 24 序 FAR | 实测倍数 |
+|:--|--:|--:|--:|
+| stale | 0.020623 | 0.039898 | **×1.93** |
+| kinematic | 0.038142 | 0.054242 | **×1.42** |
+| replay | 0.007794 | 0.023235 | **×2.98** |
+
+⇒ **`stale`（×1.93）与 `replay`（×2.98）都落在 §36.11 的区间 [×1.92, ×3.01] 内** ⇒
+**「24 序能否过线」的推断可以放心外推**：`replay` 在 Δ=3 的 24 序 FAR 大概率仍在 **0.030 内**（8 序 0.008760 × [1.92, 3.01] = **0.0168~0.0264**），
+**`stale` 必然破线**（0.038418 × [1.92, 3.01] = **0.0738~0.1156**）。
+⚠️ `kinematic` 实测 ×1.42 **落在区间外**（它的 FAR 基线更高 ⇒ 放大行为不同）—— 但 **`kinematic` 臂已因「所有 Δ 全破 FAR 红线 + Δ≥2 净负收益」被排除**，不影响结论。
+⇒ **24 序 Δ=3 的 cs_t0043 实测数仍是最终判据**（夜间 P0 在跑）；本节只是**用 rc2 Δ=2 证明了管线对齐与外推区间可信**。
+
+### 36.10 导航条目（本节新增）
+
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十六 | 专题档 §36 ⭐⭐⭐ 2026-11-04：Fast Infer × no-GMC —— Δ=3（120 ms）优于 Δ=8，120 ms 下老逻辑破 FAR 红线 | lookahead_extrapolator_20261102.md | 4747 |
+
+## 37. ⭐⭐⭐ 2026-11-04 服务器夜间第 2 轮（18:00–23:30）：★★ **24 序官方口径**全量落定 ＋ ★★ 新机理「**出框门**（FOV margin gate）」 ＋ ★ 工作点对齐审计 ＋ ★ LOSO 噪声标尺
+
+> **一句话**：把「Fast Infer（look-ahead 前向推演）× no-GMC」推进到**唯一能回答「能不能交付」的 24 序官方口径**，
+> 并给出四条硬结论：
+> ① **Δ=3（120 ms）是交付档的最优延时档** —— 24 序官方口径下 replay 相对 Δ=8：F1 **+1.0446pp**、FAR **−0.005187**、hit@5px **+2.5860pp**、CLE p95 **−4.186px**；FAR 红线余量 **×12.5**（0.000452 → 0.005639）。
+> ② **8 序上选出来的旋钮串在 24 序不迁移**（ΔF1 **−0.0192pp**）⇒ **交付档 CFG 不改**；并用 LOSO 标尺给出机理解释（8 序上所有旋钮增益 < 噪声中位 **0.2367pp**）。
+> ③ **新机理「出框门」有效** —— 8 序 cs_t0043 Δ=3 下 m=6 使 FAR **0.007415 → 0.004656（−37.2%）**、F1 **+0.1441pp**、hit@5px 仅 **−0.0036pp**；距 oracle 天花板 FAR（0.004414）只差 **5.5%**。
+> ④ **no-GMC 在同 FAR 插值下仍比 GMC 低 0.0979pp** ⇒ 8 序上那 0.1491pp 的 F1 差距**不是** v3 工作点碰巧适合 GMC 造成的。
+>
+> **执行机**：服务器 `test-Super-Server`（cwd `/tmp/pycharm_project_10ae9e2e`，python `/home/huangzhe/anaconda3/envs/uav/bin/python`，conda env `uav`，`export PYTHONPATH=.`）
+> **口径纪律（不可违反）**：
+> · **交付基线 = `stale` 臂**（老逻辑硬吃 Δ 滞后）；`original` 臂 = **零延迟天花板（oracle 上界）**，**不是**基线
+> · **总体 CLE 用 `cle_pooled_*`（池化）**；README 的 `cle_p*` 是逐序列最差值（`worst_over_sequences`）⇒ 跨文档比较前必须标口径
+> · **24 序官方口径** = 24 序列 / 165,223 帧 / GT 133,257 帧；**8 序 gate 集只覆盖 24 序的 20.39% GT / 17.55% 帧** ⇒ 8 序只做机理筛选 / A/B，**不能给交付档排序**
+> · **交付判据**：F1 ≥ 0.88 / Recall ≥ 0.85 / FAR ≤ 0.030
+> · **Δ=3 = 假设延时 3 record = 120 ms @25 Hz**（**假设值，非实测**）
+> · **模型包 = 权重 + 特征语义 + `--ablate-p0`** 三者成套换；缓存构建参数逐字相同
+> · **CFG 唯一真值 = `manu/tracking/lookahead/run_delivery.sh` 的 `CFG=`**（**多行续行**，必须 awk 取整块再 eval ＋ 7 旋钮防截断断言）
+
+### 37.1 本轮做了什么（完整命令 / 执行机 / 产物路径 / 时间戳）
+
+| 项 | 完整命令 | 产物 | 时间戳（服务器 `date '+%F %T'`） |
+|:--|:--|:--|:--|
+| 24 序官方口径 Δ 扫描（rc2 · GMC） | `bash manu/tracking/lookahead/server_overnight/run_fastinfer_24seq_sweep.sh` | `runs/lookahead/fi_nogmc24/rc2/d{2,3,4,8}/arms.json` | 2026-11-04 17:30–18:08 |
+| 24 序**变体复评**（交付档 CFG ＋ `--replay-abstain-peak-below 0.50 --replay-rollback-min-peak 0.80`） | `bash manu/tracking/lookahead/server_overnight/run_fastinfer_24seq_variants.sh` | `runs/lookahead/fi_nogmc24/p3knobs/rc2/d{2,3}/arms.json` | 2026-11-04 17:56–18:08 |
+| LOSO 噪声标尺（迭代二，32 次） | `bash manu/tracking/lookahead/server_overnight/run_knob_scan_d3_it2.sh` | `runs/lookahead/fi_nogmc/knobscan2/`（`report.md`） | 2026-11-04 17:30–17:50 |
+| 工作点对齐审计（15 点 × 2 模型 × 2 Δ = 60 次） | `bash manu/tracking/lookahead/server_overnight/run_workpoint_audit.sh` | `runs/lookahead/fi_nogmc/workpoint/audit.md` + `audit.json` | 2026-11-04 17:52 |
+| **新机理「出框门」**受控 A/B（8 序 × 2 模型 × 7 margin） | `bash manu/tracking/lookahead/server_overnight/run_fov_gate_scan.sh` | `runs/lookahead/fovgate/runs/<model>/d3/fov__m*/arms.json`、`runs/lookahead/fovgate/report.md` | 2026-11-04 18:27–18:47 |
+| **新机理「出框门」**受控 A/B（24 序 rc2 × 5 margin：m=0/4/6/8/12） | `env OUT=runs/lookahead/fovgate24 CACHE_RC2=/tmp/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval_fpv8/ms_cache MODELS=rc2 REFROOT=runs/lookahead/fi_nogmc24 MARGINS="0 4 6 8 12" THREADS=12 bash manu/tracking/lookahead/server_overnight/run_fov_gate_scan.sh` | `runs/lookahead/fovgate24/runs/rc2/d3/fov__m*/arms.json`、`runs/lookahead/fovgate24/report.md` | 2026-11-04 18:38–⟨待补：重跑见 §37.14⟩ |
+| 24 序 no-GMC **特征集**（165,223 帧，CPU） | `python manu/data/build_nogmc_rebuild_dataset.py --ref-dataset /mnt/data/siping/datasets/manu/longquanshan_ir_gmc_median --raw-root "/mnt/data/siping/datasets/manu/龙泉山/frames_ir_jpg" --output …_nogmc.build --splits train --mode identity --window 21 --stride-step 2 --workers 24 --verify-ch0-sample 200` | `/mnt/data/siping/datasets/manu/longquanshan_ir_gmc_median_nogmc/images/train` | 2026-11-04 17:37–18:06 |
+| 24 序 no-GMC 特征集**逐字节等价自检** | `python manu/tracking/lookahead/server_overnight/check_nogmc24_byte_equal.py --new …_nogmc.build/images/train --old /mnt/data/siping/datasets/manu/longquanshan_ft_gmc_median_nogmc/images/val --out-json runs/lookahead/nogmc24_byte_equal.json` | `runs/lookahead/nogmc24_byte_equal.json` | 2026-11-04 18:06 |
+| 24 序 no-GMC **ms_cache**（GPU 1/2/3，3 shard） | `FEAT=…_nogmc/images/train W=/mnt/data/siping/runs/nogmc_t3/swa/cs_t0043.pt OUT=/mnt/data/siping/runs/nogmc_t3/swa/ms_cache_24seq GPUS="1 2 3" NSHARD=3 bash manu/tracking/lookahead/server_overnight/rebuild_fpv8_24seq_nogmc24_server.sh` | `/mnt/data/siping/runs/nogmc_t3/swa/ms_cache_24seq/`（24 pkl ＋ `summaries/`） | 2026-11-04 18:06–**18:52**（24/24 pkl，fail=0） |
+| 24 序 no-GMC **Δ 扫描**（交付档 CFG） | `CACHE=/mnt/data/siping/runs/nogmc_t3/swa/ms_cache_24seq OUT=runs/lookahead/fi_nogmc24 DELTAS="3 2 4 8" bash manu/tracking/lookahead/server_overnight/run_fastinfer_nogmc24_sweep.sh` | `runs/lookahead/fi_nogmc24/cs_t0043/d{2,3,4,8}/arms.json` | 2026-11-04 **18:52–19:25**（Δ3/2/4/8 全完，worker rc=0） |
+| Gate A 8 序（关开关 ⇒ 与原脚本逐位一致） | `bash manu/tracking/lookahead/server_overnight/run_gate_a_nogmc.sh` ＋ `python manu/tracking/lookahead/server_overnight/compare_gate_a.py --gate-root runs/lookahead/gateA --ruler-arms-json runs/lookahead/fi_nogmc/cs_t0043/d3/arms.json` | `runs/lookahead/gateA/gateA.json` + `gateA.md` | 2026-11-04 18:01（首轮） / **18:48（插件改动后重跑，PASS）** |
+| Gate A **24 序** | `bash manu/tracking/lookahead/server_overnight/drive_gate_a_nogmc24.sh` | `runs/lookahead/gateA24/gateA.json` + `gateA.md` | 2026-11-04 18:58（**PASS**） |
+| OSD 三臂对照视频（001324 / 015000） | `bash manu/tracking/lookahead/server_overnight/run_osd_3arm_nogmc.sh` | `runs/lookahead/osd/videos/<SEQ>_3arm_{stale,replay,original}_cs_t0043_d3.mp4`、`runs/lookahead/osd/osd_3arm_cs_t0043_d3.md` | 2026-11-04 18:01 |
+| 综合报告（最终交付件） | `python manu/tracking/lookahead/make_fastinfer_final_report.py --root-8 runs/lookahead/fi_nogmc --root-24 runs/lookahead/fi_nogmc24 --out-md runs/lookahead/fi_nogmc/FINAL_REPORT.md --out-json runs/lookahead/fi_nogmc/final_report.json` | `runs/lookahead/fi_nogmc/FINAL_REPORT.md`（290 行，§0–§8） | 2026-11-04 18:32 |
+
+### 37.2 ★★ 24 序**官方口径** Δ 扫描（rc2 · GMC 语义）—— 唯一能回答「能不能交付」的一步
+
+**口径锚点（逐位）**：`original`（零延迟天花板）F1 = **94.7469%**、FAR = **0.020820**、hit@5px = **85.8957%**、CLE p95(池) = **6.8444px**
+⇒ 与 README §5.7 历史 24 序天花板 **94.7469% 逐位相同** ⇒ **本轮 24 序管线的帧集 / GT / 工作点 / 评测器全部对齐**。
+**尺子 1**：每个 Δ 下四臂 `source_frame.overall.f1` 逐位相等（Δ=2 `0.9474831252141838` / Δ=3 `0.9474904307509839` / Δ=4 `0.9474977374694319` / Δ=8 `0.9475269761654357`）⇒ 硬门禁通过。
+**Δ=8 replay 逐位复现 README §5 红框**：F1 **93.1879** / FAR **0.029548** / hit@5px **81.5612** ⇒ 三处逐位相同。
+
+| Δ | 延时(ms) | original | stale | kinematic | replay |
+|--:|--:|--:|--:|--:|--:|
+| 2 | 80 | 94.7469 / 0.020820 / 85.8957 / 6.844 | 92.3116 / 0.039898 / 71.0777 / 17.292 | 90.4866 / 0.054242 / 71.7081 / 17.752 | **94.4595 / 0.023235 / 84.6815 / 8.075** |
+| 3 | 120 | 94.7469 / 0.020820 / 85.8957 / 6.844 | 90.0951 / **0.057286** / 64.7561 / 23.605 | 87.4838 / 0.077810 / 63.8683 / 24.650 | **94.2325 / 0.024361 / 84.1472 / 8.760** |
+| 4 | 160 | 94.7469 / 0.020820 / 85.8957 / 6.844 | 87.5534 / 0.077229 / 59.5608 / 30.182 | 85.7390 / 0.091488 / 57.9107 / 31.702 | **94.0389 / 0.025311 / 83.5708 / 9.556** |
+| 8 | 320 | 94.7469 / 0.020820 / 85.8957 / 6.844 | 77.5225 / 0.155917 / 44.8232 / 56.620 | 75.7641 / 0.169734 / 38.6764 / 61.517 | **93.1879 / 0.029548 / 81.5612 / 12.946** |
+
+（每格 = F1% / FAR·帧⁻¹ / hit@5px% / CLE p95(池, px)；完整 P/R/TP/FP/CLE p50/p90/p99/max/maxJitter 见 `runs/lookahead/fi_nogmc24/rc2/d*/arms.json` 与 §37.12 的表）
+
+**Δ=3 vs Δ=8（replay 臂）**：F1 **+1.0446pp**、FAR **−0.005187**、hit@5px **+2.5860pp**、CLE p95 **−4.186px**
+⇒ **120 ms 明显优于 320 ms**，且 **FAR 红线余量从 0.000452 涨到 0.005639（×12.5）**。
+**Δ=3 下老逻辑（stale）FAR = 0.057286 ⇒ 破 0.030 红线超 91.0%** ⇒ **120 ms 工况必须上视觉重推外挂**。
+**追回占比**（口径 = `(replay−stale)/(original−stale)`）：Δ=3 时 F1 **+4.1374pp = 88.9%**、hit@5px **+19.3911pp = 91.7%**。
+**kinematic 臂在 Δ≥2 全部净负收益**（Δ=3：87.4838 vs stale 90.0951 = **−2.6113pp**）⇒ **纯运动学前推不能单独用**。
+**延时越小 FAR 越低的单调性**：replay FAR 0.023235(Δ2) → 0.024361(Δ3) → 0.025311(Δ4) → 0.029548(Δ8) ⇒ **这条单调性本身就是交付论据**。
+
+### 37.2.1 ★★★ 24 序官方口径 · **no-GMC（cs_t0043）** —— **交付判据的最终答案**
+
+**执行机**：服务器 `test-Super-Server`，2026-11-04 18:52–19:18（driver `drive_nogmc24_pipeline.sh` 自动跑完 Step 3→Step 4）；
+产物 `runs/lookahead/fi_nogmc24/cs_t0043/d{2,3,4,8}/arms.json`（**DONE rc=0**，每 Δ 312–371 s）。
+**缓存**：24 序 no-GMC 的 ms_cache（GPU 1/2/3，3 shard）**18:52 建成 24/24 pkl，fail=0**，路径 `/mnt/data/siping/runs/nogmc_t3/swa/ms_cache_24seq`。
+
+**缓存口径逐字核对（PASS）**：`runs/lookahead/fi_nogmc/_facts/cache_meta_24seq_compare.md`
+⇒ 24 序 no-GMC 与 24 序 GMC 官方缓存**逐序列同名 24/24、逐序列帧数全等（165,223）**，
+meta **只有 `features_root` 与 `hm_weights` 两个键不同**（白名单内），其余 17 键三方逐位相同（`scales [0,160,80]` / `region_threshold 0.06` / `main_threshold 0.22` / `fusion_dilate 32` / `min_area 4` / `imgsz 640` / `stride 2` / `native_size [640,512]` / `use_p0_highway false` = `--ablate-p0`）。
+
+| Δ | ms | original（天花板） | stale（交付基线） | kinematic | replay（交付方案） |
+|--:|--:|--:|--:|--:|--:|
+| 2 | 80 | 95.4462 / 0.021056 / 89.1120 / 5.471 | 92.8948 / 0.041187 / 72.8450 / 15.769 | 91.7210 / 0.050477 / 74.3841 / 19.093 | **95.0554 / 0.024083 / 87.7297 / 6.532** |
+| 3 | **120** | 95.4462 / 0.021056 / 89.1120 / 5.471 | 90.6049 / **0.059277** / 66.0243 / 22.291 | 89.4204 / 0.068653 / 68.2486 / 26.622 | **94.7861 / 0.025523 / 87.0363 / 7.099** |
+| 4 | 160 | 95.4462 / 0.021056 / 89.1120 / 5.471 | 88.0342 / 0.079589 / 60.6197 / 28.831 | 87.4805 / 0.083971 / 63.0744 / 34.393 | **94.5661 / 0.026564 / 86.4322 / 7.729** |
+| 8 | 320 | 95.4462 / 0.021056 / 89.1120 / 5.471 | 77.9538 / 0.159227 / 45.4648 / 55.356 | 77.9003 / 0.159651 / 43.4266 / 69.105 | **93.7005 / 🔴0.031037 / 84.1614 / 10.293** |
+
+（每格 = F1% / FAR·帧⁻¹ / hit@5px% / CLE p95(池, px)）
+**尺子 1**：每个 Δ 下四臂 `source_frame.overall.f1` 逐位相等（Δ=2 `0.9544774949430062` / Δ=3 `0.9544853115511399` / Δ=4 `0.9544931294148242` / Δ=8 `0.9545171101206985`）⇒ 硬门禁通过。
+
+**四条结论**：
+
+1. 🔴 **no-GMC 在 Δ=8（320 ms）下 `replay` 臂 FAR = 0.031037 > 0.030 ⇒ 破线**（rc2 同 Δ = 0.029548，勉强过线但余量只有 **0.000452**）
+   ⇒ **换 no-GMC 模型包会把「可交付的延时窗口」从 Δ≤8 收窄到 Δ≤4** ⇒ **120 ms（Δ=3）不再是可以商榷的档位，而是 no-GMC 下的硬上限**。
+   ⇒ 与 §37.2 的 rc2 结论合并：**no-GMC ⇒ 必须走小延时档**。
+2. **「小延时 ⇒ 精度提升」在 24 序官方口径上成立，且单调**：replay F1 95.0554(Δ2) → 94.7861(Δ3) → 94.5661(Δ4) → 93.7005(Δ8)，
+   FAR 0.024083 → 0.025523 → 0.026564 → 0.031037，hit 87.7297 → 87.0363 → 86.4322 → 84.1614，CLE p95 6.532 → 7.099 → 7.729 → 10.293
+   ⇒ **四个指标全部随 Δ 单调劣化** ⇒ **延时本身就是精度的主要驱动因素**。
+   ⇒ **Δ=3 vs Δ=8**：F1 **+1.0857pp**、FAR **−0.005514**、hit **+2.8749pp**、CLE p95 **−3.1938px**。
+   ⇒ **若真实延时能压到 80 ms（Δ=2），no-GMC 的 24 序数字还会更好**（比 Δ=3 再 +0.2693pp F1、−0.001440 FAR、+0.6934pp hit、−0.5669px CLE p95）。
+3. ⭐ **在 24 序官方口径上，no-GMC（cs_t0043）的 replay 臂全面优于 GMC（rc2）** —— 这与 §36 的 8 序结论**方向相反**：
+
+| 指标（24 序 Δ=3 replay） | rc2 (GMC) | cs_t0043 (no-GMC) | Δ(no-GMC − GMC) |
+|:--|--:|--:|--:|
+| F1% | 94.2325 | **94.7861** | **+0.5537** |
+| Recall% | 91.7850 | **92.9400** | **+1.1549** |
+| FAR/帧 | **0.024361** | 0.025523 | +0.001162 |
+| hit@5px% | 84.1472 | **87.0363** | **+2.8892** |
+| CLE p95(池, px) | 8.7597 | **7.0993** | **−1.6604** |
+| *oracle F1%（各自天花板）* | *94.7469* | *95.4462* | *+0.6993* |
+| *replay 距各自天花的 F1 缺口* | *−0.5144pp* | *−0.6600pp* | *−0.1456pp* |
+
+   ⇒ **8 序 gate 集上「no-GMC 的 F1 低 0.1491pp」的结论不能用来给模型包排序** —— 8 序严重不均衡（`VIDEO00007_19700101_001324` 单序占 **38.77% GT**），
+   **24 序官方口径上 no-GMC 反而全面更好** ⇒ **交付模型包 = `cs_t0043`（no-GMC）**。
+4. **追回占比**（口径 = `(replay−stale)/(original−stale)`）：Δ=3 F1 **86.37%** / hit **91.01%** / FAR **88.31%** / CLE p95 **90.32%**；
+   Δ=2 F1 84.68% / hit 91.50% / FAR 84.97%。
+   **stale 臂在 24 序 Δ=2/3/4/8 全部破 FAR 红线**（0.041187 / 0.059277 / 0.079589 / 0.159227）⇒ **视觉重推是必选项。**
+
+### 37.3 ★★ 变体复评 —— **8 序选出的旋钮串在 24 序官方口径上不迁移** ⇒ 交付档 CFG 不改
+
+变体 `p3knobs` = 交付档 CFG ＋ `--replay-abstain-peak-below 0.50` ＋ `--replay-rollback-min-peak 0.80`（8 序上 +0.2304pp F1）。
+产物 `runs/lookahead/fi_nogmc24/p3knobs/rc2/d{2,3}/arms.json`（rc=0）。
+
+| Δ | replay F1% | ΔF1(pp) | replay FAR | ΔFAR | hit@5px% | Δhit(pp) | CLE p95(池) | ΔCLE(pp) |
+|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| 2 | 94.4987 | **+0.0391** | 0.023138 | −0.000097 | 84.6740 | −0.0075 | 8.1148 | +0.0395 |
+| 3 | 94.2133 | **−0.0192** | 0.023471 | −0.000890 | 84.0369 | **−0.1103** | 8.5847 | −0.1750 |
+
+**变量隔离成立**：`original` / `stale` / `kinematic` 三臂在两个 Δ 上**逐位不变**（见 §37.12 表）⇒ 差异只能来自那两个旋钮。
+⇒ **8 序上 +0.2304pp 的 F1 增益在 24 序变成 −0.0192pp ⇒ 交付档 CFG 保持不变（不采纳该变体）**。
+（**教训**：8 序 gate 集上「看起来有效」的旋钮串，**不能**直接写回交付档；必须上 24 序官方口径复评。）
+
+### 37.4 ★★ LOSO 噪声标尺 —— **8 序上所有旋钮增益都是噪声**（机理解释）
+
+产物 `runs/lookahead/fi_nogmc/knobscan2/report.md`（32 次运行，rc≠0 = 0，用时 19m48s）。
+
+- **8 序 gate 集严重不均衡**：`VIDEO00007_19700101_001324` 单序占 **38.77% GT**。
+- **LOSO 池化 F1 摆幅**：**中位 0.2367 pp / 最大 5.0596 pp**（把 8 条序列逐条剔掉再算池化 F1）。
+- **7 个旋钮的全部 |ΔF1| < 0.2367 pp** ⇒ 增益与噪声**同量级**。最优单旋钮 `--replay-rollback-max-frames 32`（ΔF1 **+0.0880pp**、ΔFAR +0.000448）仍远低于噪声中位。
+- **新机理「弃权/回退窗口联动」否证**：联动 ΔF1 **+0.0574pp** ≤ 最优单旋钮 **+0.0880pp**，且 FAR 更差 ⇒ 该机理不成立。
+- ⇒ **判读规则写死**：ΔF1 < 0.2367pp ⇒ 噪声；0.2367 ≤ ΔF1 < 5.0596 ⇒ 最多列入 24 序复核候选；ΔF1 ≥ 5.0596pp ⇒ 才值得直接上 24 序复核。
+- ⇒ **不建议**据此修改交付档 CFG。**（8 序上所有旋钮增益均 < LOSO 中位噪声 0.2367pp ⇒ 不要再按 8 序数字调交付档。）**
+
+### 37.5 ★ 工作点对齐审计 —— 「cs_t0043 的优势是真的，还是只是 v3 工作点碰巧适合它？」
+
+产物 `runs/lookahead/fi_nogmc/workpoint/audit.md` + `audit.json`（60 次运行，rc≠0 = 0，2026-11-04 17:52）。
+
+- 🔴 **重大发现：`th_ground` 在 v3（`sky_ratio = 1.0`）下是**死旋钮** —— 3 个取值（0.22 / 0.26 / 0.30）在**全部 4 个 model×Δ × 全部 4 个臂**上给出**逐位相同**的 tp/fp/fn/recall/precision/F1/FAR（复核 20 个 th_base 分组，0 组受影响）。
+  **机理（代码级）**：`manu/tracking/lookahead/track_fusion.py:822` 的分层门是 `fusion_high_mask = (is_sky & (pred_scs >= th_base)) | ((~is_sky) & (pred_scs >= th_ground))`，而 `sky_y_boundary = img_h * sky_ratio`；v3 的 `sky_ratio = 1.0` ⇒ **整幅画面都算 sky ⇒ `th_ground` 永不生效**（与 v3 主文件 `_provenance` 自述一致）。
+  ⇒ **15 点网格实际只有 5 个不同工作点**（`th_base` 一维）；「工作点巧合」这个质疑在 `th_ground` 维度上**不成立**。
+- **同 FAR 插值**（剔掉工作点偏差后比能力）：Δ=3 replay，公共 FAR 区间 **[0.006070, 0.012243]**，
+  rc2 96.1930→96.2788 vs cs_t0043 96.1495→96.1495 ⇒ 区间内 ΔF1（cs − rc2）均值 **−0.0979pp**，范围 **[−0.1293, −0.0435]pp**
+  ⇒ **同一误报率下 no-GMC 的 F1 仍低 rc2** ⇒ **8 序上那 0.1491pp 的 F1 差距不是 v3 工作点巧合造成的。**
+- 其余 Δ 的同 FAR 结论同向：Δ=8 replay 区间内均值 **−0.0813pp**；Δ=2 stale **−0.2556pp**；Δ=8 stale **−0.3041pp**。
+- **自检**：v3 网格点 (0.48/0.26) 的 4 个产物与既有 `fi_nogmc` 产物**逐位一致 4/4** ⇒ 审计脚本未引入额外变量。
+
+### 37.6 ★★ 新机理「**出框门**（FOV margin gate）」—— 本轮唯一有效的精度旋钮
+
+**机理来源（帧级归因）**：8 序 cs_t0043 Δ=3 的 FAR 增量 **+0.003000（+87 FP）**中
+**58% 是「位移型」**（框被推歪 12~136 px）＋ **41% 是「幽灵型」**（当前帧无检出时凭空上报，**其中 4 个坐标为负、出画面**）
+⇒ **转台只能瞄画面里的东西** ⇒ 出框坐标必是误报。
+⇒ 新旋钮 `--replay-fov-margin-px`：replay 臂上报坐标必须落在画面内且距边界 ≥ m px，否则该帧不上报。
+
+**实现（插件工作副本，未动 `manu/evaluation/*`）**：
+- `manu/tracking/lookahead/extrapolator.py`：`LookaheadConfig.replay_fov_margin_px: float = 0.0`
+- `manu/tracking/lookahead/lookahead_longquan.py`：新 CLI `--replay-fov-margin-px`（默认 0.0 = 关）、`build_lookahead_config` 透传、新函数 `apply_fov_margin_gate(report, margin_px)`（在 `evaluate_arms` 里**只对 replay 臂**调用）、产物 `lookahead` 快照补记 `replay_abstain_peak_below` / `replay_abstain_disp_px` / `replay_fov_margin_px`
+- 画面尺寸常量 `IMG_W = 640` / `IMG_H = 512`（`lookahead_longquan.py:56-57`）⇒ 门限与上报坐标**同一坐标系**，无 letterbox 缩放错位。
+
+**逐位等价性（默认关闭）**：8 序 cs_t0043 Δ=3 的 **m=0** 与既有产物 `runs/lookahead/fi_nogmc/cs_t0043/d3/arms.json`
+**四臂 68 个字段逐位一致**（`cs_t0043` / `rc2` 各 PASS）⇒ **新旋钮默认关闭时对全部臂零扰动**（含 `source_frame` ⇒ 尺子 1 的 `delta_f1_vs_original` 仍为 0.000000）。
+
+**8 序 cs_t0043 Δ=3 受控 A/B**（唯一变量 = m；产物 `runs/lookahead/fovgate/report.md`）：
+
+| 出框门 m (px) | F1% | ΔF1(pp) | Recall% | FAR/帧 | ΔFAR | FP | TP | hit@5px% | Δhit5(pp) | CLE p95(池) | 被门丢弃 | 三门 |
+|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|:--|
+| 0 | 96.1297 | +0.0000 | 93.2801 | 0.007415 | +0.000000 | 215 | 25347 | 87.3293 | +0.0000 | 6.201 | 0 | **PASS** |
+| 2 | 96.1443 | +0.0146 | 93.2801 | 0.007139 | −0.000276 | 207 | 25347 | 87.3293 | +0.0000 | 6.200 | 8 | **PASS** |
+| 4 | 96.1660 | +0.0363 | 93.2764 | 0.006690 | −0.000724 | 194 | 25346 | 87.3257 | −0.0037 | 6.200 | 22 | **PASS** |
+| **6** | **96.2793** | **+0.1496** | 93.2764 | **0.004552** | **−0.002862** | 132 | 25346 | 87.3257 | −0.0037 | 6.195 | 84 | **PASS** |
+| 8 | 96.2235 | +0.0938 | 93.1587 | **0.004414** | −0.003000 | 128 | 25314 | 87.2079 | −0.1214 | 6.197 | 120 | **PASS** |
+| 12 | 96.2190 | +0.0893 | 93.1366 | 0.004276 | −0.003138 | 124 | 25308 | 87.1895 | −0.1398 | 6.197 | 130 | **PASS** |
+| 16 | 96.0880 | −0.0417 | 92.8790 | 0.004138 | −0.003276 | 120 | 25238 | 86.9392 | −0.3901 | 6.200 | 204 | **PASS** |
+
+⇒ **m=6 是甜点**：FAR **0.007415 → 0.004552（−38.6%）**、F1 **+0.1496pp**、hit@5px 仅 **−0.0037pp**、CLE p95 −0.006px。
+⇒ **m=8 时 replay 的 FAR = 0.004414，与 oracle（original 臂）FAR 0.004414 逐位相等** ⇒ **误报率已经压到零延迟天花板**。
+⇒ **m=16 起 F1 转负**（m=12 仍 **+0.0893**，m=16 才 −0.0417）⇒ 门不能开太大。
+⇒ 与 §37.4 的 LOSO 标尺对照：**ΔF1 = +0.1496pp 仍 < 噪声中位 0.2367pp**，但 **FAR −0.002862 是结构性的**（把 FP 从 215 砍到 132）⇒
+**这是「机理正确 + 效果可解释」的旋钮，不是「调参碰运气」**（与 §37.3 的旋钮串性质不同：后者在 24 序直接翻负）。
+
+**8 序 rc2 Δ=3 对照**（GMC 语义）：m=0 96.2788 / 0.008760 / 87.0680 → m=6 **96.3025 / 0.008311 / 87.0680**
+⇒ **出框门对 GMC 也有小幅正收益**（FAR −0.000448、F1 +0.0237pp、hit@5px **0 变化**），但**幅度远小于 no-GMC（FAR −0.002862）** ⇒
+**no-GMC 的 FAR 冗余更多 ⇒ 出框门对 no-GMC 的价值更大**。
+
+### 37.6.1 🔴 **出框门的实现修正**（reviewer 抓到的 blocking 问题，已修）
+
+**问题**：门原本挂在 `lookahead_longquan.py::evaluate_arms` 里，即**跑在 `_apply_output_slew_limit` 之后**。
+而限幅会把每 track 最近一次上报位置写进 `last_pos` 锚点 ⇒ **画外坐标先被写进锚点，后续帧被朝这个画外锚点拖回画内** ⇒
+门再也删不掉那条被拖回画内的误报（最小复现：limit=30, margin=8, 原始 −40/300/305 ⇒ 门在限幅后输出 `[] [] [(20,256)]`（真值 305，误差 285 px）；门在限幅前输出 `[] [(300,256)] [(305,256)]`）。
+交付档 `run_delivery.sh` 开着 `--output-max-step-px 30` ⇒ **线上生效**。
+
+**修法（改在 owner 上）**：
+- 门函数**下沉**到 `manu/tracking/lookahead/extrapolator.py::_apply_fov_margin_gate`，
+  在 `build_report_stream` 的 `mode=="replay"` 分支里、**`_apply_output_slew_limit` 之前**调用；
+- 顺手删掉 `lookahead_longquan.py` 里那份重复实现与 `arm=="replay"` 守卫（`mode=="replay"` 已由 owner 表达，且 `report = dets` 别名那道雷一并消失）；
+- 新增 `LookaheadConfig.replay_fov_frame_size = (640, 512)`（与上报坐标同一坐标系，`native_size` 三方缓存实测全等）；
+- **退化边距直接报错**：margin ≥ 画面短边一半（256 px）⇒ `raise ValueError`（此前会静默丢光 ⇒ FAR→0 的假象）；
+- CLI help 文案改成「该**条**上报丢弃」（实现本来就是逐条丢弃，不是整帧）；
+- `fov_gated` 计数进 `stream_stats.overall`（此前只在臂内 `stats`，报告脚本读不到）。
+
+**逐位等价性（margin=0）已复测**：8 序 cs_t0043 Δ=3 的 m=0 与既有产物 **四臂 68 字段逐位一致** ⇒ 修正对所有臂零扰动。
+**新契约测试 6 条**（`manu/tracking/tests/test_lookahead_plugin.py::FovMarginGateTest`）：
+门关闭逐位不变 / 画外与贴边被丢 / 画面内保留 / **门先于限幅（核心回归点）** / 退化边距报错 / 基线臂不受门影响。
+⇒ **单测 162 OK / skipped 10**（基线 156 + 新增 6）。
+**修复前后对照（8 序 cs_t0043 Δ=3）**：m=6 FAR 0.004656 → **0.004552**、F1 96.2738 → **96.2793**；m=8 FAR 0.004483 → **0.004414**（= oracle）。
+⇒ 修复前后的产物已分目录留证：`runs/lookahead/fovgate_prefix_slew_1854/`、`runs/lookahead/fovgate24_prefix_slew_1906/`。
+
+### 37.6.2 🔴 **24 序官方口径复评 —— 出框门的效果在 24 序上大幅衰减（8 序头条是单序列假象）**
+
+> **一句话**：出框门在 8 序上「FAR −38.6%」的头条**在 24 序官方口径上只剩 −4.6%（no-GMC）/ −2.1%（GMC）**
+> ⇒ **8 序头条不可外推**；但门在 24 序上仍是**净正收益且不破线**，可作为交付档的**可选加固项**。
+
+**24 序 rc2（GMC）Δ=3 受控 A/B**（唯一变量 = m；产物 `runs/lookahead/fovgate24/runs/rc2/d3/fov__m*/arms.json`）：
+
+| 出框门 m (px) | F1% | ΔF1(pp) | FAR/帧 | ΔFAR | FP | TP | hit@5px% | Δhit5(pp) | CLE p95(池) | 被门丢弃 |
+|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| 0 | 94.2325 | +0.0000 | 0.024361 | +0.000000 | 4025 | 122310 | 84.1472 | +0.0000 | 8.760 | 0 |
+| 4 | 94.2362 | +0.0037 | 0.024028 | −0.000333 | 3970 | 122270 | 84.1344 | −0.0128 | 8.736 | 95 |
+| 6 | 94.2422 | +0.0097 | 0.023847 | −0.000514 | 3940 | 122258 | 84.1292 | −0.0180 | 8.730 | 137 |
+| 8 | 94.2341 | +0.0016 | 0.023689 | −0.000672 | 3914 | 122215 | 84.1021 | −0.0450 | 8.728 | 206 |
+| 12 | 94.2046 | −0.0278 | **0.023459** | −0.000902 | 3876 | 122109 | 84.0399 | −0.1073 | 8.701 | 350 |
+
+**24 序 no-GMC（cs_t0043）Δ=3 受控 A/B**（产物 `runs/lookahead/fovgate24nogmc/runs/cs_t0043/d3/fov__m*/arms.json`）：
+
+| 出框门 m (px) | F1% | ΔF1(pp) | FAR/帧 | ΔFAR | FP | TP | hit@5px% | Δhit5(pp) | CLE p95(池) | 被门丢弃 |
+|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| 0 | 94.7861 | +0.0000 | 0.025523 | +0.000000 | 4217 | 123849 | 87.0363 | +0.0000 | 7.099 | 0 |
+| 4 | 94.7877 | +0.0016 | 0.025033 | −0.000490 | 4136 | 123780 | 87.0063 | −0.0300 | 7.084 | 150 |
+| 6 | **94.8094** | **+0.0232** | **0.024337** | **−0.001186** | 4021 | 123730 | 86.9718 | −0.0645 | 7.066 | 315 |
+| 8 | 94.8005 | +0.0143 | **0.024149** | −0.001374 | 3990 | 123680 | 86.9418 | −0.0946 | 7.055 | 396 |
+| 12 | 94.7683 | **−0.0178** | 0.023744 | −0.001779 | 3923 | 123540 | 86.8690 | −0.1673 | 7.032 | 603 |
+
+#### 🔴 **为什么 8 序头条在 24 序上衰减 —— 逐序列 FP 归因（决定性证据）**
+
+把 replay 的**增量 FP**（= replay FP − oracle FP）拆到序列上，看门到底打掉了谁：
+
+**8 序 cs_t0043 Δ=3**（m=0 ⇒ m=6，被门丢弃 **83/87 = 95.4%** 的增量 FP）：
+
+| 序列 | GT 占比 | replay FP | oracle FP | 增量 FP | m=6 打掉 |
+|:--|--:|--:|--:|--:|--:|
+| **VIDEO00007_…_001324** | **38.77%** | 182 | 122 | **60** | **76（126.7%）** |
+| VIDEO00033_…_015000 | 3.78% | 9 | 3 | 6 | 2 |
+| VIDEO00007_…_000818 | 30.41% | 6 | 0 | 6 | 0 |
+| 其余 4 序 | — | — | — | 15 | 5 |
+| **合计** | — | 215 | 128 | **87** | **83（95.4%）** |
+
+⇒ **8 序上「FAR −38.6%」几乎全部来自单一序列 001324**（该序占 8 序 GT 的 38.77%）——
+一条**高速机动**序列正是「框被甩出画面」的高发场景 ⇒ 门一开就命中。
+**8 序 gate 集只有 24 序的 20.39% GT ⇒ 这个单序假象在 24 序被稀释掉。**
+
+**24 序 no-GMC Δ=3**（m=0 ⇒ m=6，被门丢弃 **196/738 = 26.6%** 的增量 FP）：
+
+| 序列 | GT | replay FP | oracle FP | 增量 FP | m=6 打掉 |
+|:--|--:|--:|--:|--:|--:|
+| VIDEO00008_…_002001 | 16142 | 306 | 72 | **234** | 36 |
+| VIDEO00003_…_002111 | 2994 | 291 | 154 | **137** | 7 |
+| VIDEO00005_…_002959 | 15765 | 106 | 23 | 83 | 8 |
+| VIDEO00007_…_001324 | 10535 | 182 | 122 | 60 | **76** |
+| VIDEO00002_…_001415 | 8491 | 112 | 52 | 60 | 40 |
+| VIDEO00011_…_001810 | 5857 | 163 | 128 | 35 | **0** |
+| 其余 17 序 | — | — | — | 129 | 29 |
+| **合计** | — | 4217 | 3479 | **738** | **196（26.6%）** |
+
+⇒ **24 序 no-GMC 上 m=12 时 F1 转负**（+0.0143 → **−0.0178**）⇒ **门的甜点与 8 序一致在 m=6~8**，**不能开太大**。
+⚠️ **但「F1 转负的拐点」本身不可外推**：8 序 no-GMC 要到 **m=16** 才转负（m=12 仍 **+0.0893**）、8 序 rc2 **m=8** 就转负（**−0.0320**）、24 序 rc2 **m=12** 转负（**−0.0278**）
+⇒ **可外推的是「m=6~8 为甜点区、再开大 F1 转负」这一定性形态；拐点位置各口径不同**（口径纪律第 4 条「形态可外推 / 幅度与拐点不可外推」的又一实例）。
+⇒ **24 序上增量 FP 的头号来源变成 VIDEO00008_…_002001（234 FP，占 31.7%）与 VIDEO00003_…_002111（137 FP）**——
+这两条**不是出画面型**（门只打掉 36 / 7 条 ⇒ 它们的 FP 多在画面**内**、但**框位置偏**）
+⇒ **门治不了「画面内但位置错」的误报** ⇒ 24 序上门的上限就只有 −26.6%。
+⇒ **8 序选出的 m=6 在 24 序上仍然净正收益（F1 +0.0232pp、FAR −0.001186、hit@5px −0.0645pp），
+但绝对幅度只有 8 序的 1/6** ⇒ **定档必须用 24 序的数字（−4.6% FAR），不能用 8 序的 −38.6%。**
+
+#### ⚠️ **口径修正（重要）**：24 序上出框门**不改变交付结论**
+
+- 24 序 no-GMC Δ=3 replay **m=0 FAR 0.025523 / m=6 FAR 0.024337 ⇒ 两者都 < 0.030 红线**（余量 0.004477 → 0.005663），
+  ⇒ **出框门在 Δ=3 上是「锦上添花」而非「救命」**；它唯一可能救命的是 **Δ=8**（no-GMC Δ=8 replay FAR **0.031037 > 0.030 红线**，见 §37.14）。
+- 24 序 rc2 Δ=3 replay m=0 FAR 0.024361 / m=6 0.023847 ⇒ 同样两档都过线。
+- ⇒ **「出框门把 FAR 打到零延迟天花板」这句话只在 8 序成立**（8 序 m=8 时 FAR 0.004414 = oracle 0.004414 逐位相等）；
+  **24 序上 m=6 离 oracle（0.021056）仍差 0.003281** ⇒ **不得对外表述为「已压到天花板」。**
+
+### 37.6.3 ⭐⭐⭐ **出框门在 24 序 Δ=8 上成功救回 FAR 红线**（本轮**唯一**让 Δ=8 可交付的机理）
+
+> **一句话**：no-GMC Δ=8 replay 的 FAR **0.031037 > 0.030 红线**（§37.11.1）⇒ 开出框门 **m=6** 后
+> FAR **0.031037 → 0.029608（−0.001428，−4.6%）**（m=8 更低 **0.029409**），**跌回红线之内**，而且 **F1 还涨了 +0.0433pp**（不是拿精度换误报率）。
+> ⇒ **换 no-GMC 收窄的延时窗口（Δ≤4）可以被出框门重新打开到 Δ≤8**。
+
+**24 序 no-GMC（cs_t0043）Δ=8 = 320 ms 受控 A/B**（唯一变量 = 出框门 m；产物 `runs/lookahead/fovgate24nogmc_d8/runs/cs_t0043/d8/fov__m*/arms.json`）：
+
+| 出框门 m (px) | F1% | ΔF1(pp) | FAR/帧 | ΔFAR | FP | TP | hit@5px% | Δhit5(pp) | CLE p95(池) | 被门丢弃 | **交付三门** |
+|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|:--|
+| 0 | 93.7005 | +0.0000 | **0.031037** | +0.000000 | 5128 | 121983 | 84.1614 | +0.0000 | 10.293 | 0 | **FAIL（破线）** |
+| 4 | 93.7248 | +0.0243 | 0.030244 | −0.000793 | 4997 | 121927 | 84.1397 | −0.0218 | 10.264 | 187 | **FAIL（仍破 0.000244）** |
+| **6** | **93.7438** | **+0.0433** | **0.029608** | **−0.001428** | 4892 | 121881 | 84.1142 | −0.0473 | 10.227 | 338 | **PASS ✓** |
+| 8 | 93.7377 | +0.0373 | **0.029409** | −0.001628 | 4859 | 121837 | 84.0901 | −0.0713 | 10.203 | 415 | **PASS ✓** |
+
+**机理**：Δ 越大 ⇒ 重推链要补的步数越多 ⇒ 框被推歪/甩出画面的机会越多 ⇒ **门的可作用空间随 Δ 增大**
+⇒ **门在 Δ=8 上的效果（−4.6% FAR）反而比在 Δ=3 上（−4.6%）相当，且是唯一能跨过 0.030 红线的档位**。
+⇒ **m=6 与 m=8 都过线**（0.029608 / 0.029409）；**m=6 的 F1 增益最大（+0.0433pp）**、**m=8 的 FAR 最低** ⇒
+**建议取 m=6**（F1 与 FAR 兼顾、hit@5px 损失最小 −0.0473pp）。
+
+⇒ **交付判据的含义**：
+- **Δ=3（120 ms）**：出框门是**可选加固**（m=0 与 m=6 都过线，F1 +0.0232pp / FAR −0.001186）。
+- **Δ=8（320 ms）**：出框门是**必选项**（m=0 破线 0.031037、m=4 仍破线 0.030244、**m=6 过线 0.029608**、**m=8 过线 0.029409**）⇒ **建议 m=6**（F1 增益最大 +0.0433pp、hit@5px 损失最小）。
+
+⚠️ **口径纪律**：这条「Δ=8 可交付」的结论**只在开出框门 m=6 时成立**；
+**不开门 ⇒ no-GMC 的 Δ=8 不可交付**。对外表述必须写成「**Δ=8 在 m=6 出框门下过线**」，不能写成「Δ=8 可交付」。
+
+### 37.6.4 ⭐⭐ 出框门的**两个补充档位**：Δ=2 **甜点档**（no-GMC）＋ Δ=8 **红线边缘档**（rc2/GMC）—— 甜点区跨 Δ 一致
+
+> **一句话**：本轮把出框门在 24 序官方口径上又补了两档：
+> ① **Δ=2（80 ms）甜点档**（no-GMC）—— 裸配置本已过线，开门后 FAR 再降、F1 微涨，**四档三门全 PASS**；
+> ② **Δ=8（320 ms）红线边缘档**（rc2/GMC）—— 裸配置 FAR 0.029548 **余量只剩 0.000452**，开门后余量扩大到 0.001275。
+> ⇒ **m=6 在 Δ=2 / Δ=3 / Δ=8 上都是甜点** ⇒ **不需要「Δ 自适应门」**（该想法被现有数据直接否掉）；
+> ⇒ **门对 no-GMC 是「救命」（跨红线），对 GMC 是「加固」（扩余量）** —— 这两条必须分开说。
+
+**命令**（服务器，2026-11-04 20:44–21:49，**门禁 rc=0**）：
+```bash
+cd /tmp/pycharm_project_10ae9e2e && export PYTHONPATH=.
+# 24 序 no-GMC Δ=2（甜点档）
+env MARGINS="0 4 6 8" MODELS="cs_t0043" DELTA=2 \
+    CACHE_CS=/mnt/data/siping/runs/nogmc_t3/swa/ms_cache_24seq \
+    OUT=runs/lookahead/fovgate24nogmc_d2 REFROOT=runs/lookahead/fi_nogmc24 THREADS=10 \
+    bash manu/tracking/lookahead/server_overnight/run_fov_gate_scan.sh
+# 24 序 rc2 Δ=8（红线边缘档）—— **必须传 CACHE_RC2**，否则默认落 8 序 gate cache
+env MARGINS="0 6 8 12" MODELS="rc2" DELTA=8 \
+    CACHE_RC2=/tmp/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval_fpv8/ms_cache \
+    OUT=runs/lookahead/fovgate24rc2_d8 REFROOT=runs/lookahead/fi_nogmc24 THREADS=10 \
+    bash manu/tracking/lookahead/server_overnight/run_fov_gate_scan.sh
+```
+**产物**：`runs/lookahead/fovgate24nogmc_d2/`（m=0/4/6/8）、`runs/lookahead/fovgate24rc2_d8/`（m=0/6/8/12）+ 各自 `report.md`/`report.json`（rc=0）
+**门禁**：两次扫描的 `m=0` 四臂**逐位一致（68 字段）** ⇒ `rc=0`；`rc2` 的 m=0 FAR **0.029548** 与既有 `runs/lookahead/fi_nogmc24/rc2/d8/arms.json` **逐位相等**。
+
+#### ① Δ=2（80 ms）甜点档 · 24 序 no-GMC（`cs_t0043`）
+
+| 出框门 m (px) | F1% | ΔF1(pp) | Recall% | FAR/帧 | ΔFAR | FP | TP | hit@5px% | Δhit5(pp) | CLE p95(池) | 交付三门 |
+|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|:--|
+| 0（裸配置） | 95.0554 | +0.0000 | 93.2814 | 0.024083 | +0.000000 | 3979 | 124304 | 87.7297 | +0.0000 | 6.532 | **PASS** |
+| 4 | 95.0547 | −0.0007 | 93.2311 | 0.023647 | −0.000436 | 3907 | 124237 | 87.6982 | −0.0315 | 6.524 | **PASS** |
+| **6 ★甜点** | **95.0767** | **+0.0213** | 93.1906 | **0.022921** | **−0.001162** | 3787 | 124183 | 87.6599 | −0.0698 | 6.505 | **PASS** |
+| 8 | 95.0650 | +0.0096 | 93.1396 | 0.022660 | −0.001422 | 3744 | 124115 | 87.6202 | −0.1096 | 6.498 | **PASS** |
+
+⇒ **四档三门全 PASS**；**m=6 仍是 F1 峰值**（m=8 的 FAR 更低但 F1 已回落）⇒ **甜点区与 Δ=3 / Δ=8 一致**。
+
+#### ② Δ=8（320 ms）红线边缘档 · 24 序 rc2（GMC）
+
+| 出框门 m (px) | F1% | ΔF1(pp) | Recall% | FAR/帧 | ΔFAR | FP | TP | hit@5px% | Δhit5(pp) | CLE p95(池) | 交付三门 |
+|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|:--|
+| 0（裸配置） | 93.1879 | +0.0000 | 90.4410 | **0.029548** | +0.000000 | 4882 | 120519 | 81.5612 | +0.0000 | 12.946 | **PASS（余量仅 0.000452）** |
+| **6 ★** | **93.2217** | **+0.0337** | 90.4133 | **0.028725** | **−0.000823** | 4746 | 120482 | 81.5492 | −0.0120 | 12.888 | **PASS（余量 0.001275）** |
+| 8 | 93.2190 | +0.0311 | 90.3855 | 0.028513 | −0.001035 | 4711 | 120445 | 81.5274 | −0.0338 | 12.874 | **PASS** |
+| 12 | 93.2043 | +0.0164 | 90.3360 | 0.028301 | −0.001247 | 4676 | 120379 | 81.4884 | −0.0728 | 12.857 | **PASS** |
+
+⇒ **rc2 在 Δ=8 裸配置就过线，但余量只有 0.000452（几乎贴线）**；开门 m=6 把余量扩到 **0.001275（2.8 倍）**，
+F1 还 **+0.0337pp**、hit@5px 只掉 **0.0120pp** ⇒ **对 GMC 来说门是「加固」，不是「救命」**。
+
+#### ③ 三条可直接进交付的结论
+
+1. **m=6 是跨 Δ 稳定的甜点**（Δ=2 / 3 / 8 的 no-GMC 24 序上，F1 都在 m=6 达到峰值、FAR 单调下降）⇒ **不需要「Δ 自适应门」**，
+   也**不需要**按 Δ 改 `--replay-fov-margin-px` ⇒ **部署配置固定 m=6 即可**。
+2. **门对 no-GMC 是「救命」，对 GMC 是「加固」**：
+   no-GMC Δ=8 裸配置 FAR **0.031037 破线** ⇒ 必须开门才过线；rc2 Δ=8 裸配置 **0.029548 已过线** ⇒ 开门只是把余量从 0.000452 扩到 0.001275。
+   ⇒ **「换 no-GMC + 开出框门」这两件事合起来，才把可交付延时窗口维持在 Δ≤8**（§37.11、§37.14）。
+3. **门的价值定位不变**：「跨红线 / 兜底」，不是「压 FAR」——24 序上 FAR 相对降幅只有 **−4.6%**（Δ=3）/ **−4.6%**（Δ=8）；
+   8 序的 **−38.6%** 是**单序 001324 假象**（§37.6.2）。
+
+### 37.7 ★★ 24 序 no-GMC **特征集**建成 ＋ **逐字节等价自检 PASS**（「8 序结论能外推到 24 序」的地基）
+
+- 24 序 no-GMC 特征集：`/mnt/data/siping/datasets/manu/longquanshan_ir_gmc_median_nogmc/images/train`，**165,223 帧 / 24 序列**，
+  2026-11-04 17:37–18:06（workers=24，≈180–208 帧/s）。
+  特征语义与 8 序那份**逐字一致**：`Ch0 = I_t` / `Ch1 = |I_t − I_{t−2}|` / `Ch2 = (I_t − B_t)⁺`，`W ≡ IDENTITY`，21 帧 median，stride 2。
+  构建脚本 `manu/data/build_nogmc_rebuild_dataset.py`（md5 `2a35a4b0110a7a95ecd8d817dbf29c89` = 冻结哈希）；**参照集 = `longquanshan_ir_gmc_median`（`images/train` 165,223 张）**，不是 8 序那份的 `val` 划分。
+- **逐字节等价自检 PASS**（`runs/lookahead/nogmc24_byte_equal.json`，2026-11-04 18:06）：
+  **8 条 gate 序列 28,997/28,997 文件逐字节相同、mismatch 0、缺失 0/0** ⇒ **同一份代码、同一份 raw-root ⇒ 8 序 no-GMC 的结论可外推到 24 序**。
+- 另有 Ch0 自检：MAE vs 参考 **1.67543** 灰阶（max 8.14940）。
+
+### 37.8 ★ CPU 口径 24 序 ms_cache —— **已判定不可行**（GPU 接力说明已备好）
+
+- 单进程 CPU 实测 **0.7861 s/帧**（1239 帧 / 974 s）；24 路并发实测 **240~250 s/chunk**（chunk=64 帧）⇒ 关键路径（18014 帧 = 282 chunk）**19.5 h**。
+- 即使独占机器 + 给最长序列 12 线程（40.9 s/chunk）也要 **3.2 h/份 × 2 份 = 6.4 h**。
+- 且 **CPU 缓存与 GPU 缓存不逐位相同**（同一序列检出 4977 vs 4974，meta 相同）⇒ **CPU 缓存不能当交付档**。
+- ⇒ 24 序 no-GMC 的**交付级**数字仍需 GPU。接力说明：`runs/lookahead/fi_nogmc/_p0b/GPU_REQUIRED.md`（＋ `probe_log.json`）
+  ①特征集（已完成）②GPU ms_cache 4 分片 1.22 h ③Δ 扫描 0.42 h。
+- 残留物（留作证据）：`runs/lookahead/fpv8_24_cpu/nogmc/*.log`（0 个 pkl 产出）、`runs/lookahead/fpv8_24_cpu/plan_nogmc.json`、
+  脚本 `server_overnight/build_24seq_cpu_caches.py` ＋ `rebuild_fpv8_24seq_cpu_caliber.sh`。
+
+### 37.9 ★ Gate A —— 「关开关 ⇒ 与原脚本整份 JSON 逐位一致」（**插件改动之后重跑，PASS**）
+
+命令（服务器 `test-Super-Server`，2026-11-04 18:46–18:48）：
+```bash
+bash manu/tracking/lookahead/server_overnight/run_gate_a_nogmc.sh
+python manu/tracking/lookahead/server_overnight/compare_gate_a.py \
+  --gate-root runs/lookahead/gateA \
+  --ruler-arms-json runs/lookahead/fi_nogmc/cs_t0043/d3/arms.json \
+  --out-json runs/lookahead/gateA/gateA.json --out-md runs/lookahead/gateA/gateA.md
+```
+产物：`runs/lookahead/gateA/gateA.json` + `gateA.md`（**verdict = PASS**，2026-11-04T18:48+08:00）。
+
+| 模型包 | L1 整份 JSON md5 | L2 per_frame | L3 payload md5 | L4 跟踪资产 md5 | out-json 投影 |
+|:--|:--|:--|:--|:--|:--|
+| cs_t0043（no-GMC，主） | **8/8 相同** | 8/8 | 8/8 | 8/8 | 相同 |
+| rc2（GMC，对照） | **8/8 相同** | 8/8 | 8/8 | 8/8 | 相同 |
+
+**尺子 1**：cs_t0043 Δ=3 四臂 `source_frame.overall.f1` = **0.963739226183696** **逐位相等**、`delta_f1_vs_original` 全 **0.0**（`delta_pp = 0.0`）。
+⇒ **证明「出框门」这一改动没有扰动任何跟踪资产**：外挂 look-ahead 在 `--lookahead off` 时与**未改动的原脚本**输出**逐位一致**。
+⚠️ **口径纪律**：`--cache-root` 必须是**绝对路径**（config 块进 md5，相对路径 ⇒ md5 天然不同 ⇒ 假阳性 FAIL）。
+
+**24 序 Gate A（同一套口径，24 序列全量）**：产物 `runs/lookahead/gateA24/gateA.json` + `gateA.md`（**verdict = PASS**，2026-11-04T18:58:15+08:00）。
+命令：`bash manu/tracking/lookahead/server_overnight/drive_gate_a_nogmc24.sh`
+⇒ cs_t0043 的 **24/24 条序列** L1 整份 JSON md5 / L2 per_frame / L3 payload md5 / L4 跟踪资产 md5 **全部相同**，
+`preds_all_L1_equal = true`、`preds_all_L4_equal = true`、`report_projection_equal = true`；
+**尺子 1**：24 序 Δ=3 四臂 `source_frame.overall.f1` = **0.9544853115511399** 逐位相等、`delta_f1_vs_original` 全 **0.0**。
+⇒ **外挂对 no-GMC 24 序官方口径的跟踪资产同样零扰动。**
+
+### 37.10 ★ OSD 三臂对照视频（肉眼可查的证据）
+
+产物 `runs/lookahead/osd/videos/<SEQ>_3arm_{stale,replay,original}_cs_t0043_d3.mp4`（001324 / 015000 × 3 臂 = 6 条，1920×1080 / h264 / 25 fps / 300 帧）；
+汇总 `runs/lookahead/osd/osd_3arm_cs_t0043_d3.md`（2026-11-04 18:01）。
+
+- **001324（高速机动）**：stale F1 0.848532 / hit@5px 54.90% / FAR 0.0542 → replay 0.898731 / 68.65% / **0.0154** → original 0.901906 / 70.25% / 0.0103
+  ⇒ **replay 把 FAR 砍到 1/3.5、把 hit@5px 抬 13.75pp**，且离天花板只剩 0.22pp F1。
+- **015000（奇偶交替）**：stale 0.971290 / 60.43% / 0.0272 → replay 0.992701 / **99.03%** / 0.0079 → original 0.998540 / 99.90% / 0.0026。
+- 渲染窗口沿用 rc2 上「stale:replay 分离度最大」的窗口（001324：8549–8848，分离度 31.7677；015000：726–1025，分离度 19.1536）⇒ 与历史视频逐帧可比。
+
+### 37.11 ★★ 本轮**交付裁定**（⚠️ 本小节已按 **24 序官方口径实测** 重写，2026-11-04 20:15）
+
+> 🔴 **三条结论被 24 序实测改写**：① **no-GMC 在 24 序上全面优于 GMC**（8 序的「no-GMC 低 0.1491pp」是**单序不均衡假象**）；
+> ② **换 no-GMC 把可交付延时窗口从 Δ≤8 收窄到 Δ≤4**（no-GMC Δ=8 replay FAR **0.031037 > 0.030 红线**）；
+> ③ **出框门的 8 序头条（FAR −38.6%）在 24 序上只剩 −4.6%**（**单序列假象**，见 §37.6.2）。
+
+1. **交付模型包 = `cs_t0043`（no-GMC）**：24 序 Δ=3 replay 上 F1 **94.7861 vs 94.2325（+0.5537pp）**、
+   hit@5px **87.0363 vs 84.1472（+2.8892pp）**、CLE p95 **7.0993 vs 8.7597（−1.6604px）** 三项全胜；
+   **只有 FAR 略差 0.001162**（0.025523 vs 0.024361，红线余量 0.004477 之内）。
+   ⇒ **8 序上那 0.1491pp 的 F1 差距不能用来排序**：8 序 gate 集里 **001324 单序占 38.77% GT**（§37.6.2）。
+2. **交付延时档 = Δ=3（假设 120 ms @25 Hz）**：24 序 no-GMC Δ=3 vs Δ=8 = F1 **+1.0857pp** / FAR **−0.005514** /
+   hit@5px **+2.8749pp** / CLE p95 **−3.1938px**；**且「延时越小 FAR 越低」单调成立**（Δ=2 0.024083 < Δ=3 0.025523 < Δ=4 0.026564 < Δ=8 0.031037）。
+   ⚠️ **但 no-GMC 在 Δ=8 破 FAR 红线（0.031037 > 0.030）⇒ 裸配置下 no-GMC 的可交付窗口是 Δ≤4**；
+   对照 rc2（GMC）Δ=8 = 0.029548 **勉强过线（余量仅 0.000452）** ⇒ **换 no-GMC 收窄了延时窗口，这是必须如实报告的代价**；
+   ⭐ **但开出框门 m=6 后 no-GMC Δ=8 的 FAR 跌回 0.029608 过线 ⇒ 窗口重新打开到 Δ≤8**（§37.6.3）
+   ⇒ **120 ms 仍是推荐档（各项指标全面更优），但不再是硬上限。**
+3. **交付臂 = `replay`（视觉重推外挂）**：`stale` 在 24 序 Δ=2/3/4/8 **全部破线**
+   （no-GMC 0.041187 / 0.059277 / 0.079589 / 0.159227）；`kinematic` 在所有 Δ 上**净负收益**
+   （24 序 no-GMC Δ=3：89.4204 vs stale 90.6049 = **−1.1846pp**）⇒ **老逻辑与纯运动学前推都不可交付**。
+4. **交付档 CFG 不改**：8 序选出的旋钮串在 24 序**翻负**（ΔF1 −0.0192pp，§37.3）⇒ 保持 `run_delivery.sh` 现值。
+5. ⭐ **出框门 = Δ=8 的必选项、Δ=3 的可选加固项**（**本轮唯一让 Δ=8 重新可交付的机理**，§37.6.3）：
+   - **Δ=8（320 ms）**：m=0 破线 **0.031037** → m=4 仍破线 **0.030244** → **m=6 过线 0.029608**（F1 **+0.0433pp**）/ m=8 过线 **0.029409**（F1 +0.0373pp）⇒ **建议 m=6**。
+   - **Δ=3（120 ms）**：m=0 与 m=6 都过线（0.025523 → 0.024337），m=6 净正收益（F1 **+0.0232pp** / hit −0.0645pp）⇒ **锦上添花**。
+   ⚠️ **8 序的「FAR −38.6%」不可外推**（单序假象，§37.6.2）⇒ **门的价值定位应改写为「跨红线」而非「压 FAR」**；
+   ⚠️ **Δ=8 的过线结论只在开出框门 m=6 时成立** ⇒ 对外必须写「**Δ=8 在 m=6 出框门下过线**」。
+
+### 37.11.1 🔴 24 序官方口径 Δ 扫描全表（**交付判据的唯一权威集**）
+
+| 模型包 | Δ | 假设延时 | F1% | Recall% | FAR/帧 | hit@5px% | CLE p95(池) | 交付三门 |
+|:--|--:|--:|--:|--:|--:|--:|--:|:--|
+| cs_t0043 (no-GMC) | 2 | 80 ms | **95.0554** | 93.2814 | **0.024083** | **87.7297** | **6.5324** | PASS |
+| cs_t0043 (no-GMC) | 3 | 120 ms | 94.7861 | 92.9400 | 0.025523 | 87.0363 | 7.0993 | PASS |
+| cs_t0043 (no-GMC) | 4 | 160 ms | 94.5661 | 92.6465 | 0.026564 | 86.4322 | 7.7295 | PASS |
+| cs_t0043 (no-GMC) | 8 | 320 ms | 93.7005 | 91.5397 | 🔴 **0.031037** | 84.1614 | 10.2930 | **FAIL** |
+| rc2 (GMC) | 2 | 80 ms | 94.4595 | 92.0792 | 0.023235 | 84.6815 | 8.0754 | PASS |
+| rc2 (GMC) | 3 | 120 ms | 94.2325 | 91.7850 | 0.024361 | 84.1472 | 8.7597 | PASS |
+| rc2 (GMC) | 4 | 160 ms | 94.0389 | 91.5337 | 0.025311 | 83.5708 | 9.5561 | PASS |
+| rc2 (GMC) | 8 | 320 ms | 93.1879 | 90.4410 | 0.029548 | 81.5612 | 12.9455 | PASS（余量 0.000452）|
+
+**追回占比**（no-GMC，基线 `stale`，分母 = `original` − `stale`）：Δ=2 F1 **84.68%** / hit **91.50%** / FAR **84.97%**；
+Δ=3 F1 **86.37%** / hit **91.01%** / FAR **88.31%**；Δ=4 F1 **88.13%** / FAR **90.59%**；Δ=8 F1 **90.02%** / FAR **92.78%**。
+**尺子 1**（同一产物内四臂 `source_frame.overall.f1` 逐位相等）：Δ2 **0.9544774949430062** / Δ3 **0.9544853115511399** /
+Δ4 **0.9544931294148242** / Δ8 **0.9545171101206985** ⇒ 硬门禁 PASS。
+
+### 37.12 ★ 本轮**已证伪 / 已否决**的方向（补充到 §36 的清单）
+
+| 方向 | 否证证据 |
+|:--|:--|
+| **8 序旋钮串直接写回交付档** | 24 序复评 ΔF1 **−0.0192pp**（§37.3） |
+| **Δ 自适应 roimax**（随 Δ 线性缩放） | 第一轮迭代二扫描已否（§37.4 观察名单之外） |
+| **弃权 / 回退窗口联动**（disp_px × rollback_max_frames） | 联动 ΔF1 +0.0574pp ≤ 最优单旋钮 +0.0880pp，FAR 更差 |
+| **弃权 / 回退置信度阈值联动**（abstain_peak_below × rollback_min_peak） | 同上（新机理候选，否证） |
+| **按 8 序 F1 排序选旋钮** | 8 序所有旋钮 ΔF1 < LOSO 噪声中位 0.2367pp（§37.4） |
+| **CPU 口径建 24 序 ms_cache 当交付档** | 19.5 h（并发）/ 6.4 h（独占），且 CPU≠GPU 缓存不逐位相同（§37.8） |
+| **在 `th_ground` 维度上找「工作点巧合」** | `th_ground` 在 v3（sky_ratio=1.0）下是死旋钮，60 次实测逐位相同（§37.5） |
+| 🔴 **把 8 序出框门头条（FAR −38.6%）当作 24 序效果** | 24 序只 **−4.6%**（no-GMC）/ **−2.1%**（GMC）；逐序归因显示 8 序头条 = **单序 001324 假象**（§37.6.2） |
+| 🔴 **用 8 序 F1 给 no-GMC / GMC 排序（8 序 no-GMC 低 0.1491pp）** | 24 序上方向**完全相反**：no-GMC **高 +0.5537pp**、hit **+2.8892pp**、CLE p95 **−1.6604px**（§37.11） |
+| 🔴 **「出框门把 FAR 打到零延迟天花板」这句话（8 序 m=8 时 FAR = oracle 逐位相等）** | **只在 8 序成立**；24 序 m=6 离 oracle（0.021056）仍差 **0.003281** ⇒ 对外表述必须限定口径 |
+| 🔴 **「换 no-GMC 不影响可交付延时窗口」** | no-GMC **Δ=8 破 FAR 红线（0.031037 > 0.030）**，rc2 同 Δ 0.029548 勉强过线 ⇒ **窗口从 Δ≤8 收窄到 Δ≤4**（§37.11） |
+
+### 37.14 ⭐⭐⭐ **Δ=8 红线救援专章** —— 出框门把 no-GMC 的可交付延时窗口从 Δ≤4 重新打开到 Δ≤8
+
+> **一句话**：这是本轮**唯一的「机制正确 + 数字过硬 + 可直接进交付」**的结论：
+> **24 序 no-GMC Δ=8（320 ms）裸配置 FAR 0.031037 破 0.030 红线 ⇒ 开出框门 m=6 后 FAR 0.029608 过线，
+> 且 F1 同时涨 +0.0433pp、hit@5px 只掉 0.0473pp。**
+
+**完整受控 A/B**（唯一变量 = `--replay-fov-margin-px`；其余旋钮一字不改、CFG 仍取自 `run_delivery.sh`）：
+
+| 出框门 m (px) | F1% | ΔF1(pp) | Recall% | FAR/帧 | ΔFAR | FP | TP | hit@5px% | Δhit5(pp) | CLE p95(池) | 被门丢弃 | **交付三门** |
+|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|:--|
+| 0（裸配置） | 93.7005 | +0.0000 | 91.5397 | **0.031037** | +0.000000 | 5128 | 121983 | 84.1614 | +0.0000 | 10.293 | 0 | **FAIL ✗（超线 0.001037）** |
+| 4 | 93.7248 | +0.0243 | 91.4976 | 0.030244 | −0.000793 | 4997 | 121927 | 84.1397 | −0.0218 | 10.264 | 187 | **FAIL ✗（仍超线 0.000244）** |
+| **6 ★推荐** | **93.7438** | **+0.0433** | 91.4631 | **0.029608** | **−0.001428** | 4892 | 121881 | 84.1142 | −0.0473 | 10.227 | 338 | **PASS ✓** |
+| 8 | 93.7377 | +0.0373 | 91.4301 | 0.029409 | −0.001628 | 4859 | 121837 | 84.0901 | −0.0713 | 10.203 | 415 | **PASS ✓** |
+
+**命令**（服务器，2026-11-04 20:17–20:44）：
+```bash
+cd /tmp/pycharm_project_10ae9e2e
+env MARGINS="0 4 6 8" MODELS="cs_t0043" DELTA=8 \
+    CACHE_CS=/mnt/data/siping/runs/nogmc_t3/swa/ms_cache_24seq \
+    OUT=runs/lookahead/fovgate24nogmc_d8 REFROOT=runs/lookahead/fi_nogmc24 THREADS=10 \
+    bash manu/tracking/lookahead/server_overnight/run_fov_gate_scan.sh
+```
+**产物**：`runs/lookahead/fovgate24nogmc_d8/runs/cs_t0043/d8/fov__m{0,4,6,8}/arms.json` + `runs/lookahead/fovgate24nogmc_d8/report.md`（门禁 rc=0）
+**口径核对**：m=0 的 FAR **0.031037** 与既有产物 `runs/lookahead/fi_nogmc24/cs_t0043/d8/arms.json` **逐位相等** ⇒ 门禁 PASS。
+
+#### ⭐ 三条可直接进交付的结论
+
+1. **m=6 是过线的最小门限**（m=4 仍破线 0.030244，m=6 过线 0.029608）⇒ **交付档建议加 `--replay-fov-margin-px 6`**。
+2. **门在 Δ=8 上是「双赢」不是「取舍」**：F1 **+0.0433pp**、FAR **−0.001428**、hit@5px 仅 **−0.0473pp**、CLE p95 **−0.066px**
+   ⇒ **不存在「拿精度换误报率」的代价**（这与 8 序头条的形态一致，也与 §37.6.2 的「形态可外推」结论一致）。
+3. **Δ 越大 ⇒ 门的可作用空间越大**（Δ=3 打掉 196/738 = 26.6% 的增量 FP；Δ=8 打掉 236/1649 = **14.3%** 的增量 FP，
+   但**绝对 FAR 降幅更大**：−0.001186 → **−0.001428**）⇒ **门在长延时档的绝对价值更高**。
+
+#### ⚠️ 三条必须同时说清的限制（否则会写成反结论）
+
+1. **Δ=8 的过线只在 m=6（及 m=8）成立**；裸配置（m=0）**破线** ⇒ 对外表述必须是「**Δ=8 在 m=6 出框门下过线**」，
+   **不能**写成「Δ=8 可交付」或「no-GMC Δ=8 达标」。
+2. **门的效果幅度不可外推**：8 序 FAR −38.6% / 24 序 Δ=3 −4.6% / 24 序 Δ=8 −4.6%（绝对值 −0.001428）。
+   ⇒ **门的定位是「跨红线 / 兜底」，不是「把 FAR 压到天花板」**。
+3. **rc2（GMC）在 Δ=8 裸配置已经过线**（FAR 0.029548，余量仅 0.000452）⇒ **对 GMC 来说门是「加固」不是「救命」**；
+   ⇒ **换 no-GMC + 开出框门 这两件事合起来，才把延时窗口维持在 Δ≤8**（no-GMC 在精度/伺服质量上全面更优，见 §37.11）。
+
+### 37.15 ⭐⭐⭐ 本轮**报告自审与修复** —— 派独立 reviewer 审读三份报告：**2 条 BLOCKING + 14 项 IMPORTANT/NIT 全部已修**（改生成器，不手改 md）
+
+> **一句话**：本轮最重要的产出不是新数字，而是**「报告里每个数字都要能指回产物」这条纪律的落地**：
+> 独立 reviewer 子代理审读 `FINAL_REPORT.md` / `report.md` / `report_house_style.md` 三份报告，
+> 报出 **2 条 BLOCKING + 14 项 IMPORTANT/NIT**；**逐条已修**，修法统一是**改生成器脚本**，
+> **绝不手改生成的 md**（否则下次重跑又被覆盖）。
+>
+> **执行机**：服务器 `test-Super-Server`（cwd `/tmp/pycharm_project_10ae9e2e`，python `/home/huangzhe/anaconda3/envs/uav/bin/python`，conda env `uav`，`export PYTHONPATH=.`）
+> **时间戳**：审读 2026-11-04 20:45–21:05；修复与复验 2026-11-04 20:51–21:14
+
+#### 37.15.1 两条 BLOCKING（都属于「会用 8 序数字否证 24 序权威结论」的反结论风险）
+
+| # | 问题（reviewer 原文要点） | 修法 |
+|:--|:--|:--|
+| **B1** | `FINAL_REPORT` §4 **用 8 序的数去否证 24 序的权威结论**（口径越级） | 该节加「口径范围」行；改写结论句；§3.4 补 **001324 单序假象**归因 |
+| **B2** | `FINAL_REPORT` §7 的 **FAR 汇总表漏了 24 序 `cs_t0043` 的四行** —— 其中含**全表唯一一条 replay 破线行**：Δ=8 FAR **0.031037** > 0.030 红线 | 补齐 8+8 行并加破线警示 |
+
+#### 37.15.2 其余 14 项 IMPORTANT / NIT（全部已修）
+
+| # | 项 | 修法 |
+|:--|:--|:--|
+| 1 | 把 WTH15 **历史交付档**与**当前交付档**的措辞混用 | 明确标注两套 CFG **不可并列引用** |
+| 2 | 负倍数写成「余量**放大** −4.3×」 | 改成「余量**缩小到 1/4.3**」 |
+| 3 | §2.7 编号重复 | 改号为 §2.12 |
+| 4 | §2.X 有悬空引用 | 补全引用 |
+| 5 | §9 **没有结论段** | 新增 §9.7 |
+| 6 | §10 **没有逐序列归因** | 新增 §10.6 |
+| 7 | §6 表头的 Δ 参照基准不明 | 表头显式标注参照基准 |
+| 8 | rc2 Δ=8 的 FAR **余量仅 0.000452** 未提示 | 加余量提示 |
+| 9 | 时间线缺关键节点 | 补齐 |
+| 10 | house-style 缺三条口径 | 补三条口径 |
+| 11 | house-style 标题把「320 ms」**硬编码** | 改「**标称/假设值**」并按 `--delta` 动态取值 |
+| 12 | §0.5 还是**占位符**（见 37.15.4） | 修守卫后重跑出数 |
+| 13 | §9.7 里有**硬编码数字** | 全部改为**从产物 JSON 现算** |
+| 14 | **证据缺口**：8 序 Δ 扫描的 CFG 共享性无自证 | 新增 `check_sweep_cfg_shared.py` + `cfg_shared_8seq.json`（见 37.15.5） |
+
+#### 37.15.3 修掉的 3 个**真 bug**（都不是文风问题，是会算错/读不出的问题）
+
+| # | 位置 | bug | 修法 |
+|:--|:--|:--|:--|
+| 1 | `make_fov_gate_report.py` | margin 表格按**路径字典序**排 ⇒ **m=12 排到 m=4 前面** | 改为按 **m 的数值序**排（`key=lambda p: int(p.name[len("fov__m"):])`） |
+| 2 | `summarize_nogmc24_results.py` §0.5 | 守卫写成 `if "rc2" not in products`，而 `products` 的键是 **`(model, delta)` 元组** ⇒ **恒为真** ⇒ **产物级自证从未产出过** | 守卫改对；重跑后 §0.5 真的出数（见 37.15.4） |
+| 3 | `make_report_table.py` | 新增口径那行用了 `args`，但函数作用域内**没有这个变量** ⇒ 一跑就 **NameError** | 改用模块级 `LATENCY_MS`（`global LATENCY_MS`） |
+
+> ⚠️ **本轮教训**：跑报告生成器**必须检查退出码**（`echo rc=$?`），**不要用 `2>&1` 把错误吞掉** ——
+> 曾因 SyntaxError 而读到**上一次的陈旧输出**，差点把旧数字当新结果写进报告。
+
+#### 37.15.4 §0.5 修好后真的出数了（24 序 · 4 个 Δ 全通过）
+
+**命令**（服务器，2026-11-04 21:05 与 21:19 各跑一次，rc=0）：
+```bash
+cd /tmp/pycharm_project_10ae9e2e && export PYTHONPATH=.
+/home/huangzhe/anaconda3/envs/uav/bin/python \
+  manu/tracking/lookahead/server_overnight/summarize_nogmc24_results.py \
+  --root-24 runs/lookahead/fi_nogmc24 \
+  --out-md runs/lookahead/fi_nogmc24/summary.md \
+  --out-json runs/lookahead/fi_nogmc24/summary.json \
+  --out-memory manu/memory/lookahead_nogmc24_results_20261104.md
+```
+**产物**：`runs/lookahead/fi_nogmc24/summary.md` + `summary.json`（21:19）、`runs/lookahead/fi_nogmc24/_facts/summary_24seq.md` + `.json`（21:05）、`manu/memory/lookahead_nogmc24_results_20261104.md`
+
+| Δ | rc2 GT总数 | cs GT总数 | GT 相同 | 逐序列 GT 相同 | 序列集合相同 | rc2 FAR 分母(帧) | cs FAR 分母(帧) | 分母相同 | 判定 |
+|--:|--:|--:|:--:|:--:|:--:|--:|--:|:--:|:--:|
+| 2 | 133257 | 133257 | ✅ | ✅ | ✅ | 165223.0 | 165223.0 | ✅ | **✅ 通过** |
+| 3 | 133257 | 133257 | ✅ | ✅ | ✅ | 165223.0 | 165223.0 | ✅ | **✅ 通过** |
+| 4 | 133257 | 133257 | ✅ | ✅ | ✅ | 165223.0 | 165223.0 | ✅ | **✅ 通过** |
+| 8 | 133257 | 133257 | ✅ | ✅ | ✅ | 165223.0 | 165223.0 | ✅ | **✅ 通过** |
+
+> **总判定：✅ 两个模型包评的是同一批帧（GT 总数 / 逐序列 GT / 序列集合 / FAR 分母全部逐位一致）⇒ 唯一变量确实只有 {模型包, Δ}。**
+
+#### 37.15.5 ⭐ 新增证据：8 序 Δ 扫描的 **CFG 共享性自证**（补 reviewer 指出的证据缺口）
+
+**命令**（服务器，2026-11-04 21:07）：
+```bash
+cd /tmp/pycharm_project_10ae9e2e && export PYTHONPATH=.
+/home/huangzhe/anaconda3/envs/uav/bin/python \
+  manu/tracking/lookahead/server_overnight/check_sweep_cfg_shared.py
+```
+**产物**：`runs/lookahead/fi_nogmc/cfg_shared_8seq.json`（md5 见交付清单）
+
+| 项 | 值 |
+|:--|:--|
+| 判定 | **SHARED**（`issues` = 空） |
+| `cfg_echo_count` | **1**（`$CFG` 在脚本里只声明一次，回显一次） |
+| `cfg_declared_len` / `cfg_actual_len` | **563 / 563**（声明长度与实际回显长度一致 ⇒ 没被截断） |
+| `cfg_token_pair_count` | **22** 个旗标值对 |
+| `run_count` | **12** 次运行（3 模型 × Δ∈{2,3,4,8}）**全部在该次回显之后**，且脚本复用**同一个 `$CFG` 变量** |
+| 与 24 序对照 | `runs/lookahead/nogmc24_cfg_identical.json` 的 **563 / 22** **逐位相同** ⇒ 两轮扫描口径一致 |
+
+#### 37.15.6 顺带修掉的 8 处 **memory 数字笔误**（用脚本逐表对 `arms.json` 核出来的）
+
+| 位置（原行号，写入前） | 错 | 正 |
+|:--|:--|:--|
+| `lookahead_extrapolator_20261102.md` 5267 | gated **132** | gated **130** |
+| 同上 5268 | gated **140** | gated **204** |
+| 同上 5315 | TP **122286** | TP **122215** |
+| 同上 5316 | TP **122240** | TP **122109** |
+| 同上 5326 | TP **123610** | TP **123540** |
+| 同上 5385 | TP **121950** | TP **121927** |
+| 同上 5387 | TP **121869** | TP **121837** |
+| 同上 5532 | Recall **91.4300** | Recall **91.4301**（并把 TP 改成 **121837**） |
+
+另修正正文矛盾 4 处：`m=12 起 F1 转负` → **m=16 起**；`ΔF1 +0.1441pp` → **+0.1496**；`FAR −0.002759` → **−0.002862**；`FP 215→135` → **132**；
+以及 §37.6.2 里「24 序 m=12 同样转负」的表述 ⇒ 改成 **8 序 no-GMC 要 m=16 才转负、8 序 rc2 m=8 就转负 ⇒ 转负拐点也不可外推**。
+主档 `manu/memory/memory.md` §39.3 表**新增 m=12 列** ＋ 补全 rc2 的 m=8/m=12 ＋ 新增「8 序 rc2 ΔF1」行；
+§39.3 结论与 §39 速览③ 的「完全一致」表述已改为「**甜点区一致，幅度与拐点不可外推**」。
+
+### 37.15.7 ⭐⭐ 第二轮**独立数字溯源审计** —— 派独立 reviewer 只读产物 JSON 重算：`0 BLOCKING / 4 IMPORTANT / 3 NIT`，**全部已修**
+
+> **做法**：派独立 reviewer 子代理，**只读** `arms.json` / `audit.json` / `gateA*.json` / `nogmc24_byte_equal.json`，
+> **独立重算**（不跑生成器、不重跑任何评估），把两份报告里**每个数字**回指到产物。
+> **审计文件**：`runs/lookahead/fi_nogmc/_audit_round2_report_numbers.md`（唯一新建文件）
+> **时间戳**：2026-11-04 21:29–21:38
+
+**总判定：`0 BLOCKING / 4 IMPORTANT / 3 NIT`**
+—— 两份报告的 **3,985 条指标断言全部在产物里逐位吻合**；四条口径铁律全部守住
+（没把 `original` 当基线 / 没混用 CLE 池化与逐序最差 / 没用 8 序否证 24 序 / **24 序唯一破 FAR 红线行
+`cs_t0043` Δ=8 FAR 0.031037 未被漏掉**）。
+
+**4 条 IMPORTANT（全部已修）**：
+
+| # | 问题 | 修法 |
+|:--|:--|:--|
+| I1 | `report.md` §7 表头写「**24 序 = 133,257 GT 帧 / 123,673 帧**（8 序的 **4.3 倍**）」——**帧数在产物里根本找不到**（真值 **165,223 帧**），倍数也错（真值 **4.90×(GT) / 5.70×(视频帧)**）。「123,673」全仓库只命中本行，JSON 里唯一的 `123673` 是 `cle_pooled_samples`，属数值巧合 | 改为**从产物现算**：帧数 = `fp / far_per_frame`（FAR 的隐含分母），GT = `per_sequence.*.gt` 逐序求和；表头改成「24 序 = 133,257 GT 帧 / 165,223 视频帧（8 序 27,173 GT / 28,997 帧的 **4.90×（GT）/ 5.70×（视频帧）**）」 |
+| I2 | §7.X 表头印「区间 [×1.92, ×3.01] 内？」，但生成器用了**未披露的 ±0.05 容差** ⇒ 有 1 行的判定与读者按字面复算**相反**（实测 ×3.0567 落在区间外却标 ✅） | 容差提为常量 `FAR_SCALE_TOL = 0.05` 并**写进表头**；判定与表头口径一致 |
+| I3 | §7.X 的 ✅ 谓词是「**放大倍数**在区间内」，但表头与结尾句把它绑到「**能否过线**」——**全报告唯一一条 24 序 `replay` 破线行恰好带 ✅**（`cs_t0043` Δ=8，FAR 0.031037） | §7.X **增一列「24 序该行 FAR 是否过 0.030 红线」**；结论句改成「区间内 ⇒ **放大倍数**可用区间上界保守外推（只会高估 FAR，不会低估）；**过线与否一律以 §7 实测列为准**」；小节标题去掉误导性的「✅」 |
+| I4 | 交付选型点名 `cs_t0043`（依据 8 序），但**报告自定的权威集显示它的 FAR 比 `rc2` 更差**（+0.0012，方向与 8 序相反）却没收口 | 交付建议后**加一条「按 24 序权威口径收口」**段：F1/hit@5px/CLE p95 三项 no-GMC 占优、FAR 劣 0.001162 是唯一落后维度，**若 FAR 余量优先则改选 `rc2`** |
+
+**3 条 NIT（全部已修）**：
+
+| # | 问题 | 修法 |
+|:--|:--|:--|
+| N1 | Gate A 结论句是生成器里的**硬编码模板**（「各 8/8 …全部相同」）——`gateA.json` 若重跑成 7/8，报告仍原样印 8/8 | 改为从 `gateA.json` / `gateA24.json` 的 **`conclusion_lines`** 字段渲染 |
+| N2 | house-style 全文**没有 FAR 红线汇总** ⇒ 24 序唯一破线行（Δ=8 / 0.031037）在该文档里完全看不到 | house-style 口径声明**新增一条从产物现算的 FAR 红线核对**（本表 `replay` 臂 FAR 最大值 + 是否过线）+ 跨 Δ 指针（其它 Δ 以 `report.md` §7 / `FINAL_REPORT.md` §7·§11 为准） |
+| N3 | 「20.39%」「38.77%」「28,997」为硬编码字面量（当前全对，但会静默过期） | `report.md` 全部改成从产物现算（新增 `video_frames()` = `fp / far_per_frame`、`gt_total()` 两个辅助函数）；house-style 改成**从本表产物现算**的 GT 集中度（同一 GT 集只印一次） |
+
+### 37.13 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37 ⭐⭐⭐ 2026-11-04 夜 2：24 序官方口径全量落定 ＋ 新机理「出框门」＋ 工作点审计 ＋ LOSO 噪声标尺 | lookahead_extrapolator_20261102.md | 5096 |
+| 三十七 | 专题档 §37.15 ⭐⭐⭐ 本轮报告自审与修复（2 BLOCKING + 14 项全修）＋ 3 个真 bug ＋ 8 处 memory 笔误 ＋ 8 序 CFG 共享性自证 | lookahead_extrapolator_20261102.md | 5622 |
+
+### 37.16 ⭐⭐⭐ 2026-11-04 夜 3 收尾：**交付包装配落位 ＋ 覆盖率硬编码残留清除 ＋ 52 项硬数字独立复核**
+
+> **执行机**：服务器 `test-Super-Server`（项目根 `/tmp/pycharm_project_10ae9e2e`）
+> **时间戳**：2026-11-04 21:50–22:05
+> **性质**：**收尾/交付固化**，不改任何指标结论、不重跑任何评估。
+
+#### 37.16.1 交付包装配（`runs/lookahead/final/nogmc_fi_20261104/`）
+
+- **打包脚本**：`manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh`（md5 `2a43b7b698b8cec5b45f0ccf5086d54b`，本轮新建）
+- **命令**：`cd /tmp/pycharm_project_10ae9e2e && bash manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh`
+- **产物**：`runs/lookahead/final/nogmc_fi_20261104/` —— **45 个文件**（含 `MD5SUMS.txt` 本身），**缺失源文件数 = 0**
+- **内容**：三份权威报告（`FINAL_REPORT.md` / `report.md` / `report_house_style.md`）+ 24 序 house-style 四档（d2/d3/d4/d8）
+  + `summary_24seq.{md,json}` + **6 份出框门受控 A/B 报告**（8 序 cs / 24 序 rc2 d3 / 24 序 cs d3 / d2 / d8 / 24 序 rc2 d8）
+  + Gate A（8 序 / 24 序）+ `nogmc24_byte_equal` + `nogmc24_cfg_identical` + `cfg_shared_8seq` + `ruler1_gate_check`
+  + 工作点审计（md + json）+ OSD 三臂（md + json）+ 第一轮独立审计 md + **10 个生成器/扫描脚本源码**（`code/`）
+- **完整性自证**：`cd runs/lookahead/final/nogmc_fi_20261104 && md5sum -c MD5SUMS.txt` ⇒ **44/44 OK，失败 0 条**
+
+#### 37.16.2 N1 残留修复：`make_fastinfer_final_report.py` 的覆盖率/规模硬编码改为**从产物现算**
+
+- **问题**（第一轮审计 N3 只改了 `make_report_table.py` / `make_fov_gate_report.py`，**漏掉权威交付件生成器** `make_fastinfer_final_report.py`）：
+  4 处硬编码 `20.39% GT / 17.55% 帧`（§0 口径表、§4 工作点口径范围、§4 结论、§7 红线汇总抬头）+ §1 规模表硬编码 `28,997 帧 / GT 27,173 帧` 与 `165,223 帧`。
+  当前值**恰好正确**，但会随产物变化**静默过期** ⇒ 与 §37.15.7 N3 同类问题，只是漏改。
+- **修法**（与 `make_fastinfer_nogmc_report.py` 同源思路，**不引入新口径**）：
+  - 新增两个辅助函数 `gt_total(doc, arm="replay")`（`current_frame.per_sequence.*.gt` 逐序求和）与
+    `video_frames(doc, arm="replay")`（`fp / far_per_frame` = FAR 的隐含分母 = 视频总帧数）；
+  - `main()` 里一次性算 `_frames8 / _gt8 / _frames24 / _gt24 / _cover_gt_txt / _cover_frame_txt / _scale8_txt / _scale24_txt`；
+  - 5 处文案改成插值；**顺带把 §1 的 24 序规模行补上 GT 133,257 帧**（原来只写帧数）。
+- **回归验证**：`diff` 新旧 `FINAL_REPORT.md` ⇒ **只有 1 行变化**（§1 规模表补 `GT 133,257 帧`）；
+  其余 4 处覆盖率现算值 = `20.39142%` / `17.55022%` ⇒ **与原硬编码逐位一致**，证明原值正确、且今后不再写死。
+- **新 md5**：`make_fastinfer_final_report.py` = **`5579a5a928c0965e433fd744be8b9074`**（改前 `35db033a8eb9b034b79782ef9db99458`）
+  ⚠️ `manu/memory/lookahead_nogmc24_overnight_20261104.md:331` 记录的是**更早一版**的 md5，本条为准。
+
+#### 37.16.3 独立数字复核（**52 项硬数字，回指原始 `arms.json` 逐位核对，0 FAIL**）
+
+- **做法**：主代理另写一次性脚本 `/tmp/verify_final.py`，**只读**原始产物（`runs/lookahead/fi_nogmc24/*/d*/arms.json`、
+  `runs/lookahead/fi_nogmc/*/d*/arms.json`、`runs/lookahead/fovgate24nogmc_d2/`、`runs/lookahead/fovgate24rc2_d8/`），
+  **独立重算** F1/FAR/hit@5px/CLE p95 与规模，**不跑生成器**。
+- **结果**：**52/52 OK，FAIL = 0**。覆盖：
+  24 序 cs_t0043 与 rc2 × Δ∈{2,3,4,8} 的 replay F1/FAR/hit/CLE；24 序 stale FAR（**cs_t0043 0.041187/0.059277/0.079589/0.159227**
+  与 rc2 0.039898/0.057286/0.077229/0.155917 **分列**）；24 序 Δ=3 跨模型包差值（F1 +0.5537pp / hit +2.8892pp /
+  CLE −1.6604px / FAR +0.001162）；出框门 m=6 两档（24 序 no-GMC Δ=2、24 序 rc2 Δ=8）；规模（GT 133,257 / 165,223 帧、
+  8 序 GT 27,173 / 28,997 帧、覆盖率 20.39% / 17.55%）。
+- **⚠️ 复核中发现的一处「假 FAIL」值得记一笔**：初次把 **cs_t0043 的 stale FAR 期望值错配到 rc2 产物**上（4 项 FAIL）。
+  报告本身**没错**（§2.1–§2.4 是 cs_t0043、§2.5–§2.8 是 rc2，两组数本就不同）。
+  ⇒ **教训**：跨模型包对照时，**期望值必须带模型包归属**，否则会把「模型包差异」误判成「报告数字错」。
+
+#### 37.16.4 校验与禁改清单终检（2026-11-04 21:50–22:05）
+
+| 项 | 命令 | 结果 |
+|:--|:--|:--|
+| 导航表 | `python3 manu/memory/validate_nav_table.py` | **128/128 PASS** ✅（§37.16 / §37.17 各新增 2 条导航行后；§37.16 落档前为 124/124） |
+| 单测 | `PYTHONPATH=. python -m unittest discover -s manu/tracking/tests -t .` | **162 tests OK（skipped=10）** ✅（基线 156→162，因本轮新增测试） |
+| 交付包 md5 | `cd runs/lookahead/final/nogmc_fi_20261104 && md5sum -c MD5SUMS.txt` | **44/44 OK，FAIL 0** ✅ |
+| 报告卫生 | `grep -nE '(nan|NaN|None)' FINAL_REPORT.md` | **0 命中** ✅ |
+| 章节编号 | `grep -nE '^#{2,3} ' FINAL_REPORT.md` | **§0–§12 连续，无重号、无跳号** ✅ |
+
+**禁改清单终检（mtime 全部早于本会话 ⇒ 未被碰）**：
+
+| 文件 | mtime | 判据 |
+|:--|:--|:--|
+| `manu/evaluation/system_sota_longquan.py` | 2026-10-20 16:59 | ✅ 未改 |
+| `manu/evaluation/system_sota_longquan_trial0080_delivery_v3_params.json` | 2026-10-22 15:53 | ✅ 未改 |
+| `manu/data/build_full_median_dataset.py` | 2026-10-15 09:56 | ✅ 未改（冻结基线） |
+| `manu/tracking/lookahead/run_delivery.sh` | 2026-11-04 07:37 | ✅ 未改（本会话 18:00 后） |
+| `manu/evaluation/sweep_decision_k1.py` / `sweep_decision_layer.py` | 16:45 / 17:34 | ✅ **他人训练线，未动** |
+
+### 37.16 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.16 ⭐⭐⭐ 2026-11-04 夜 3 收尾：交付包装配落位（45→47 文件 / 0 MISS / md5 全 OK）＋ 覆盖率硬编码残留清除（现算）＋ 52 项硬数字独立复核 0 FAIL ＋ 导航 128/128・单测 162 OK | lookahead_extrapolator_20261102.md | 5764 |
+
+### 37.17 ⭐⭐⭐ 2026-11-04 夜 3：**第三轮独立审计（0 BLOCKING / 2 IMPORTANT / 7 NIT）⇒ 全部处理完毕** + 新增可复现的重生成脚本
+
+> **审计文件**：`runs/lookahead/fi_nogmc/_audit_round3_report_numbers.md`（第三轮唯一新建文件）
+> **审计快照**：2026-11-04 22:08:05 CST（报告定稿复核 22:10:40）· **执行机** `test-Super-Server`
+> **做法**：派独立 reviewer 子代理，**只读**产物 JSON（8 序 12 份 + 24 序 8 份 + 变体 2 份 + 出框门 30 份 +
+> 工作点审计 60 份 + Gate A / byte-equal / cfg-identical / ruler1 / knobscan + 打包 sidecar 16 份），
+> 独立重算并逐条回指；**未重跑任何训练/推理/评估**，被审产物零改动。
+> **总判定**：`0 BLOCKING / 2 IMPORTANT / 7 NIT`，**交付裁定不受影响**（推荐档三门实测仍全 PASS）。
+
+#### 37.17.1 2 条 IMPORTANT（**都改了**，改法统一是**改生成器**，绝不手改生成的 md）
+
+| # | 位置 | 问题 | 修法 |
+|:--|:--|:--|:--|
+| **I-1** | `FINAL_REPORT.md:706`（§12 交付裁定） | 「**Δ=3 的 FAR 余量最大、F1 最高**」被**本报告自己的 §2.9 / §10.5 表否证**：Δ=2 F1 **95.0554** > Δ=3 94.7861、FAR 余量 **0.005917** > **0.004477**；且 §9.6 已把 Δ=2 称作「甜点档」，却没解释为何仍推荐 Δ=3 ⇒ **结论句自相矛盾** | **推荐值不变（Δ=3），理由句改写为如实陈述**：Δ=3 = **本次指定的标称延时（120 ms）**；⚠️ 实测 **Δ=2（80 ms）各项全面优于 Δ=3**（F1 / FAR / hit@5px / CLE p95 四项数字全部现算）⇒ **真实延时若能压到 80 ms，应改选 Δ=2**。**教训：交付裁定不得把「用户指定的 Δ」写成「实测最优的 Δ」** |
+| **I-2** | `FINAL_REPORT.md:19`（§0 纪律 9） | 「四臂 **68** 字段逐位一致」的 "68" **无产物出处**（实测各臂叶子 502/590/590/710、合计 2392、去 `current_frame`+`servo` 后 210/298/298/418、`servo.overall` 25 键 —— **没有任何口径等于 68**）；断言主体「逐位一致」为真 | 改为**可复算口径**：「四臂**指标字段逐位一致**（唯一差异 = 新旋钮的元数据回显 `lookahead.replay_fov_margin_px` / `replay_abstain_*` / `stream_stats.overall.fov_gated`；已实测 m=0）」—— 现场核对确认 m=0 与基线的四臂**逐臂仅差 1 个元数据字段**（+ `elapsed_seconds`），指标字段全等 |
+
+#### 37.17.2 7 条 NIT（5 条改、1 条登记不改、1 条属产物缺陷）
+
+| # | 位置 | 处置 |
+|:--|:--|:--|
+| **N-1** | 报告生成器里的硬编码数字清单 | **部分修复**：可算的（§9.8 的 FAR 相对/绝对变化、§11 的 0.031037 / 0.029608 / +0.0433pp、§12 的 rc2 Δ=8 FAR 与余量）**全部改为从产物现算**；`HIST_24` **保留为冻结的历史锚点**（它的作用正是「本轮是否复现历史数字」的回归基准，**不该变成现算值**），但把 §2.11 的「**逐位相同 ✅**」从写死断言改成**实算判定**（不一致时改印 ❌ + 「口径对齐验证失败」）；`make_fov_gate_report.py` 里**不可复算**的「58% 位移型 / 41% 幽灵型（实测）」**删除百分比**并显式标注「该归因未留可复算脚本 ⇒ 不复述其百分比」 |
+| **N-2** | `fovgate_24seq_rc2_d8.md:21` | **改**：交付三门列由 `**PASS**` 改成 `**PASS**（FAR 余量 0.000452）` ⇒ 读者不会把「PASS」误读为「安全」 |
+| **N-3** | `report.md:27`（§0.1 Q5） | **改**：区间原本是 **rc2 单包**却读起来像三包合并包络 ⇒ 改成「**三包合并包络**：replay **0.0142~0.0264** < 0.030；stale **0.0738~0.1180** ≫ 0.030（rc2 单包：replay 0.0168~0.0264 / stale 0.0738~0.1156）」，包络由产物现算 |
+| **N-4** | `FINAL_REPORT.md` §5b/§5c 跳号、`report.md` §7.X 伪编号 | **改**：§5b/§5c → **§5.1 / §5.2**；§7.X → **§7.9**（全文无交叉引用，改名零风险） |
+| **N-5** | `FINAL_REPORT.md:382`（§8 产物索引） | **改**：24 序产物补全为 `runs/lookahead/fi_nogmc24/{rc2,cs_t0043}/d{2,3,4,8}/arms.json`（**8 份**，原来只列 rc2，**漏掉交付推荐模型包 cs_t0043**） |
+| **N-6** | `summary_24seq.md` Q4 的 `183.32 / 61.78 ms` | **不改**：来自 `manu/memory/nogmc_rebuild_20261027.md`，报告**已显式标注来源与非实测性质** ⇒ 仅登记 |
+| **N-7** | 产物 `runs/lookahead/fi_nogmc24/cs_t0043/d8/arms.json` | **不改（属产物缺陷，非报告缺陷）**：20 份核心 `arms.json` 中**唯一一处字面 `NaN`**（`.arms.replay.stream_stats.per_sequence.VIDEO00005_…_002959.replay_xcorr_uniq2_sum`）⇒ ① 严格 JSON 解析器 / `jq` 解析不了该文件；② `NaN != NaN` 会让 JSON-diff 工具把「m=0 与基线」误报为不等（**实测这正是 `fovgate24nogmc_d8` 的唯一「差异」**）。被报告的所有指标**不受影响**。修法需动 `manu/evaluation/*` 的 JSON 序列化层（**铁律禁改**）⇒ **登记为已知缺陷**，明早回报 |
+
+#### 37.17.3 新增可复现脚本：`regen_reports_nogmc_fi.sh`（**13 份报告一条命令重生成**）
+
+- `manu/tracking/lookahead/server_overnight/regen_reports_nogmc_fi.sh`（md5 `bf8589953b333735d40b6a5e86312eb3`）
+- **纯读产物、不重跑任何评估**：1 份 FINAL_REPORT + 1 份 report + 5 份 house-style（8 序 Δ=3 + 24 序 Δ∈{2,3,4,8}）+ 6 份出框门报告 = **13 份**。
+- 本轮执行：**全部 rc=0**（`整体 rc_all=0`）。
+
+#### 37.17.4 修复后复核（全绿）
+
+| 项 | 结果 |
+|:--|:--|
+| 52 项硬数字独立复核（回指原始 `arms.json`） | **52/52 OK，FAIL 0** ✅ |
+| 14 份 md + 4 份 json 的 `nan/None/Infinity` 扫描 | **全部 0 命中** ✅ |
+| §2.11 口径对齐验证 | **四项全部「逐位相同 ✅」**（现在由实算判定得出，不再是写死的断言）✅ |
+| 交付包重打包 | **47 文件、缺失 0**；`md5sum -c MD5SUMS.txt` **46/46 OK** ✅ |
+| 章节编号 | `FINAL_REPORT.md` §0–§12 **无重号、无跳号**；`report.md` §7.1–§7.9 连续 ✅ |
+
+**本轮改动后的生成器 md5**（host 拉回时以本条为准）：
+`make_fastinfer_final_report.py` = `d730fc1a44bbbdc450e755f92e885562` ·
+`make_fastinfer_nogmc_report.py` = `f06274de08825acf202bbbbe9f98ebd7` ·
+`make_report_table.py` = `a53271d35872015e26b6baa774c0b777`（未动）·
+`make_fov_gate_report.py` = `3eefcbb6282e0b74462e7c920649d409` ·
+`pack_delivery_nogmc_fi.sh` = `94f91a1b94b2c994ca546d946a526877` ·
+`regen_reports_nogmc_fi.sh` = `bf8589953b333735d40b6a5e86312eb3`
+
+**报告 md5（定稿）**：`FINAL_REPORT.md` = `91ab9710044e080c8e95ce79af79095b` ·
+`report.md` = `66653d4f58ad1d186aee2e1beb28d7c4` ·
+`report_house_style.md` = `44c798bb6061f4343f71fa8cd1575bb5` ·
+`fi_nogmc24/report_house_style_d3.md` = `79db7809e614d6c87c23eb9fa6e2daba`
+
+### 37.17 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.17 ⭐⭐⭐ 第三轮独立审计 0 BLOCKING / 2 IMPORTANT / 7 NIT ⇒ 全部处理（§12 理由句改为如实陈述 Δ=2 更优、§0 纪律 9 去「68 字段」、5 条 NIT 修、产物 NaN 登记）＋ 新增 `regen_reports_nogmc_fi.sh` 13 份报告一条命令重生成 | lookahead_extrapolator_20261102.md | 5835 |
+
+### 37.18 ⭐⭐⭐ 2026-11-04 夜 4：**24 序 Δ=3 受控单旋钮 A/B 收官（37 作业点）＋ Δ 依赖性 ＋ 「惰性旋钮」统一机理（限幅截断率随 Δ 2.78× 增长）**
+
+- **执行机**：`test-Super-Server`（项目根 `/tmp/pycharm_project_10ae9e2e`）
+- **本节时间窗**：2026-11-04 22:24 → 2026-11-05 00:05（CST）
+- **口径**：24 序官方口径（165,223 帧 / 133,257 GT / 24 条序列）；基线 = **交付档 CFG + `--replay-fov-margin-px 6`**（= §12 交付推荐行）；每次只**替换一个旋钮**，其余一字不改
+- **新增/变更代码**（全在 `manu/tracking/lookahead/`，**未动** `manu/evaluation/*`、`manu/data/build_full_median_dataset.py`、`manu/tracking/lookahead/run_delivery.sh`）：
+  - **新增** `manu/tracking/lookahead/make_delta_dependence_report.py`（Δ 依赖性 + 惰性旋钮机理报告生成器，md5 见交付包 `code/`）
+  - **改** `manu/tracking/lookahead/make_fastinfer_final_report.py`：新增 §14（Δ 依赖性 + 惰性旋钮机理）
+  - **改** `manu/tracking/lookahead/server_overnight/regen_reports_nogmc_fi.sh`：13 → **15 份**报告一条命令重生成
+  - **改** `manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh`：交付包加 Δ 依赖性报告 + 新代码文件
+
+#### 37.18.1 Gap B 收官：24 序 Δ=3 受控单旋钮 A/B（**37 作业点，全部 rc=0**）
+
+- **命令**：
+  ```bash
+  cd /tmp/pycharm_project_10ae9e2e
+  OUT=runs/lookahead/fi_nogmc24/knobscan_d3 \
+  CACHE_CS=/mnt/data/siping/runs/nogmc_t3/swa/ms_cache_24seq \
+  REF_ARMS=runs/lookahead/fovgate24nogmc/runs/cs_t0043/d3/fov__m6/arms.json \
+  EXTRA_BASE_CFG="--replay-fov-margin-px 6" \
+  SPECS="--replay-roi-selfpred-max-px|8 …" \
+  JOBS=6 bash manu/tracking/lookahead/server_overnight/run_knob_scan_d3.sh p1
+  ```
+- **产物**：`runs/lookahead/fi_nogmc24/knobscan_d3/runs/cs_t0043/d3/p1__*/arms.json`（37 个）+ `manifest.tsv`（65 行，`rc!=0` **0 行**）
+- **硬门禁**：baseline 复现 vs 参考产物 `runs/lookahead/fovgate24nogmc/runs/cs_t0043/d3/fov__m6/arms.json` ⇒ **四臂 × 17 字段 = 68/68 逐位一致 ⇒ PASS**（扫描器零额外变量）
+- **尺子A（24 序 LOSO 噪声底噪）**：池化 F1 摆幅 **中位 0.1466 pp / 最大 1.9659 pp**；最重单序 `VIDEO00006_19700101_000322` 占 GT **12.11%**
+- **尺子B（配对符号检验）**：**唯一**「p<0.05 且四项池化指标全不劣」的作业点 = **`--output-max-step-px 48`**（p = **0.0215**，9 序变好 / 2 序变差）；但池化 ΔF1 仅 **+0.0192 pp < 尺子A 中位 0.1466 pp ⇒ 幅度在噪声内**
+  - 同族 `--output-max-step-px 64`：p = 0.0654（**不显著**）
+- **⇒ 交付裁定（本节）：交付档 CFG（`manu/tracking/lookahead/run_delivery.sh`）本轮不改。**
+- **逐旋钮最优（ΔF1 / ΔFAR / Δhit5 / ΔCLE95）**：
+
+| 旋钮 | 最优取值 | ΔF1(pp) | ΔFAR | Δhit5(pp) | ΔCLE95(px) | 噪声判读 |
+|:--|--:|--:|--:|--:|--:|:--|
+| `--replay-rollback-min-peak` | `0.70` | +0.1008 | +0.001210 | +0.1996 | +0.2146 | 噪声 |
+| `--replay-rollback-max-frames` | `32` | +0.0329 | +0.000036 | +0.0083 | +0.0755 | 噪声 |
+| `--replay-xcorr-radius` | `48` | +0.0224 | +0.000157 | +0.0600 | +0.0363 | 噪声 |
+| `--output-max-step-px` | `64` | +0.0222 | −0.000176 | +0.0570 | −0.0826 | 噪声 |
+| `--output-max-step-px` | `48` | +0.0192 | −0.000151 | +0.0510 | −0.0698 | 噪声 |
+| `--replay-xcorr-min-peak` | `0.15` | +0.0152 | −0.000079 | +0.0765 | −0.0536 | 噪声 |
+| `--replay-abstain-disp-px` | `32` | +0.0118 | +0.000133 | +0.0113 | +0.0364 | 噪声 |
+| `--replay-roi-selfpred-max-px` | `8` | +0.0101 | −0.000061 | +0.0128 | −0.0122 | 噪声 |
+| `--replay-xcorr-uniq-gate` | `0.7` | +0.0049 | −0.000048 | +0.0015 | −0.0026 | 噪声 |
+| `--replay-roi-selfpred-max-px` | `12` | +0.0046 | −0.000042 | +0.0038 | −0.0088 | 噪声 |
+| `--replay-roi-selfpred-max-px` | `24` | +0.0026 | −0.000030 | +0.0000 | −0.0040 | 噪声 |
+| `--replay-roi-selfpred-window` | `2` / `4` | **+0.0000** | 0 | 0.0000 | 0.0000 | **惰性旋钮（逐位一致）** |
+| `--replay-max-hold` | `2` / `4` / `12` / `16` | +0.0045 / 0 / 0 / 0 | — | — | — | **惰性旋钮**（`2` 有微变） |
+| `--replay-fallback` | `hold` / `stale` / `abstain` | **+0.0000** | 0 | 0.0000 | 0.0000 | **惰性旋钮（逐位一致）** |
+| `--replay-xcorr-th-k` | `1.2` | −0.0038 | +0.000212 | +0.1036 | −0.0422 | 噪声 |
+| `--replay-xcorr-min-peak` | `0.35` | −0.0097 | −0.000061 | −0.0803 | +0.0581 | 噪声 |
+| `--replay-xcorr-th-k` | `1.8` | −0.0150 | −0.000321 | −0.2274 | +0.2143 | 噪声 |
+| `--replay-xcorr-uniq-gate` | `0.5` | −0.0169 | +0.000121 | −0.0045 | +0.0224 | 噪声 |
+| `--replay-abstain-disp-px` | `16` | −0.0183 | −0.000139 | −0.0225 | −0.0305 | 噪声 |
+| `--replay-xcorr-radius` | `24` | −0.0479 | +0.000067 | −0.1441 | +0.1177 | 噪声 |
+| `--replay-abstain-peak-below` | `0.40` | −0.0542 | −0.000878 | −0.1291 | −0.1391 | 噪声 |
+| `--replay-xcorr-template` | `24` | −0.0616 | +0.001114 | −0.2694 | +0.6228 | 噪声 |
+| `--replay-xcorr-min-peak` | `0.50` | −0.0785 | +0.000387 | −0.5118 | +0.6051 | 噪声 |
+| `--replay-abstain-peak-below` | `0.50` | −0.1280 | −0.001864 | −0.2837 | −0.3333 | 噪声 |
+| `--replay-xcorr-template` | `48` | −0.1446 | +0.000345 | −0.0758 | −0.1427 | 噪声 |
+| `--output-max-step-px` | `16` | −0.2659 | +0.002100 | −0.4818 | +0.7601 | 噪声 |
+| `--replay-xcorr-radius` | `16` | −0.2971 | +0.001162 | −0.6536 | +0.6633 | 噪声 |
+| `--replay-xcorr-template` | `16` | −0.3548 | +0.003946 | −1.5399 | +3.2640 | 噪声 |
+
+- **残差分解（覆盖率 vs 定位精度，基线 Δ=3 m=6）**：
+
+| 臂 | applied | abstained | Recall% | hit@5px% | CLE p50 | CLE p95 | CLE p99 |
+|:--|--:|--:|--:|--:|--:|--:|--:|
+| `original`（oracle） | 128304 | 0 | 93.6724 | 89.1120 | 1.3532 | 5.4711 | 18.0768 |
+| `stale` | 128274 | 25845 | 88.9109 | 66.0243 | 2.6566 | 22.2907 | 65.4072 |
+| `kinematic` | 128274 | 25845 | 87.7485 | 68.2486 | 2.5840 | 26.6218 | 101.6278 |
+| **`replay`（基线）** | **128066** | 26053 | 92.8507 | 86.9718 | **1.4305** | **7.0663** | **45.4474** |
+
+  - **读数 1**：oracle 与 replay 上报帧数只差 **238 帧（0.19%）** ⇒ **覆盖率不是问题**
+  - **读数 2**：CLE **p50 只差 +0.0773 px**，但 **p95 差 +1.5952 px**、**p99 差 +27.3707 px** ⇒ 缺口是**少数帧的定位尾部**
+  - **读数 3**：`replay_xcorr_ambiguous` = **8,218 帧**（占上报帧 **6.42%**）⇒ 尾部住在「相关峰歧义帧」里
+  - **⇒ 含义**：**阈值类旋钮只能在「多报/少报」间滑动（帕累托前沿滑动），压不掉尾部**；要继续压只能从**配准本身**入手
+
+#### 37.18.2 ⭐ 本轮**新机理贡献**：「惰性旋钮」＋「限幅截断率随 Δ 增长」⇒ 统一解释「为什么小延时更好交付」
+
+**现象（Δ=3，37 作业点里 8 个）**：`--replay-fallback`（`hold`/`stale`/`abstain`）、`--replay-max-hold`（`4`/`12`/`16`）、`--replay-roi-selfpred-window`（`2`/`4`）这 8 个作业点**改了旋钮但输出与基线逐位一致**（四臂 × 10 字段严格相等）。
+⇒ 它们在 Δ=3 上是**惰性旋钮**。
+
+**机理（读代码 + 读产物 `stream_stats` 得出）**：
+- `--replay-fallback` 的生效条件是「replay 整段作废」⇒ 基线 Δ=3 的 `fallback_used = 0` / `replay_failed = 0` ⇒ **兜底分支根本没被走到** ⇒ 换任何兜底策略输出都一样
+- `--replay-max-hold` 的生效条件是「连续观测失效步数 > max_hold」；Δ=3 时链最多 3 步 ⇒ `max_hold ≥ 4` 永不触发（实测 `max_hold=2` 才触发：`fallback_used` 0 → **4,209**）
+- `--replay-roi-selfpred-window` 取「最近 N 步已接受步的中位数」；Δ=3 时链最多 3 步 ⇒ 窗口里最多 2 个元素 ⇒ `window ∈ {2,3,4}` 取到的集合**完全相同**
+- **⇒ 共同点：replay 链的总步数上限就是 Δ ⇒ Δ 越小 ⇒ 能被触发的机制越少 ⇒ 失效模式越少**
+
+**Δ=8 反证（可证伪的预测，已验证）**：
+- **命令**：
+  ```bash
+  cd /tmp/pycharm_project_10ae9e2e
+  OUT=runs/lookahead/fi_nogmc24/knobscan_d8dead \
+  CACHE_CS=/mnt/data/siping/runs/nogmc_t3/swa/ms_cache_24seq \
+  EXTRA_BASE_CFG="--replay-fov-margin-px 6" DELTA=8 \
+  EXTRA_SPECS="cs_t0043|8|d8__replay_fallback__hold|--replay-fallback=hold …" \
+  JOBS=3 bash manu/tracking/lookahead/server_overnight/run_knob_scan_d3.sh extra
+  ```
+- **产物**：`runs/lookahead/fi_nogmc24/knobscan_d8dead/runs/cs_t0043/d8/d8__*/arms.json`（6 个，全部 rc=0）
+- **结果**：Δ=3 上惰性的旋钮，**在 Δ=8 上 4 个「复活」**（不再逐位一致）：
+
+| 旋钮 | 取值 | Δ=3 惰性？ | Δ=8 F1% | Δ=8 ΔF1(pp) | Δ=8 ΔFAR | Δ=8 复活？ |
+|:--|--:|:--|--:|--:|--:|:--|
+| `--replay-fallback` | `hold` | **是** | 93.7438 | +0.0000 | +0.000000 | 仍惰性（Δ=8 只 1 帧走兜底） |
+| `--replay-fallback` | `stale` | **是** | 93.7442 | +0.0004 | −0.000006 | **复活** |
+| `--replay-max-hold` | `16` | **是** | 93.7428 | −0.0010 | +0.000024 | **复活** |
+| `--replay-roi-selfpred-window` | `2` | **是** | 93.7609 | +0.0171 | −0.000157 | **复活** |
+| `--replay-roi-selfpred-window` | `4` | **是** | 93.7268 | −0.0170 | +0.000121 | **复活** |
+| `--replay-max-hold` | `2` | 否 | 93.5128 | −0.2310 | +0.002923 | — |
+
+⇒ **机理成立**：惰性确实来自「**链长 ≤ Δ**」这个上限，**不是旋钮本身失效**。
+
+**⭐ 直接因果证据 —— 输出级限幅（`--output-max-step-px 30`）的截断率随 Δ 严格单调递增**：
+- **测法**：从产物 `preds/*.json` 的 `per_frame` 逐帧读同 track 相邻两次**上报**的位移，数「位移恰好 = 30 px」的比例（= 限幅咬住的次数）；**不重跑推理**
+- **结果**：
+
+| Δ | 限幅上限 | 相邻上报位移恰好=上限的次数 | 总数 | 截断率 | 实测最大位移 |
+|:--|--:|--:|--:|--:|--:|
+| 2 | 30 px | 604 | 127,597 | **0.473%** | 30.00 |
+| 3 | 30 px | 821 | 127,378 | **0.645%** | 30.00 |
+| 4 | 30 px | 1,035 | 127,152 | **0.814%** | 30.00 |
+| 8 | 30 px | 1,665 | 126,401 | **1.317%** | 30.00 |
+
+- **旁证**：放宽限幅后 `servo.max_jitter` 的上界**精确跟随限幅值**（48 → 96.00 px；64 → 128.00 px）⇒ 限幅确实是**输出位移的硬上界**
+- **⇒ 统一机理（把「精度随 Δ 单调」与「惰性旋钮」收成一句话）**：
+  **replay 链要补的滞后越大（Δ 越大），每帧必须合成的位移就越大 ⇒ 能咬住输出的机制就越多（限幅咬得更频繁、兜底/回退更容易触发）⇒ 失效模式随 Δ 增长 ⇒ 尾部误差随 Δ 增长。**
+  **「小延时更好交付」不是经验相关，而是有结构性原因。**
+
+#### 37.18.3 Δ 依赖性实测（`--output-max-step-px` 的效应量随 Δ 变大）
+
+| Δ | `48` 的 ΔF1(pp) | `64` 的 ΔF1(pp) | `48` 的 ΔFAR | `64` 的 ΔFAR | `48` 的 ΔCLE95(px) | `64` 的 ΔCLE95(px) |
+|:--|--:|--:|--:|--:|--:|--:|
+| 2 | +0.0199 | +0.0199 | −0.000157 | −0.000157 | −0.0521 | −0.0769 |
+| 3 | +0.0192 | +0.0222 | −0.000151 | −0.000176 | −0.0698 | −0.0826 |
+| 4 | +0.0207 | +0.0245 | −0.000163 | −0.000194 | −0.1207 | −0.1309 |
+| 8 | **+0.0423** | **+0.0615** | −0.000333 | −0.000484 | −0.3071 | −0.3987 |
+
+⇒ **放宽限幅的收益随 Δ 变大**（`64` 从 +0.0199 → +0.0615 pp，**3.1×**）⇒ 与 §37.18.2 的截断率曲线**同向且定量一致**。
+⇒ **交付含义**：Δ=3 上放宽限幅只有 +0.02 pp（噪声内）⇒ **交付档 CFG 不改**；但**若将来要支持 Δ=8，就必须放宽限幅**（否则限幅会持续截断尾部）。
+
+#### 37.18.4 rc2 跨模型包交叉验证（**同一旋钮在 GMC 语义上同号** ⇒ 通用机理，不是 cs_t0043 特有）
+
+- **命令**：
+  ```bash
+  cd /tmp/pycharm_project_10ae9e2e
+  OUT=runs/lookahead/fi_nogmc24/knobscan_rc2_d3 \
+  CACHE_RC2=runs/optuna_mix_ratio/trials/trial_0080/lq_eval_fpv8/ms_cache \
+  REF_ARMS=runs/lookahead/fovgate24/runs/rc2/d3/fov__m6/arms.json \
+  EXTRA_BASE_CFG="--replay-fov-margin-px 6" GATE_LIST="rc2|3" \
+  JOBS=3 bash manu/tracking/lookahead/server_overnight/run_knob_scan_d3.sh gated
+  # 再 EXTRA_SPECS="rc2|3|p2__output_max_step_px__48|--output-max-step-px=48 …" … extra
+  ```
+- **rc2 baseline 门禁**：**四臂 × 17 字段 = 68/68 逐位一致 ⇒ PASS**
+- **结果**：
+
+| 旋钮 | 取值 | rc2 F1% | rc2 ΔF1(pp) | rc2 ΔFAR | rc2 Δhit5(pp) |
+|:--|--:|--:|--:|--:|--:|
+| `--output-max-step-px` | `48` | 94.2676 | **+0.0254** | −0.000200 | +0.0533 |
+| `--output-max-step-px` | `64` | 94.2707 | **+0.0285** | −0.000224 | +0.0630 |
+| `--replay-rollback-min-peak` | `0.70` | 94.3991 | **+0.1570** | +0.001350 | +0.2176 |
+| `--replay-rollback-min-peak` | `0.80` | 94.3579 | **+0.1157** | +0.000575 | +0.1298 |
+
+⇒ **符号与 cs_t0043 完全一致**（`output-max-step-px` 放宽 ⇒ F1↑/FAR↓/hit5↑；`rollback-min-peak` 放宽 ⇒ F1↑ 但 FAR 也↑）⇒ **通用机理**。
+
+#### 37.18.5 收尾校验（全部通过）
+
+| 项 | 命令 | 结果 |
+|:--|:--|:--|
+| 15 份报告重生成 | `bash manu/tracking/lookahead/server_overnight/regen_reports_nogmc_fi.sh` | **rc_all=0**（15 份全 OK） |
+| 交付包装配 | `bash manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh` | **56 文件 / MISSING=0** |
+| 校验和 | `cd runs/lookahead/final/nogmc_fi_20261104 && md5sum -c MD5SUMS.txt` | **55/55 OK** |
+| 硬数字独立复核 | `/home/huangzhe/anaconda3/envs/uav/bin/python /tmp/verify_final.py` | **79 项全 OK，FAIL=0** |
+| 导航表 | `python3 manu/memory/validate_nav_table.py` | **128/128 PASS** |
+| 单测 | `PYTHONPATH=. /home/huangzhe/anaconda3/envs/uav/bin/python -m unittest discover -s manu/tracking/tests -t .` | **162 OK / skipped 10**（与基线一致） |
+| 禁改清单 | `stat -c %y` | `manu/evaluation/system_sota_longquan.py` 2026-10-20 / `sweep_decision_k1.py` 11-04 16:45 / `sweep_decision_layer.py` 11-04 17:34 / `manu/data/build_full_median_dataset.py` 2026-10-15 / `run_delivery.sh` 11-04 07:37 —— **全部未动** |
+
+- **本轮产物清单**：
+  - `runs/lookahead/fi_nogmc24/knobscan_d3/`（Δ=2/3/4/8 旋钮扫描 + 门禁，manifest 65 行 rc!=0 **0**）
+  - `runs/lookahead/fi_nogmc24/knobscan_d8dead/`（Δ=8 惰性反证，6 个作业点）
+  - `runs/lookahead/fi_nogmc24/knobscan_rc2_d3/`（rc2 交叉验证，门禁 + 4 个作业点）
+  - `runs/lookahead/fi_nogmc24/delta_dep/report.md` + `report.json`（**新增：Δ 依赖性 + 惰性旋钮机理**）
+  - `runs/lookahead/fi_nogmc24/knobscan_d3/report.md` + `report.json`（37 作业点）
+  - `runs/lookahead/fi_nogmc/FINAL_REPORT.md` **§14**（新增）
+  - `runs/lookahead/final/nogmc_fi_20261104/`（交付包 56 文件）
+
+### 37.18 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.18 ⭐⭐⭐ 2026-11-04 夜 4：24 序 Δ=3 受控单旋钮 A/B 收官（37 作业点）＋ Δ 依赖性 ＋「惰性旋钮」统一机理（限幅截断率随 Δ 2.78× 增长） | lookahead_extrapolator_20261102.md | 5897 |
+
+### 37.19 ⭐⭐⭐ 2026-11-05 夜 5：**第四轮独立审计（0 BLOCKING / 2 IMPORTANT / 3 NIT）⇒ 全部处理 ＋ 交付包自包含 ＋ regen 依赖顺序缺陷自修**
+
+- **执行机**：`test-Super-Server`（项目根 `/tmp/pycharm_project_10ae9e2e`）
+- **本节时间窗**：2026-11-05 00:00 → 00:35（CST）
+- **口径**：**不改任何指标结论**（交付裁定 = `cs_t0043` + Δ=3 + `replay` + 出框门 m=6 ⇒ 三门 PASS）；本节全部是**口径卫生 + 交付固化**。
+
+#### 37.19.1 第四轮独立审计：范围与方法
+
+- **审计文件**：`runs/lookahead/fi_nogmc/_audit_round4_report_numbers.md`（227 行 / 35,081 B）。
+- **执行者**：独立第三方（`reviewer` 角色）· **只读审计**：未修改任何被审对象、未重跑任何训练/推理/评估、未重生成任何 `runs/lookahead/**` 产物。
+- **审计脚本**：全部放 `/tmp/audit4/`（未入库）；取数口径严格照抄：`arm["current_frame"]["overall"]` / `arm["servo"]["overall"]`，F1·R·P·hit5 ×100，CLE 用 `cle_pooled_*`（池化），FAR 直接用比例。
+- **四类检查**：① 硬数字独立重算（回指原始 `arms.json`）② 交付三门独立判定 ③ 内部自洽 / 口径一致性 ④ 交付包完整性（`MD5SUMS.txt` 覆盖 / `code/` md5 一致 / 报告内路径引用存在）。
+
+#### 37.19.2 硬数字独立重算：423 组断言 / 2,882 个独立数值 / **不一致 0 处**
+
+- 覆盖：24 序 `cs_t0043` + `rc2` 的 Δ=2/3/4/8 四臂 F1/R/P/FAR/hit5/CLE；Δ=3 出框门 m=0/4/6/8；8 序三模型包四臂；旋钮扫描 §4.1/§4.2；§13 符号检验；§14 Q1 + 限幅截断率；§2.12 p3knobs；7 份 fovgate（33 行）；house-style ×5；`summary_24seq`；`workpoint_audit` 表 C。
+- **交付三门独立判定**：`cs_t0043` Δ=3 m=6 ⇒ **F1 94.809355% / Recall 92.850657% / FAR 0.024336805 ⇒ PASS**，与 `FINAL_REPORT.md:723` 一致；m=0/4/8 及 Δ=2/4/6 全 PASS，Δ=8 裸配置 FAIL、m=4 FAIL、m=6 PASS ⇒ **「裸配置 Δ≤4 / 开门后 Δ≤8」窗口结论复算一致**。
+- **交付包完整性**：`MD5SUMS.txt` **55/55** 覆盖且全 OK；`code/` **14/14** 与工作区 md5 一致；12 份 `.md` 内 **139 个**唯一路径引用全部存在。
+- **总判定**：`0 BLOCKING / 2 IMPORTANT / 3 NIT` ⇒ **交付裁定不受影响**。
+
+#### 37.19.3 5 条发现的逐条处置
+
+| # | 级别 | 问题 | 处置 |
+|:--|:--|:--|:--|
+| 1 | IMPORTANT | 「最重单序 `VIDEO00006_19700101_000322` 占 GT **12.11%**」**归因错误**：该序实占 **11.12%**（14821/133257），12.11% 属 `VIDEO00008_19700101_002001`（16142/133257）。根因：`loso_sensitivity()` 的 `worst_seq`（**剔除后 F1 摆幅最大者**）与 `max_gt_share`（**GT 占比最高者**）是**两条不同序列**，报告把它们配成了一对 | **已修**：owner `make_knob_scan_it2_report.py` 的 `loso_sensitivity()` 返回字典新增 `"max_gt_seq"`（= `max(gt_share, key=…)`）；24 序 `report.json` 的 `loso` 块新增 `"worst_gt_share"` / `"max_gt_seq"`；**4 处消费点**改为「点名的序列配它自己的占比」；`make_fastinfer_final_report.py` 读新键、**新键缺失时优雅回退**（旧 `report.json` 复跑不抛异常） |
+| 2 | IMPORTANT | `FINAL_REPORT.md` §6「推荐旋钮串」**仅凭 8 序 A/B**，未交叉引用同文档 §2.12 的 24 序复评（该变体在推荐 Δ=3 上 **F1 −0.0192 pp / Recall −0.1336 pp / hit@5px −0.1103 pp**，只有 FAR / CLE 变好 ⇒ 净收益为负）；§8 产物索引仍标「推荐旋钮串」 | **已修**：§6 加**如实提示**（数字沿用 §2.12 同产物同口径**现算**，含「变好/变差」判别 ⇒ 「F1 变差 ⇒ 净收益为负 ⇒ 交付档 CFG 本轮不改」，与 §13 结论一致）；§8 索引标签改为「24 序变体（8 序推荐旋钮串的官方口径复评，见 §2.12）」 |
+| 3 | NIT | `knobscan_24seq_d3.md` §4.1 同表「性质」列与 Δ 列**符号方向相反** | **已修**。⚠️ **审计原描述有误**：Δ 列本就**全部**是「变体 − 基线」（`dominates()` 里的 recall/hit5 也是）；真正反的是**「性质」列**（far/cle95 用了「基线 − 变体」）⇒ 改为 `dominates()` 里 far/cle95 统一成「变体 − 基线」；§4.1 判据块加**符号约定**说明段；列头改「性质（严格更优项）」。**支配判定 7/37 逐行不变**（改的是展示层符号，不是判定逻辑） |
+| 4 | NIT | 随包分发的第三轮审计快照仍含**已失效**的「Δ=4 未跑出框门扫描」脚注 | **不改快照正文**（点时快照，改它等于篡改历史）⇒ 加**前向注记**（2026-11-05 00:30）：该脚注已于 2026-11-04 22:50 前后失效、Δ=4 m=6 FAR = **0.025305**、以当前 `FINAL_REPORT.md` 为准 |
+| 5 | NIT | 交付包 `code/` **不自包含**：`make_knob_scan_24seq_report.py:29` 硬依赖的 `make_knob_scan_it2_report.py` 未打包（包内 import 直接 `ModuleNotFoundError`）；`workpoint_audit.md` 的生成器 `make_workpoint_audit.py` 既未打包也未进 regen | **已修**：pack 脚本补这 2 个生成器（`code/` 14 → **16**）；regen 脚本新增「6/6 工作点对齐审计」；已实测工作点审计**可完全复现**（仅时间戳/输出路径差异）⇒ 接进 regen；包内 **8 个生成器 import 冒烟全通** |
+
+#### 37.19.4 ⭐ 额外自查（审计没抓到）：`regen_reports_nogmc_fi.sh` 的**依赖顺序缺陷 ⇒ 静默回退**
+
+- **现象**：`final_report` 原本排在 `knob24` **之前** ⇒ `FINAL_REPORT.md` §13 要读的 `knobscan_d3/report.json` 是**上一轮**的 ⇒ 新键 `worst_gt_share` 不存在 ⇒ 生成器按设计**静默回退**到 `max_gt_share` ⇒ §13 又写回 12.11%，看起来像「缺陷 1 根本没修」。
+- **修法**：regen 脚本按**依赖顺序**重排为 **knob24 → delta_dep → 权威报告(final/nogmc) → house-style → 出框门 → 工作点**，并在脚本头加注释「**执行顺序即依赖顺序**」。
+- **教训（可推广）**：**静默回退是一类缺陷**——它让「修好了」与「看起来没修」无法区分。⇒ 任何带兜底分支的取数，都必须同时给出「兜底是否被走到」的**可见标记**，否则别依赖回退。
+- ⚠️ 同轮还修了一处**结构损坏**：做块搬移时把 `exit $rc_all` 留在了脚本头部（脚本会立刻空跑退出、只打印一行 `rc_all=0`）⇒ 已修复并加 `bash -n` 校验。**教训：脚本改完必须 `bash -n` + 完整跑一遍看真实输出行数，不能只看 rc。**
+
+#### 37.19.5 单测偶发失败的**真实**定性：**p50 阈值随共享机负载漂移**（不是回归）⇒ 已重标定
+
+- **现象**：2026-11-05 00:32–00:36，全量单测在 8 次运行里**出现 2 次** `FAILED (failures=1, skipped=10)`。
+- **失败用例**：`manu/tracking/tests/test_async_pipeline.py::AsyncPipelineLatencyTest::test_c2_servo_latency_median_is_well_inside_budget` —— 断言「快流单帧 p50 < **0.5 ms**」，实测 **0.5108 ms**（**只超 2.2%**）。
+- **不是回归（证据）**：`manu/tracking/async_dual_rate/*.py` 全部 mtime = **2026-11-02**（跟踪核一行未改）；本轮只动了**报告生成器 / memory / 脚本**，没碰任何运行时代码。
+- **真实根因**：该断言的 docstring 原写「**p50 在任何机器负载下都稳定在 0.16~0.25 ms**」—— 那是 **2026-11-02 在空闲机器**上量到的。**本机是共享的**（80 核、load ≈ 11，别人的 no-GMC 训练在跑）。2026-11-05 连续 **12 次**实测（`/tmp/measure_servo.py`）：
+
+| 量 | min | 中位 | max |
+|:--|--:|--:|--:|
+| p50 (ms) | 0.2777 | **0.3902** | **0.4633** |
+| p95 (ms) | 0.5663 | 0.6706 | 0.7179 |
+| p99 (ms) | 0.6510 | 0.7632 | 0.9388 |
+| max (ms) | 0.7638 | 1.0484 | **12.1162**（偶发尖峰） |
+
+- ⇒ 旧的 **0.5 ms** 门槛正好压在实测分布的**上沿**（只差 8%）⇒ **随机翻车**。
+  ⚠️ **订正**：先前一度判成「只在与报告重生成并发时翻」是**错的** —— **空闲机（load 11）也翻**；并发只是把概率推高。
+- **修法（改在 owner = 测试文件本身）**：p50 门槛 `0.5` → **`0.8 ms`**（仍在 1 ms 的 Time-to-Servo 判据内，对实测分布留 **~1.7×** 余量）；docstring 改为**实测口径**（带日期、实测区间、共享机前提、「跟踪核代码未改」的证据），并把失效的「0.16~0.25 ms」断言替换掉；`p95 < 2.0` 保持不变。
+- **同类第二处**：压力类 `test_stress_keeps_servo_latency`（`manu/tracking/tests/test_async_pipeline.py:604`）**用同一条紧阈值**（同一个 `report.step_ms`、同样是 `p50 < 0.5 ms`）⇒ **同源同抖**，一并重标定为 **0.8 ms** 并补注同源理由。`test_c3_detector_thread_does_not_block_fast_flow` 的 `contended["p50"] < idle["p50"] + 0.5` 是**相对**比较（余量 0.5 ms 叠加在 idle 之上），**不抖，未动**；`contended["p50"] < 1.0` 就是文档判据本身，余量充足，也未动。
+- **验证**：修后全量单测**连续 8 次全绿**（PASS=8 / FAIL=0），另 `test_async_pipeline` 单独连跑 3 次全绿。
+- **教训（可推广）**：**阈值必须相对实测分布留余量**；把「当时那台机器恰好量到的值」写死成门槛，在共享机上会退化成**随机门禁**（误报率比无门禁还坏）。⇒ 这类 docstring 里写下的实测数字**本身就是会过期的资产**，必须带日期与前提，否则下一个 agent 会照着一条已失效的「稳定在 0.16~0.25 ms」去判断。
+
+#### 37.19.6 收尾校验（全部通过）
+
+| 项 | 命令 | 结果 |
+|:--|:--|:--|
+| 17 份报告重生成 | `bash manu/tracking/lookahead/server_overnight/regen_reports_nogmc_fi.sh` | **rc_all=0**（17 份全 OK，按依赖顺序） |
+| 交付包装配 | `bash .../pack_delivery_nogmc_fi.sh` | **59 文件 / 缺失 0**（`code/` 16 个） |
+| 校验和 | `cd runs/lookahead/final/nogmc_fi_20261104 && md5sum -c MD5SUMS.txt` | **58/58 OK** |
+| 包内自包含 | `cd code/ && PYTHONPATH=. python -c "import …"` | **8/8 生成器 import 全通**（无 `ModuleNotFoundError`；`__pycache__` 已清） |
+| 硬数字复核 | `/home/huangzhe/anaconda3/envs/uav/bin/python /tmp/verify_final.py` | **79 项全 OK，FAIL=0** |
+| 导航表 | `python3 manu/memory/validate_nav_table.py` | **131/131 PASS** |
+| 单测 | `PYTHONPATH=. /home/.../uav/bin/python -m unittest discover -s manu/tracking/tests -t .` | **162 OK / skipped 10**；修完**两处** p50 阈值后**连续 8 次全绿**（PASS=8 / FAIL=0） |
+| 禁改清单 | `stat -c %y` | `manu/evaluation/system_sota_longquan.py` 2026-10-20 / `sweep_decision_k1.py` 11-04 16:45 / `sweep_decision_layer.py` 11-04 17:34 / `manu/data/build_full_median_dataset.py` 2026-10-15 / `run_delivery.sh` 11-04 07:37 —— **全部未动** |
+
+### 37.19 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.19 ⭐⭐⭐ 2026-11-05 夜 5：第四轮独立审计 0 BLOCKING / 2 IMPORTANT / 3 NIT ⇒ 全部处理 ＋ 交付包自包含 ＋ regen 依赖顺序缺陷自修 ＋ 单测负载敏感定性 | lookahead_extrapolator_20261102.md | 6086 |
+### 37.20 ⭐⭐⭐ 2026-11-05 夜 6：**交付包冷启动复现（抓到 3 个真缺陷）＋ 第五轮独立审计（0 BLOCKING / 4 IMPORTANT / 3 NIT）⇒ 全部处理 ＋ Δ=3 残余缺口帧级诊断 ＋ 新机理受控 A/B（13 变体全否决）＋ 权威报告新增 §15**
+
+- **执行机**：服务器 `test-Super-Server`；**项目根**：`/tmp/pycharm_project_10ae9e2e`；**时间**：2026-11-05 00:49 → 01:33 CST
+- **本节所有数字**的产物路径、命令与执行机均在各小节内逐条给出（铁律四/九）。
+- **本节不改变交付裁定**：交付推荐档 = `cs_t0043`（no-GMC）+ Δ=3(120 ms) + `replay` 臂 + `--replay-fov-margin-px 6`
+  ⇒ **F1 94.8094 / Recall 92.8507 / FAR 0.024337 / hit@5px 86.9718 / CLE p95(池) 7.0663 ⇒ PASS**（FAR 红线余量 **0.005663**）。
+
+#### 37.20.1 交付包**冷启动复现**（首次做）：抓到 3 个真缺陷，全部已修
+
+- **新增脚本**：`manu/tracking/lookahead/server_overnight/coldstart_verify_delivery.sh`（可复跑；`bash …/coldstart_verify_delivery.sh [PKG] [SANDBOX]`）
+- **报告**：`runs/lookahead/fi_nogmc/_coldstart_repro.md`；**沙箱**：`/tmp/coldstart_nogmc_fi`
+- **做法（隔离三要点）**：① 沙箱 `repo/` 下**只有** `runs/lookahead/**`（**符号链接**到只读原件，3.7 GB 不复制）、**故意不放** `manu/` 下任何脚本；② 交付包整包拷到沙箱 `pkg/`，regen 从**包内 `code/`** 自定位取生成器；③ 运行前后比对真仓同名报告 md5 ⇒ 判定是否泄漏（**零污染判据**）。
+- **归一化只抹两类差异**：时间戳 + 绝对路径前缀（仓根/包根/沙箱根 → `<ROOT>`）；**数字一律逐位比对，零数值容差**。
+
+| # | 缺陷 | 影响 | 处置 |
+|--:|:--|:--|:--|
+| 1 | `regen_reports_nogmc_fi.sh` 把「工作点对齐审计」排在**最后**，而 `FINAL_REPORT.md` §11 要读它 | 真冷启动时权威报告读到空文件 ⇒ 打印「⚠️ 未找到工作点审计产物，跳过本节」并把 `workpoint_audit=false` 写进 JSON ⇒ **静默降级**（不是报错，是**悄悄少一节**） | 工作点审计前移到权威报告**之前**（现为第 4/7 步） |
+| 2 | 同一脚本对权威报告的输入**没有硬门禁** | 任何输入缺失都变成「跳过本节」而不是失败 ⇒ 交付包可能**带着残缺报告**出厂 | 新增硬门禁：输入任一缺失/为空 ⇒ `[FATAL]` 退出（rc≠0）。**本轮起共 8 项**（`workpoint/audit.json`、`knobscan_d3/report.json`、`knobscan_p3b/report.json`、`gapdiag/gap_report.json`、`delta_dep/report.json`、`gateA/gateA.json`、`gateA24/gateA.json`、`nogmc24_byte_equal.json`） |
+| 3 | 交付包内 `code/regen_*.sh` **硬编码**仓根与 `manu/tracking/lookahead/` 路径 | 包内脚本**根本没法在包外跑** ⇒ 「自包含」是空话 | 脚本改为**自定位**：`CODE_DIR` = 仓内优先、否则脚本自身目录；`REPO`/`PY` 支持环境变量覆盖 |
+
+- **首次结果**：**29/29 报告逐位一致**、`regen rc_all=0`、**真仓 0 污染**。
+- **本轮（加 §15 后）复核**：**31/31 逐位一致**、0 差异、0 缺失、**真仓 0 污染**（见 §37.20.6）。
+
+#### 37.20.2 第五轮独立审计（新轴：**插件运行时 + 产物↔报告一致性**）：0 BLOCKING / 4 IMPORTANT / 3 NIT ⇒ 全部处理
+
+- **报告**：`runs/lookahead/fi_nogmc/_audit_round5_plugin_code.md`（**608 行**）
+- **审计范围与方法**：读插件运行时（`extrapolator.py` / `xcorr.py` / `lookahead_longquan.py`）＋ 逐个产物 JSON 与报告数字对账；**423 组断言 / 2,882 个独立数值**；**交付裁定逐位一致**（F1 94.8094 / FAR 0.024337 / hit@5px 86.9718 / CLE p95 7.0663）。
+- **裁定**：**交付裁定不受影响** —— 4 条 IMPORTANT 全部落在**产物卫生 / 报告口径自洽 / 验收不变量失效**上，**没有一条会让交付结论做反**。
+
+| # | 级别 | 缺陷 | 处置 |
+|--:|:--:|:--|:--|
+| A-1 | IMPORTANT | `NaN` 根因在 `manu/tracking/lookahead/xcorr.py:175` 的 `float("nan")` 哨兵，经 `extrapolator.py:300-301` **无防护累加**进产物 ⇒ **18 个** `arms.json` 含裸 `NaN`（**非法 JSON**） | **已修**：`np.isfinite` 守卫，只收有限值；**判定逻辑不变 ⇒ 零行为影响**。⚠️ 交接口述「修它需动 `manu/evaluation/*`」的判断**有误** —— `xcorr.py` 在 `lookahead/` 下，可改 |
+| A-2 | IMPORTANT | `applied` / `abstained` 在出框门**之前**结算（m=6 实有 `fov_gated=315` 帧）⇒ 产物帧数与实际交付流不符 | `make_delta_dependence_report.py` 加「**出框门剔除帧**」列 ＋ **门前/门后口径注记**（不改产物，只改读法） |
+| A-3 | IMPORTANT | 「replay 臂每帧只读一次」这条验收不变量，在交付档 CFG 下**不成立** —— `rollback` 把缓存窗口假设打破（窗口只有 Δ+2，rollback 实需 Δ+17） | **已根治**：`lookahead_longquan.py` 两处 `FrameSource` 容量改 `Δ + 2 + rollback_max_frames`（**不改任何指标**，只改 I/O 与那条说错的注释） |
+| B-1 | IMPORTANT | 交付推荐档**逐序列** FAR 破红线，报告里**完全没有出现**（只报了池化 FAR）；其中 `VIDEO00003_…_002111` 是**外挂引入**的（天花板 0.024895 → replay 0.045910） | `make_fastinfer_final_report.py` 新增 **§7.1 逐序列 FAR 破线专段** ＋ §10.6 逐序表补 `replay FAR/帧` 与 `天花板 original FAR/帧` 两列（带 ✗） |
+| B-2 | NIT | 交付包内 `report_house_style_24seq_d3.md` / `workpoint_audit.md` 的数字来自**裸配置（m=0）**，但两文档**零标注**出框门口径 | 两文档改为**从产物自动读** `replay_fov_margin_px`（`make_report_table.py` / `make_workpoint_audit.py`）⇒ 口径不可能再漏标 |
+| B-3 | IMPORTANT | **本夜自查新发现**：权威报告 §0.1「三个口径」表的**口径②/③** 用的是 24 序**裸配置（出框门 m=0）**产物（cs_t0043 replay F1 **94.7861** / FAR 0.025523），而 **§12 交付推荐档用 m=6**（F1 **94.8094** / FAR 0.024337）⇒ **同一句「24 序 Δ=3 replay F1」在两处是不同配置**，且原文**零标注** ⇒ 读者会读成「自相矛盾」 | 已在 §0.1 表后加**口径标注段**：口径②/③ 明确标「裸配置 m=0」（因为 §2.9 / §2.10 / §10.5 全部是 m=0 口径、要横向可比就不能混门），并指向 §9 出框门表做逐档对照。**只加标注，不改任何数字** |
+| A-4 | NIT | `replay_step_gate_px` 拒掉的步**仍然进了 `accepted_steps`**，与 `replay_step_rel_tol_px` 的「该步不入链」语义相反 | 登记**不改**（改语义会改行为 ⇒ 需全量重跑） |
+| A-5 | NIT | `xcorr_peak_last` 是**链级可变状态、在同帧不同检测之间共享** ⇒ 两个置信门可能读到**上一条检测**的峰 | 登记**不改**（`outcome` 与 `result` 是同一 dict ⇒ 改它会改行为、需全量重跑，超今夜预算） |
+
+- **审计明确「未发现问题」的检查项**（一并记档，避免重复劳动）：7 个旋钮阈值方向**全对**（逐个对照代码 + 实测方向）；**无臂间串扰**；**无 off-by-one**；CLE 口径**无未标注混用**（`cle_pooled_*` 池化 vs `servo.per_sequence.*.cle_p*` 逐序）。
+
+#### 37.20.3 Δ=3 残余缺口的**帧级诊断**：**81.8% 是 Δ-比例项**，不是常数项
+
+- **产物**：`runs/lookahead/fi_nogmc24/gapdiag/`（`gap_report.md` 424 行 + `gap_report.json` + 5 份中间诊断 JSON + 自有 `gapdiag_frames.py`）；**口径**：24 序官方口径 · no-GMC cs_t0043 · Δ=3(120 ms) · replay 臂 + 出框门 m=6，对照 `original` 臂（零延迟天花板）。
+- **生成命令**：`/home/huangzhe/anaconda3/envs/uav/bin/python runs/lookahead/fi_nogmc24/gapdiag/gapdiag_frames.py`（只做帧级统计，**不重跑任何推理**）；**执行机**：`test-Super-Server`；**时间**：2026-11-05 00:53。
+
+**缺口随 Δ 的线性拟合（缺口 = `original` − `replay`）**
+
+| 缺口项 | 线性拟合 | R² | Δ=3 处 Δ-比例项占比 |
+|:--|:--|--:|--:|
+| hit@5px | `0.351879 + 0.583807*Δ` | **0.9987** | **81.8%**（1.7514 / 2.1402 pp） |
+| FAR/帧 | `-1.657490 + 10.946141*Δ`（×10⁻⁴） | 0.9978 | 100.1% |
+| CLE p95(池) | `-0.255084 + 0.624608*Δ` | 0.9996 | 117.5% |
+
+⇒ **hit@5px 缺口 = 0.351879 + 0.583807·Δ（R²=0.9987）** ⇒ Δ=3 处缺口 2.1402 pp 中 **Δ-比例项占 81.8%**（= 0.583807×3 = 1.7514 pp）、**Δ-无关常数项只占 16.4%**（= 0.3519 pp）。
+⇒ **这条拟合给「37 个老旋钮全否决」提供的是「收益上界」解释（**不是**因果证明）**：Δ-无关常数项的**总大小只有 0.3519 pp** —— 比 24 序 LOSO **最大**单序列波动 **1.9659 pp** 小一个量级，只比**中位**波动 **0.1466 pp** 高约 **2.4×** ⇒ **任何只能在同一 Δ 上挪工作点的旋钮，收益上界就是这 0.3519 pp**；§13 实测的老旋钮效应量**全部落在噪声带内** ⇒ **「门槛类旋钮压不掉这个缺口」是被这条上界约束住的**。
+⚠️ **订正（第六轮审计抓到的表述错误，已修）**：初稿写的是「常数项 16.4% **在**噪声底噪 0.1466 pp **之下**」——**数值上假**（0.3519 pp 是噪声底的 2.4 倍），且把「上界」写成了「因果」。现表述已改为上界口径。
+
+**帧级归因（净缺口 2852 帧 = 2.1402 pp）**
+
+| 桶 | 帧数 | 含义 |
+|:--|--:|:--|
+| `A_detector_src_blind` | 449 | 检测器在源帧就看不到目标（外挂无能为力） |
+| `B_detector_src_mislocated` | 1215 | 检测器在源帧就定位错（外挂无能为力） |
+| `C_plugin_silent` | 282 | 外挂弃权（不输出） |
+| `D_plugin_misplaced` | **2412** | 外挂输出但位置错（**可动**） |
+| `edge_src_absent` / `edge_gt_absent` | 65 / 104 | 边界 |
+
+⇒ 检测器侧 **1664** 帧（**1.25 pp**，外挂补不回来）/ 外挂侧 **2694** 帧（**2.02 pp**）。
+⇒ **D 桶按真实位移再拆（这一层才分出「可修」与「物理上限」）**：≤5px **747** 帧 + 5–20px **1085** 帧 = **1832 帧 = 1.3748 pp of GT = 外挂侧可回收上限**（D 桶平均真实位移 **15.69 px**）；>20px **580** 帧 = **0.4352 pp = 物理不可达**（**线性外推的物理上限**，**不是**「检测器没定位对」——两者是**不同的桶**，不可混谈）。
+⚠️ **订正（第六轮审计抓到的归因错误，已修）**：初稿把 0.4352 pp 写成「源帧检测器就没定位对」⇒ **归因反了**。
+
+**失败形态**：CLE 尾部（`replay` − `original`）帧数差 = `<=5` **−2852** / `(5,10]` **+479** / `(10,20]` **+736** / `(20,40]` **+714** / `>40` **+411** ⇒ **横向反而比天花板少 2852 帧**，缺口全堆在 10px 以上三档 ⇒ 典型形态是「**沿轨欠冲/过冲**」（同一目标连续多帧单向偏离），**不是**每帧随机抖动（横向 |e| p50 ≤ 1.41 px）。
+
+**FAR 预算（物理下界）**
+
+| 项 | 值 |
+|:--|--:|
+| `original`（零延迟天花板）FP | **3479** ⇒ FAR **0.021056** |
+| `replay`（交付推荐行）FP | **4021** ⇒ FAR 0.024337 |
+| 外挂净增 FP | **+542**（+0.003280） |
+| FAR 地板 | **0.021056** |
+| Δ=2 已观测最好 FAR | **0.022660**（外挂净增 0.001604） |
+
+⇒ **「Δ=2 时把 FAR 压到 0.005 以下」= UNREACHABLE by any plugin mechanism at any Δ** —— 零延迟天花板自身 FAR 就是 0.021056（3479 FP），FAR 0.005 需总 FP ≤ 826，**比检测器自身的 FP 少 76%** ⇒ **这是物理下界，不是工程问题**，本夜起不再把 FAR 0.005 当目标。
+
+**打点**：`replay_xcorr_abstained` = **779**（弃权门几乎惰性）、`replay_rollback_abstained` = **3836**、`fallback_used` = **0**；外挂引入的 FP 集中在 `002001`(183) / `002111`(118) / `002959`(69)。
+
+#### 37.20.4 新机理受控 A/B：**13 个变体全部实跑，无一优于交付档**
+
+- **产物根**：`runs/lookahead/fi_nogmc24/knobscan_p3b/`（`manifest.tsv` + `progress.txt` + 13 个 `runs/cs_t0043/d3/<变体>/arms.json`）
+- **报告**：`runs/lookahead/fi_nogmc24/knobscan_p3b/report.md`（211 行）/ `report.json`；**生成命令**：
+  `/home/huangzhe/anaconda3/envs/uav/bin/python manu/tracking/lookahead/make_knob_scan_24seq_report.py --root runs/lookahead/fi_nogmc24/knobscan_p3b --ref-arms runs/lookahead/fovgate24nogmc/runs/cs_t0043/d3/fov__m6/arms.json --model cs_t0043 --target-delta 3 --out-md runs/lookahead/fi_nogmc24/knobscan_p3b/report.md --out-json runs/lookahead/fi_nogmc24/knobscan_p3b/report.json`
+- **口径**：24 序官方口径；基线 = 交付档 CFG + `--replay-fov-margin-px 6`；每次只**替换一个旋钮**、其余一字不改；**硬门禁 = 基线复现与参考产物四臂逐位一致 68/68 项（0 不一致）⇒ PASS**；噪声门槛 = 24 序 LOSO 池化 F1 摆幅 **中位 0.1466 pp / 最大 1.9659 pp**。
+- **基线（`replay`）**：F1 **94.8094** / FAR **0.024337** / hit@5px **86.9718** / CLE p95(池) **7.0663**。
+
+| 变体 | ΔF1(pp) | ΔFAR | Δhit5(pp) | 判定 |
+|:--|--:|--:|--:|:--|
+| `dispgain` 1.05 / 1.10 / 1.20 / 1.30 | −0.0087 / −0.0137 / −0.0232 / −0.0294 | ≈0（±0.0001） | −0.0098 / −0.0210 / −0.0345 / −0.0458 | **否决**（增益已生效但指标不动 ⇒ **欠冲不是位移尺度问题**） |
+| `peakonly` disp=0 + peak .30/.40/.60/.70 | −0.1158 / −0.7850 / −5.1007 / −9.1835 | −0.000841 / −0.002966 / −0.008104 / −0.010913 | −0.2161 / −1.4618 / −8.7973 / −15.2217 | **否决**（帕累托滑动；.60/.70 直接 FAIL） |
+| `disbonly` peak=.70/.99（disp 24） | −0.4942 / −1.8246 | −0.002445 / −0.000744 | −0.7819 / −2.6205 | **否决** |
+| `polarity=bright` | **−1.5528** | **+0.010404** | −2.4404 | **FAIL 破 FAR 红线** |
+| `anchor=kernel` / `kf` | −1.8880 / **−24.7829** | +0.015198 / **+0.193793** | −15.2607 / **−32.8350** | **FAIL 破 FAR 红线** |
+| `holdrobust` | — | — | — | **rc=2**（`--replay-hold-robust` 是 `store_true` 旗标，写成 `=1` 语法无效 ⇒ 本轮未测，**非结论**） |
+
+⇒ **帕累托支配基线的变体：0 / 13** ⇒ **交付档 CFG（`manu/tracking/lookahead/run_delivery.sh`）本轮不需要改**。
+⇒ **新机理 ① `--replay-disp-gain`（本轮新增旋钮，默认 1.0 = 逐位不变）**：4 个取值**全是负增益**且量级在噪声内（|ΔF1| ≤ 0.0294 pp ≪ 0.1466 pp）；**关键否证** = 增益**确实生效**（`replay` 上报帧数：基线 **128066** → 1.05 **128049** / 1.10 **128033** / 1.20 **128004** / 1.30 **127959**，**逐值可复现**）**但指标不动** ⇒ **「把外推位移乘一个系数」这一整族机理被否决**。
+⇒ **新机理 ②③④（已实测否决）**：纯峰值门（`--replay-abstain-disp-px=0` + `--replay-abstain-peak-below`）、`--replay-polarity=bright`、`--replay-anchor=kernel/kf` ⇒ 前者是**帕累托滑动**，后两者**直接破 FAR 红线**（0.034741 / 0.039534 / 0.218129）。
+
+#### 37.20.5 权威报告新增 **§15** ＋ 流水线接入（regen / pack / coldstart）
+
+- **§15 位置**：`manu/tracking/lookahead/make_fastinfer_final_report.py` ⇒ `runs/lookahead/fi_nogmc/FINAL_REPORT.md` 第 **859** 行起（§15 共 5 小节：15.1 缺口 Δ 依赖性 / 15.2 帧级归因 / 15.3 FAR 预算物理下界 / 15.4 新机理受控 A/B 全表 / 15.5 结论）；**源码**跨度 = 生成器 **1719–2132** 行（md5 `c095977205c82a9ebb678adf905428db`）⇒ ⚠️ 早前写的「第 857 行起 / 源码 1687–1960 行」是**第六轮审计修复前**的快照行号，已在 §37.20.9 订正（数字未变，位置已移）。
+- **全部数字从产物现算**（`gapdiag/gap_report.json` + `knobscan_p3b/report.json`），报告里**无手抄数字**；§15.1 的「Δ-比例项 / 常数项 / 占比」三列由拟合公式 `a + b*Δ` **现场解析求值**。
+- **`make_knob_scan_24seq_report.py` 新增 `variants` 数组**（13 变体全表，不只每旋钮最优）⇒ 下游报告可做完整受控 A/B 表。
+- **`regen_reports_nogmc_fi.sh`**：改为 **7 步**（新增第 2/7 步生成 `knobscan_p3b` 报告，权威报告在第 5/7 步 ⇒ 依赖顺序正确）；硬门禁 **8 项**。
+- **`pack_delivery_nogmc_fi.sh`**：新增 `knobscan_p3b_24seq.md/.json`、`gapdiag/`（证据链整包 9 个文件）、`_audit_round5_plugin_code.md`、`_coldstart_repro.md` ⇒ 包 **74 文件**（`code/` 17 个）。
+- **`coldstart_verify_delivery.sh`**：`GEN_PAIRS` 增加 `knobscan_p3b` 两份 ⇒ 重生成报告 **29 → 31** 份。
+
+#### 37.20.6 收尾校验（全部通过）
+
+| 项 | 命令 | 结果 |
+|:--|:--|:--|
+| 全部报告重生成 | `bash manu/tracking/lookahead/server_overnight/regen_reports_nogmc_fi.sh` | **rc_all=0**（7 步 / **32** 份产物全 OK）⚠️ 原记「17 份」是**误记**，2026-11-05 夜 7 按 mtime 逐文件重数订正 |
+| 交付包装配 | `bash …/pack_delivery_nogmc_fi.sh` | **74 文件 / 缺失 0**（`code/` 17 个） |
+| 校验和 | `cd runs/lookahead/final/nogmc_fi_20261104 && md5sum -c MD5SUMS.txt` | **73/73 OK** |
+| 包内自包含（冷启动） | `bash …/coldstart_verify_delivery.sh` | **31/31 逐位一致**、0 差异、0 缺失、**真仓 0 污染** |
+| 导航表 | `python3 manu/memory/validate_nav_table.py` | **133/133 PASS** |
+| 单测 | `PYTHONPATH=. /home/huangzhe/anaconda3/envs/uav/bin/python -m unittest discover -s manu/tracking/tests -t .` | **162 OK / skipped 10** |
+| 禁改清单 | `stat -c %y` | `manu/evaluation/system_sota_longquan.py` 2026-10-20 / `sweep_decision_k1.py` 11-04 16:45 / `sweep_decision_layer.py` 11-04 17:34 / `manu/data/build_full_median_dataset.py` 2026-10-15 / `run_delivery.sh` 11-04 07:37 —— **全部未动** |
+
+- **本轮新增/变更代码**（全在 `manu/tracking/lookahead/`）：**新增** `server_overnight/coldstart_verify_delivery.sh`；改 `make_fastinfer_final_report.py`（新增 §15）、`make_knob_scan_24seq_report.py`（新增 `variants` 全表）、`server_overnight/regen_reports_nogmc_fi.sh`（7 步 + 8 项硬门禁）、`server_overnight/pack_delivery_nogmc_fi.sh`（74 文件 + gapdiag 证据链 + 第六轮审计）、`server_overnight/coldstart_verify_delivery.sh`（GEN_PAIRS 31 份）。
+
+#### 37.20.7 本轮**新增**的已证伪 / 已否决方向（**不要再试**）
+
+1. **位移增益族**（`--replay-disp-gain` 任意取值）—— 已证伪：增益生效但指标不动 ⇒ 沿轨欠冲**不是位移尺度问题**。
+2. **纯峰值门**（`--replay-abstain-disp-px=0` + `--replay-abstain-peak-below` ∈ {0.30,0.40,0.60,0.70}）—— 帕累托滑动，peak ≥ 0.60 直接 FAIL。
+3. **位移单条件门**（`--replay-abstain-peak-below` ∈ {0.70,0.99}）—— 帕累托滑动。
+4. **`--replay-polarity=bright`** —— 破 FAR 红线（0.034741）。
+5. **`--replay-anchor=kernel` / `=kf`** —— 破 FAR 红线（0.039534 / 0.218129），且 hit@5px 塌陷 15.26 / 32.84 pp。
+6. **「Δ=2 时把 FAR 压到 0.005 以下」** —— **物理不可达**（天花板自身 FAR 0.021056）。
+7. **「靠调阈值类旋钮压掉 Δ=3 的 hit@5px 尾部」** —— **收益上界就是 Δ-无关常数项的 0.3519 pp**（比 LOSO 最大单序列波动 1.9659 pp 小一个量级）⇒ 即便做到最好也难测出来。
+8. **「把 >20px 那 580 帧当靶子」** —— **物理不可达**（线性外推的上限），**不是**可修的 bug ⇒ 算进靶子会把可回收量算错。
+
+#### 37.20.8 第六轮独立审计（专审 §15 新章节）：**0 BLOCKING / 5 IMPORTANT / 4 NIT** ⇒ 5 条 IMPORTANT 全部已修
+
+- **审计报告**：`runs/lookahead/fi_nogmc/_audit_round6_sec15.md`（**176 行**；原 148 行 + §37.20.9 补的「行号基准（修复后同步）」段）；**审计对象**：`make_fastinfer_final_report.py` 的 §15（**行号基准 = 修复前快照 1687–1960 行；修复后 §15 = 1719–2132 行**，逐点当前行号见该报告文末「行号基准（修复后同步）」表）；**方法**：**不采信报告代码的计算逻辑**，全部数字用**独立脚本**从 `knobscan_p3b/report.json` + `gapdiag/gap_report.json` + `fov__m6/arms.json` 重算后与渲染文本逐位比对。
+- **覆盖**：自动断言 **~360 项**（§15.1 19 项、§15.2 22 项、§15.3 9 项、§15.4 13 行×10 列 + 4 行子表 + 11 项散文、§15.5 4 条结论）＋ 单位/量纲 ＋ NaN/`—`/`None` 泄漏扫描。
+- **裁定**：**§15 全部数字与产物逐位一致（0 处数值不一致）**；单位也没错（`row.f1` 0.9480 正确渲染成 94.8006、`hit5` 0.8696 → 86.9718）；无 NaN/`—`/`None` 泄漏。
+  ⇒ **但 5 条 IMPORTANT 全是「数字对、结论错」** —— 这是**比数字错更隐蔽的一类缺陷**，已全部修：
+
+| # | 级别 | 缺陷 | 处置 |
+|--:|:--:|:--|:--|
+| C-1 | IMPORTANT | §15.2「物理不可达 0.4352 pp（源帧检测器就没定位对）」⇒ **归因反了**：产物 `gap_report.md:163` 写明 0.4352 pp = D 桶「真实位移 > 20px」580 帧，是**线性外推的物理上限**；检测器侧是 A+B = 1664 帧 = 1.25 pp | 已改：§15.2 增「**D 桶按真实位移再拆**」三行表（≤5px 747 / 5–20px 1085 / >20px 580，各自标「外挂侧可修」/「物理不可达」）＋ 明写「两者是不同的桶，不可混谈」 |
+| C-2 | IMPORTANT | §15.5 第 4 条靶子写成「1085 + 580」⇒ 用**物理不可达的 580** 替换掉了产物候选 1 的 **747（≤5px，真 bug，可修）**；与 §15.2 自相矛盾 | 已改：靶子改回 **747 + 1085 = 1832 帧 = 1.3748 pp**，并**直接引用产物 `candidates_ranked[0]`**（「Δ 窗口位移的加速度项（升阶运动模型）」，含 targets / expected_gain / risk / implementation 四段）；另**新增第 5 条**：不要打 >20px 那 580 帧 |
+| C-3 | IMPORTANT | 「常数项那 16.4% 在噪声底噪 0.1466 pp **之下**」⇒ **数值上假**（0.3519 pp 是噪声底的 **2.4 倍**），且 % 与 pp 直接比大小、还把「上界」写成了「因果」 | 已改：改为**上界口径** —— 「常数项总大小 0.3519 pp，比 LOSO **最大**波动 1.9659 pp 小一个量级 ⇒ 任何只能挪工作点的旋钮收益上界就是它；§13 实测效应量全落在噪声带内」；并**标注拟合残差 −1.72%**（拟合是 4 点趋势、非恒等式） |
+| C-4 | IMPORTANT | §15.1 FAR 行的公式列是 **×10⁻⁴ 量纲原式**，同行另两列已换算成真实 FAR ⇒ **表内量纲不一致且无标注** | 已改：公式列加「（原式量纲 ×10⁻⁴）」标注；「Δ-无关常数项占比」改为**常数项 ÷ 实测缺口**（0.3519/2.1402 = **16.4%**）而不是 `100 − 比例项`（18.2%，会把残差吞进常数项） |
+| C-5 | IMPORTANT | 「上报帧数 128066 → 128004」是**硬编码**且只对应 `dispgain__120`（1.05/1.10/1.30 分别是 128049/128033/127959）⇒ 表内无此列、**无法复现** | 已改：§15.4 主表**新增「上报帧数」列**（数据源 = 各变体 `arms.json` 的 `stream_stats.overall.applied`，新增 helper `_variant_applied()` 现读）⇒ 4 个取值与基线**逐值可复现** |
+
+- **4 条 NIT 的处置**：散文数字硬编码（含跨产物耦合的 0.1466）⇒ §15.1/§15.4 的噪声门槛改为**从 `knobscan_p3b/report.json` 现读**；缺 **−1675**（外挂反超 oracle 的帧）无法对账 ⇒ §15.2 补「原始缺口 4527 帧，外挂反超 oracle 的 1675 帧（净扣掉）⇒ 净缺口 2852 帧」；「外挂可动」口径窄于产物（1832 vs 2114 帧）⇒ §15.2 增「**三个『多少』的区分**」段（外挂侧总缺口 2694 / 可回收 1832 / 物理不可达 0.4352 pp / 检测器侧 1664）；拟合残差 1.8% 未标 ⇒ 已标注 −1.72%。
+- **教训（可推广）**：**「数字逐位一致」不等于「结论正确」** —— 独立审计若只做数值对账，**归因错误 / 量纲不一致 / 硬编码 / 表格缺列**这一类缺陷会**全部漏过**。⇒ 审计清单必须显式包含：**① 每个数字的「归属」是谁；② 同一张表内各列的量纲是否统一；③ 散文里每个数字能否在表里复现；④ 结论引用的靶子是否就是产物给出的靶子。**
+
+#### 37.20.9 **交付完成审计**（交宿主前全项复核，2026-11-05 01:38 → 01:45 CST）
+
+- **执行机**：服务器 `test-Super-Server`；**项目根**：`/tmp/pycharm_project_10ae9e2e`；**时间**：2026-11-05 01:38 → 01:45 CST
+- **性质**：**不新增任何指标数字**的**交付就绪性复核** —— 逐条确认本夜 6 节的**产物 / 代码 / 记忆 / 流水线**全部落盘且自洽，并确认**无残留后台进程、无真仓污染、禁改清单未被碰**。
+- **本轮抓到 2 个真缺陷（均已修，同一类："引用了会过期的位置/数量"）**：
+  - **缺陷 A —— 行号引用在修复后过期** —— 第六轮审计的 5 条 IMPORTANT 的**修复**把生成器 §15 源码整体下移，而**审计报告正文与本档 §37.20.5 / §37.20.8 里的行号是修复前的快照值**（报告「第 857 行起」实为 **859**；「源码 1687–1960」实为 **1719–2132**）⇒ **数字本身全对，但位置引用会指错**，与本项目「逐位可复现」的要求冲突。
+    - **处置**：① 审计报告加「**行号基准（修复后同步）**」段（当前 md5 `c095977205c82a9ebb678adf905428db` / §15 跨度 1719–2132 / 9 条发现逐点的**当前行号表** / 渲染行 859·863·886·927·945·984）；② 本档 §37.20.5、§37.20.8 与主档 §44.5、§44.7 的行号引用一并订正并标注「快照 vs 当前」；③ **不改任何数字**（§15 数值与第六轮审计的逐位核对结论完全不变）。
+  - **缺陷 B —— 冷启动报告把流水线的结构数字写死**：`coldstart_verify_delivery.sh` 生成缺陷表时**硬编码**「工作点审计移到第 **3** 步」「硬门禁 **6** 个输入」，而 regen 现为第 **4/7** 步、**8** 项门禁 ⇒ **报告说的不是它刚跑的那条流水线**（同类过期，且比 A 更隐蔽：读者不会去核）。
+    - **处置（修在 owner，不加补丁）**：删掉两个硬编码字面量，改为**现读实际执行的那份 regen 脚本**（包内 `code/regen_reports_nogmc_fi.sh`）——`_wp_step` 由 `grep -oE '=== [0-9]+/[0-9]+ 工作点对齐审计'` 取、`_gates` 由 `awk '/^for _need in /,/; do/'` 计数 ⇒ **流水线演进后这两个数字自动跟上**。改后复核：报告印「现为第 **4/7** 步」「**8** 个输入」，与 regen 实际一致。
+
+| # | 复核项 | 命令 | 结果 |
+|:--|:--|:--|:--|
+| 1 | 交付包完整性 | `cd runs/lookahead/final/nogmc_fi_20261104 && find . -type f \| wc -l` | **74 文件** |
+| 2 | 校验和 | `md5sum -c MD5SUMS.txt` | **73/73 OK / 0 FAILED** |
+| 3 | 冷启动一致性 | `python -c "import json;…/coldstart_diff.json"` | **identical 31 / diff 0 / missing 0 / total 31** |
+| 3b | 冷启动报告的结构数字 | `grep -n "现为第\|个输入" runs/lookahead/fi_nogmc/_coldstart_repro.md` | 「现为第 **4/7** 步」「**8** 个输入」—— **现读 regen 脚本**（缺陷 B 修复后） |
+| 4 | 包内 ↔ 仓内权威报告 | `md5sum …/nogmc_fi_20261104/FINAL_REPORT.md runs/lookahead/fi_nogmc/FINAL_REPORT.md` | 两侧同为 **`219412c7877f09b434508d4b9859b75f`**（逐位一致） |
+| 5 | §15 章节在位 | `grep -n "^## 15\.\|^### 15\." …/FINAL_REPORT.md` | **859** 起 / 15.1=863 15.2=886 15.3=927 15.4=945 15.5=984（**5 小节齐**） |
+| 6 | gapdiag 证据链 | `ls runs/lookahead/fi_nogmc24/gapdiag/` | **9 项**（`gap_report.md` + `gap_report.json` + 5 份中间 JSON + `gapdiag_frames.py` + `original_d3/`）；`gap_report.json` 顶层键 **14 个**齐（`candidates_ranked[0]` 在位） |
+| 7 | 新机理 A/B 全表 | `…/knobscan_p3b/report.json` → `variants` | **13 变体**（13/13 rc=0）、`dominates` **全 false** ⇒ **帕累托支配 0/13**；**基线门禁 68/68（bad=0）** |
+| 8 | OSD 肉眼证据 | `ls runs/lookahead/osd/videos/*3arm*.mp4` | **30 个**三臂视频（含 `001324` / `015000` 的 `_cs_t0043_d3` 对照） |
+| 9 | Gate A 产物 | `find runs/lookahead -name "gateA*"` | `gateA/gateA.json`（8 序）+ `gateA24/gateA.json`（24 序） |
+| 10 | 流水线 | `grep -n "FATAL" …/regen_reports_nogmc_fi.sh` | **7 步**（工作点审计在第 **4/7** 步，早于第 5/7 步权威报告）＋ **8 项**输入硬门禁 |
+| 11 | 禁改清单 | `stat -c '%y' <5 文件>` + `find manu/evaluation -newermt "2026-11-04 18:00"` | `system_sota_longquan.py` 10-20 / `sweep_decision_k1.py` 11-04 16:45 / `sweep_decision_layer.py` 11-04 17:34 / `build_full_median_dataset.py` 10-15 / `run_delivery.sh` 11-04 07:37 —— **今日全未动**，`manu/evaluation` 今日改动输出**为空** |
+| 12 | 残留进程 | `ps -u huangzhe -o pid,etime,cmd \| grep -E "lookahead\|knobscan\|gapdiag\|regen\|pack_delivery\|coldstart"` | **0 条**（**未 kill 任何他人进程**；他人 no-GMC 训练未触碰） |
+| 13 | 导航表 | `python3 manu/memory/validate_nav_table.py` | **133/133 PASS** |
+| 14 | 单测 | `PYTHONPATH=. /home/huangzhe/anaconda3/envs/uav/bin/python -m unittest discover -s manu/tracking/tests -t .` | **Ran 162 tests / OK (skipped=10)** —— 与今夜基线一致，**无回归** |
+| 15 | GPU | `nvidia-smi` | **驱动不可达** ⇒ 全程 CPU，**未与他人训练抢卡** |
+
+⇒ **交付就绪**：**15 项全部通过**（+ **2 个真缺陷已修**）；本夜 6 节结论**未因本次复核改动任何数字**；**交付裁定不变**（`cs_t0043`（no-GMC）+ Δ=3(120 ms) + `replay` + `--replay-fov-margin-px 6` ⇒ F1 **94.8094** / R **92.8507** / FAR **0.024337** / hit@5px **86.9718** / CLE p95(池) **7.0663** ⇒ PASS，FAR 余量 **0.005663**）。
+⇒ **宿主 09:00 拉取即可直接交付**：`runs/lookahead/fi_nogmc/`（8 序产物 + 三份报告 + 两份审计报告）、`runs/lookahead/fi_nogmc24/`（24 序 + `gapdiag/` + `knobscan_p3b/`）、`runs/lookahead/final/nogmc_fi_20261104/`（**74 文件自包含交付包**，可冷启动复现）。
+
+### 37.20 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.20 ⭐⭐⭐ 2026-11-05 夜 6：交付包冷启动复现（3 个真缺陷）＋ 第五轮独立审计 0 BLOCKING / 4 IMPORTANT / 3 NIT ⇒ 全部处理 ＋ Δ=3 残余缺口帧级诊断（81.8% 是 Δ-比例项）＋ 新机理受控 A/B（13 变体全否决）＋ 权威报告新增 §15 | lookahead_extrapolator_20261102.md | 6161 |
+
+### 37.21 ⭐⭐⭐ 2026-11-05 夜 7：**位移修正族 oracle 上界 + gapdiag 候选 #1 结案**（「升阶运动模型」不可行：**无处可施 + 方向为负 + 归因错误**）
+
+- **执行机**：服务器 `test-Super-Server`；**项目根**：`/tmp/pycharm_project_10ae9e2e`；**时间**：2026-11-05 01:45 → 02:05 CST
+- **本节所有数字**的产物路径、命令与执行机均在各小节内逐条给出（铁律四/九）。
+- **本节不改变交付裁定**：交付推荐档 = `cs_t0043`（no-GMC）+ Δ=3(120 ms) + `replay` 臂 + `--replay-fov-margin-px 6`
+  ⇒ **F1 94.8094 / R 92.8507 / FAR 0.024337 / hit@5px 86.9718 / CLE p95(池) 7.0663 ⇒ PASS**（FAR 余量 **0.005663**）。
+- **本夜做了什么**：夜 6 的 gapdiag 把「Δ 窗口位移的加速度项（升阶运动模型）」排成**候选 #1**。本轮**先算上界再决定要不要写模型代码** ⇒ 结论是**不必写**：该候选**结案（不可行）**。
+
+#### 37.21.1 三个 oracle 上界（**用 GT ⇒ 是上界**，不是可达收益）
+
+- **产物**：`runs/lookahead/fi_nogmc24/oracle_accel/oracle_bounds.json` + `oracle_bounds.md`；**脚本**：`runs/lookahead/fi_nogmc24/oracle_accel/oracle_bounds.py`
+- **命令**：`/home/huangzhe/anaconda3/envs/uav/bin/python runs/lookahead/fi_nogmc24/oracle_accel/oracle_bounds.py`（只做离线统计，**不重跑任何推理**）；**执行机**：`test-Super-Server`；**时间**：2026-11-05 01:45。
+- **口径**：24 序官方口径 · cs_t0043 (no-GMC) · Δ=3(120 ms) · replay 臂 + 出框门 m=6；只统计「有上报 + 有 GT + t−Δ/t−2Δ 都有 GT」的帧 ⇒ **参与统计 125109 帧**（静默帧无法靠位置修正挽回，不计入）。
+- **O1 尺度**：`rep' = anchor + κ*·displacement_hat`（κ* 逐帧最优 ⇒ 整族「缩放位移」的上界，含已被实测否决的 `--replay-disp-gain`）
+- **O2 加速度项**：`rep' = rep + 0.5·s`（`s` = GT 位置的 Δ 窗二阶差分；`0.5·s` 就是匀加速模型相对匀速模型多出来的那一项，量纲自洽）
+
+| oracle | hit@5px% | Δ vs 基线(pp) | 判定 |
+|:--|--:|--:|:--|
+| 基线（交付档 replay） | **92.5017** | — | — |
+| O1 尺度 | 96.0826 | **+3.5809** | ⚠️ **不可实现**（见 37.21.3） |
+| **O2 加速度项** | **86.3839** | **−6.1179** | **方向为负 ⇒ 候选结案** |
+| O3 尺度+加速度 | 95.3728 | +2.8711 | 同 O1 的理由 |
+
+- **分桶（hit@5px%）**：真位移 `<=5` 92374 帧（基线 94.83 → O2 **93.22**）/ `(5,10]` 16501 帧（89.71 → **81.22**）/ `(10,20]` 10338 帧（86.15 → **65.53**）/ `(20,40]` 4557 帧（80.82 → **36.41**）/ `>40` 1339 帧（**54.97 → 9.48**）。
+  ⇒ **O2 在真位移 >40px 的桶上从 54.97% 塌到 9.48%** —— 这正是「**重复计入加速度**」的指纹：真实加速度越大，被多算的那一项越离谱。
+
+#### 37.21.2 结构问：交付档的**最终位置**里有没有运动学模型（**回答：无**）
+
+- **产物**：`runs/lookahead/fi_nogmc24/oracle_accel/closure.json` + `closure.md`；**脚本**：`closure.py`；**命令**：`/home/huangzhe/anaconda3/envs/uav/bin/python runs/lookahead/fi_nogmc24/oracle_accel/closure.py`；**时间**：2026-11-05 01:47（01:50 重跑一次补 CFG 证据）。
+- **计数器证据**（24 序合计，读 `runs/lookahead/fovgate24nogmc/runs/cs_t0043/d3/fov__m6/arms.json`）：
+
+| 运动学出口 | 24 序总帧数 |
+|:--|--:|
+| `consistency_gate` → `anchor+Δ·v` | **0** |
+| `best_effort` 兜底 → `anchor+Δ·v` | **0** |
+| 低速冻结 → `anchor` | **0** |
+
+  （对照：applied 上报帧数 **128066**、replay_steps **422601**、replay_failed **0**、fallback_used **0**）
+
+- **更硬的一条：交付档 CFG 在配置层就把运动学模型类旋钮全关了**（同读 `arms.json` 的 `lookahead` 块）：
+  `replay_consistency_gate_px=0.0`（门**关闭**）/ `replay_freeze_speed_px=0.0` / `replay_disp_shrink_alpha=1.0` / `replay_disp_merge_sigma_px=0.0` / `replay_outlier_tol_px=0.0` / `replay_anchor_check_px=0.0`；`replay_xcorr_mode=direct`、`replay_xcorr_radius=32.0`、`replay_fallback=holdv`、`velocity_source=kf`。
+- ⇒ **最终上报位置 = 锚点（t−Δ 的实测位置）+ 实测链位移，再由 xcorr 模板直配准覆盖** ⇒ **没有任何『外推/运动学预测』参与最终坐标**。
+- ⇒ 因此「升阶」的三种落点逐一可判：
+
+| 变体 | 落点 | 预期 | 证据 |
+|:--|:--|:--|:--|
+| 下游（加速项加到最终坐标） | 最终上报位置 | **变差** | oracle O2 = **−6.1179 pp** |
+| 上游（只把加速项加到链位移 ⇒ 只动 xcorr 搜索中心） | xcorr 搜索中心 | ≈ 0 | 模板配准把位置覆盖回去；同族 `--replay-disp-gain` 1.05/1.10/1.20/1.30 实测 ΔF1 −0.0087/−0.0137/−0.0232/−0.0294 pp（应用帧数 128066→128049/128033/128004/127959 ⇒ **增益生效但指标不动**） |
+| 模型出口（`anchor+Δ·v` → `anchor+Δ·v+½Δ²·a`） | 一致性门 / best_effort | **0 帧** | 交付档 CFG 里这两个旋钮是 0 ⇒ 门**关闭**、兜底**未触发** |
+
+#### 37.21.3 偏置问：沿轨欠冲是**系统性偏置**还是**选择效应**（**回答：选择效应**）
+
+- **沿轨误差**定义：`e = rep(t) − GT(t)`，`u` = 真实运动方向 `GT(t) − GT(t−Δ)`，沿轨分量 = `e·u`；命中判据 hit@5px。
+
+| 集合 | n | 沿轨误差 p50 | mean | 负占比 |
+|:--|--:|--:|--:|--:|
+| replay **全部帧** | 117193 | **−0.1914** | −0.5183 | 0.557 |
+| replay 命中帧 | 108150 | −0.1608 | −0.158 | 0.5517 |
+| replay **失手帧** | 9043 | **−4.3532** | −4.827 | 0.6208 |
+| original 天花板（对照） | 116526 | −0.0902 | −0.0799 | 0.5291 |
+
+- 沿轨误差 vs 真位移：**Pearson r = −0.1531**、**Spearman r = −0.0553**；真位移 >20px 帧上的平均沿轨误差 **−5.0128**。
+- 失手帧上的**加速项幅值** |0.5·s|：p50 = **2.0154 px**、p90 = **9.1234 px**、mean 4.0613。
+- ⇒ **全体帧的沿轨误差 ≈ 0（p50 −0.19 px），只有失手帧才是 −4.35 px** ⇒ 这是**选择效应**（难帧本来就欠冲），**不是**任何位置修正族能系统性纠正的偏置；且与真位移只有 r ≈ −0.15 的弱相关 ⇒ 构造不出「位移越大欠冲越多」的修正律。
+- ⇒ **加速项解释不了这 4.35 px**（加速项幅值中位数只有 2.02 px，p90 才 9.12 px）⇒ **gapdiag 把缺口归因为「模型阶数不足」不成立**，应改写为「**定位尾部的少数难帧**」。
+- ⇒ **O1 的 +3.58 pp 为何不可实现**：它是**逐帧 1 参数**的 oracle（用 GT 选 κ，典型 oracle 过拟合），且作用点在 **xcorr 之前**、最终坐标由配准覆盖 ⇒ 两条都不成立；实测的固定 κ（dispgain 族）全在噪声内，正是这两条的实证。
+
+#### 37.21.4 候选族结案 + 本轮新增「不要试」清单
+
+| 候选 | 上界/证据 | 裁定 |
+|:--|:--|:--|
+| **#1 Δ 窗口位移的加速度项（升阶运动模型）** | oracle O2 = **−6.1179 pp**；模型出口 0 帧；加速项幅值 p50 2.02 px | **结案：不可行**（无处可施 + 方向为负 + 归因错误） |
+| 「缩放位移」族（`--replay-disp-gain`） | O1 逐帧 oracle 为正但不可实现；实测 1.05~1.30 全在噪声内 | **结案：不可行**（固定 κ 打不中逐帧最优 κ） |
+| 「位移层收缩 / 自适应融合 / 低速冻结 / 离群步替换 / 锚点校验」 | 交付档 CFG 里全关；实测全负或全平 | **结案：不可行** |
+| 「阈值类旋钮」（§13 的 37 变体） | 符号检验 p<0.05 仅 1 个；池化 ΔF1 全 < LOSO 噪声底 0.1466 pp | **结案：不可行**（只沿帕累托前沿滑动） |
+| 「纯运动学兜底 / kinematic 臂」 | Δ≥2 全部净负收益 | **结案：不可行** |
+| **剩余可回收 1.3748 pp 的真实所在** | 配准/歧义处置维度：`replay_xcorr_ambiguous` **8218** 帧、`replay_xcorr_rematch_rejected` **7127** 帧、`replay_xcorr_abstained` **779** 帧、`replay_rollback_abstained` **3836** 帧 | **未结案**（唯一性门的「回退锚点/运动学/弃权」形态已实测否决） |
+
+**⇒ 本轮新增「不要再试」**：**任何『给位移/坐标加加速度项（升阶运动模型）』的变体** —— 上界 oracle 已证明方向为负（−6.12 pp），且交付档里根本没有运动学模型出口可施。
+**⇒ 可复用的判据（新）**：**先查「该机理依赖的代码路径在交付档 CFG 下的帧数」**；若为 0 ⇒ 该机理**结构性惰性**，不必写代码去试。
+
+#### 37.21.5 流水线接入 + 交付包 + 收尾校验
+
+- **新增报告生成器**：`manu/tracking/lookahead/make_accel_closure_report.py`（读 `oracle_bounds.json` + `closure.json` ⇒ 出 `closure_report.md/.json`，**数字全部现读、无手抄**）。
+- **权威报告新增 §16**（`manu/tracking/lookahead/make_fastinfer_final_report.py`）：16.1 oracle 上界 / 16.2 结构问 / 16.3 偏置问 / 16.4 候选族结案；`FINAL_REPORT.md` 第 **995** 行起。
+- **`regen_reports_nogmc_fi.sh`**：**7 步 → 8 步**（新增第 **3/8** 步生成结案报告；工作点审计现为第 **5/8** 步，早于第 6/8 步权威报告）；硬门禁 **8 → 11 项**（新增 `oracle_accel/oracle_bounds.json` / `closure.json` / `closure_report.json`）。
+- **`pack_delivery_nogmc_fi.sh`**：新增 `oracle_accel/` 证据链整包 **8 个文件**（含两个分析脚本）+ `code/make_accel_closure_report.py` ⇒ 包 **74 → 83 文件**。
+- **`coldstart_verify_delivery.sh`**：`GEN_PAIRS` **31 → 33**（新增结案报告 2 份）。
+
+| 项 | 命令 | 结果 |
+|:--|:--|:--|
+| 位移修正族 oracle 上界 | `/home/huangzhe/anaconda3/envs/uav/bin/python runs/lookahead/fi_nogmc24/oracle_accel/oracle_bounds.py` | **125109 帧**；O1 +3.5809 / **O2 −6.1179** / O3 +2.8711 pp |
+| 结案三问 | `… oracle_accel/closure.py` | 三出口 **0/0/0 帧**；沿轨 p50 全帧 −0.1914 / 失手帧 −4.3532；r=−0.1531 |
+| 结案报告 | `… make_accel_closure_report.py --root runs/lookahead/fi_nogmc24/oracle_accel --arms runs/lookahead/fovgate24nogmc/runs/cs_t0043/d3/fov__m6/arms.json --out-md … --out-json …` | rc=0 |
+| 全部报告重生成 | `bash manu/tracking/lookahead/server_overnight/regen_reports_nogmc_fi.sh` | **rc_all=0**（**8 步** / **34** 份产物全 OK：33 份写入 + 1 份 `cp` 覆盖 `fi_nogmc24/report_house_style.md`） |
+| 交付包装配 | `bash …/pack_delivery_nogmc_fi.sh` | **83 文件 / 缺失 0** |
+| 校验和 | `cd runs/lookahead/final/nogmc_fi_20261104 && md5sum -c MD5SUMS.txt` | **82/82 OK** |
+| 包内自包含（冷启动） | `bash …/coldstart_verify_delivery.sh` | **33/33 逐位一致**、0 差异、**真仓 0 污染** |
+| §16 数字独立对账 | 自写断言脚本（26 项：产物互等 / 渲染逐位 / CFG 逐项 / 方向断言） | **26/26 PASS** |
+| 导航表 | `python3 manu/memory/validate_nav_table.py` | **135/135 PASS** |
+| 单测 | `PYTHONPATH=. /home/huangzhe/anaconda3/envs/uav/bin/python -m unittest discover -s manu/tracking/tests -t .` | **162 OK / skipped 10**（无回归） |
+| 禁改清单 | `stat -c %y` | `system_sota_longquan.py` 2026-10-20 / `sweep_decision_k1.py` 11-04 16:45 / `sweep_decision_layer.py` 11-04 17:34 / `build_full_median_dataset.py` 2026-10-15 / `run_delivery.sh` 11-04 07:37 —— **全部未动** |
+
+### 37.21 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.21 ⭐⭐⭐ 2026-11-05 夜 7：位移修正族 oracle 上界 ＋ gapdiag 候选 #1 结案（「升阶运动模型」不可行：无处可施 + 方向为负 + 归因错误） | lookahead_extrapolator_20261102.md | 6360 |
+
+### 37.22 ⭐⭐⭐ 2026-11-05 夜 8：**配准 / 歧义处置族 oracle 上界 + 候选族结案（不可行）＋ 静默帧归因纠错（真正的大头是「回退链峰值门」，不是出框门）＋ 回退链峰值门 24 序受控 A/B（结案：交付档不变）**
+
+- **执行机**：服务器 `test-Super-Server`；**项目根**：`/tmp/pycharm_project_10ae9e2e`；**时间**：2026-11-05 02:09 → 03:05 CST（dump 02:09:46→02:10:09；A/B 02:23:34→02:33:03；报告 02:37:27）
+- **本节不改变交付裁定**：交付推荐档 = `cs_t0043`（no-GMC）+ Δ=3(120 ms) + `replay` 臂 + `--replay-fov-margin-px 6`
+  ⇒ **F1 94.8094 / R 92.8507 / FAR 0.024337 / hit@5px 86.9718 / CLE p95(池) 7.0663 ⇒ PASS**（FAR 余量 **0.005663**）。
+- **本夜三件事**：①把「配准候选重排」这个族**算上界后结案**（不可行）；②**把静默帧归因算对**（第一版归因错了，纠错后才找到真正的大头）；③对找到的真正大头做 **24 序官方口径受控 A/B** ⇒ 给出**可复用的兑换率曲线**与**交付裁定**。
+
+#### 37.22.1 配准 / 歧义处置族：oracle 上界与可分性 ⇒ **结案（不可行）**
+
+- **产物**：`runs/lookahead/fi_nogmc24/reg_oracle/`（`*.jsonl` 帧级 dump 78 MB + `reg_oracle.md/.json` + `closure_report.md/.json` + `shard{0..3}.log` + `driver.log`）
+- **脚本**：`manu/tracking/lookahead/diag_reg_oracle.py`（**monkey-patch 插桩，生产代码零改动**）+ `manu/tracking/lookahead/make_reg_oracle_report.py`
+- **命令**：
+  ```bash
+  cd /tmp/pycharm_project_10ae9e2e
+  bash manu/tracking/lookahead/server_overnight/run_reg_oracle_dump.sh          # 4 分片 dump
+  PYTHONPATH=. /home/huangzhe/anaconda3/envs/uav/bin/python manu/tracking/lookahead/diag_reg_oracle.py --analyze \
+    --dump-dir runs/lookahead/fi_nogmc24/reg_oracle \
+    --out-md runs/lookahead/fi_nogmc24/reg_oracle/reg_oracle.md \
+    --out-json runs/lookahead/fi_nogmc24/reg_oracle/reg_oracle.json
+  PYTHONPATH=. /home/huangzhe/anaconda3/envs/uav/bin/python manu/tracking/lookahead/make_reg_oracle_report.py \
+    --root runs/lookahead/fi_nogmc24/reg_oracle --rbgate-root runs/lookahead/rbgate24nogmc \
+    --out-md runs/lookahead/fi_nogmc24/reg_oracle/closure_report.md \
+    --out-json runs/lookahead/fi_nogmc24/reg_oracle/closure_report.json
+  ```
+  **执行机** `test-Super-Server`；**时间** 2026-11-05 02:09:46 → 02:37:27。
+- **基线复算闸门**：dump 复算 hit@5px = **86.9718%** = 交付档 arms.json 现读 **86.9700%**（差 **0.0018 pp**）⇒ dump 忠实；24 序 xcorr 匹配 **0 次不等价**（复刻 argmax 位移 / 峰值 / 次峰 / 唯一性 vs 生产 `xcorr.match()`）⇒ **逐位等价**。
+
+| oracle | 含义 | hit@5px% | Δ vs 基线(pp) |
+|:--|:--|--:|--:|
+| 基线 | 交付档 replay 臂 | 86.9718 | — |
+| O-reg 合法 | 只在**大匹配窗 top-K 候选峰**里用 GT 挑，且候选**过出框门** | 87.7417 | **+0.7699** |
+| O-all 合法 | 候选峰 + 链位置 + 二次意见窗的峰（同样约束合法性） | 81.2310 | **−5.7408** |
+
+- ⚠️ **O-all 作废**：不加出框门时它是 **+2.2956 pp** 的上界，但它允许上报**画面外**的跑飞位置；加上出框门后同一条 oracle 变成 **−5.7408 pp** ⇒ **只有 O-reg 合法（+0.7699 pp）可用**。
+- **缺口分桶**（失手 17361 帧）：B1 窗内有峰 1202 (6.9%) / B2 窗内无峰 8321 (**47.9%**) / B3 窗外 2409 (13.9%) / B4 无 refine 5429 (31.3%) ⇒ **93.1% 的失手帧不在配准族射程内**。
+- **可分性（15 条只用当帧可得量的排序规则）**：最好者 `R5_uniq_gate_peak` 只拿到 **+0.0045 pp = oracle 的 0.6%**；`R1_argmax` −0.0683 / `R11_ambig_nearest_to_chain` −0.2401 / `R3_second_peak` **−59.3545** ⇒ **「相关峰候选重排」在物理上不可分**。
+- **解剖**：可救帧 1270 中 oracle 选中的候选峰名次 = 0（**就是 argmax**）的占 **1097 = 86.4%** ⇒ **这不是「选峰」问题**；argmax 与 oracle 候选的唯一性中位数 0.3935 vs 0.3954（**唯一性门分不开**），两者都过门（889 / 868 of 1270）⇒ **无状态信号不可用**。
+- ⇒ **裁定：配准候选重排族结案（不可行）**；同时 **§15.2「外挂可回收 1.3748 pp」的预算被显著高估** —— 配准这一路最多兑现 **0.77 pp** 且兑现不了。
+
+#### 37.22.2 ⭐ 归因纠错：静默帧的大头是**回退链峰值门**，**不是**出框门
+
+- **第一版归因（错）**：把「有门前上报点却没上报」的帧一律记成「出框门丢掉」= **842 帧**。
+- **根因**：生产代码 `_build_refine_report_stream` 的**判定顺序**是
+  ①**回退链峰值门**（`rolled_back and peak < replay_rollback_min_peak` ⇒ `continue`，**report 那一格根本不写**）
+  → ②`outcome["failed"]` ⇒ 走 `replay_fallback`（holdv，通常**有**上报）
+  → ③正常路径 `report[target] = outcome["entries"]` ⇒ **之后**才过出框门与限幅。
+  ⇒ 命中 ① 时**门前有上报点也照样是静默帧** ⇒ 「有 pe 却无 e」**不能**判成出框门。
+- **纠错后的生产口径归因**（24 序 dump 现读，**静默帧（有 GT）共 2305**）：
+
+| 成因 | 帧数 | 占静默帧 | 改报 argmax 后 TP / FP |
+|:--|--:|--:|:--:|
+| **回退链峰值门** | **1846** | **80.1%** | 1223 / 507 |
+| 出框门 | 148 | 6.4% | 3 / 24 |
+| 重推失败且兜底为空 | 0 | 0.0% | 0 / 0 |
+| 无配准决策 | 0 | 0.0% | 0 / 0 |
+| 其它 | 311 | 13.5% | 121 / 190 |
+
+- **可复用的教训**：**任何「帧级静默/丢失」归因都必须按生产代码的判定顺序复刻**，不能靠「有前置中间量 ⇒ 一定是最后那道门删的」倒推。
+- **峰值确实有判别力**（回退门内帧的 argmax 命中率）：pk∈[0.80,0.90) **93.0%**（315 帧）/ [0.60,0.70) 82.7% / [0.50,0.60) 64.2% / [0.00,0.25) **25.1%**（223 帧）⇒ **信号存在**。
+
+#### 37.22.3 回退链峰值门（`--replay-rollback-min-peak`）24 序受控 A/B ⇒ **结案：交付档不变**
+
+- **脚本**：`manu/tracking/lookahead/server_overnight/run_rollback_gate_scan.sh`（**唯一变量 = 该旋钮**；CFG 从 `run_delivery.sh` 用 awk 取整块再 eval + 7 条防截断断言，并把该旋钮**从 CFG 里摘掉**再显式给出 ⇒ 「唯一变量」逐字成立）
+- **命令**：
+  ```bash
+  cd /tmp/pycharm_project_10ae9e2e
+  RB_PEAKS="0.90 0.80 0.70 0.50 0.0" RUN_GATE=1 THREADS=6 \
+    bash manu/tracking/lookahead/server_overnight/run_rollback_gate_scan.sh
+  ```
+  **执行机** `test-Super-Server`；**时间** 2026-11-05 02:23:34 → 02:33:03（5 档并行，各 452 s，rc 全 0）
+- **产物**：`runs/lookahead/rbgate24nogmc/runs/cs_t0043/d3/rb__{0.90,0.80,0.70,0.50,0.0}/{arms.json,preds/,run.log}` + `progress.txt`
+- **两条门禁全过**：① `rb__0.90` 与既有交付档产物 `runs/lookahead/fovgate24nogmc/runs/cs_t0043/d3/fov__m6/arms.json` **四臂逐位相等（68 字段）**；② 所有变体的 original / stale / kinematic **三臂跨变体逐位相等** ⇒ A/B 受控。
+
+| rb | F1% | ΔF1(pp) | R% | P% | FAR | ΔFAR | hit@5px% | Δhit(pp) | CLE p95(池) | TP | FP |
+|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| **0.90（交付档）** | **94.8094** | — | 92.8507 | 96.8525 | **0.024337** | — | 86.9718 | — | **7.066** | 123730 | 4021 |
+| 0.80 | 94.8920 | **+0.0827** | 93.0555 | 96.8025 | 0.024791 | +0.000454 | 87.0919 | +0.1201 | 7.172 | 124003 | 4096 |
+| 0.70 | 94.9102 | **+0.1008** | 93.1741 | 96.7122 | 0.025547 | +0.001210 | 87.1714 | +0.1996 | 7.281 | 124161 | 4221 |
+| 0.50 | 94.9476 | **+0.1382** | 93.4780 | 96.4641 | 0.027635 | +0.003299 | 87.3808 | +0.4090 | 7.486 | 124566 | 4566 |
+| 0.00 | 94.6303 | **−0.1791** | 93.7174 | 95.5611 | **0.035110（破红线）** | +0.010773 | 87.5106 | +0.5388 | 7.844 | 124885 | 5801 |
+
+- **边际 TP/FP 兑换率随放松单调恶化**（可复用的操作曲线）：
+
+| 放松区间 | ΔTP | ΔFP | 边际 TP/FP | 判读 |
+|:--|--:|--:|--:|:--|
+| 0.90 → 0.80 | +273 | +75 | **3.64:1** | 净赚 |
+| 0.80 → 0.70 | +158 | +125 | 1.26:1 | 净赚（趋近 1:1） |
+| 0.70 → 0.50 | +405 | +345 | 1.17:1 | 净赚（趋近 1:1） |
+| 0.50 → 0.00 | +319 | +1235 | **0.26:1** | **净亏 + FAR 破线** |
+
+- ⭐ **增益不鲁棒（决定裁定的关键）**：总体 ΔTP 有 **81~89% 落在 2/24 序列**（`000322` +453 TP / `001324` +260 TP @rb=0.50）—— 正是**回退帧最多**的两序（回退帧 938 / 479，占全部被回退峰值门丢掉的帧的 **67.4%**）⇒ 机理自洽，但**不是全面改善**；代价集中在 `002251`（逐序 ΔF1 随放松单调变差 **−0.2713 → −0.7054 → −1.5890 pp**）与 `015740`（FAR 0.5743 → 0.6024，该序 F1 仅 0.15%）。
+- ⇒ **夜 8 裁定：交付档保持 `--replay-rollback-min-peak 0.90` 不变**（增益不鲁棒 + FAR 余量是交付红线：rb=0.80/0.70/0.50 分别吃掉余量的 **8% / 21% / 58%**）；**若一定要放松，rb=0.80 是性价比最高点**（+0.0827 pp F1 只花 8% 余量）。
+
+#### 37.22.4 ⭐ 方法论：**离线单帧账对「路径依赖」的旋钮在原理上不成立**
+
+- **冲突**：离线账（24 序 dump 现读）说「把 1846 帧的 refine argmax 直接报出去 ⇒ **TP +1223 / FP +507**（2.41:1）」；**实测 rb=0.00 只有 +1155 TP / +1780 FP** ⇒ **离线账把 FP 低估了 3.5 倍**。
+- **根因**：交付档 CFG 开了 `--output-max-step-px 30`（伺服 slew limiter），限幅参考是「同一 track **最近一次**的上报位置」⇒ **上报轨迹是路径依赖的**：多报一帧会改写后续所有帧的限幅基准 ⇒ **单帧离线账在原理上不适用于本旋钮**。
+- **可复用判据**：**凡是会改变「上报帧集合」的旋钮（弃权门 / 出框门 / 回退门 / 限幅），离线单帧账必须先问一句「下游是否有路径依赖的耦合（限幅 / 一致性门 / 轨迹连续性）」**；有 ⇒ 只能信真实 A/B。
+- 另一条同源教训：**「峰值有判别力」≠「放松阈值就能兑现」** —— 信号（pk∈[0.80,0.90) 命中率 93.0%）确实存在，但**落到生产链路上被 slew 限幅的耦合吃掉了** ⇒ 本族真正的卡点**不是「没有信号」，而是「信号被下游耦合吞掉」**。
+
+#### 37.22.5 本夜新增/修改的文件（仓内，全部已落服务器）
+
+| 文件 | 作用 |
+|:--|:--|
+| `manu/tracking/lookahead/diag_reg_oracle.py` | 插桩 dump（monkey-patch，生产零改动）+ 帧级 oracle 分析；**夜 8 新增 `_silent_cause()` 生产口径归因 + `rollback_peak_hist`** |
+| `manu/tracking/lookahead/server_overnight/run_reg_oracle_dump.sh` | 4 分片 dump 驱动（CFG 从 `run_delivery.sh` awk 取整块 + 7 旋钮断言 + 硬门禁） |
+| `manu/tracking/lookahead/make_reg_oracle_report.py` | 结案报告生成器（**夜 8 新增 `--rbgate-root` + §6 回退链峰值门 A/B + §6.1~6.3 稳健性/兑换率/口径纪律**） |
+| `manu/tracking/lookahead/server_overnight/run_rollback_gate_scan.sh` | **夜 8 新增**：回退链峰值门 24 序受控 A/B 驱动（唯一变量 + 两条门禁） |
+| `manu/tracking/lookahead/make_fastinfer_final_report.py` | **夜 8 新增** `--reg-oracle-closure` / `--rbgate-root` ⇒ 权威报告新增 **§17**；summary 新增 `night8_reg_oracle` / `night8_rbgate` |
+| `manu/tracking/lookahead/server_overnight/regen_reports_nogmc_fi.sh` | **8 → 9 步**（新增 reg_oracle closure 步，置于权威报告之前）+ 硬门禁加 `reg_oracle/reg_oracle.json` 与 `reg_oracle/closure_report.json` |
+| `manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh` | 加 `reg_oracle/` 与 `rbgate/` 证据链 + `code/diag_reg_oracle.py` / `code/make_reg_oracle_report.py` / 两个新脚本 |
+| `manu/tracking/lookahead/server_overnight/coldstart_verify_delivery.sh` | `ART_DIRS` 加 `rbgate24nogmc` + `GEN_PAIRS` 加夜 8 两份 closure 报告 |
+
+#### 37.22.6 复现（一条命令跑完夜 8 全部产物）
+
+```bash
+cd /tmp/pycharm_project_10ae9e2e
+bash manu/tracking/lookahead/server_overnight/run_reg_oracle_dump.sh
+PYTHONPATH=. /home/huangzhe/anaconda3/envs/uav/bin/python manu/tracking/lookahead/diag_reg_oracle.py --analyze \
+  --dump-dir runs/lookahead/fi_nogmc24/reg_oracle \
+  --out-md runs/lookahead/fi_nogmc24/reg_oracle/reg_oracle.md \
+  --out-json runs/lookahead/fi_nogmc24/reg_oracle/reg_oracle.json
+RB_PEAKS="0.90 0.80 0.70 0.50 0.0" bash manu/tracking/lookahead/server_overnight/run_rollback_gate_scan.sh
+PYTHONPATH=. /home/huangzhe/anaconda3/envs/uav/bin/python manu/tracking/lookahead/make_reg_oracle_report.py \
+  --root runs/lookahead/fi_nogmc24/reg_oracle --rbgate-root runs/lookahead/rbgate24nogmc \
+  --out-md runs/lookahead/fi_nogmc24/reg_oracle/closure_report.md \
+  --out-json runs/lookahead/fi_nogmc24/reg_oracle/closure_report.json
+bash manu/tracking/lookahead/server_overnight/regen_reports_nogmc_fi.sh   # 9 步（含权威报告 §17）
+```
+
+### 37.22 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.22 ⭐⭐⭐ 2026-11-05 夜 8：配准/歧义族 oracle 上界结案（不可行）＋ 静默帧归因纠错（回退链峰值门才是大头）＋ 回退链峰值门 24 序受控 A/B（交付档不变）＋ 离线单帧账对路径依赖旋钮不成立 | lookahead_extrapolator_20261102.md | 6468 |
+
+### 37.23 ⭐⭐⭐ 2026-11-05 夜 10：**三份独立审计脚本的「行号漂移」根因修复（改成内容锚点定位）＋ §16.4 裁定表补回漏渲染的 1 行 ＋ §16.4 末行分母去歧义 ＋ 交付包 125 文件 / 冷启动 35/35**
+
+- **执行机**：服务器 `test-Super-Server`；**项目根**：`/tmp/pycharm_project_10ae9e2e`；**时间**：2026-11-05 03:20 → 03:41 CST
+- **本节不改变交付裁定**：交付推荐档 = `cs_t0043`（no-GMC）+ Δ=3(120 ms) + `replay` 臂 + `--replay-fov-margin-px 6`
+  ⇒ **F1 94.8094 / R 92.8507 / FAR 0.024337 / hit@5px 86.9718 / CLE p95(池) 7.0663 ⇒ PASS**（FAR 余量 **0.005663**）。
+- **本夜四件事**：①**修掉三份审计脚本的共同根因**（把 `FINAL_REPORT.md` 的**绝对行号写死** ⇒ 报告一改行就崩）；②**补回 `FINAL_REPORT` §16.4 裁定表漏渲染的 1 行**（真源 6 行 / 报告只渲染 5 行）；③**§16.4 末行 + 产品 `closure_report.md` 的口径去歧义**（+2.2055 / 0.6% / 0.2% 三个数字分母不同族）；④交付包与冷启动复现刷新。
+
+#### 37.23.1 ⭐ 根因：三份审计脚本把报告的**绝对行号写死** ⇒ 夜 9 修完报告后全部崩
+
+- **症状**：`audit_sec16_gap.py` 抛 `IndexError`（`row_cells(lines[1005-1])`，`manu/tracking/lookahead/audit_sec16_gap.py:134`）；`audit_sec17_reg_oracle.py` 在 §17.1 断言处抛 `IndexError`（`oracle_rows[2]`）；只有 `audit_sec17_rbgate.py`（本来就是锚点定位写法）PASS。
+- **根因**：夜 9 修完 §16/§17 后 `FINAL_REPORT.md` 行数变了（+5 行）⇒ **所有硬编码行号整体错位**。例：§16 标题脚本写死 **997** / 实际 **1002**；§16.1 基线行写死 **1005** / 实际 **1010**；§17.1 表首行写死 **1096** / 实际 **1097**。
+- **修法（根治，不是打补丁）**：**全部改成内容锚点定位** ——
+  ① `find_line(lines, prefix)`：按行首前缀找（`## 16. ` / `### 16.1 ` / `### 17.4 `），**找不到返回 None 而不是抛异常**；
+  ② `section_range(lines, hdr_prefix)`：按小节标题切区间；
+  ③ `find_row(...)` / `row_by_label(...)`：**按表格首列文本**取行（`| **O-all 合法**` / `| 纯运动学兜底 / kinematic 臂` / `| rb=0.80`）；
+  ④ 关键锚点缺失 ⇒ 降级成可定位的 `[FATAL]` 或逐条 FAIL，**不再崩**。
+- **漂移免疫实测**（`FINAL_REPORT.md` 从 1188 行漂到 1165 行，§16 整段上移 20 行）⇒ 三个脚本的**断言结论集完全相同**、FAIL 仍为 0；破坏性变异（删表行 / 删小节标题 / 空文件）⇒ 降级成 FAIL 明细或 `[FATAL]`，**Traceback 0**。
+- **可复用判据**：**审计脚本不允许写死被审文档的行号** —— 报告是会被反复改写的活文档，行号是它**最易碎的属性**；**锚点（标题前缀 + 表首列文本）才是稳定契约**。
+
+#### 37.23.2 `FINAL_REPORT` §16.4 裁定表**漏渲染 1 行**（真源 6 行 vs 报告 5 行）
+
+- **真源** `manu/tracking/lookahead/make_accel_closure_report.py:177` 有 **6** 行裁定；`manu/tracking/lookahead/make_fastinfer_final_report.py` 的 §16.4 只渲染 **5** 行 ⇒ **缺**：
+  `| 「纯运动学兜底 / kinematic 臂」 | Δ≥2 全部净负收益 | **结案：不可行** |`
+- **补上**（照抄真源）⇒ 报告 §16.4 裁定行 **5 → 6**，与真源**逐位相等**（审计项 `X-ROWCOUNT-DROP` 由「发现」转为 **PASS / 已消解**）。
+- **证据**：FINAL_REPORT §7 已记 `kinematic` 臂 Δ≥2 **全部破 FAR 红线**（Δ=2 **0.038142** / Δ=3 **0.049453**）⇒ 该行本来就该在裁定表里。
+
+#### 37.23.3 ⭐ `audit_sec17_reg_oracle.py` 的 `UNIVERSE_SPEC` 还是**修复前语义** ⇒ 差 10589 帧
+
+- **夜 9 已修** `manu/tracking/lookahead/diag_reg_oracle.py::_oracle_pick`：合法变体 = **同族候选集**再过 FOV 门（原来 `reg_legal` / `all_legal` **不含大窗峰** ⇒ 候选集恒空 ⇒ 退化回 `refine["p"]`）。
+- 审计脚本的 `UNIVERSE_SPEC` 没跟上 ⇒ 独立复算（旧语义 vs 现行语义）：
+
+| 口径 | 旧语义（脚本当时算的） | **现行语义（产物真值）** | 差 |
+|:--|--:|--:|--:|
+| `hit_oracle_reg_legal` | 116922 | **116896** | 26 帧 |
+| `hit_oracle_all_legal` | 108246 | **118835** | **10589 帧** |
+| `reg_legal`（→ hit% / Δpp） | — | **87.7222% / +0.7504** | — |
+| `all_legal`（→ hit% / Δpp） | — | **89.1773% / +2.2055** | — |
+
+- **改成现行语义后**：7 个 universe **全部逐位吻合**（`hit_oracle_reg` **116978** / `hit_oracle_all` **118955** / `reg_legal` **116896** / `all_legal` **118835** / `reg_frames` **1082** / `reg_legal_frames` **1000** / `all_legal_frames` **2939**），出框门代价 **0.0901 pp**。
+
+#### 37.23.4 ⭐ §16.4 末行 + 产品报告的**分母去歧义**（三个数字分母不同族）
+
+- **问题**：§16.4 末行同一句里写「配准候选重排族的**合法** oracle 上界是 **+2.2055 pp** … 最好的一条可计算规则只拿到 oracle 的 **0.6%**」——
+  - **+2.2055 pp** 的分母是 **O-all 合法**（最宽合法口径，**2939 帧**）；
+  - **0.6%** 的分母是 **O-reg 不加出框门**（**+0.8120 pp / 1082 帧**）；
+  - 该族自身的 **O-reg 合法**只有 **+0.7504 pp** ⇒ **族归属与分母都被混了**（数字本身逐位正确）。
+- **改成**：「**最宽合法口径（O-all 合法）= +2.2055 pp**（空间其实「够」；本族 **O-reg 合法**只有 **+0.7504 pp**），但**可分性**是死结：最好的一条可计算规则只拿到 **O-reg 口径（+0.8120 pp）的 0.6%**、对最宽天花板（+2.2055 pp）只有 **0.2%**」⇒ 三个数字**各自带分母**。
+- **同源修正**（产品 `runs/lookahead/fi_nogmc24/reg_oracle/closure_report.md`）：「结论一句话」原写「**上界只有 0.8120 pp**」、候选族裁定行原写「（**上界小** + 不是选峰问题 + 无状态信号不可分）」—— **都是夜 8 初稿口径**，与夜 9 修好的 §17.1「空间上**够**、死结在**不可分**」**矛盾** ⇒ 已改成「天花板（最宽合法口径 = O-all 合法）= **2.2055 pp**（空间够）… ⇒ **物理上不可分**」。
+- **笔误**：`FINAL_REPORT` §17.3 的「0.2)%」⇒ 「0.2%」。
+- **审计侧同步**：`audit_sec16_gap.py` 新增 **3** 条逐位断言（`S16.4-REG-LEGAL` / `S16.4-REG-SHARE-DENOM` / `S16.4-SHARE-CEILING`），并把两条软观察**升级成回归护栏**（要求 §16.4 末行同时出现 `O-all 合法` / `O-reg 合法` / `O-reg 口径` / `0.6%` / `0.2%`）。
+
+#### 37.23.5 三份审计脚本的最终复验（**父 agent 亲自重跑**，不采信 agent 自述）
+
+| 脚本 | 断言数 | 结果 | 退出码 |
+|:--|--:|:--|--:|
+| `audit_sec16_gap.py` | **253**（数字级逐位 **220** + 跨节/口径观察 **33**） | **FAIL 0** | **0** |
+| `audit_sec17_reg_oracle.py` | **127** | **FAIL 0** | **0** |
+| `audit_sec17_rbgate.py` | 主表 **65/65** + 逐序表 **32/32** + 门禁① **68/68** + 门禁② **0 差异** + §17.5 新增 **36/36** + 漂移自测 **12/12** | **FAIL 0** | **0** |
+
+- §17.5 静默帧归因**从 24 序 jsonl dump 独立重算**逐位复现：回退链峰值门 **1846 / 80.1%**（TP **1223** / FP **507**）、出框门 **148 / 6.4%**（**3** / **24**）、其它 **311 / 13.5%**（**121** / **190**）、合计 **2305**；**反向注入测试**（注入 1847 / 注入 842 / 改 13.5%→80.2% / 删表行）全部被判 FAIL ⇒ 非空转。
+- **审计 md 全部改为脚本落盘**（`audit_sec16_gap.py` 本夜补 `--out-md`；原手写版会随报告改版而陈旧，已由脚本版取代）⇒ 三份 md 与脚本**永远同源**。
+- 审计产物：`runs/lookahead/fi_nogmc/audit_round7/` **6** 份（3 份**修复后复验**版 + 3 份 `*_round7_findings.md` **原始发现留痕，一字未改**）。
+
+#### 37.23.6 交付包 / 冷启动复现（本夜刷新）
+
+| 项 | 命令 | 结果 |
+|:--|:--|:--|
+| 报告重生成（9 步，纯读产物） | `bash …/server_overnight/regen_reports_nogmc_fi.sh` | **rc_all=0**（9/9 OK） |
+| 交付包装配 | `bash …/server_overnight/pack_delivery_nogmc_fi.sh` | **125 文件 / 缺失 0** |
+| 包内自包含（冷启动） | `bash …/server_overnight/coldstart_verify_delivery.sh` | **35/35 逐位一致**、0 差异、**真仓 0 污染** |
+| 校验和 | `cd runs/lookahead/final/nogmc_fi_20261104 && md5sum -c MD5SUMS.txt` | **124/124 OK**（清单自身除外） |
+| 导航表 | `python3 manu/memory/validate_nav_table.py` | **139/139 PASS** |
+| 单测 | `PYTHONPATH=. /home/huangzhe/anaconda3/envs/uav/bin/python -m unittest discover -s manu/tracking/tests -t .` | **167 OK / skipped 10**（无回归） |
+
+- 打包脚本本夜新增：`audit_round7/`（**6** 份审计报告）+ `code/audit_sec16_gap.py` / `code/audit_sec17_reg_oracle.py` / `code/audit_sec17_rbgate.py`（**审计脚本本身进包** ⇒ 交付包可自证）。
+
+#### 37.23.7 本夜新增/修改的文件（仓内，全部已落服务器）
+
+| 文件 | 改动 |
+|:--|:--|
+| `manu/tracking/lookahead/make_fastinfer_final_report.py` | §16.4 **补 1 行**（kinematic 裁定）+ §16.4 末行**分母去歧义** + §17.3 `0.2)%`→`0.2%` 笔误 |
+| `manu/tracking/lookahead/make_reg_oracle_report.py` | 「结论一句话」与候选族裁定行**从夜 8 初稿口径改成夜 9 修好的口径**（空间够但不可分） |
+| `manu/tracking/lookahead/audit_sec16_gap.py` | **全面锚点定位**（写死行号 → 内容锚点）+ **3** 条新逐位断言 + 2 条软观察升级为回归护栏 + 漂移自测 + **md 改为脚本落盘** |
+| `manu/tracking/lookahead/audit_sec17_reg_oracle.py` | `UNIVERSE_SPEC` 改**现行语义** + §17.1 五行表/折算帧数 + §17.3 分母 + §17.5 归因 + 锚点定位 + 漂移自测 |
+| `manu/tracking/lookahead/audit_sec17_rbgate.py` | 新增 §17.5 静默帧归因 **36** 项断言（含从 dump 独立重算）+ 纯内存漂移自测 **12** 项 + 自己 md 里写死的行号改成动态定位 |
+| `manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh` | 新增 `audit_round7/` **6** 份 + `code/` **3** 个审计脚本 |
+
+#### 37.23.8 复现（一条命令跑完夜 10 全部产物）
+
+```bash
+cd /tmp/pycharm_project_10ae9e2e
+bash manu/tracking/lookahead/server_overnight/regen_reports_nogmc_fi.sh
+for s in audit_sec16_gap audit_sec17_reg_oracle audit_sec17_rbgate; do
+  /home/huangzhe/anaconda3/envs/uav/bin/python manu/tracking/lookahead/$s.py || echo "FAIL $s"
+done
+bash manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh
+bash manu/tracking/lookahead/server_overnight/coldstart_verify_delivery.sh
+bash manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh
+cd runs/lookahead/final/nogmc_fi_20261104 && md5sum -c MD5SUMS.txt
+```
+
+### 37.23 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.23 ⭐⭐⭐ 2026-11-05 夜 10：三份审计脚本「行号漂移」根因修复（改内容锚点定位）＋ §16.4 裁定表补回 1 行 ＋ §16.4 末行分母去歧义 ＋ 交付包 125 文件 / 冷启动 35/35 | lookahead_extrapolator_20261102.md | 6603 |
+
+### 37.24 ⭐⭐⭐ 2026-11-05 夜 11：**prompt §5「报告交付（必须）」8 项逐项验收自证 ＋ 新增 `audit_sec5_acceptance.py`（1257 项断言 / FAIL 0 / 6 次反向注入全部捕获）＋ §8 产物索引补 3 处真实缺口**
+
+> 执行机：**服务器** `test-Super-Server`（`192.168.99.40:32222`）· 项目根 `/tmp/pycharm_project_10ae9e2e`
+> 时间：2026-11-05 03:43 → 04:35（夜 11 本轮）
+> 本节性质：**验收自证**（不是新的实验）—— 把用户 prompt §5「报告里必须有：①…⑧」8 条硬要求
+> 逐条变成**可执行、可重跑、非空转**的断言，并顺手修掉过程中暴露的 3 处真实缺口。
+
+#### 37.24.1 本轮起因：8 项要求**全部在位**，但「在位」需要**可验证**，不是靠人眼
+
+- 先做机械核查（读 `runs/lookahead/fi_nogmc/FINAL_REPORT.md`，**1188 行**，md5 `69a3125b9f8ba9a4fda2ec402e54ed88`）：
+  §5 八项 **100% 都在位**（口径声明段 §0 / 四臂表 §2.1–2.8+§3.1–3.3 / Δ 敏感性 §2.9+§3.4+§10.5 /
+  模型包对比 §2.10 / 逐序列归因 §10.6 / 工作点审计 §4+`workpoint/audit.md` / Gate A §5+§5.1 / 三口径结论 §0.1）。
+- P4 OSD 也已齐：`runs/lookahead/osd/videos/` 含 `VIDEO00007_19700101_001324_3arm_{stale,replay,original}_cs_t0043_d3.mp4`
+  与 `VIDEO00033_19700101_015000_3arm_{stale,replay,original}_cs_t0043_d3.mp4`（**001324 高速机动 + 015000 奇偶交替 两序列，三臂齐全**），
+  且已进交付包 `runs/lookahead/final/nogmc_fi_20261104/osd_videos/`（**6 个 mp4**）。
+- ⇒ 但「人眼看到在位」在本项目**不算证据**（铁律：数字现读、脚本自证）⇒ 本轮新写 `audit_sec5_acceptance.py`，
+  把 8 条要求变成 **1257 项断言**，每一条都**独立从原始产物重算**（不 import 生成器）。
+
+#### 37.24.2 新增 `manu/tracking/lookahead/audit_sec5_acceptance.py`（本轮核心产物）
+
+**定位**：审计**用户 prompt §5 的 8 条硬要求**（不是报告的自选章节）—— 每条要求都必须在 `FINAL_REPORT.md`
+（或其点名引用的产物）里有实打实证据，且**报告里印的数字必须与原始产物 JSON 逐位一致**。
+
+| 项 | 值 |
+|:--|:--|
+| 断言总数 | **1257**（数字级 / 在位性 PASS **1257**，FAIL **0**） |
+| 退出码 | **0** |
+| 定位方式 | **全部按内容锚点**（小节标题前缀 / 表格首列文本 / 散文特征子串）⇒ 脚本内**不写死行号** |
+| 真源（只读） | `runs/lookahead/fi_nogmc/<model>/d<Δ>/arms.json`（8 序）、`runs/lookahead/fi_nogmc24/<model>/d<Δ>/arms.json`（24 序）、`runs/lookahead/fi_nogmc/workpoint/audit.json`、`runs/lookahead/gateA/gateA.json`、`runs/lookahead/gateA24/gateA.json`、`runs/lookahead/fi_nogmc/ruler1_gate_check.json` |
+| 浮点容差 | 按报告显示精度取**末位半个单位**（4 位 → `5e-5`；6 位 → `5e-7`；3 位 → `5e-4`） |
+| 漂移免疫自测 | 漂移副本（原 1191 行 → 1047 行：删全篇空行 + 每个标题前插 2 行 + 整体下移 17 行，**内容一字未删**）后重跑：FAIL **0** 条，锚点行号**确实位移**，断言结论集**完全一致** |
+
+**8 项要求 → 断言 ID 前缀 / 覆盖内容**：
+
+| # | prompt §5 要求 | 报告落点 | 断言 ID 前缀 | 覆盖强度 |
+|:--|:--|:--|:--|:--|
+| ① | 口径声明段 | `## 0.` | `S5.01-*` | **11 条关键纪律逐条在位**（`stale` 才是交付基线 / `original`=零延迟天花板 / `cle_pooled_*` / 8 序≠24 序 / 交付三门 / Δ 是假设值 / 模型包=权重+特征语义 …）+ 表格行数 ≥ 8 |
+| ② | 四臂表（8 序 + 24 序） | `### 2.1`–`2.8`、`### 3.1`–`3.3` | `S5.02-*` | **11 张表 × 4 臂 × 7 指标 + 交付三门**（F1/R/P/FAR/hit@5px/CLE p50/CLE p95）逐位对 `arms.json`，三门由源值重算判定 |
+| ③ | Δ 敏感性表 | `### 2.9`、`### 3.4`、`### 10.5` | `S5.03-*` | **3 张表 × 3/2/2 模型包 × 4 个 Δ × 7 列**（含「相对 stale 的 F1 增益」独立重算） |
+| ④ | 模型包对比表 | `### 2.10` | `S5.04-*` | 24 序同 Δ rc2 vs cs_t0043 × **4 个 Δ × 4 指标 × 3 列**（rc2 / cs / 差值）逐位 + 差值独立重算 |
+| ⑤ | 逐序列归因（含「对总缺口贡献」） | `### 10.6`（24 序）、`report.md` §5（8 序） | `S5.05-*` | **48 行 × 9 列**逐位（GT 帧 / stale F1 / replay F1 / ΔF1 / stale hit / replay hit / Δhit / 天花板缺口 / **对总缺口贡献 = 该序 hit 缺口 × 该序 GT 占比**） |
+| ⑥ | 工作点对齐审计表 | `## 4.` + `workpoint/audit.md`（表 A/B/C/D） | `S5.06-*` | 网格定义 / 同 FAR 插值 / ΔF1 / 表 A 曲线组网格点 / 表 B 最优点**三门独立重算** / 表 C/D 存在性 |
+| ⑦ | Gate A 结果 | `## 5.`、`## 5.1.` | `S5.07-*` | 8 序 + 24 序 `gateA.json` 的 `verdict` / `all_ok` / `n_files`=`n_L1_equal` / **尺子1 四臂 `source_frame.f1` 逐位相等** + `ruler1_gate_check.json`（54 产物 / 0 违规） |
+| ⑧ | 「小延时下精度是否提升」三口径 | `### 0.1` | `S5.08-*` | **6 条结论行逐行在位**（口径①/①b/②×2/③×2）+ 全部关键数字独立重算 + **FAR 随 Δ 单调性**（交付论据） |
+
+**脚本自身跑出来的 3 个真 bug（本轮已修）**：
+1. `as_num()` 没剥单位后缀 ⇒ `'+0.5959pp'` 解析失败 ⇒ 12 条差值断言全假 FAIL。
+2. `close()` 的容差公式绕（`10**(-(d+1))/2*10`）⇒ 改成直白写法 `0.5 * 10**(-d)`（**等价**，但更易读）。
+3. §10.6 里 **cs 与 RC2 两张逐序表并排** ⇒ 必须**按模型标题切块**再核，否则拿 cs 的源值去核 RC2 的行（**400 条假 FAIL** 的真因）。
+
+#### 37.24.3 ⭐ **6 次反向注入全部被精确捕获** ⇒ 脚本**非空转**（这是「自证」的关键一环）
+
+| # | 注入内容 | 捕获结果 |
+|:--|:--|:--|
+| 1 | 篡改 §2.2 四臂表 `replay` 的 F1（`94.7861` → `96.9999`） | **1 条 FAIL**：`S5.02-24seq-cs_t0043-D3-replay-F1`（报告 `96.9999` vs 真源 `94.78614588076825`） |
+| 2 | 删掉 §10.6 的**「对总缺口贡献」整列** | **50 条 FAIL**：含 `S5.05-24seq-CONTRIB-HDR`（表头缺该列）+ **48 行**贡献值全部错位被抓 |
+| 3 | 把口径纪律「`stale` 才是交付基线」改成「`stale` 才是天花板」 | **1 条 FAIL**：`S5.01-DISC-STALE-BASELINE` |
+| 4 | 删掉 §0.1 的 **cs 口径③ 行**（天花板追回占比） | **1 条 FAIL**：`S5.08-ROW-CAL3-CS` |
+| 5 | 篡改 §4 工作点审计 ΔF1（`-0.1491pp` → `-0.9999pp`） | **2 条 FAIL**：`S5.06-DELTA-F1` + `S5.08-ROW-CAL1` |
+| 6 | 篡改 §2.10 模型包对比 Δ=3 的 rc2 F1（`94.2325` → `94.0000`） | **1 条 FAIL**：`S5.04-D3-F1%-RC2` |
+
+- ⇒ 注入 4 最初**没被抓到**（因为 §0.1 里两个口径③ 行、删一个另一个还在 ⇒ 靠"整段含关键词"过不了）
+  ⇒ 本轮**补了 6 条逐行级断言**（`S5.08-ROW-CAL1/CAL1B/CAL2-CS/CAL2-RC2/CAL3-CS/CAL3-RC2`）⇒ 注入 4 随即被捕获。
+- **这正是「先做注入、再信脚本」的流程价值**：不注入就不知道断言是覆盖到位还是只是走过场。
+
+#### 37.24.4 ⭐ 顺带修掉的 **3 处真实缺口**（`FINAL_REPORT` §8 产物索引）
+
+写完审计脚本后，它指出 §8「产物索引与复现命令」**漏列 / 写错 3 处**（不是脚本误报）：
+
+| 缺口 | 原状 | 修后 |
+|:--|:--|:--|
+| **8 序专用报告 `report.md` 没进索引** | §8 只列了 `report_house_style.md`；而 §10.6 结尾却指向 `runs/lookahead/fi_nogmc/report.md` §5（**索引与正文互相矛盾**） | 新增一行「8 序专用报告（含逐序列归因 §5）」 |
+| **24 序 Gate A 没进索引** | 只列了 `runs/lookahead/gateA/`（8 序）；§5.1 的证据链 `runs/lookahead/gateA24/` **不可达** | 拆成「Gate A（8 序）」+「Gate A（24 序官方口径）」两行 |
+| **OSD 三臂视频路径写错** | 写 `runs/lookahead/osd/nogmc_cs_t0043_d3/`（那是**指标目录**，**没有视频**） | 改成 `runs/lookahead/osd/videos/*_cs_t0043_d3.mp4` + 点名两序列 + 另加「OSD 三臂对照指标」行 |
+
+- 修在**生成器**（`manu/tracking/lookahead/make_fastinfer_final_report.py` §8 段）⇒ 重生成即幂等。
+- `FINAL_REPORT.md`：**1188 行 → 1191 行**（+3 行索引；终态 md5 `0abee280c72b7ff6701ce6ebee92290d`、sha256 `8c1843c35fad88bd7a58e03f0473a4537f0f3a9e9c8ea3c5d231e411b7c7bbbf`）；三份既有审计（`audit_sec16_gap` / `audit_sec17_reg_oracle` / `audit_sec17_rbgate`）**全部复跑仍 FAIL 0 / rc=0** ⇒ 索引改动**零回归**（这三份脚本是内容锚点定位，正好验证了夜 10 的修复）。
+
+#### 37.24.5 本夜新增/修改的文件（仓内，全部已落服务器）
+
+| 文件 | 改动 |
+|:--|:--|
+| `manu/tracking/lookahead/audit_sec5_acceptance.py` | **新增**（1257 项断言 / 8 项要求全覆盖 / 内容锚点定位 / 漂移免疫自测 / `--out-md` 落盘） |
+| `manu/tracking/lookahead/make_fastinfer_final_report.py` | §8 产物索引**补 3 处真实缺口**（8 序 `report.md` / 24 序 Gate A / OSD 视频路径） |
+| `manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh` | 新增 `code/audit_sec5_acceptance.py` + `audit_round7/audit_sec5_acceptance.md` |
+
+#### 37.24.6 复现（本夜全部产物，一条命令跑完）
+
+```bash
+cd /tmp/pycharm_project_10ae9e2e
+export PYTHONPATH=. MPLCONFIGDIR=/tmp/mpl
+# 1) 报告重生成（§8 索引改动后）
+python manu/tracking/lookahead/make_fastinfer_final_report.py \
+  --root-8 runs/lookahead/fi_nogmc --root-24 runs/lookahead/fi_nogmc24 \
+  --out-md runs/lookahead/fi_nogmc/FINAL_REPORT.md --out-json runs/lookahead/fi_nogmc/final_report.json
+# 2) 四份审计（含本轮新增的 §5 验收自证）
+for s in audit_sec16_gap audit_sec17_reg_oracle audit_sec17_rbgate audit_sec5_acceptance; do
+  /home/huangzhe/anaconda3/envs/uav/bin/python manu/tracking/lookahead/$s.py || echo "FAIL $s"
+done
+# 3) 交付包装配 + 冷启动自证 + 校验和
+bash manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh
+bash manu/tracking/lookahead/server_overnight/coldstart_verify_delivery.sh
+bash manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh
+cd runs/lookahead/final/nogmc_fi_20261104 && md5sum -c MD5SUMS.txt
+```
+
+### 37.24 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.24 ⭐⭐⭐ 2026-11-05 夜 11：prompt §5 八项要求逐项验收自证（`audit_sec5_acceptance.py`，1257 项断言 / FAIL 0 / 6 次反向注入全捕获）＋ §8 产物索引补 3 处真实缺口 | lookahead_extrapolator_20261102.md | 6709 |
+
+### 37.25 ⭐⭐⭐ 2026-11-05 夜 11（续）：**补齐 prompt §5 三份交付物的机器核验** —— 新增 `audit_sec5_deliverables.py`（2245 项断言 / FAIL 0 / 3 次反向注入全捕获）＋ 抓出并修复**我自己的一次产物污染**
+
+> 执行机：**服务器** `test-Super-Server`（`192.168.99.40:32222`）· 项目根 `/tmp/pycharm_project_10ae9e2e`
+> 时间：2026-11-05 03:55 → 04:35（夜 11 第二段）
+> 起因：夜 11 第一段（§37.24）新增的 `audit_sec5_acceptance.py` 核的是 **§5 的 8 条内容要求**（落在 `FINAL_REPORT.md` 上），
+> 但 prompt §5 点名的**另两份交付物** —— `runs/lookahead/fi_nogmc/report.md` 与 `report_house_style.md` ——
+> **从来没被机器核验过**（人眼看过的数字不算证据）⇒ 本段补上。
+
+#### 37.25.1 新增 `manu/tracking/lookahead/audit_sec5_deliverables.py`（2245 项断言）
+
+| 项 | 值 |
+|:--|:--|
+| 断言总数 | **2245**（数字级 / 在位性 PASS **2245**，FAIL **0**），退出码 **0** |
+| 覆盖交付物 | ① `runs/lookahead/fi_nogmc/report.md`（8 序专用报告）② `runs/lookahead/fi_nogmc/report_house_style.md`（8 序**权威格式**）③ `runs/lookahead/fi_nogmc24/report_house_style_d{2,3,4,8}.md`（24 序权威格式 × 4） |
+| 真源 | `fi_nogmc/<model>/d<Δ>/arms.json`（8 序）、`fi_nogmc24/<model>/d<Δ>/arms.json`（24 序）—— 全部**独立重算**，不 import 生成器 |
+| 定位 | 全部按**内容锚点**（小节标题 / 表格首列文本 / 表头特征子串），不写死行号 |
+
+**逐项覆盖**：
+
+| 交付物 | 覆盖内容 | 断言量级 |
+|:--|:--|:--|
+| `report.md` §0 | 口径纪律（`stale` 基线 / `cle_pooled` / 交付三门 / 8 序 vs 24 序） | 4 条 |
+| `report.md` §2 | 8 序四臂表 **3 模型 × 4 臂 × 11 列**（F1/R/P/FAR/**TP/FP/FN**/hit@5px/CLE p50/CLE p95/coverage）+ **交付三门由源值重算** + **尺子1 ΔF1 必须 = 0.0** | ~200 |
+| `report.md` §3 | Δ 敏感性 **12 行 × 7 列**（含「相对 stale 的 F1 增益」独立重算） | 84 |
+| `report.md` §4 | 模型包对比 **4 个 Δ × 3 模型 × 8 列**（含 `ΔF1 vs rc2` / `Δhit vs rc2` 独立重算） | ~120 |
+| `report.md` §5 | 逐序列归因 **3 模型 × 8 序 × 9 列**（含「对总缺口贡献 = 该序 hit 缺口 × 该序 GT 占比」独立重算）+ 表头须含该列 + 行数 = 8 | ~220 |
+| `report.md` §7 | 24 序官方口径 **8 张四臂表 × 4 臂 × 7 列** + 交付三门 + **追回占比**（`(replay−stale)/(original−stale)`，cs Δ=3 须 = 86.4%） | ~230 |
+| house-style（8 序 + 24 序 ×4） | 口径声明段（`零延迟天花板` / `交付基线` / `cle_pooled` / `Δ 是假设`）+ 主表 **12 或 8 个方案行 × 17 列** + **尺子1 Δ = 0.000000pp** | ~1100 |
+| house-style 退化段 | **方向箭头逐条重算**（F1/P/R/hit/inbox/coverage 越高越好；FAR/CLE/抖动/碎片/脱靶越低越好）⇒ **做反了会把「追回滞后」读成「精度被做坏」** | ~300 |
+
+#### 37.25.2 ⭐ 3 次反向注入全部被精确捕获 ⇒ 脚本非空转
+
+| # | 注入内容 | 捕获结果 |
+|:--|:--|:--|
+| A | 篡改 `report.md` §2.2 的 `replay` F1（`96.1297` → `96.9999`） | **1 条 FAIL**：`D8.02-cs_t0043-replay-F1`（报告 `96.9999` vs 真源 `96.12970512942069`） |
+| B | 把 house-style 退化表 rc2·`replay` 的 hit@5px 方向 **「改善」改成「恶化」** | **1 条 FAIL**：`H8-DIR-rc2-hit@5px-replay`（源算 改善，87.0680 vs 基线 60.9097） |
+| C | 篡改 `report.md` §5.2 逐序列「对总缺口贡献」首行（→ `9.9999`） | **1 条 FAIL**：`D8.05-cs_t0043-VIDEO00006_19700101_000703-CONTRIB`（真源 0.04784160747801069） |
+
+#### 37.25.3 ⭐⭐⭐ **本段抓到我自己的一次产物污染**（注入 B 的恢复操作写错了顺序）
+
+- 注入 B 时我**先改文件、后 `cp` 备份** ⇒ **备份里已含注入** ⇒ 后续 `cp` 恢复把污染**又写回**了
+  `report_house_style.md`；复验时 `H8-DIR-rc2-hit@5px-replay` 仍 FAIL 才暴露。
+- **处置**：不靠手工还原下结论 ⇒ **用官方生成器重生成**两份被注入过的文件，
+  再与「手工还原版」逐位 `diff`：
+  - `make_report_table.py`（house-style）⇒ **IDENTICAL ✓**
+  - `make_fastinfer_nogmc_report.py`（report.md）⇒ **IDENTICAL ✓**
+  ⇒ 证明两份文件已**完全恢复**、无残留污染。
+- **教训（值得写进铁律）**：**做反向注入时，备份必须先于注入**；且**恢复后必须用生成器输出逐位 diff 复核**，
+  不能只靠「脚本说 PASS」就宣布恢复 —— 本次正是脚本 FAIL 才抓到顺序错误。
+
+#### 37.25.4 本段新增/修改的文件（仓内，全部已落服务器）
+
+| 文件 | 改动 |
+|:--|:--|
+| `manu/tracking/lookahead/audit_sec5_deliverables.py` | **新增**（2245 项断言 / 三份交付物全覆盖 / 内容锚点定位 / 反向注入自测） |
+| `manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh` | 新增 `code/audit_sec5_deliverables.py` + `audit_round7/audit_sec5_deliverables.md` ⇒ 交付包 **129 文件** |
+
+#### 37.25.5 本段最终验证（全部在服务器 `test-Super-Server` 上实跑）
+
+| 项 | 命令 | 结果 |
+|:--|:--|:--|
+| 五份审计 | `for s in audit_sec16_gap audit_sec17_reg_oracle audit_sec17_rbgate audit_sec5_acceptance audit_sec5_deliverables; do python manu/tracking/lookahead/$s.py; done` | **rc 全 0**；断言数 **253 / 127 / (rbgate) / 1257 / 2245**，FAIL **全 0** |
+| 交付包装配 | `bash …/server_overnight/pack_delivery_nogmc_fi.sh` | **129 文件 / 缺失 0** |
+| 包内自包含（冷启动） | `bash …/server_overnight/coldstart_verify_delivery.sh` | **35/35 逐位一致**、0 差异、**真仓 0 污染** |
+| 校验和 | `cd runs/lookahead/final/nogmc_fi_20261104 && md5sum -c MD5SUMS.txt` | **128/128 OK**、**0 FAILED** |
+| 导航表 | `python3 manu/memory/validate_nav_table.py` | **141/141 PASS** |
+| 单测 | `PYTHONPATH=. python -m unittest discover -s manu/tracking/tests -t .` | **167 OK / skipped 10**（无回归） |
+
+### 37.25 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.25 ⭐⭐⭐ 2026-11-05 夜 11（续）：补齐 prompt §5 三份交付物的机器核验（`audit_sec5_deliverables.py`，2245 项断言 / FAIL 0 / 3 次反向注入全捕获）＋ 抓出并修复我自己的一次产物污染（注入 B 备份顺序错误）＋ 交付包 129 文件 / 冷启动 35/35 | lookahead_extrapolator_20261102.md | 6820 |
+
+### 37.26 ⭐⭐⭐ 2026-11-05 夜 11（第三段）：**收尾固化复跑 ＋ 权威指纹订正**（house-style 的 md5 变更是**合法改动**，不是污染）
+
+> 执行机：**服务器** `test-Super-Server`（`192.168.99.40:32222`）· 项目根 `/tmp/pycharm_project_10ae9e2e`
+> 时间：2026-11-05 03:57 → 04:05 CST（夜 11 第三段）
+> 起因：夜 11 第二段（§37.25）的 memory 落档留了一个**机械缺口** —— 主档 §49 的导航行起始行写成 `7310`
+> （正确值 `6881` = 7291 − 410）⇒ 导航表整组校验不过。本段把它修掉，并做**一次完整收尾固化复跑 + 指纹订正**。
+
+#### 37.26.1 断点修复（1 行）
+
+| 文件 | 改动 |
+|:--|:--|
+| `manu/memory/memory.md` | §49.5 导航表末行起始行 `7310` → **`6881`**（= 主档 §49 标题行 7291 − 410；该组自洽 offset = −410） |
+
+⚠️ **踩坑复盘**：主档组与专题档组的导航**标签**必须沿用各组既有写法（主档组用「四十九」、专题档组用「三十七」）——
+写成「三十八」不是「1 条 FAIL」，而是**整组 FAIL**（§37.24 时踩过一次）。
+
+#### 37.26.2 收尾固化复跑（全部服务器实跑）
+
+| 项 | 命令 | 结果 |
+|:--|:--|:--|
+| 导航表 | `python3 manu/memory/validate_nav_table.py` | **143/143 PASS** |
+| 打包 | `bash manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh` | **129 文件 / 缺失 0** |
+| 冷启动（包自包含） | `bash manu/tracking/lookahead/server_overnight/coldstart_verify_delivery.sh` | **35/35 逐位一致**、0 差异、0 缺失、**真仓 0 污染** |
+| 校验和 | `cd runs/lookahead/final/nogmc_fi_20261104 && md5sum -c MD5SUMS.txt` | **128/128 OK**、**0 FAILED** |
+| 五份审计 | `for s in audit_sec16_gap audit_sec17_reg_oracle audit_sec17_rbgate audit_sec5_acceptance audit_sec5_deliverables; do python manu/tracking/lookahead/$s.py; done` | **rc 全 0 / FAIL 全 0**（253 / 127 / 36 / 1257 / 2245） |
+| 单测 | `PYTHONPATH=. python -m unittest discover -s manu/tracking/tests -t .` | **167 OK / skipped 10**（无回归） |
+
+> 📌 **订正**：§37.25.5 写的「导航表 141/141 PASS」是**加 §37.25 / §49 两行之前**的数；加完是 **143**。
+> 143 = 141 + 2（专题档 §37.25 + 主档 §49 各一行），**不是新增断言**。
+
+#### 37.26.3 ⭐ 指纹订正：`report_house_style.md` 的 md5 变了，**是合法改动、不是污染**
+
+- 17:06 交接单里的 `runs/lookahead/fi_nogmc/report_house_style.md` md5 = `b572c31bb55b94bf0756b826a5c0aa5d`
+  **已作废**；**当前权威值 = `c5a711d5d53f246507c2c761c9b97a1c`**（文件 mtime 2026-11-05 03:55:12）。
+- **溯源**：夜 10 审计的 **B-2** 修复 —— `make_report_table.py` 改为**从产物自动读** `replay_fov_margin_px`
+  （生成器 mtime 11-05 00:57、md5 `dc80ab1c8374e2efa48c44a16ccda83f`；17:06 交接单里的旧值是 `b4e7d71a47fe1e6b5c817b87608a93c7`）
+  ⇒ 8 序 / 24 序 house-style 表**多出「⚠️ 出框门口径」那一行**（实测已落盘：
+  `本表产物的 --replay-fov-margin-px = 0（裸配置，未开出框门）`）⇒ **md5 合法变更**。
+- **不靠人眼的自证**：用官方生成器把 8 序 house-style 重生成到 `/tmp/hs_check.md`，与现文件 `cmp` ⇒ **BYTE-IDENTICAL**
+  （两者 md5 同为 `c5a711d5…`）⇒ 现文件**就是**生成器的权威输出，**无残留污染**。
+
+```bash
+python manu/tracking/lookahead/make_report_table.py \
+  --runs runs/lookahead/fi_nogmc/rc2/d3/arms.json runs/lookahead/fi_nogmc/cs_t0043/d3/arms.json runs/lookahead/fi_nogmc/trial_0049/d3/arms.json \
+  --labels "RC2 trial_0080ep3 / GMC 语义" "cs_t0043 / no-GMC 语义" "trial_0049 ep20 / no-GMC 语义" \
+  --title "Fast Infer × no-GMC 严格对照（Δ=3）" --delta 3 --model "rc2 / cs_t0043 / trial_0049" \
+  --per-sequence --baseline stale --out-md /tmp/hs_check.md
+cmp /tmp/hs_check.md runs/lookahead/fi_nogmc/report_house_style.md   # ⇒ 无输出（逐位一致）
+```
+
+- **同源订正**：`make_fastinfer_nogmc_report.py` 现 md5 = `f06274de08825acf202bbbbe9f98ebd7`
+  （17:06 旧值 `25080b692382c11e915691b6085c3f31`）；但 `report.md` 的内容 md5 **未变**（`66653d4f…`）
+  ⇒ 该生成器的改动**不影响** 8 序 `report.md` 的输出字节。
+
+#### 37.26.4 权威指纹全表（host 09:00 拉回后按此核对）
+
+| 产物 | 规模 | md5 | sha256 |
+|:--|:--|:--|:--|
+| `runs/lookahead/fi_nogmc/FINAL_REPORT.md` | **1191 行** | `0abee280c72b7ff6701ce6ebee92290d` | `8c1843c35fad88bd7a58e03f0473a4537f0f3a9e9c8ea3c5d231e411b7c7bbbf` |
+| `runs/lookahead/fi_nogmc/report.md`（8 序专用） | — | `66653d4f58ad1d186aee2e1beb28d7c4` | — |
+| `runs/lookahead/fi_nogmc/report_house_style.md`（8 序权威） | — | **`c5a711d5d53f246507c2c761c9b97a1c`** | — |
+| 交付包 | **129 文件** | `runs/lookahead/final/nogmc_fi_20261104/`（`MD5SUMS.txt` 128 条） | — |
+
+#### 37.26.5 本段新增/修改（仓内，已落服务器）
+
+| 文件 | 改动 |
+|:--|:--|
+| `manu/memory/memory.md` | §49.5 导航表末行起始行号订正（`7310` → `6881`）＋ 本轮 §50（新增） |
+| `manu/memory/lookahead_extrapolator_20261102.md` | 本节 §37.26（新增） |
+
+**本段没有新增任何计算**（全部是复跑 + 核对 + 落档）⇒ **交付档不变**：
+`cs_t0043`(no-GMC) + Δ=3 + `replay` + `--replay-fov-margin-px 6` + `--replay-rollback-min-peak 0.90`
+⇒ **F1 94.8094 / R 92.8507 / FAR 0.024337 / hit@5px 86.9718 / CLE pooled p95 7.0663**（三门 PASS、FAR 余量 **0.005663**）。
+
+### 37.26 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.26 ⭐⭐⭐ 2026-11-05 夜 11（第三段）：收尾固化复跑（导航表 143/143 / 打包 129 文件 / 冷启动 35/35 / MD5 128/128 / 五审计 rc0 / 单测 167 OK）＋ 权威指纹订正（house-style md5 变更系 B-2 合法改动，非污染） | lookahead_extrapolator_20261102.md | 6893 |
+
+### 37.27 ⭐⭐⭐ 2026-11-05 夜 12（第四段）：**交付包自足性改造** —— 新增 `repo/` 仓镜像 ＋ 五审计根定位自适配 ＋ 冷启动 5/5「包内独立复跑」＋ 新增自足性审计（22 断言）
+
+#### 37.27.0 抓到的真缺口：host 拿到的包**无法独立复核**
+
+- host 明早只拉 `runs/lookahead/{fi_nogmc,final}/` ⇒ **24 序真源 `arms.json`（仓内 322 个）、§17 帧级 oracle dump、
+  回退门扫描产物、OSD 三臂视频**全都不在拉取范围内。
+- 后果：包内 `code/` 的五份审计脚本在包外**读不到真源** ⇒「严格的精度对比报告」只能看已生成的 md，
+  **无法独立复算** ⇒§37.26 记录的「129 文件 / 128 MD5」只覆盖了报告与脚本，**没覆盖真源** ⇒ 所谓「自包含」是空话。
+- 处置：交付包内新增 **`repo/` 仓镜像**（按**仓内相对路径**镜像真源）＋ 五份审计**根定位自适配**
+  ⇒ host 拿到包即可在**包外**独立复跑全部审计、复算头条数字。
+
+#### 37.27.1 改造清单（仓内，已落服务器）
+
+| # | 文件 | 改动 |
+|:--|:--|:--|
+| 1 | `manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh` | 新增 **5/5 仓镜像 `repo/`** 段：① 全部 `arms.json` ② §17 dump（`reg_oracle`/`oracle_accel`/`gapdiag`）③ OSD 视频 ④ 其余审计直接读取的输入 ⑤ `README.md` + `MD5SUMS.txt`；**排除 `$OUT` 自身**（防自包含）；MD5 前清 `__pycache__/*.pyc` |
+| 2 | `audit_sec16_gap.py` / `audit_sec17_reg_oracle.py` / `audit_sec5_acceptance.py` / `audit_sec5_deliverables.py` | 根定位改**一行式自适配**：仓内 ⇒ 取命中 `manu/tracking/lookahead` 的祖先目录；否则 ⇒ `<脚本目录>/../repo`（**仓内行为逐位不变**） |
+| 3 | `audit_sec17_rbgate.py` | ① `scan_rollback_literals` **排除 `runs/lookahead/final/nogmc_fi_*`**（交付包是产物副本，会让同一产物在全仓扫描里出现两次）② 审计对象路径改**相对根目录**打印（原绝对路径 ⇒ 仓内/包内两份输出不可逐位比对） |
+| 4 | `manu/tracking/lookahead/server_overnight/coldstart_verify_delivery.sh` | 新增 **5/5 阶段「包内独立复跑审计」**：在包副本里跑 6 个审计脚本 ⇒ rc 全 0；其中 5 份的 md 与随包 md **逐位一致 5/5** |
+| 5 | `manu/tracking/lookahead/audit_pack_selfsufficient.py`（**新增**） | **22 项断言**：包 MD5SUMS 覆盖/无多余/逐位 md5 相同、无 `.pyc`、镜像 vs 仓内**逐位 md5 相同**、镜像不缺 `arms.json`、五份审计的关键输入齐备、`code/` 与仓内同名脚本同源、**把包内脚本搬到仓外临时目录 import 验证自定位**；在包内运行时优雅降级（2 项断言） |
+| 6 | `manu/tracking/lookahead/make_fastinfer_final_report.py` | §8 产物索引 **+2 行**（仓镜像 `repo/` + 自足性审计）⇒ `FINAL_REPORT.md` 1191 → **1193 行** |
+
+#### 37.27.2 过程中抓到的 5 个真缺陷（自证价值）
+
+| # | 缺陷 | 后果 | 处置 |
+|--:|:--|:--|:--|
+| 1 | 镜像把**交付包自身**也扫进去 | `arms.json` 命中 **654 = 327×2**（同一产物两份） | `mirror()` 里 `case "$rel" in "$OUT"/*) return;;` |
+| 2 | 交付包副本**污染全仓溯源扫描** | `audit_sec17_rbgate` 的回退链字面量扫描把包内副本也算进去 | 扫描时**排除 `runs/lookahead/final/nogmc_fi_*`** |
+| 3 | 审计输出印**绝对路径** | 仓内跑 vs 包内跑输出**无法逐位比对** | 改**相对根目录**打印 |
+| 4 | 包内混入 `__pycache__/*.pyc` | 不是交付物、还会进 MD5 清单 | 打包前清 `__pycache__` 与 `*.pyc` |
+| 5 | 自足性审计**初版自身 3 个 bug** | README 白名单漏判 / 相对路径比较错 / 仓内 import 优先级错 | 全部修正 ⇒ 现 22/22 PASS |
+
+#### 37.27.3 复跑结果（2026-11-05 04:25~04:40，服务器 `test-Super-Server`，全 CPU）
+
+| 项 | 结果 |
+|:--|:--|
+| 交付包规模 | **537 文件**（`repo/` 镜像 **406** = 404 原件 + `README.md` + `MD5SUMS.txt`；非镜像 131）/ **219 MB** |
+| 包 MD5 清单 | `MD5SUMS.txt` **535 条**；`md5sum -c` ⇒ **535/535 OK、0 FAILED** |
+| 镜像自洽 | 镜像 `MD5SUMS.txt` md5 `11d5f3ec5963ce74b6290f139aa0ff5a` —— **三代打包（P1/P2/P3）逐位相同** ⇒ 镜像内容与打包次数无关 |
+| 冷启动复现 | `IDENTICAL=35 / DIFF=0 / MISSING=0`；**真仓污染 0 处**；**包内 6 审计 rc=0（FAIL 全 0）**；**审计输出逐位一致 5/5** |
+| 自足性审计 | `audit_pack_selfsufficient.py` ⇒ **22/22 PASS、FAIL 0**（仓内、包内两种运行位置都过） |
+| 五份审计（仓内重跑） | `audit_sec16_gap` **253** / `audit_sec17_reg_oracle` **127** / `audit_sec17_rbgate` **36** / `audit_sec5_acceptance` **1257** / `audit_sec5_deliverables` **2245** —— **rc 全 0、FAIL 全 0** |
+| 单测 | `PYTHONPATH=. python -m unittest discover -s manu/tracking/tests -t .` ⇒ **167 OK / skipped 10**（无回归） |
+| 导航表 | `python3 manu/memory/validate_nav_table.py` ⇒ **147/147 PASS**（加本节两行后） |
+
+#### 37.27.4 指纹全表（host 09:00 拉回后按此核对）
+
+| 产物 | 规模 | md5 | sha256 |
+|:--|:--|:--|:--|
+| `runs/lookahead/fi_nogmc/FINAL_REPORT.md` | **1193 行** | `682a4bf96810f73e41f88600a867132c` | `08d15b4654bc6520177dc1057baa7a78729a23a28a5cdb6983fa5bd15d3984f8` |
+| `runs/lookahead/fi_nogmc/report.md`（8 序专用） | — | `66653d4f58ad1d186aee2e1beb28d7c4`（**未变**） | — |
+| `runs/lookahead/fi_nogmc/report_house_style.md`（8 序权威） | — | **`c5a711d5d53f246507c2c761c9b97a1c`**（**未变**） | — |
+| 交付包 | **537 文件 / 219 MB** | `runs/lookahead/final/nogmc_fi_20261104/MD5SUMS.txt`（**535 条**，md5 `32cd8e218a720bd5760b151f8acd951b`） | — |
+| 仓镜像 | **406 文件 / 182 MB** | `.../repo/MD5SUMS.txt`（md5 `11d5f3ec5963ce74b6290f139aa0ff5a`） | — |
+| `audit_pack_selfsufficient.md` | — | `46ed479fcd79e5a73a5fb6a3a465d76d` | — |
+
+> ⚠️ **订正 §37.26.4 / §50.4 记的交付包规模**：那里记的是 **129 文件 / 128 MD5**（夜 11 状态），
+> **已被本节 537 文件 / 535 MD5 取代**（新增 `repo/` 仓镜像 406 文件）。
+> `FINAL_REPORT.md` 也从 **1191 行 / `0abee280…`** 变为 **1193 行 / `682a4bf9…`**
+> —— 这是 §8 产物索引**加 2 行**（仓镜像 + 自足性审计）的**合法变更**，不是污染。
+
+#### 37.27.5 本段新增/修改（仓内，已落服务器）
+
+| 文件 | 改动 |
+|:--|:--|
+| `manu/tracking/lookahead/audit_pack_selfsufficient.py` | **新增**（22 断言的自足性审计） |
+| `manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh` | 新增 5/5 仓镜像段 |
+| `manu/tracking/lookahead/server_overnight/coldstart_verify_delivery.sh` | 新增 5/5「包内独立复跑审计」阶段 |
+| `manu/tracking/lookahead/audit_sec16_gap.py` / `audit_sec17_reg_oracle.py` / `audit_sec5_acceptance.py` / `audit_sec5_deliverables.py` | 根定位一行式自适配（仓内行为逐位不变） |
+| `manu/tracking/lookahead/audit_sec17_rbgate.py` | 回退链扫描排除交付包 + 路径改相对根目录 |
+| `manu/tracking/lookahead/make_fastinfer_final_report.py` | §8 产物索引 +2 行 |
+| `manu/memory/lookahead_extrapolator_20261102.md` | 本节 §37.27（新增） |
+| `manu/memory/memory.md` | §51（新增）+ 两处导航行 |
+
+**本段没有新增任何指标计算**（全部是打包/复跑/自证改造）⇒ **交付档不变**：
+`cs_t0043`(no-GMC) + Δ=3 + `replay` + `--replay-fov-margin-px 6` + `--replay-rollback-min-peak 0.90`
+⇒ **F1 94.8094 / R 92.8507 / FAR 0.024337 / hit@5px 86.9718 / CLE pooled p95 7.0663**（三门 PASS、FAR 余量 **0.005663**）。
+
+#### 37.27.6 复现命令
+
+```bash
+cd /tmp/pycharm_project_10ae9e2e
+PY=/home/huangzhe/anaconda3/envs/uav/bin/python
+bash manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh            # 打包 → 537 文件
+( cd runs/lookahead/final/nogmc_fi_20261104 && md5sum -c MD5SUMS.txt )            # ⇒ 535/535 OK
+bash manu/tracking/lookahead/server_overnight/coldstart_verify_delivery.sh        # ⇒ 35/35 + 6 审计 rc=0 + 5/5 一致
+PYTHONPATH=. $PY manu/tracking/lookahead/audit_pack_selfsufficient.py             # ⇒ 22/22 PASS
+PYTHONPATH=. $PY -m unittest discover -s manu/tracking/tests -t .                 # ⇒ 167 OK / skipped 10
+python3 manu/memory/validate_nav_table.py                                         # ⇒ 147/147 PASS
+```
+
+### 37.27 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.27 ⭐⭐⭐ 2026-11-05 夜 12（第四段）：交付包自足性改造（`repo/` 仓镜像 406 文件 ＋ 五审计根定位自适配 ＋ 冷启动 5/5 包内独立复跑 ＋ 新增自足性审计 22 断言）＋ 交付包 537 文件 / 535 MD5 全绿 | lookahead_extrapolator_20261102.md | 6972 |
+
+### 37.28 ⭐⭐⭐ 2026-11-05 夜 12（第五段）：**自足性审计的「判别力」缺陷修复**（FAIL 判定挂在 level 上 ⇒ 审计**永不报警**）＋ **12 用例**变异测试（判别力证明，包内/仓内两模式）＋ 独立 reviewer 复核（5 IMPORTANT + NIT 全处理）
+
+> 执行机：服务器 `test-Super-Server` · 项目根 `/tmp/pycharm_project_10ae9e2e` · python `/home/huangzhe/anaconda3/envs/uav/bin/python`
+> 时间：**2026-11-05 05:01 ~ 05:50 CST**（全 CPU，GPU 驱动不可达；无训练/推理负载）
+> 本段**没有新增任何指标计算**（交付档数字一字未动）⇒ 改的是**验证链本身**。
+
+#### 37.28.1 ⭐⭐⭐ 本段抓到的真缺陷：`audit_pack_selfsufficient.py` 的「22/22 PASS」是**空断言**
+
+夜 12 收尾时留了一个未了结项：**自足性审计的变异测试**（判别力证明）。本段把它做完，
+结果是**抓到 3 个真缺陷，其中 1 个是 BLOCKING 级**：审计**永远不会报警**。
+
+**缺陷 1（BLOCKING，根因）—— FAIL 判定挂在 `level` 上，而不是 `ok` 上**：
+
+```python
+def rec(level, cid, ok, detail): _results.append((level, cid, ok, detail))   # ← 只存，不判
+...
+fails = [r for r in _results if r[0] == "FAIL"]        # ← 只看 level 是不是字面量 "FAIL"
+n_ok  = sum(1 for r in _results if r[0] == "CHECK")    # ← 把 ok=False 的项也当成 PASS
+```
+
+全部 21 个 `CHECK` 断言都用 `rec("CHECK", cid, ok, ...)` 调用 ⇒ **失败时只把 `ok` 置 False、
+`level` 仍是 `"CHECK"`** ⇒ `fails` 恒为空、`n_ok` 恒等于断言总数、**rc 恒 0**。
+⇒ **早先 §37.27 / §51 记的「自足性审计 22/22 PASS」是空断言**（对任何篡改都报 PASS），
+**本段订正**：该结论作废，改为「**仓内 27 项 / 包内 10 项断言全 PASS，且经 12 用例变异测试证明有判别力**」。
+
+*实测证据*：把交付包拷到仓外、往镜像真源 `repo/runs/lookahead/fovgate24/runs/rc2/d3/fov__m8/arms.json`
+追加 1 字节后跑旧审计 ⇒ 输出「共 2 项断言 —— PASS 2 项，FAIL 0 项」、**rc=0** ⇒ **漏报**。
+（同一时刻手工比对已发现镜像文件与 `repo/MD5SUMS.txt` 记录不符 —— 判据算出来了，只是没被计入 FAIL。）
+
+**缺陷 2（BLOCKING，包内模式）—— host 实际使用的那条路径没有包级篡改检测**：
+包内模式（脚本在 `<包>/code/` 下、仓不在身边）早先只做「镜像 vs 镜像清单」自洽，
+**从不校验包顶层 `MD5SUMS.txt`（537 条）** ⇒ 包里任何顶层文件被改都查不出来。
+
+**缺陷 3（BLOCKING，包内模式）—— 自我污染 ＋ 结构性必 FAIL**：
+包内模式把自己的报告写进**只读镜像**（`repo/runs/lookahead/fi_nogmc/audit_round7/`），
+且判据用 `set(listed) == on_disk` **严格等集**（把清单外的 `README.md` 也算进去）
+⇒ ① 审计污染了它要审计的镜像；② 该判据在**未被污染**时也必 FAIL（README.md 不在清单里）——
+两处都被缺陷 1 掩盖成「PASS」。
+
+#### 37.28.2 修法（第一轮：仓内 4 处 + 打包器 2 处，均已落服务器）
+
+| # | 位置 | 改动 |
+|:--|:--|:--|
+| 1 | `audit_pack_selfsufficient.py` `rec()` | 失败项统一落成 `level="FAIL"`（`"FAIL" if not ok else level`）⇒ **判定挂在 `ok` 上**，rc 真的会变成 1 |
+| 2 | 同上 `verify_sums()`（新） | 把「清单逐位 md5 + 覆盖完整（无缺失 / 无多余）」抽成一处，**仓内模式与包内模式共用**；多出来的文件一律 FAIL（运行产物除外） |
+| 3 | 同上 `IN_PACK` 判定 | 包内模式**同时校验包级清单 + 镜像级清单**（两把锁互为备份）；报告改写到**包外**（`<包>/../audit_pack_selfsufficient_inpack.md`）⇒ 不再污染包与镜像 |
+| 4 | 同上 `CODE_FILES` | 包内 `code/` 与仓内同名脚本逐位对账**增加本脚本自身**（早先把自足性审计自己漏掉 ⇒ 包里塞一份改过的审计不会被发现） |
+| 5 | `pack_delivery_nogmc_fi.sh` | 镜像 `README.md` **先写、后生成清单** ⇒ 镜像清单覆盖每一个文件（405 条，不再漏 README） |
+| 6 | 同上 | 把 `mutation_test_selfsufficient.py` 与其报告一并打进交付包（`code/` + `audit_round7/`） |
+
+#### 37.28.3 ⭐⭐⭐ 变异测试（判别力证明）：12 用例 **12/12 PASS**（包内 + 仓内两模式）
+
+脚本：`manu/tracking/lookahead/server_overnight/mutation_test_selfsufficient.py`（随包 `code/`）
+命令：`python manu/tracking/lookahead/server_overnight/mutation_test_selfsufficient.py`
+产物：`runs/lookahead/fi_nogmc/audit_round7/mutation_test_selfsufficient.md`（md5 `c2ebef0c21bf52078db0285d37cdc0a4`）
+
+| 变异用例 | 模式 | 期望 rc | 实测 rc | 命中断言 | 判定 |
+|:--|:--|--:|--:|:--|:--|
+| M0 原样（对照） | 包内 | 0 | 0 | —（不误报） | ✅ |
+| M1 篡改镜像真源 1 字节 | 包内 | 1 | 1 | `PKG.SUMS-MD5-MATCH`、`MIR.SUMS-MD5-MATCH` | ✅ |
+| M2 篡改包顶层权威报告 `FINAL_REPORT.md` | 包内 | 1 | 1 | `PKG.SUMS-MD5-MATCH` | ✅ |
+| M3 删除一个镜像真源 | 包内 | 1 | 1 | `PKG.SUMS-NO-MISSING`、`MIR.SUMS-NO-MISSING` | ✅ |
+| M4 塞入清单外的文件 | 包内 | 1 | 1 | `PKG.SUMS-COVERAGE` | ✅ |
+| M4b 往运行产物目录 `audit_round7/` 塞文件 | 包内 | 1 | 1 | `PKG.SUMS-COVERAGE`、`MIR.SUMS-COVERAGE` | ✅ |
+| M5 改真源 **+ 改镜像清单**（掩盖） | 包内 | 1 | 1 | `PKG.SUMS-MD5-MATCH` | ✅ |
+| M6 改真源 **+ 改包级清单**（掩盖） | 包内 | 1 | 1 | `MIR.SUMS-MD5-MATCH` | ✅ |
+| M7 **已知边界**：真源 + 两层清单同改 | 包内 | 0 | 0 | —（**检测不到**，如实记录） | ✅（边界如实标注） |
+| R0 仓内模式（对照） | 仓内 | 0 | 0 | —（不误报） | ✅ |
+| R1 篡改「仓内原件」1 字节 | 仓内 | 1 | 1 | `MIR.MD5-SAME` | ✅ |
+| R2 篡改包内 `code/audit_pack_selfsufficient.py` | 仓内 | 1 | 1 | `CODE.SAME.audit_pack_selfsufficient` | ✅ |
+
+- **仓内模式怎么测**：搭一个「**假仓**」—— 真仓原件用**硬链接**挂进去（改前先 `unlink` 断开
+  ⇒ **真仓不受影响**）、`manu/tracking/lookahead/` 放六份审计脚本、`runs/lookahead/final/…` 放包副本
+  ⇒ 仓内模式可在包外被复跑。
+- **M7 是本审计的能力边界，如实记录、不粉饰**：md5 清单**无签名** ⇒ 篡改者若同时改掉真源
+  **与两层清单**，检测不到 ⇒ 本审计**不声称**能防这一类；防它需要**外部可信根**（清单签名 / HSM），
+  不在本轮范围。M5/M6 证明：**单改一层清单掩盖不住**（另一把锁会响）。
+
+#### 37.28.4 ⭐⭐⭐ 独立 reviewer 复核（agent `critic`）：LGTM、**0 BLOCKING**，5 IMPORTANT + 6 NIT **全部处理**
+
+派了独立 reviewer 只读复核本轮 4 个改动文件（严禁跑任何审计脚本，以免破坏「包内/仓内 md 逐位一致」）。
+结论 **LGTM（无 BLOCKING）**，但指出 5 条会削弱「覆盖完整」与「host 可独立复核」的问题 ⇒ 全部修：
+
+| # | reviewer 发现 | 处置 |
+|:--|:--|:--|
+| I-1 | `_is_runtime_output()` 把镜像 `audit_round7/` **整目录**当免检区 ⇒ 篡改者往里塞任意文件可绕过覆盖判据 | 豁免收窄为**固定文件名白名单**（五份审计各自的输出名）；新增 **M4b** 变异用例证明「往运行产物目录塞文件」照样报警 |
+| I-2 | 包内模式**不跑** `.pyc` 断言，而 `.pyc` 又被豁免 ⇒ host 侧多出的 `.pyc` 无人抓 | 包内模式新增 `PKG.NO-PYC-OUTSIDE-CODE`（只允许 `code/__pycache__/` 这类运行产物；其余位置有 `.pyc` 即 FAIL） |
+| I-3 | `IN_PACK` 靠「向上找仓根」判定 ⇒ ①包被放进任何含 `manu/tracking/lookahead` 的目录树下会去审**别的**包；②包根叫 `repo` 时误判 | 改为**只看脚本自身位置**（`<包>/code/` + `<包>/MD5SUMS.txt` + `<包>/repo/`）⇒ 三种摆放下都正确 |
+| I-4 | 包内报告的「判据」段**无条件列出六条**，但包内模式只执行两条 ⇒ host 会误以为②–⑥已复核 | 判据段与「复现」段**按模式渲染**；包内模式显式声明「本模式不执行那五条（仓不在身边，无从对账）」 |
+| I-5 | 仓内分支的断言（`MIR.MD5-SAME` / `CODE.SAME.*` 等）在 8 个用例里**零覆盖** | 新增 **R0/R1/R2** 三个仓内模式用例（假仓 + 硬链接）⇒ 仓内分支也有判别力证明 |
+| N-6 | `rel.lstrip("./")` 按字符集剥前导，根级点文件会误判 | 改 `rel.removeprefix("./")` |
+| N-7 | `n_ok` 按 `level` 字符串统计 | 改按 `ok` 统计 |
+| N-8 | `PKG.IN-PACK` 是硬编码 `True` 的恒真断言 | 改成真判定（镜像含 `runs/lookahead`） |
+| N-9 | 文档仍写「五份审计」；镜像 `README.md` 没提自足性审计与包级清单这把锁 | 口径改「六份（含本脚本自身）」；镜像 README 补 `audit_pack_selfsufficient.py` / `mutation_test_selfsufficient.py` 的用法与「两把锁」说明 |
+| N-10 | 包内报告的「复现」段给的是仓内命令 | 按模式渲染 |
+| N-11 | 冷启动脚本注释「两种模式断言数不同：22 vs 2」已作废 | 改为「仓内 27 / 包内 10」 |
+| N-12 | 变异测试报告是对**打包前**的包跑的 | 报告里改记**被测判据脚本的 md5**（判据本身的可追溯指纹）+ 运行时刻的文件数 |
+
+#### 37.28.5 本段复跑结果（全绿，服务器实跑）
+
+| 项 | 结果 |
+|:--|:--|
+| 自足性审计（**仓内**模式） | **27/27 PASS / FAIL 0 / rc=0**（修前 22 项「空断言」） |
+| 自足性审计（**包内**模式，host 视角） | **10/10 PASS / FAIL 0 / rc=0**；报告写在**包外**，包保持洁净 |
+| 仓内模式反向注入（镜像真源改 1 字节） | **3 项 FAIL / rc=1**（`PKG.SUMS-MD5-MATCH`、`MIR.SUMS-MD5-MATCH`、`MIR.MD5-SAME`）⇒ 判据**真的会响** |
+| 变异测试 | **12/12 用例与期望一致 ⇒ PASS**（包内 9 + 仓内 3） |
+| 交付包校验 | `md5sum -c MD5SUMS.txt` ⇒ **537/537 OK / 0 FAILED**（包 **539 文件**） |
+| 冷启动复现 | **35/35 逐位一致**、有差异 0、缺失 0、**真仓污染 0 处**、**包内独立复跑 6 份审计 rc=0（FAIL 全 0）**、审计输出逐位一致 **5/5** |
+| 仓镜像 | 镜像 **406 文件**、`repo/MD5SUMS.txt` **405 条**（含 README.md） |
+| 单测 | `PYTHONPATH=. python -m unittest discover -s manu/tracking/tests -t .` ⇒ **167 OK / skipped 10**（基线未变） |
+| 导航表 | `python3 manu/memory/validate_nav_table.py` ⇒ **149/149 PASS** |
+| **host 全流程模拟**（仓外副本 → 依次跑包内六份审计 → 再跑自足性审计 → `md5sum -c`） | 六份审计**全 rc=0 / FAIL 0**；事后包级 `md5sum -c` 仍 **537/537 OK**；自足性审计再跑仍 **10/10 PASS / rc=0** ⇒ host 09:00 按 README 走不会踩坑 |
+
+**过程中冷启动新抓到的一个「假阳性」并已处置**：跑包内代码时 Python 生成
+`code/__pycache__/make_knob_scan_it2_report.cpython-310.pyc` ⇒ 被覆盖判据当成「多余文件」报 FAIL
+（**真阳性但不是篡改**）⇒ 已把 `__pycache__`/`*.pyc` 划为运行产物；交付包里的 `.pyc` 仍由仓内模式的
+`PKG.NO-PYC` 与包内模式的 `PKG.NO-PYC-OUTSIDE-CODE` 单独盯。
+
+**顺序陷阱（本次踩到，已按正确顺序收口）**：重生成权威报告（`FINAL_REPORT.md` 行数 1193→1194）
+⇒ 五份审计的**仓内**产物变成陈旧版 ⇒ 冷启动的「审计输出逐位一致」掉到 **1/5**。
+正确顺序：**重生成报告 → 重跑五份审计 → 重打包 → 再冷启动** ⇒ 回到 5/5。
+另：「包内/仓内审计 md 逐位一致」靠**最后一步**（审计 → 复制 → 重算包 MD5SUMS）维持；
+最终校验用 `--out-md /tmp/...` 跑，**不覆盖**仓内 md。
+
+#### 37.28.6 交付档**一字未动**（本段只改验证链）
+
+`cs_t0043`(no-GMC) + Δ=3(120 ms) + `replay` + `--replay-fov-margin-px 6` + `--replay-rollback-min-peak 0.90`
+⇒ **F1 94.8094 / Recall 92.8507 / FAR 0.024337 / hit@5px 86.9718 / CLE pooled p95 7.0663**
+（三门 PASS、FAR 余量 **0.005663**）；用户核心问句三口径（24 序）：相对 rc2 同 Δ **+0.5537pp**、
+相对 stale **+4.1812pp**、相对天花板追回 **86.4%**。
+
+#### 37.28.7 指纹全表（host 09:00 拉回后按此核对）
+
+| 产物 | md5 | 行数 |
+|:--|:--|--:|
+| `runs/lookahead/fi_nogmc/FINAL_REPORT.md` | `20d301b6433037b363eb4a13900771fe`（sha256 `ea1e8e8552e1dc5a7d1c92bd7ca398b8314e168d8dda267a90a42d072aed14cf`） | 1194 |
+| `runs/lookahead/fi_nogmc/report.md` | `66653d4f58ad1d186aee2e1beb28d7c4` | 376 |
+| `runs/lookahead/fi_nogmc/report_house_style.md` | `c5a711d5d53f246507c2c761c9b97a1c` | 169 |
+| `runs/lookahead/fi_nogmc/audit_round7/audit_pack_selfsufficient.md` | `948660c80bfaf68d802d490e5da7a377` | 57 |
+| `runs/lookahead/fi_nogmc/audit_round7/mutation_test_selfsufficient.md` | `c2ebef0c21bf52078db0285d37cdc0a4` | 49 |
+| `runs/lookahead/final/nogmc_fi_20261104/MD5SUMS.txt` | `b58d28653e6f551b268be36e4a06379f` | 537 |
+| `runs/lookahead/final/nogmc_fi_20261104/repo/MD5SUMS.txt` | `63150b1d21cb282f700c9c5191189d1c` | 405 |
+| `manu/tracking/lookahead/audit_pack_selfsufficient.py` | `ed12e959bec7201247b2185130147f18` | 387 |
+| `manu/tracking/lookahead/server_overnight/mutation_test_selfsufficient.py` | `e58d75ffb0e49fe3cecea2290d116611` | 331 |
+| `manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh` | `ae4cfd68cf3141a16f9e76d36c575b7e` | 246 |
+| `manu/tracking/lookahead/server_overnight/coldstart_verify_delivery.sh` | `8b7a0c577962c0eeaec9cc25d42fe257` | 299 |
+| `manu/tracking/lookahead/make_fastinfer_final_report.py` | `b0ee3a37dd1ab8a77a28cb39d3951482` | 2677 |
+
+**订正说明**：§37.27 / §51 记的「22 断言」「交付包 537 文件 / 535 MD5」「FINAL_REPORT 1193 行 / `682a4bf9…`」
+「`audit_pack_selfsufficient.md` `46ed479f…`」「包 MD5SUMS `32cd8e21…`」**全部作废**，以本表为准。
+
+#### 37.28.8 复现命令
+
+```bash
+cd /tmp/pycharm_project_10ae9e2e
+PY=/home/huangzhe/anaconda3/envs/uav/bin/python
+# ① 变异测试（判别力证明，12 用例：包内 9 + 仓内 3）
+$PY manu/tracking/lookahead/server_overnight/mutation_test_selfsufficient.py \
+    --out-md runs/lookahead/fi_nogmc/audit_round7/mutation_test_selfsufficient.md
+# ② 仓内自足性审计（27 项）
+PYTHONPATH=. $PY manu/tracking/lookahead/audit_pack_selfsufficient.py
+# ③ 打包 + 校验（537/537 OK）
+bash manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh
+( cd runs/lookahead/final/nogmc_fi_20261104 && md5sum -c MD5SUMS.txt )
+# ④ 冷启动（35/35 + 6 审计 rc=0 + 5/5 逐位一致）
+bash manu/tracking/lookahead/server_overnight/coldstart_verify_delivery.sh
+# ⑤ 单测 / 导航表
+PYTHONPATH=. $PY -m unittest discover -s manu/tracking/tests -t .     # ⇒ 167 OK / skipped 10
+python3 manu/memory/validate_nav_table.py                              # ⇒ 149/149 PASS
+```
+
+### 37.28 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.28 ⭐⭐⭐ 2026-11-05 夜 12（第五段）：自足性审计**判别力**缺陷修复（FAIL 判定挂在 level 上 ⇒ 审计永不报警）＋ 8 用例变异测试 8/8 ＋ 包内模式补「包级清单」第二把锁 ＋ 交付包 539 文件 / 537 MD5 全绿 | lookahead_extrapolator_20261102.md | 7068 |
+
+### 37.29 ⭐⭐⭐ 2026-11-05 夜 13：**交付链最后两个缺口封堵** —— G1 新鲜度判据 ＋ G2 两把锁**锚定链** ＋ 变异测试 **14 用例** ＋ 一键复核脚本 `verify_all.sh`
+
+> 执行机：服务器 `test-Super-Server` · 项目根 `/tmp/pycharm_project_10ae9e2e` · 时间戳 **2026-11-05 05:30–05:50 CST** · 全 CPU（`nvidia-smi` 驱动不可达）
+> 交付档数字**一字未动**（cs_t0043 / no-GMC / Δ=3 / `replay` / `--replay-fov-margin-px 6` / `--replay-rollback-min-peak 0.90`
+> ⇒ F1 **94.8094** / R 92.8507 / FAR **0.024337** / hit@5px 86.9718 / CLE pooled p95 7.0663，三门 PASS、FAR 余量 0.005663）。
+
+#### 37.29.1 起因：夜 12 独立 reviewer 判 LGTM，但留下两条「遗留风险」
+
+- **G1（新鲜度纯靠流程）**：包内 `audit_round7/` 的 10 份 md 是**仓内产物的快照**。
+  若「只重打包不重跑审计」，包里就是**陈旧结论**，而当时**没有任何断言**能发现 —— 交付链最后一处「靠人守流程」的地方。
+- **G2（两把锁无锚定链）**：打包器用 `-not -name "MD5SUMS*"` 生成包级清单，**把 `repo/MD5SUMS.txt` 一并排除**
+  ⇒ 镜像清单本身**无锚** ⇒ 所谓「两把锁」其实只剩一把（只改镜像清单，包级察觉不到）。
+- 本节把两条风险**各自变成一条硬断言**，并各配一个**变异用例**证明它们真会报警。
+
+#### 37.29.2 G1：`PKG.AUDIT-COPY-FRESH`（仓内模式）—— 包内审计副本 = 仓内**当前**产物
+
+- 判据：`runs/lookahead/fi_nogmc/audit_round7/`（仓内）与 `<包>/audit_round7/`（包内）
+  **文件集相同 + 逐字节相同**；时间戳按 `20\d\d-\d\d-\d\d[ T]\d\d:\d\d(:\d\d)?` 归一化
+  （审计报告每次运行都带新时间戳 ⇒ 不归一化会把「同一份」判成「不一致」）。
+- 覆盖两种真实事故：**① 只重打包不重跑审计**（包内是上一代结论）＋ **② 跑完审计没重打包**（包内落后于仓内）。
+- 实测（2026-11-05 05:44）：仓内 10 份 vs 包内 10 份，仅仓内 0、仅包内 0、内容不一致 0 ⇒ **PASS**。
+
+#### 37.29.3 G1b：`PKG.AUDIT-FINGERPRINT`（**两种模式都跑**）—— 审计结论与权威报告**同代**
+
+- 判据：五份随包审计结论里**内嵌的 `FINAL_REPORT.md` md5 指纹**必须等于包内 `FINAL_REPORT.md` 的**实际** md5。
+  `audit_sec16_gap.md` / `audit_sec5_acceptance.md` 各内嵌一处 ⇒ 判据**非空转**；
+  `_round7_findings` 是历史留痕（故意不刷新）⇒ 明确排除；本脚本自身产出的 `audit_pack_selfsufficient.md` 也排除（避免自指）。
+- 这条**不依赖仓** ⇒ host 只拿到包也能自查「结论是不是这一代报告的」。
+- 实测：随包 `FINAL_REPORT.md` md5 `785b9f15…`，审计结论内嵌指纹对齐 **2/5** 份（另 3 份不内嵌指纹，不参与）⇒ **PASS**。
+
+#### 37.29.4 G2：两把锁 ＋ **锚定链**（包级清单覆盖 `repo/MD5SUMS.txt`）
+
+- 打包器：包级清单 `-not -name "MD5SUMS*"` → `-not -path "./MD5SUMS.txt"`（镜像清单同理）
+  ⇒ **只排除清单自己**，`repo/MD5SUMS.txt` 进包级清单 ⇒ 镜像清单被**锚住**。
+- 审计端：`verify_sums()` 的 `on_disk` 规则同步改成「**只排除本层自己的清单文件**」
+  ⇒ 包级不漏检 `repo/MD5SUMS.txt`、镜像级不把它误判成「未列入」。
+- 数字：包清单 537 → **539 条**（540 文件 − 1 清单自身）；镜像清单 **405 条**（406 文件 − 1）；
+  `md5sum -c` **539/539 OK、405/405 OK、0 FAILED**（2026-11-05 05:44）。
+- 附带：包内 `repo/README.md` 补「两层锁 + 一条锚定链」与一键复核用法。
+
+#### 37.29.5 变异测试 12 → **14 用例**（新增 M8 / R3，M7 边界升级为**三层**）
+
+| 用例 | 模式 | 期望 | 作用 |
+|:--|:--|:--|:--|
+| **M8 只改镜像清单（不动真源）** | 包内 | rc=1，命中断言 `MIR.SUMS-MD5-MATCH` ＋ `PKG.SUMS-MD5-MATCH` | **G2 锚定链的判别力证明**（早先只改镜像清单抓不到） |
+| **R3 篡改仓内审计结论副本** | 仓内 | rc=1，命中断言 `PKG.AUDIT-COPY-FRESH` | **G1 新鲜度判据的判别力证明** |
+| M7 已知边界 | 包内 | rc=0 | 真源 ＋ **三层**清单同改仍检测不到（md5 清单无签名）⇒ 门槛由两层升到三层 |
+
+- 仓内模式要跑 R3 ⇒ `build_fake_repo()` 必须把仓内 `audit_round7/*.md` 也**硬链接**进假仓
+  （早先只建空目录 ⇒ 仓内 10 份 vs 包内 0 份 ⇒ R0 对照会**假 FAIL**）。
+- 实测（2026-11-05 05:42）：**14/14 PASS**，期望不符 0 个。
+
+#### 37.29.6 本轮抓到的真缺陷：包外无仓时仓内模式用例**崩溃**（host 视角不可用）
+
+- 现象：host 只拿到交付包（无 `manu/tracking/lookahead` 祖先）⇒ 变异测试里 `_REPO = None`
+  ⇒ `build_fake_repo()` 走到 `src_repo / "manu/..."` ⇒ `TypeError: unsupported operand type(s) for /: 'NoneType' and 'str'`
+  ⇒ **整个脚本崩溃**（连带 host 侧一键复核失败）。
+- 处置：仓内模式用例在**无仓时自动跳过并如实计数**（既不算通过、也不算失败），报告里写明「跳过 N 个仓内模式（包外无仓）」。
+- 修后包外复跑（2026-11-05 05:45）：`变异测试：10 个用例（跳过 4），期望不符 0 个 ⇒ PASS`。
+
+#### 37.29.7 新增交付件：`code/verify_all.sh`（host 侧**一条命令**复核）
+
+- 交付包内新增 `code/verify_all.sh`：跑「包级清单 → 镜像清单 → 包内六份审计 → 变异测试」并给出一行结论。
+- ★ 全程在 `mktemp -d` 的**临时副本**里跑 ⇒ **不改动交付包本体**
+  （包内复跑审计会把运行产物写进 `repo/runs/lookahead/fi_nogmc/audit_round7/`，直接在包内跑会污染交付包）。
+- 实测（2026-11-05 05:45）：包级 539 OK / 0 FAILED、镜像 405 OK / 0 FAILED、六份审计 **6/6 rc=0**、变异测试 10 执行 + 4 跳过 / 0 违例
+  ⇒ 「结论：交付包复核**全部通过**」。
+
+#### 37.29.8 本轮最终指纹（实测，2026-11-05 05:45 CST）
+
+| 产物 | md5 | 行数 |
+|:--|:--|--:|
+| `runs/lookahead/fi_nogmc/FINAL_REPORT.md` | `785b9f15cc317723ceab73726ddeb663`（sha256 `a520e9b5aee81553f99cb8b683305f3da14eb581a08a281722593c7962f912f2`） | 1195 |
+| `runs/lookahead/fi_nogmc/report.md` | `66653d4f58ad1d186aee2e1beb28d7c4` | 376 |
+| `runs/lookahead/fi_nogmc/report_house_style.md` | `c5a711d5d53f246507c2c761c9b97a1c` | 169 |
+| `runs/lookahead/fi_nogmc/audit_round7/audit_pack_selfsufficient.md` | `3138c9932a9e6297bd9df08a967dc04a` | 59 |
+| `runs/lookahead/fi_nogmc/audit_round7/mutation_test_selfsufficient.md` | `a3e1673f2358216d3ff1f2d1dba8d14f` | 54 |
+| `runs/lookahead/fi_nogmc/_coldstart_repro.md` | `6f94d33111e034832a13096d94bc1469` | 117 |
+| `runs/lookahead/final/nogmc_fi_20261104/MD5SUMS.txt` | `0d5ad112aa14d3a4c0d1773543c600a1` | 539 |
+| `runs/lookahead/final/nogmc_fi_20261104/repo/MD5SUMS.txt` | `6f17332b4b39aa8fa57c3b30b070bec4` | 405 |
+| `manu/tracking/lookahead/audit_pack_selfsufficient.py` | `98fe8c1cc1947056c6d918e4070fda84` | 478 |
+| `manu/tracking/lookahead/server_overnight/mutation_test_selfsufficient.py` | `cfd906f21993325a22f6653c44cf2057` | 386 |
+| `manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh` | `22d5f30d02689a7967ea6486288e6bf3` | 253 |
+| `manu/tracking/lookahead/server_overnight/coldstart_verify_delivery.sh` | `b5e4db336c99931b99d53635ae4501df` | 299 |
+| `manu/tracking/lookahead/server_overnight/verify_all.sh` | `b3dae8c47baf0bef72cde40a5de97555` | 78 |
+| `manu/tracking/lookahead/make_fastinfer_final_report.py` | `b429d39fb2155f8900d366d0bbce5d19` | 2679 |
+
+**订正**：§37.28 / §52 记的「FINAL_REPORT 1194 行 / `20d301b6…`」「`audit_pack_selfsufficient.md` `948660c8…`」
+「`mutation_test_selfsufficient.md` `c2ebef0c…`」「包 MD5SUMS `b58d2865…`（537 条）」「交付包 539 文件」
+「变异测试 12 用例」「审计 27 项断言」**全部作废**，以本表为准。
+本轮**唯一**的报告改动：`FINAL_REPORT.md` §8 产物索引 1 行改写（变异用例计数 8 → 14）＋ 1 行新增（`code/verify_all.sh`）
+⇒ 1194 → 1195 行；**所有精度数字逐位不变**（与 §37.28 备份逐行 diff 仅这 2 行）。
+
+#### 37.29.9 复现命令（**顺序即依赖顺序**）
+
+```bash
+cd /tmp/pycharm_project_10ae9e2e
+PY=/home/huangzhe/anaconda3/envs/uav/bin/python
+# ① 先打包（包里要带上新脚本，否则变异测试测的是旧脚本）
+bash manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh
+# ② 变异测试（14 用例）—— 必须在「仓内 audit_round7 == 包内副本」时跑，否则 R0 对照会假 FAIL
+$PY manu/tracking/lookahead/server_overnight/mutation_test_selfsufficient.py \
+    --out-md runs/lookahead/fi_nogmc/audit_round7/mutation_test_selfsufficient.md
+# ③ 再打包（把新的变异报告带进包）→ ④ 仓内自足性审计（29 项）
+bash manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh
+PYTHONPATH=. $PY manu/tracking/lookahead/audit_pack_selfsufficient.py    # ⇒ 29/29 PASS、rc=0
+# ⑤ 冷启动（35/35 + 6 审计 rc=0 + 5/5 + 真仓污染 0）
+bash manu/tracking/lookahead/server_overnight/coldstart_verify_delivery.sh
+# ⑥ host 视角一键复核（在副本里跑，不改动包本体）
+bash runs/lookahead/final/nogmc_fi_20261104/code/verify_all.sh
+# ⑦ 单测 / 导航表
+PYTHONPATH=. $PY -m unittest discover -s manu/tracking/tests -t .    # ⇒ 167 OK / skipped 10
+python3 manu/memory/validate_nav_table.py                             # ⇒ 149/149 PASS
+```
+
+**顺序陷阱（本次又踩到，已闭环）**：`FINAL_REPORT.md` 一改 ⇒ 五份审计内嵌的 md5 指纹变陈旧
+⇒ 必须「改报告 → 重跑五份审计 → 重打包 → 再冷启动」；否则冷启动的「审计输出逐位一致」会从 5/5 掉到 1/5。
+本次按顺序重跑 ⇒ 冷启动仍 **5/5**、真仓污染 **0**。
+
+### 37.29 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.29 ⭐⭐⭐ 2026-11-05 夜 13：**交付链最后两个缺口封堵**（G1 新鲜度判据 `PKG.AUDIT-COPY-FRESH` ＋ G1b 指纹同代 `PKG.AUDIT-FINGERPRINT` ＋ G2 两把锁**锚定链**）＋ 变异测试 **14 用例**（M8/R3）＋ 一键复核 `code/verify_all.sh` ＋ 交付包 540 文件 / 539 MD5 全绿 | lookahead_extrapolator_20261102.md | 7244 |
+
+### 37.30 ⭐⭐⭐ 2026-11-05 夜 14：**「崩溃 ≠ 判据失败」—— 一键复核的**假警报**封堵**（间歇性 FAIL 根因定位 ＋ 受控注入验证 ＋ 全链重跑绿）
+
+**执行机**：服务器 `test-Super-Server` · 项目根 `/tmp/pycharm_project_10ae9e2e` · **窗口 2026-11-05 05:49–06:12 CST**
+
+#### 37.30.1 发现：夜 13 收尾后第一次 host 视角一键复核就**假警报**
+
+```
+=== 3/5 包内六份审计（包内模式） ===
+  audit_sec5_deliverables rc=0 FAIL 0 项
+  audit_sec5_acceptance rc=0 FAIL 0 项
+  audit_sec16_gap rc=0 （无失败项）
+  audit_sec17_reg_oracle rc=0 （无失败项）
+  audit_sec17_rbgate rc=0 （无失败项）
+  audit_pack_selfsufficient rc=1 （无失败项）      ← ★ rc≠0 但 stdout **没有任何判据结论行**
+=== 4/5 变异测试（审计的判别力） ===
+  变异测试：10 个用例（跳过 4），期望不符 10 个 ⇒ FAIL
+  判定：审计**无判别力**或变异用例失效 ⇒ 交付包不可信。   ← ★ 假警报
+```
+
+**判读（关键，两条独立证据）**：
+1. `audit_pack_selfsufficient` 的 rc=1 **但输出里没有 `FAIL N 项` 结论行** ⇒ 它不是「判了失败」，而是**进程崩了**（Python 未捕获异常 ⇒ 退出码 1 + traceback）。
+2. 变异测试**执行的 10 个用例全部「期望不符」** ⇒ 若审计是「判了失败」，控制用例（M0 / M7）应当**不误报**；全数不符只可能是因为**审计根本没产出任何结论**。
+
+⇒ 这次 FAIL 的真实含义是「**执行环境抖了**」，却被输出成「**交付包不可信**」—— **假警报比不报警更坏**（host 明早 09:00 据此判定就完了）。
+
+#### 37.30.2 复现尝试（诚实记录：**没复现出来**）
+
+| 尝试 | 条件 | 次数 | 结果 |
+|:--|:--|--:|:--|
+| A | 原样跑 `verify_all.sh` | 3 轮 | 全绿 |
+| B | 仓内变异测试单跑（每轮 10 次审计调用） | 8 轮 / **80 次审计调用** | 全绿 |
+| C | **原条件复现**（脚本置于包内 ＋ 与 `unittest` 并发） | 10 轮 | 全绿 |
+
+⇒ **间歇性**（约 **1/25** 次），且**无法稳定复现**。当时机器：`load average 6.44`、内存可用 99 G、磁盘可用 2.7 T、`/tmp` **无按龄清理机制**（`/usr/lib/tmpfiles.d/tmp.conf` 只设权限、无 age 清理；无 tmpwatch）⇒ 指向**瞬时环境故障**（临时 I/O 错误 / 资源瞬时耗尽 / 外部信号），但**未能定位到具体 syscall**。
+
+⇒ 决策：**不猜根因**，改为让交付链**能区分「崩溃」与「判据失败」**（封堵假警报），并在崩溃时**重试**。
+
+#### 37.30.3 加固（两处，都在**随包 `code/`** 内）
+
+**① `manu/tracking/lookahead/server_overnight/mutation_test_selfsufficient.py`**（md5 `cfd906f2…` → `f7fd946a6f91e61331664da0244427fc`）
+
+- 新增 `_crashed(rc, out)`：rc≠0 且输出**非空、无 traceback** ⇒ 不是崩溃（是判据失败）；有 traceback 或输出为空 ⇒ **崩溃**。
+- 单个用例的执行抽成 `_exec_case()`；**崩溃时该用例重跑一次**（临时目录全新拷贝）。
+- 崩溃用例计入 **`env_err`**（环境异常），**不计入 `bad`**（判据失败）。
+- 结论**三态**：`PASS`（无不符、无异常）／`ENV`（不符 0、异常 ≥1 ⇒ **结论未定 ⇒ 需重跑**）／`FAIL`（有不符 ⇒ 不可信）；退出码 `1 if (bad or env_err) else 0`。
+- 报告「判定」列新增 `⚠ 环境异常`；「合计」行新增「环境异常（审计进程崩溃）N 个」。
+
+**② `manu/tracking/lookahead/server_overnight/verify_all.sh`**（md5 `b3dae8c4…` → `8247f4792d74b85c1397169895ebc75a`）
+
+- 新增 `run_retry()`：**最多 3 次**；**只在崩溃时重试**（判据正则 `Traceback (most recent call last)`；变异测试另加 `变异测试.*ENV`）。
+- **真判据失败（有结论、无 traceback）⇒ 立即 FAIL、不重试**（绝不掩盖）。
+- 摘要新增「执行崩溃重试：N 次」。
+
+#### 37.30.4 受控注入验证（4 组；证明加固**不掩盖真失败**）
+
+| # | 注入 | 期望 | 实测 |
+|:--|:--|:--|:--|
+| A | 把包内 `code/audit_pack_selfsufficient.py` 换成**必崩**桩（仓内跑） | 崩溃 ≠ 判据失败 | 10 个用例 → 「⚠ 环境异常」（各重试 1 次）；仓内 R0 因**真**判据失败仍判 FAIL ✓ |
+| A2 | 同 A ＋ **包外无仓**（只跑 10 个 inpack 用例） | 应为 **ENV**，不是 FAIL | `变异测试：10 个用例（跳过 4），期望不符 0 个，环境异常 10 个 ⇒ ENV`；「判定：审计进程**崩溃**（环境异常，**非**判据失败）⇒ 结论未定 ⇒ 需重跑。」rc=1 ✓ |
+| B | 同 A ＋ 跑 `verify_all.sh` | 应重试并报「环境异常」 | 「（第 1/2/3 次执行崩溃 ⇒ 环境异常 ⇒ 重试）」×2；`audit_pack_selfsufficient rc=1（崩溃重试 3 次）`；「执行崩溃重试：6 次」；**不再出现**「审计无判别力 ⇒ 交付包不可信」 ✓ |
+| C | 篡改镜像真源 1 字节（**真判据失败**） | 不得重试、不得被当环境异常 | `audit_pack_selfsufficient rc=1 FAIL 2 项`、**「执行崩溃重试：0 次」**、变异测试「期望不符 2 个 ⇒ FAIL」 ✓ |
+
+复现命令（服务器，2026-11-05 06:08 CST）：
+
+```bash
+cd /tmp/pycharm_project_10ae9e2e
+PY=/home/huangzhe/anaconda3/envs/uav/bin/python
+# A / A2：注入必崩审计
+rm -rf /tmp/crashpkg && cp -a runs/lookahead/final/nogmc_fi_20261104 /tmp/crashpkg
+#   把 /tmp/crashpkg/code/audit_pack_selfsufficient.py 换成「写 traceback + exit 1」的桩
+$PY manu/tracking/lookahead/server_overnight/mutation_test_selfsufficient.py --pkg /tmp/crashpkg   # A
+$PY /tmp/crashpkg/code/mutation_test_selfsufficient.py                                            # A2（包外无仓）
+PY=$PY bash /tmp/crashpkg/code/verify_all.sh                                                     # B
+# C：真判据失败
+rm -rf /tmp/verdictpkg && cp -a runs/lookahead/final/nogmc_fi_20261104 /tmp/verdictpkg
+#   把 /tmp/verdictpkg/repo/runs/lookahead/fovgate24/runs/rc2/d3/fov__m8/arms.json 第 10 字节 ^= 0x01
+PY=$PY bash /tmp/verdictpkg/code/verify_all.sh                                                   # C
+```
+
+#### 37.30.5 全链重跑（顺序即依赖顺序）—— **交付档数字一字未动**
+
+```bash
+cd /tmp/pycharm_project_10ae9e2e
+PY=/home/huangzhe/anaconda3/envs/uav/bin/python
+bash manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh            # ① 540 文件 / 缺失 0
+$PY manu/tracking/lookahead/server_overnight/mutation_test_selfsufficient.py \
+    --out-md runs/lookahead/fi_nogmc/audit_round7/mutation_test_selfsufficient.md  # ② 14 用例 PASS
+bash manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh            # ③ 再打包（带新变异报告）
+# ④ 六份审计（仓内）：sec5_deliverables / sec5_acceptance / sec16_gap / sec17_reg_oracle / sec17_rbgate / audit_pack_selfsufficient ⇒ 全 rc=0
+bash manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh            # ⑤ 再打包（带最新审计报告）
+PYTHONPATH=. $PY manu/tracking/lookahead/audit_pack_selfsufficient.py --out-md /tmp/final_audit_check.md   # ⇒ 29/29 PASS
+bash manu/tracking/lookahead/server_overnight/coldstart_verify_delivery.sh          # ⑥ 冷启动
+bash runs/lookahead/final/nogmc_fi_20261104/code/verify_all.sh                      # ⑦ host 视角一键复核
+```
+
+| 环节 | 结果（2026-11-05 06:09–06:12 CST） |
+|:--|:--|
+| ① / ③ / ⑤ 打包 | **540 文件**、缺失源文件 **0** |
+| ② 仓内变异测试 | **14 个用例（跳过 0），期望不符 0 ⇒ PASS** |
+| ④ 仓内六份审计 | 全 **rc=0**、FAIL 全 0 |
+| ⑤ 自足性审计（仓内） | **29 项断言 —— PASS 29 项，FAIL 0 项** |
+| ⑥ 冷启动 | **逐位一致 35/35**、差异 **0**、缺失 **0**、**真仓污染 0 处**、**包内独立复跑审计 6 份 rc=0**、**审计输出逐位一致 5/5**、rc=0 |
+| ⑦ 一键复核 | 包级 **539 OK / 0 FAILED**、镜像 **405 OK / 0 FAILED**、包内审计 **6/6 rc=0**、变异测试 PASS、**执行崩溃重试 0 次**、rc=0 |
+
+> **加固后稳定性复跑**：`code/verify_all.sh` 连续 **5 轮**全绿（每轮 rc=0、**执行崩溃重试 0 次**）—— 2026-11-05 06:14–06:19 CST。
+
+#### 37.30.6 交付档数字**逐位未动**（本节只改 **harness**，不碰任何精度数字）
+
+| 文件 | md5 | 行数 |
+|:--|:--|--:|
+| `runs/lookahead/fi_nogmc/FINAL_REPORT.md` | `785b9f15cc317723ceab73726ddeb663`（sha256 `a520e9b5aee81553f99cb8b683305f3da14eb581a08a281722593c7962f912f2`） | **1195**（与 §37.29 逐位相同） |
+| `runs/lookahead/final/nogmc_fi_20261104/repo/MD5SUMS.txt` | `6f17332b4b39aa8fa57c3b30b070bec4`（镜像**未变**） | 405 条 |
+
+交付推荐档（`cs_t0043` · no-GMC · Δ=3 · `replay` · 出框门 m=6 · `--replay-fov-margin-px 6` · `--replay-rollback-min-peak 0.90`）
+⇒ **F1 94.8094 / R 92.8507 / FAR 0.024337 / hit@5px 86.9718 / CLE pooled p95 7.0663**（三门 PASS、FAR 余量 0.005663）—— 与夜 13 **逐位相同**。
+
+本轮变更文件（均在服务器项目目录，host 明早 09:00 rsync --checksum 整目录拉回）：
+
+| 文件 | md5（改后） |
+|:--|:--|
+| `manu/tracking/lookahead/server_overnight/mutation_test_selfsufficient.py` | `f7fd946a6f91e61331664da0244427fc` |
+| `manu/tracking/lookahead/server_overnight/verify_all.sh` | `8247f4792d74b85c1397169895ebc75a` |
+| `runs/lookahead/fi_nogmc/audit_round7/mutation_test_selfsufficient.md` | `3b2c4af6009be8de30a9faf52b446e35` |
+| `runs/lookahead/fi_nogmc/audit_round7/audit_pack_selfsufficient.md` | `f9e06b8382e4411b219225df56d233f3` |
+| `runs/lookahead/fi_nogmc/_coldstart_repro.md` | `025a87f8877f9db39be97ee1844b40b5` |
+| `runs/lookahead/final/nogmc_fi_20261104/MD5SUMS.txt` | `7159fcf3096bfcf7ea7d05523d29785c`（包级；`code/` 变了 ⇒ 包级清单必变） |
+
+#### 37.30.7 结论
+
+1. 夜 13 的「一键复核全绿」**不是伪绿**，但也**不是恒绿** —— 存在约 **1/25** 的**间歇性假警报**（审计进程崩溃 ⇒ 被输出成「交付包不可信」）。
+2. 修法是**把「执行环境」与「判据」分开**：崩溃 ⇒ 重试 ⇒ 仍崩则报 **ENV（结论未定 ⇒ 需重跑）**；判据失败 ⇒ **立即 FAIL，绝不重试、绝不掩盖**（受控注入 C 组已证）。
+3. **交付档精度数字一字未动**：`FINAL_REPORT.md` 的 md5 / 行数 / sha256 与夜 13 **完全相同**（`785b9f15…` / 1195 行 / `a520e9b5…`）。
+4. 链路口径不变：**改 harness ⇒ 打包 ⇒ 审计 ⇒ 再打包 ⇒ 冷启动 ⇒ 一键复核**（顺序即依赖顺序，见 §37.29.9）。
+
+### 37.30 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.30 ⭐⭐⭐ 2026-11-05 夜 14：「崩溃 ≠ 判据失败」—— 一键复核的**假警报**封堵（间歇性 FAIL 根因定位 + 受控注入验证 + 全链重跑绿） | lookahead_extrapolator_20261102.md | 7368 |
+
+### 37.31 ⭐⭐⭐ 2026-11-05 夜 15：**交付链的「host 侧致命缺陷」封堵** —— Python 3.8 兼容 ＋ 服务器路径解耦 ＋ **四个「假绿」陷阱** ＋ host 异机仿真
+
+**执行机**：服务器 `test-Super-Server` · 项目根 `/tmp/pycharm_project_10ae9e2e` · **窗口 2026-11-05 06:00–07:05 CST**
+**性质**：**只改 harness（复核 / 打包 / 复现链），一个精度数字都没动** ⇒ 交付档 `FINAL_REPORT.md` 逐位不变（md5 `785b9f15cc317723ceab73726ddeb663` / **1195 行** / sha256 `a520e9b5aee81553f99cb8b683305f3da14eb581a08a281722593c7962f912f2`）。
+
+#### 37.31.1 起因：夜 13/14 的「一键复核全绿」是**服务器视角的全绿**
+
+夜 14 收尾时复核链条全绿（`md5sum -c` 539/405、六份审计 rc=0、变异测试 PASS）。夜 15 **按 host 的视角重审**，
+发现**两个「服务器上绿、host 上必崩 / 根本跑不了」的缺陷**——两者**都只影响复核链**，不影响任何精度数字，
+但**恰好命中 host 明早 09:00 要跑的那两条命令** ⇒ 属于**最高优先级**的交付风险。
+
+| # | 缺陷 | 在服务器上 | 在 host 上（python3.8 / 无服务器路径） |
+|:--|:--|:--|:--|
+| ① | 审计脚本用了 `str.removeprefix`（**Python 3.9+**） | python3.10 ⇒ 正常 | **python3.8 ⇒ `AttributeError` ⇒ 复核必 FAIL** |
+| ② | 冷启动 / 复现脚本默认值**硬编码服务器路径** | 正常 | **路径不存在 ⇒ 脚本根本起不来** |
+
+#### 37.31.2 缺陷①：`str.removeprefix` —— 实测复现与修法
+
+**实测**（服务器上就有 python3.8）：
+
+```bash
+cd /tmp/pycharm_project_10ae9e2e/runs/lookahead/final/nogmc_fi_20261104
+/usr/bin/python3 code/audit_pack_selfsufficient.py
+# AttributeError: 'str' object has no attribute 'removeprefix'   ⇒ rc=1
+```
+
+**修法**（`manu/tracking/lookahead/audit_pack_selfsufficient.py`）：`listed[rel.removeprefix("./")]` ⇒
+`listed[rel[2:] if rel.startswith("./") else rel]`（**3.7+ 通用**，语义逐位等价），并就地注明原因。
+
+#### 37.31.3 缺陷②：脚本默认值硬编码服务器路径 —— 三级优先级 ＋ **包外落点**
+
+`coldstart_verify_delivery.sh` / `regen_reports_nogmc_fi.sh` 原先把 `REPO=/tmp/pycharm_project_10ae9e2e`、
+`PY=/home/huangzhe/anaconda3/envs/uav/bin/python` 写死 ⇒ host 上二者都不存在 ⇒ **脚本无法启动**。
+
+**修法（服务器侧行为逐位不变，host 侧新增回退）**：
+
+| 变量 | 优先级（前者优先） |
+|:--|:--|
+| `REPO` | ① 显式环境变量 → ② **服务器仓根**（存在则用 ⇒ 服务器行为与从前**逐位相同**）→ ③ **包内 `repo/` 镜像**（`<包>/code/..`）→ ④ 原服务器路径兜底 |
+| `PY` | ① 显式环境变量 → ② 服务器 conda env（存在则用）→ ③ 系统 `python3` |
+| `PKG`（冷启动） | ① 位置参数 → ② **随包自定位**（`<包>/code/..`）→ ③ 仓内默认位置 |
+
+**⭐ 关键细节**：冷启动报告 `OUT_MD` 在「`REPO` 落在包内镜像」时改写**包外** `../coldstart_repro.md`
+——**绝不写进包内镜像**（否则包自检清单判据必然 FAIL ⇒「跑一次复核」反而变成「弄脏交付包」）。
+
+#### 37.31.4 缺陷③：`verify_all.sh` 缺**运行环境闸** ⇒ 补 Python ≥ 3.8 闸
+
+```bash
+"$PY" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)' \
+  || { echo "[FATAL] 需要 Python ≥ 3.8（当前 $PY：$("$PY" -V 2>&1)）"; exit 2; }
+```
+
+同时给包内镜像 `repo/README.md` 补「**运行环境：Python ≥ 3.8**（3.8.10 / 3.10.20 双版本实测）」＋ host 侧两条命令。
+
+#### 37.31.5 ⭐⭐ 两个独立 reviewer 子 agent 的审计（夜 15 的第二道防线）
+
+| reviewer | 范围 | 结论 |
+|:--|:--|:--|
+| **auditor**（3.8 兼容） | 包内 **21 个 `.py`** 在 **Python 3.8.10** 上能否跑 | **0 个必崩**（`ast.parse` / `compileall` / `import` / `--help` 全过）；包内 `code/` 与仓内原件 **md5 逐位一致**；独立跑 `PY=/usr/bin/python3 bash code/verify_all.sh` ⇒ **全绿**（日志 `/tmp/verify_38.log`） |
+| **critic**（shell 可移植性） | `verify_all.sh` / `coldstart_verify_delivery.sh` / `regen_reports_nogmc_fi.sh` | 抓到 **4 个真问题**（见 37.31.6）⇒ **全部已修** |
+
+**附带发现**：`code/diag_reg_oracle.py` 在**包内不可能运行**（缺 numpy/cv2/scipy ＋ 包内无 `manu/`）
+⇒ 已在包 README 注明「**服务端诊断脚本，随包仅作留档**」（不做假承诺）。
+
+#### 37.31.6 ⭐⭐⭐ 四个「假绿」陷阱（本夜最硬的收获：**「没验」≠「验过」**）
+
+| # | 缺陷 | 现象（为什么是**假绿**） | 修法 |
+|:--|:--|:--|:--|
+| ① | `verify_all.sh` **不检查 `md5sum` 是否存在** | macOS 只有 `md5` ⇒ 两道清单校验的命令**根本不存在** ⇒ 但脚本仍打印「全部通过」 | 缺 `md5sum` ⇒ `[FATAL] exit 2`；清单判据改成「**`n_ok>0` 且 `n_bad==0`**」（只判 `n_bad` 会在「一条都没验」时误判为通过） |
+| ② | 冷启动里**审计 rc 不参与最终退出码** ＋ 同样缺 `md5sum` | 「0 处污染」是在**空指纹文件**上判出来的 ⇒ 假绿 | `AUDIT_RC_ALL` 原样保留（**不再被覆盖成计数**）并参与最后一行退出码 |
+| ③ | 裸 `md5sum $(...)` **word-splitting** | 含空格 / 中文路径的指纹**整批丢失** ⇒ 污染检测漏报 | 改「`while IFS='|' read` 逐个**加引号** md5sum」＋ `N_BEFORE>0` 闸（指纹为空 ⇒ `[FATAL]`） |
+| ④ | `regen_reports_nogmc_fi.sh` 裸跑会**写脏交付包** | `REPO` 指向包内镜像时，相对 `--out-*` 直接覆盖**包内**报告 ⇒ 复核动作本身污染交付物 | 新增「**交付包只读闸**」：`$REPO/MD5SUMS.txt` 存在 ⇒ `[FATAL] exit 2`（仓根与冷启动沙箱都没有该文件 ⇒ 合法路径不触发） |
+
+**统一原则（本轮写进交付链的口径）**：**工具缺失 ⇒ FATAL，不许降级**；**判据必须自己证明「验过了」**（`n_ok>0`）；
+**退出码必须由判据本身产生**，不能被计数/管道覆盖。
+
+#### 37.31.7 交付包镜像补齐（regen 的输入必须齐全，否则报告**静默降级**）
+
+镜像补 **4 个 regen 输入**（`nogmc24_byte_equal.json` / `nogmc24_cfg_identical.json` / `knobscan_{d3,p3b}/manifest.tsv`）
+＋ 8 序 `knobscan/report.{json,md}` ＋ `cfg_shared_8seq.json` ＋ **4 个 `gate__baseline/preds/` 目录（104 MB）**
+⇒ 包 **647 文件 / 镜像 512 条 / 322 MB**。
+**副作用（正面）**：此前镜像缺 `preds/` ⇒ Δ 依赖性报告的「限幅截断率」表是**空表**（**静默降级**）；
+补齐后它**真的在算**（每 preds 文件 `per_frame` **12,460 帧** × 25 文件/Δ × 4 Δ）⇒ 报告从空表变真表。
+
+#### 37.31.8 全链重跑（顺序即依赖顺序）
+
+**改代码 → pack → 仓内六份审计 → 再 pack → 冷启动 → pack → verify_all**
+（`PKG.AUDIT-COPY-FRESH` 判据比较仓内 `runs/lookahead/fi_nogmc/audit_round7/` 与包内副本 ⇒ **必须 pack 在审计之后**。）
+
+#### 37.31.9 ⭐ 双版本一键复核（3.10.20 ＋ 3.8.10）
+
+命令：
+```bash
+cd /tmp/pycharm_project_10ae9e2e
+PY=/home/huangzhe/anaconda3/envs/uav/bin/python bash runs/lookahead/final/nogmc_fi_20261104/code/verify_all.sh
+PY=/usr/bin/python3                            bash runs/lookahead/final/nogmc_fi_20261104/code/verify_all.sh
+```
+
+| 项 | 值 |
+|:--|:--|
+| 包级清单 `md5sum -c` | **OK 646 / FAILED 0** |
+| 镜像级清单 `md5sum -c` | **OK 512 / FAILED 0** |
+| 包内六份审计 | **6 / 6 份 rc=0**（FAIL 全 0） |
+| 变异测试（包内模式） | **10 个用例（跳过 4），期望不符 0 ⇒ PASS**（M1~M6 / M8 / R1~R3 篡改**全部报警**，M0 / R0 / M7 **不误报**） |
+| 执行崩溃重试 | **0 次** |
+| 脚本自述 | 「交付包复核**全部通过**（清单逐位一致 + 六份审计 rc=0 + 变异测试无违例）」 |
+| 退出码 | `VERIFY_310_RC=0` |
+
+| 项 | 值 |
+|:--|:--|
+| 包级 / 镜像清单 | **646 OK / 0 FAILED** ・ **512 OK / 0 FAILED** |
+| 包内六份审计 | **6 / 6 份 rc=0**（FAIL 全 0） |
+| 变异测试 | **10 个用例（跳过 4），期望不符 0 ⇒ PASS** |
+| 执行崩溃重试 | **0 次** |
+| 退出码 | `VERIFY_38_RC=0`（与 3.10.20 **逐位同判**） |
+
+#### 37.31.10 ⭐⭐ host 异机仿真（把交付包当成「host 手上的陌生包裹」跑）
+
+命令：
+```bash
+rm -rf /tmp/hostsim2 && mkdir -p /tmp/hostsim2
+cp -a /tmp/pycharm_project_10ae9e2e/runs/lookahead/final/nogmc_fi_20261104 /tmp/hostsim2/pkg
+cd /tmp/hostsim2/pkg
+REPO=/tmp/hostsim2/pkg/repo PY=/usr/bin/python3 \
+  bash code/coldstart_verify_delivery.sh /tmp/hostsim2/pkg /tmp/hostsim2/sandbox
+PY=/usr/bin/python3 bash code/verify_all.sh
+```
+
+| 项 | 值 |
+|:--|:--|
+| 跑前包内清单 | **646 OK / 0 FAILED** |
+| host 侧冷启动（`REPO=包内镜像` ＋ `PY=/usr/bin/python3` 3.8.10） | **rc=0**；regen 9 步全 `[OK]`（`rc_all=0`）；重生成 **35** 份 ⇒ **逐位一致 35 / 差异 0 / 缺失 0**；**污染 0 处**；包内独立复跑审计 **6 份 rc=0**（FAIL 全 0）；审计输出逐位一致 **5 / 5** |
+| 跑后包内清单 | **646 OK / 0 FAILED** ⇒ **包本体逐位未变**（复核不弄脏交付物） |
+| host 侧一键复核（3.8） | **rc=0**（646 / 512 / 6 份 rc=0 / 变异 PASS / 崩溃重试 0） |
+| 冷启动报告落点 | `/tmp/hostsim2/coldstart_repro.md`（**包外** ✔ 符合设计；仓内模式落在 `runs/lookahead/fi_nogmc/_coldstart_repro.md`） |
+
+#### 37.31.11 交付档数字**逐位未动**（本轮只改 harness）
+
+| 文件 | md5 | 行数 |
+|:--|:--|--:|
+| `runs/lookahead/final/nogmc_fi_20261104/FINAL_REPORT.md` | `785b9f15cc317723ceab73726ddeb663`（sha256 `a520e9b5aee81553f99cb8b683305f3da14eb581a08a281722593c7962f912f2`） | **1195**（与夜 13/14 逐位相同） |
+
+交付推荐档（`cs_t0043` · no-GMC · Δ=3 · `replay` · 出框门 m=6 · `--replay-fov-margin-px 6` · `--replay-rollback-min-peak 0.90`）
+⇒ **F1 94.8094 / R 92.8507 / FAR 0.024337 / hit@5px 86.9718 / CLE pooled p95 7.0663**（三门 PASS、FAR 余量 0.005663）—— 与夜 13 **逐位相同**。
+
+本轮变更文件（均在服务器项目目录，host 明早 09:00 rsync --checksum 整目录拉回）：
+
+| 文件 | md5（改后） |
+|:--|:--|
+| `manu/tracking/lookahead/audit_pack_selfsufficient.py` | `16dfb61b16f2b2bc92882337b5b6b0d5` |
+| `manu/tracking/lookahead/server_overnight/verify_all.sh` | `d12cbe9cb8e29fc834b1a628895238d7` |
+| `manu/tracking/lookahead/server_overnight/coldstart_verify_delivery.sh` | `00a8da808cff4be29ea6a6b35ff0eba1` |
+| `manu/tracking/lookahead/server_overnight/regen_reports_nogmc_fi.sh` | `30dca1eec6d135d99c9a2b8c79b0f92f` |
+| `manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh` | `bc84b5ba8e255b611655b9ea7e443e5c` |
+| `runs/lookahead/fi_nogmc/_coldstart_repro.md` | `9c142675bde7c7944479262981fbb6db` |
+| `runs/lookahead/fi_nogmc/audit_round7/audit_pack_selfsufficient.md` | `4b506ad45506f65f12e9bd5f7a2069a0` |
+| `runs/lookahead/fi_nogmc/audit_round7/mutation_test_selfsufficient.md` | `209e2dcbb247a868e446bf582ed9c4b0`（本轮重跑后） |
+| `runs/lookahead/final/nogmc_fi_20261104/` | **647 文件**（包级 `MD5SUMS.txt` **646 条**，md5 `5a1c896738fc6ca8beefa07c7d96096f`） |
+
+#### 37.31.12 结论
+
+1. 夜 13/14 的「全绿」是**服务器视角的全绿**；**host 视角另有两处必崩 / 必挂** ⇒ 交付链必须**按 host 的环境（python3.8 / 无服务器路径）自证**，不能只按服务器自证。
+2. **本夜最硬的收获是四个「假绿」陷阱**（§37.31.6）—— 它们不是「会崩」，而是「**不崩但报告通过**」⇒ 比崩溃更危险。统一处方：**工具缺失 ⇒ FATAL；判据自证「验过了」；退出码由判据产生**。
+3. **两个独立 reviewer 子 agent**（auditor 3.8 兼容 / critic shell 可移植性）是**性价比最高的第二道防线**：本轮 4 个真问题全部由 critic 抓出，本模型自己没看出来。
+4. **冷启动报告必须落在包外**（包内模式 ⇒ 仓内；host 异机模式 ⇒ 包外 `../coldstart_repro.md`）⇒「复核」永不「弄脏交付包」；`regen` 另加**交付包只读闸**兜底。
+5. **交付档精度数字一字未动**（`FINAL_REPORT.md` md5 / 行数 / sha256 与夜 13 相同）。
+6. 链路口径不变：**改代码 → pack → 审计 → 再 pack → 冷启动 → pack → verify_all**。
+7. **指纹漂移纪律（本轮又踩一次）**：自足性审计报告**内嵌时间戳** ⇒ **每跑一次 md5 就变**
+   ⇒ **审计必须在 pack 之前、且审计后必须再 pack 一次**，否则包内副本立即变旧（`PKG.AUDIT-COPY-FRESH` 判 FAIL）。
+   终态（07:12 CST 最后一次 pack + 一键复核）：包 **647 文件**、包级清单 **646 OK / 0 FAILED**、
+   镜像 **512 OK / 0 FAILED**、六份审计 **6/6 rc=0**、变异 **10 用例（跳过 4）期望不符 0**、崩溃重试 **0**、
+   `FINAL_REPORT.md` md5 仍为 **`785b9f15cc317723ceab73726ddeb663`**（1195 行，逐位未动）。
+   **镜像新鲜度总检**：镜像清单 512 条中 **511 条与仓内真源逐位一致**，唯一例外 `./README.md`
+   —— 那是 pack 专门写的**镜像使用说明**（`manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh` 的 `$MIRROR/README.md`），
+   **按设计**与仓根 README.md 无关。
+
+### 37.31 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.31 ⭐⭐⭐ 2026-11-05 夜 15：交付链「host 侧致命缺陷」封堵（3.8 兼容 + 路径解耦 + **四个「假绿」陷阱** + host 异机仿真 + 交付档数字逐位未动） | lookahead_extrapolator_20261102.md | 7507 |
+
+### 37.32 ⭐⭐⭐ 2026-11-05 夜 16：**host 拉回仿真（最后一 mile）** —— rsync --checksum 真拉 + 拉回树上四件套全绿 ＋ prompt §5 八要素 / P0–P4 逐条证据自检
+
+**执行机**：服务器 `test-Super-Server` · 项目根 `/tmp/pycharm_project_10ae9e2e` · **窗口 2026-11-05 07:06–07:30 CST**
+**性质**：**只做验证，不改任何交付物** ⇒ 交付包 647 文件 / `FINAL_REPORT.md` md5 `785b9f15cc317723ceab73726ddeb663`（1195 行）**逐位未动**。
+
+#### 37.32.1 起因：夜 15 验的是「交付包」，**没验 host 明早真正拿到的那棵树**
+
+夜 15 的 host 异机仿真是「把**交付包**当成陌生包裹跑」；但 host 明早 09:00 做的是
+**`rsync --checksum` 把整个项目目录拉回 host** ⇒ **最后一 mile（拉回树本身是否自洽可复核）从未验证过**。
+本节补上这一环：**真拉一遍，再在拉回树上跑四件套**。
+
+#### 37.32.2 命令与结果
+
+```bash
+# 模拟 host 的整目录拉回（-R 保留相对结构；只拉交付相关子树以省时）
+cd /tmp/pycharm_project_10ae9e2e
+rsync -aR --checksum ./manu ./runs/lookahead /tmp/hostpull/
+# ⇒ 拉回 15467 文件 / 9.2 GB（rsync rc=0）
+
+cd /tmp/hostpull
+( cd runs/lookahead/final/nogmc_fi_20261104 && md5sum -c MD5SUMS.txt )   # ⇒ 646 OK / 0 FAILED
+python3 manu/memory/validate_nav_table.py                                  # ⇒ 155/155 PASS
+PYTHONPATH=. /home/huangzhe/anaconda3/envs/uav/bin/python \
+  -m unittest discover -s manu/tracking/tests -t .                          # ⇒ 167 OK / skipped 10
+REPO=/tmp/hostpull PY=.../python \
+  bash manu/tracking/lookahead/server_overnight/coldstart_verify_delivery.sh \
+    /tmp/hostpull/runs/lookahead/final/nogmc_fi_20261104 /tmp/coldstart_pulled
+# ⇒ regen rc=0；IDENTICAL=35 DIFF=0 MISSING=0；真仓污染 0 处；
+#   包内独立复跑审计 6/6 rc=0（FAIL 全 0）；审计输出逐位一致 5/5 ⇒ rc=0
+```
+
+| 拉回树上的检查 | 结果 |
+|:--|:--|
+| 交付包清单 `md5sum -c` | **646 OK / 0 FAILED** |
+| 记忆导航表 `validate_nav_table.py` | **155/155 PASS** |
+| 单测 `unittest discover -s manu/tracking/tests` | **167 OK / skipped 10** |
+| 冷启动复现（用**包内 `code/`** 重生成 35 份报告） | **35/35 逐位一致 · 0 污染 · 6/6 审计 rc=0 · 审计输出 5/5 一致 · rc=0** |
+
+#### 37.32.3 仿真自身踩的两个坑（**都不是交付缺陷**，但必须写下来免得 host 踩）
+
+| # | 现象 | 根因 | 处置 |
+|:--|:--|:--|:--|
+| ① | `rsync -a` 多源**不带 `--relative`** ⇒ 目录结构被拍平（`runs/lookahead/fi_nogmc` 落成 `<dst>/fi_nogmc`） | rsync 多源语义 = 每个源取 **basename** 放到目标根 | 加 `-R`（`./runs/lookahead/...` 保留相对路径） |
+| ② | 只拉 `fi_nogmc/` + `fi_nogmc24/` + `final/` ⇒ 冷启动 §1 直接 `[FATAL] 缺产物目录`（**rc=2**） | 冷启动需要 `runs/lookahead/` 下 **12 个产物目录**（`fovgate*` / `rbgate24nogmc` / `gateA` / `gateA24` …）+ **2 个根 JSON**（`nogmc24_byte_equal.json` / `nogmc24_cfg_identical.json`） | 补齐 `runs/lookahead/` 全量 ⇒ 全绿 |
+
+⇒ **两种 host 场景都成立**：
+（a）host **只拿到交付包** ⇒ 用 `REPO=<包>/repo`（包内镜像自带全部 12 个产物目录）⇒ 夜 15 hostsim 已验；
+（b）host **拿到整目录拉回树** ⇒ `runs/lookahead/` 齐全 ⇒ 本节已验。
+⇒ **无需为「host 只拉一部分」新增交付物**（`runs/lookahead/` 全量本来就在 host 的 rsync 范围内）。
+
+#### 37.32.4 刻意**不**新增「包根 README」的理由（避免 bloat）
+
+交付包根目录**没有** `README.md`，host 的入口在 `FINAL_REPORT.md` §8（已索引 `code/verify_all.sh`）+ 镜像 `repo/README.md`（已给 host 两条命令）。
+新增包根 README 会：① 要重跑全链（pack → 审计 → pack → 冷启动 → pack → verify_all）；
+② **作废「交付档 `FINAL_REPORT.md` 逐位未动（md5 `785b9f15…` / 1195 行）」这条跨节引用**（§37.31 / §54 / §55 全部引用它）；
+③ 收益仅为「多一个更显眼的入口」⇒ **按「Less is more」判定为不值得**，本轮**不加**。
+
+#### 37.32.5 prompt §5 八要素 ＋ P0–P4 逐条证据自检（全部闭合）
+
+| # | 要求 | 位置 | 证据 |
+|:--|:--|:--|:--|
+| ① | 口径声明段 | `FINAL_REPORT.md` **§0**（+ `report_house_style.md` 口径声明 10 条） | 交付基线 = `stale`；`original` = oracle 上界；总体表 CLE = `cle_pooled_*`；8 序 ≠ 24 序；三门 F1≥0.88 / R≥0.85 / FAR≤0.030 |
+| ② | 四臂表（8 序 + 24 序） | **§3**（8 序）/ **§10**（24 序） | 每臂 = `original`/`stale`/`kinematic`/`replay`；8 序 `arms.json` **164** 份、24 序官方 **8** 份（`rc2`+`cs_t0043` × Δ=2/3/4/8） |
+| ③ | Δ 敏感性表 | **§2.9**（24 序·按模型包）/ **§3.4**（8 序）/ **§10.5**（24 序 rc2+cs_t0043 同表） | Δ∈{2,3,4,8} 全覆盖 |
+| ④ | 模型包对比表 | **§2.10**（24 序同 Δ，rc2 vs cs_t0043，`replay` 臂）＋ **§0.1** 口径①/①b | 24 序 Δ=3：F1 **+0.5537pp**、FAR **+0.001162**、hit@5px **+2.8892pp**、CLE p95 **−1.6604px** |
+| ⑤ | 逐序列归因（含「对总缺口贡献」） | **§10.6**（24 序 Δ=3，replay 相对 stale / 相对天花板） | 表列含 `replay vs 天花板 hit 缺口(pp)` ＋ **`对总缺口贡献(pp)`**（= 该序 hit 缺口 × 该序 GT 占比） |
+| ⑥ | 工作点对齐审计表 | **§4** ＋ `runs/lookahead/fi_nogmc/workpoint/audit.md`（24 张表） | 网格 `th_base∈{0.40,…,0.56}` × `th_ground∈{0.22,0.26,0.30}` × 2 模型 × Δ∈{3,8} = **60 次运行 rc≠0 = 0**；同 FAR 插值 ΔF1 **−0.0979pp**（区间 −0.1293~−0.0435，公共 FAR 区间 **[0.006070, 0.012243]**）；附带发现 **`th_ground` 在 v3 下是死旋钮**（`sky_ratio=1.0` ⇒ 整幅皆 sky） |
+| ⑦ | Gate A 结果 | **§5**（8 序 + 24 序 + CFG 共享性自证） | `runs/lookahead/gateA/gateA.json`、`runs/lookahead/gateA24/gateA.md`：关开关 ⇒ 与原脚本 JSON **逐位一致** |
+| ⑧ | 明确回答「小延时下精度是否提升」（三口径） | **§0.1** | ①相对 rc2 同 Δ（8 序 **−0.1491pp**、FAR **好 15.4%**；24 序 **+0.5537pp**）/ ②相对 stale（24 序 Δ=3：**+4.1812pp**、hit **+21.0120pp**、FAR **−0.033754**）/ ③相对天花板（**已追回 86.4%**（no-GMC）、**88.9%**（GMC）） |
+| **P0** | 24 序列官方口径 | **§2** ＋ `runs/lookahead/fi_nogmc24/`（2424 文件） | 唯一能回答「能不能交付」的口径；FAR 红线核对见 §7（含逐序列破线序列清单） |
+| **P1** | 工作点对齐审计 | **§4** | 60 次运行；**结论：8 序口径下 no-GMC 的 F1 差距不是 v3 工作点巧合**（且 24 序上 no-GMC 反而 +0.5537pp） |
+| **P2** | Gate A | **§5** | 关开关逐位一致 ⇒ 外挂没扰动跟踪资产 |
+| **P3** | Δ=3 专属新机理探索 | **§13**（Δ=3 单旋钮 A/B）/ **§14**（Δ 依赖性 + 惰性旋钮机理）/ **§15**（夜 6 新机理 13 变体全否决）/ **§16**（位移修正族 oracle 上界 + 结案）/ **§17**（配准·歧义族 oracle 上界 + 回退链峰值门 A/B） | **结论：剩余缺口已被 oracle 上界证明不可挖**（位移/配准/歧义三族全部结案）⇒ 交付档不动 |
+| **P4** | OSD 三臂视频 | `runs/lookahead/osd/videos/` | 交付档 `*_3arm_{stale,replay,original}_cs_t0043_d3.mp4` **18 个**（6 序 × 3 臂），含 **`VIDEO00007_19700101_001324`**（高速机动）与 **`VIDEO00033_19700101_015000`**（奇偶交替） |
+
+#### 37.32.6 结论
+
+1. **最后一 mile 已验**：host 明早 rsync 拉回的树，**包清单 646 OK / 导航表 155/155 / 单测 167 OK / 冷启动 35/35 逐位一致 0 污染 rc=0** —— 四件套全绿。
+2. **两种 host 场景都成立**（只拿包 ⇒ `REPO=<包>/repo`；拿整棵树 ⇒ `runs/lookahead/` 齐全）⇒ **不需要新增任何交付物**。
+3. prompt §5 八要素与 P0–P4 **逐条闭合**，每条都指到报告章节 + 产物路径（§37.32.5 表）。
+4. **交付档精度数字一字未动**（`FINAL_REPORT.md` md5 `785b9f15cc317723ceab73726ddeb663` / 1195 行 / sha256 `a520e9b5…`）。
+5. 链路口径不变：**改代码 → pack → 审计 → 再 pack → 冷启动 → pack → verify_all**；本轮**只验证、不改码**。
+
+### 37.32 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.32 ⭐⭐⭐ 2026-11-05 夜 16：**host 拉回仿真**（rsync --checksum 真拉 15467 文件/9.2 GB ⇒ 拉回树四件套全绿：包清单 646 OK・导航表 155/155・单测 167 OK・冷启动 35/35 0 污染）＋ prompt §5 八要素 / P0–P4 逐条证据自检 ＋ 刻意不加包根 README | lookahead_extrapolator_20261102.md | 7688 |
+
+### 37.33 ⭐⭐⭐ 2026-11-05 夜 16（收尾）：**交付终态的第三方复核 ＋ 包内引用可定位性自查** —— 数字复核 **22 项 0 不一致** ／ 口径审计 **LGTM（2 IMPORTANT 成立、但均不触及交付主体）** ＋ **本轮新增发现：交付包 §8 索引 12 条路径在包内不可按字面定位**
+
+**执行机**：服务器 `test-Super-Server`（`192.168.99.40:32222`）· 项目根 `/tmp/pycharm_project_10ae9e2e` · **窗口 2026-11-05 07:00–07:24 CST**（服务器 `date` 实测 07:23:48）
+**性质**：**只复核、不改任何交付物** ⇒ 交付包 **647 文件** / `FINAL_REPORT.md` md5 `785b9f15cc317723ceab73726ddeb663`（1195 行 / sha256 `a520e9b5aee81553f99cb8b683305f3da14eb581a08a281722593c7962f912f2`）**逐位未动**；`md5sum -c` **646 OK / 0 FAILED**。
+**prompt 版本说明**：本次下发的 prompt 仍是旧版（写 §36/§38、导航表 112/112、单测 156）；实际早已推进到 §37.32 / §56、**157/157**、**167 OK / skipped 10** ⇒ **未重做任何已有活**，本节接在 §37.32 之后。
+
+#### 37.33.1 起因：§37.32 验的是「**产物自洽 / 链可复跑**」，**没验**「**报告里的数字 = 产物里的数字**」
+
+§37.32 的四件套（包清单 646 OK / 导航表 / 单测 / 冷启动 35/35 逐位一致）只证明**交付链自洽**；
+「`FINAL_REPORT.md` 的头条数字是否真的等于原始 `arms.json` 里的数字」**从未被第三方从产物重算过**。
+本节派两名独立 reviewer（`agent_type=reviewer`）**只给原始产物、明确不许采信报告数字**：
+
+| reviewer | 任务 | 结论 | 核验规模 |
+|:--|:--|:--|:--|
+| 数字复核（critic） | 从 `arms.json` 重算 §0.1 三口径 / §2.10 跨包表 / §2.9+§10.5+§3.4 Δ 敏感性 / §7 FAR 汇总 / §7.1 逐序破线清单 / §12 三门 | **22 项 PASS / 0 FAIL / 0 不一致**（唯一 3 处「差异」是四舍五入中点 ±5e-5，在 1e-4 容差内） | **4600+ 表格格 + 46 份产物逐位比较** |
+| 口径审计（auditor） | A1–A10 十条口径纪律**逐表**判定（基线=stale / CLE 池化 vs worst_over_sequences / 8 序≠24 序 / m=0 vs m=6 标注 / FAR 红线 / 三门 / 尺子1 / 对总缺口贡献算术 / 抖动 / 外推保证） | **LGTM，0 BLOCKING**；**2 IMPORTANT + 2 NIT**，**均不使任何交付结论反向** | A1–A10 全 PASS；A6 三门 40+ 格全量重算 0 不一致；A8 46 份产物四臂 `source_frame.f1` 逐位相等、`delta_f1_vs_original` 全 0；A9 5 张逐序表 **744 格**重算 0 不一致 |
+
+产物**已复制到仓内** ⇒ host 的 rsync 整目录能带走（证据可得）：**`runs/lookahead/fi_nogmc/audit_round8/`**（`reviewer_numbers.md` 400 行 / `reviewer_caliber.md` / `check_refs.py`）；
+⚠️ 该目录**在交付包外**（包清单仍 **646 OK / 0 FAILED**）⇒ 不动包、不作废 md5 不变量。仓外原件留在 `/tmp/final_review/`。
+
+#### 37.33.2 ⚠️ **sub-agent 结论是自述，必须主 agent 复核** —— 本节复核出 **reviewer 判对了、我自己第一遍判错了**
+
+reviewer 报 IMPORTANT-2：`cs_t0043 Δ=4 replay` ×3.01 = 0.026159 < 实测 0.026564 ⇒「外推只会高估 FAR，不会低估」被证伪。
+**我第一次用严格区间 [1.92, 3.01] 判** ⇒ 该行实测 ×3.057 落在区间**外** ⇒ 「区间外不承载该断言」⇒ 我判 **reviewer 误判**。
+**再读 `report.md` §7.9 表头原文**，发现它**自带判定口径**：
+
+> 「放大倍数落在 §1.3 区间 [×1.92, ×3.01] 内？**（判定用 ±0.05 容差）**」
+
+⇒ 判定带实为 **[1.87, 3.06]** ⇒ `cs Δ=4 replay` 的 **×3.0572 在带内** ⇒ **reviewer 是对的，我最初那套严格区间判定才是错的**。
+⇒ **方法论教训（写进档案）**：复核 reviewer 结论时**必须用被审文档自己声明的口径**，不能用复核者默认的更严口径 —— 否则会把「真缺陷」误判成「误报」而放过。
+
+#### 37.33.3 IMPORTANT-1（**成立**）：8 序 `report.md:26` Q4「误报 / **抖动** / 命中全面更好」的「抖动」**方向不成立**
+
+```bash
+cd /tmp/pycharm_project_10ae9e2e
+python3 - <<'PY'
+import json
+for p in ("runs/lookahead/fi_nogmc24/cs_t0043/d3/arms.json",
+          "runs/lookahead/fi_nogmc24/rc2/d3/arms.json"):
+    s=json.load(open(p))["arms"]["replay"]["servo"]["overall"]
+    print(p, "max_jitter=%.4f p99_jitter=%.4f agg=%s"%(
+        s["max_jitter"], s["p99_jitter"], s["percentile_aggregation"]))
+PY
+```
+
+| 口径（Δ=3 · `replay`） | `cs_t0043` (no-GMC) | `rc2` (GMC) | 判定 |
+|:--|--:|--:|:--|
+| **24 序官方口径** `servo.overall.max_jitter` | **93.0937** | **66.4101** | 🔴 **cs 差 26.68px（更差）** |
+| 24 序 `p99_jitter` | 55.3508 | 48.9106 | 🔴 cs 更差 |
+| 8 序 gate 集 `max_jitter` | 59.9966 | 59.9997 | ⚪ 差 **0.0031px**（实质平手） |
+
+- 口径：`percentile_aggregation = worst_over_sequences`（逐序最差值）。
+- ⇒ 8 序 Q4 写「误报 / **抖动** / 命中**全面**更好」中的「抖动」**在 8 序是平手、在 24 序方向相反** ⇒ 该措辞**不成立**。
+- **交付主体无误**：`FINAL_REPORT.md:750`（§12 交付裁定）**刻意只声称**「F1 / hit@5px / CLE p95 全面优于」⇒ **不含抖动断言**；`FINAL_REPORT.md` 全文「抖动」仅出现 2 处（§14 缺口**形态**判定「不是每帧随机抖动」、§17.4 表列名 `max jitter(px)`）⇒ **交付主体结论不受影响**。
+
+#### 37.33.4 IMPORTANT-2（**成立**）：`report.md:375`「区间内 ⇒ ×3.01 上界**只会高估** FAR，不会低估」被其**自身 §7.9 数据**证伪
+
+按 §7.9 自带 ±0.05 容差（带 = **[1.87, 3.06]**）重判 **24 行**（`rc2`+`cs_t0043` × Δ∈{2,3,4,8} × 三臂，8 序→24 序实测倍数）：
+
+| 带内行数 | 其中「×3.01 上界 < 实测」的违例行 | 数字 |
+|--:|--:|:--|
+| **8** | **1** | `cs_t0043` **Δ=4 replay**：8 序 FAR **0.008691** × 3.01 = **0.026159** < 24 序实测 **0.026564**（实测 **×3.0572**） |
+
+- **不翻转红线**：0.026564 < 0.030 ⇒ 红线判定不变。
+- **交付主体无误**：`FINAL_REPORT.md` **全文不引用** [×1.92, ×3.01] 区间（grep `1.92` **0 命中**）⇒ 该断言只在 8 序辅助报告里。
+- ⚠️ **附带新事实（值得留档）**：`cs_t0043` 的 8→24 FAR 放大倍数实测 **×3.80（Δ=2 replay）/ ×3.44（Δ=3 replay）/ ×3.06（Δ=4 replay）/ ×2.27（Δ=8 replay）**
+  ⇒ **Δ=2/Δ=3 的倍数超出历史归纳上界 ×3.01** ⇒ **该历史区间不可用于 no-GMC 模型包的外推保守上界**（它由 GMC 侧两个历史档位归纳而来）。
+  ⇒ 对交付无影响（交付用 24 序**实测** FAR 0.024337，不用外推），但**下一轮若再做「8 序外推 24 序」必须换区间或按模型包分档**。
+
+#### 37.33.5 ⭐ 本轮**新增发现**（两位 reviewer 均未覆盖）：交付包 §8 索引 **12 条路径在包内不可按字面定位**
+
+自查脚本：`/tmp/check_refs.py`（从 `FINAL_REPORT.md` 正则抽 `` `runs|code|repo/…` `` 引用 → 展开 `{a,b}` 花括号 → 逐条查仓库根与包内 `repo/` 镜像）。
+
+| 类别 | 条数 | 明细 | 有无等价物 |
+|:--|--:|:--|:--|
+| **路径改写**（不是缺陷） | **8** | `fi_nogmc/audit_round7/*.md` ×2 → 包根 `audit_round7/`；`osd/videos/*.mp4` → 包根 `osd_videos/`；包自身 `final/nogmc_fi_20261104` ×3（**递归自指**，设计如此）；`final/` 镜像 | ✅ 有 |
+| **只有 json、无人读 md** | **3** | `gateA/gateA.md`（包内 `gateA/gateA.json` 57506 B）、`gateA24/gateA.md`（`gateA24/gateA.json` 79620 B）、`osd/osd_3arm_cs_t0043_d3.md`（包根 `osd_videos/*_3arm_*_cs_t0043_d3.json` 每臂一份） | ✅ 数据在 |
+| **命名不一致** | **1** | 报告引 `fi_nogmc24/report_house_style.md`；包内实为 **`report_house_style_d{2,3,4,8}.md`** 四份（无无后缀那份） | ⚠️ 需按 Δ 取 |
+| **外部大缓存依赖** | **1** | `runs/optuna_mix_ratio/trials/trial_0080/lq_eval_fpv8/ms_cache`（24 序 RC2 对照缓存）—— 包内 `repo/` 镜像**只含 `runs/lookahead/`** ⇒ 不入包（体积） | ❌ 需重建 |
+
+- **核心原始产物全部在包内**（已逐条实测）：**8 序 12 份 `arms.json`**（3 模型 × Δ=2/3/4/8）＋ **24 序 8 份**（2 模型 × Δ=2/3/4/8）＋ `gateA.json` ×2 ＋ osd 每臂 json ⇒ **不阻断复核**。
+- ⚠️ **补件没有「零风险」口子**：包内 **647 文件 / 清单 646 条**，**唯一白名单外文件 = `MD5SUMS.txt` 自身** ⇒ 往包里加任何文件都会打破「清单覆盖包内全部文件」这个不变量 ⇒ 必须重跑 **pack → 审计 → 再 pack → 冷启动 → pack → verify_all** 全链。
+
+#### 37.33.6 决策：**本轮不动交付包**（保护「全绿终态」优先于「补两处措辞」）
+
+| 候选 | 收益 | 成本 / 风险 | 判定 |
+|:--|:--|:--|:--|
+| A. 改 `report.md` 两处措辞 + 补 4 份 md + 重跑全链 | 包内辅助报告措辞变精确 | ① 动 `report.md` ⇒ **镜像逐位对账审计失效** ⇒ 必须重跑 pack→审计→冷启动→verify_all；② `verify_all` 有**已知间歇性假报**（约 1/25，§54）；③ host **09:00** 拉取，窗口仅 ~1 h ⇒ **半成品包比「带小缺口的全绿包」更糟** | ❌ 不做 |
+| B. 不动包，把 3 条措辞缺陷 + 12 条路径缺口**全部落档** | 终态（646 OK / md5 不变）保住；host 拉回的是**整目录**（§37.32 已验拉回树四件套全绿）⇒ **仓库树侧不缺任何东西** | 包内辅助报告仍带两处不精确措辞 | ✅ **采用** |
+
+⇒ **交付主体 `FINAL_REPORT.md` 逐位未动**（md5 `785b9f15…`）⇒ §37.31 / §54 / §55 / §37.32 全部跨节引用**继续有效**。
+⇒ **下一轮补包清单（本轮已定，留待执行）**：
+① `runs/lookahead/fi_nogmc/report.md:26` 删「抖动」二字（或补 24 序抖动披露）；
+② `runs/lookahead/fi_nogmc/report.md:375` 把「只会高估 FAR，不会低估」降级为「区间内**多数**保守（8 行中 7 行），**cs Δ=4 已见低估**（0.026159 < 0.026564）」；
+③ 8 序 `report.md` 总体表 CLE 列头加「(池)」标记（NIT-3）；
+④ `FINAL_REPORT.md` §2.9/§2.10 的 FAR 列加破线标记（NIT-4，**唯一触及交付主体的一条**）；
+⑤ 包内补 `gateA/gateA.md` / `gateA24/gateA.md` / `osd/osd_3arm_cs_t0043_d3.md` / `fi_nogmc/_facts/summary.md` + `fi_nogmc24/report_house_style.md`（或改报告引 `report_house_style_d3.md`）。
+⚠️ 执行顺序仍须 **改码 → pack → 审计 → 再 pack → 冷启动 → pack → verify_all**（审计报告内嵌时间戳 ⇒ 审计后必须再 pack）。
+
+#### 37.33.7 主 agent 对 reviewer 的**独立复核**（自述原则：结论不能直接当事实）
+
+我自己从原始产物重算（脚本 `/tmp/check_refs.py` + 内联 python），**逐位一致**：
+
+| 复核项 | 我自算 | 报告值 | 判定 |
+|:--|:--|:--|:--|
+| §7.1 逐序列 FAR>0.030 清单（交付档 m=6，24 序 Δ=3） | **恰 3 条**：`015740` replay 0.574297 / original 0.587349（天花板已破）、`002251` 0.113331 / 0.112753（天花板已破）、`002111` 0.045910 / 0.024895（🔴 外挂引入） | 同 | ✅ |
+| §12 交付三门（m=6） | F1 **94.8094%** / R **92.8507%** / P **96.8525%** / FAR **0.024337**（余量 **0.0056632**）/ hit@5px **86.9718** / CLE pooled p95 **7.0663** | 同 | ✅ |
+| 口径③ 追回占比（裸配置 m=0） | (94.7861−90.6049)/(95.4462−90.6049) = **86.3663%** → 「86.4%」 | 86.4% | ✅ |
+| 口径② Δ（裸配置 m=0） | F1 **+4.1812pp** / hit **+21.0120pp** / FAR **−0.033754** | 同 | ✅ |
+
+#### 37.33.8 终态自检（2026-11-05 07:2x CST，执行机 `test-Super-Server`）
+
+```bash
+cd /tmp/pycharm_project_10ae9e2e/runs/lookahead/final/nogmc_fi_20261104
+md5sum -c MD5SUMS.txt                 # ⇒ 646 OK / 0 FAILED
+md5sum FINAL_REPORT.md                # ⇒ 785b9f15cc317723ceab73726ddeb663（1195 行）
+sha256sum FINAL_REPORT.md             # ⇒ a520e9b5aee81553f99cb8b683305f3da14eb581a08a281722593c7962f912f2
+python3 manu/memory/validate_nav_table.py                                   # ⇒ 159/159 PASS
+PYTHONPATH=. python -m unittest discover -s manu/tracking/tests -t .         # ⇒ 167 OK / skipped 10
+```
+
+### 37.33 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.33 ⭐⭐⭐ 2026-11-05 夜 16（收尾）：**交付终态第三方复核**（数字 22 项 0 不一致・口径 LGTM）＋ **复核出 reviewer 口径误判的纠正**（须用被审文档自带口径）＋ IMPORTANT-1 抖动方向相反 / IMPORTANT-2 外推上界被自身数据证伪（**均不触及交付主体**）＋ **新增：交付包 §8 索引 12 条路径在包内不可按字面定位** | lookahead_extrapolator_20261102.md | 7776 |
+
+### 37.34 ⭐⭐⭐ 2026-11-05 夜 16（补做）：**把 §37.33 定下的「补包清单」真做了** —— 改**生成器**（不碰产物）＋ 全链重跑 ＋ **交付主体 md5 逐位未动**
+
+**执行机**：服务器 `test-Super-Server` · 项目根 `/tmp/pycharm_project_10ae9e2e` · **窗口 2026-11-05 07:26–07:35 CST**（服务器 `date` 实测）
+**性质**：**改生成器 + 重跑交付链**；交付包仍 **647 文件 / 清单 646 条**，`FINAL_REPORT.md` md5 **`785b9f15cc317723ceab73726ddeb663` 逐位未动** ✓
+
+#### 37.34.1 起因：§37.33「本轮不动包」的判断**过于保守**，被本轮实测推翻
+
+§37.33.6 判「不动包」的理由是「host 09:00 拉取、窗口仅 ~1 h + `verify_all` 有已知间歇性假报」。本轮**实测各环节耗时**：
+
+| 环节 | 实测耗时 |
+|:--|--:|
+| `regen_reports_nogmc_fi.sh`（重生成 **35 份**报告） | **4.7 秒** |
+| `pack_delivery_nogmc_fi.sh` | **5.2 秒** |
+| 六份审计（串行） | **29.6 秒** |
+| `coldstart_verify_delivery.sh`（沙箱重生成 + 逐位比对） | **34.7 秒** |
+| `verify_all.sh`（清单 ×2 + 6 审计 + 变异测试） | **45.8 秒** |
+| **全链合计** | **≈ 2 分钟** |
+
+⇒ **「时间不够」不是有效理由** ⇒ **该修的就修**（这是对 §37.33 判断的**自我推翻**，按纪律必须留档）。
+
+#### 37.34.2 修法（关键方法论）：**改生成器，不改产物**
+
+- `report.md` 是 `manu/tracking/lookahead/make_fastinfer_nogmc_report.py` 的产物 ⇒ 措辞修正**必须落在生成器**；直接改 `report.md` 会被冷启动 regen **覆盖** ⇒ 链必断。
+- `regen_reports_nogmc_fi.sh:46-48` 的 `CODE_DIR` 逻辑：仓根跑 ⇒ `CODE_DIR=$REPO/manu/tracking/lookahead`；沙箱/包内跑 ⇒ `CODE_DIR=$SELF_DIR`（包内 `code/` 快照）⇒ **pack 会把仓内脚本同步进包内 `code/`** ⇒ 两侧同源 ⇒ 冷启动才能 35/35 逐位一致。
+
+#### 37.34.3 实际改动（3 处，**全在生成器** `make_fastinfer_nogmc_report.py`）
+
+| # | 行 | 改前 | 改后 |
+|:--|:--|:--|:--|
+| ① | 306 | 「误报 / **抖动** / 命中**全面**更好」 | 「误报 / 命中 / 定位更优；**抖动不占优**」＋ 数字格补：8 序 cs 59.997 vs rc2 60.000 = **平手**；**24 序 cs 93.09 vs rc2 66.41 ⇒ cs 更差**（权威值见 `FINAL_REPORT.md` §2.10/§12） |
+| ② | 701–704 | 「外推只会**高估** FAR，不会低估」 | 「上界**多数**保守但**非恒真**：`cs_t0043 Δ=4 replay` 上界 0.026159 < 24 序实测 0.026564 ⇒ **会低估**」 |
+
+**明确不改的两项（留档，代价/收益不划算）**：
+- **NIT-3**（8 序 `report.md` 总体表 CLE 列头缺「(池)」）：需**逐表分辨**池化 vs 逐序口径（`servo.per_sequence.<seq>.cle_p*` 是逐序语义）⇒ 加错就是**造错口径** ⇒ 按「Keep scope minimal」**不改**。
+- **NIT-4**（`FINAL_REPORT.md` §2.9 FAR 列无破线标记）：改它要动**交付主体 md5** ⇒ 收益（一个列标记）≪ 代价（作废被 §37.31/§54/§55/§37.32/§37.33 五节引用的 md5 不变量）⇒ **不改**；且该破线在 **§7 / §11 / §12** 已完整披露。
+
+⚠️ **NIT-4 只对 §2.9 成立（对 §2.10 不成立）** —— 主 agent 复核发现 **§2.10 表下正文已精确披露**：
+> **⇒ FAR 红线余量**：Δ=8 裸配置 = 0.030 − 0.031037 = **-0.001037**（破线）；Δ=3 = 0.030 − 0.025523 = **0.004477**（过线） ⇒ 从**破线翻转为过线**（符号翻转）。
+⇒ auditor 原话「§2.9/§2.10 FAR 列无破线标记，cs Δ=8 破线只在 §7/§11 出现」**不准确**（只看了列，没看表下结论段）⇒ **本轮第 2 次推翻 reviewer 判断**。
+
+#### 37.34.4 指纹变化：**只有 8 序 `report.md` 变了，交付主体逐位未动**
+
+| 文件 | 改前 | 改后 |
+|:--|:--|:--|
+| `runs/lookahead/fi_nogmc/report.md`（8 序专用报告） | `66653d4f58ad1d186aee2e1beb28d7c4` | **`4cbd41fae352139759c1bfcc629a169e`** |
+| `manu/tracking/lookahead/make_fastinfer_nogmc_report.py` | `25080b692382c11e915691b6085c3f31` | **`97d8ee68584ea2589f3b54b4cc478078`** |
+| `runs/lookahead/fi_nogmc/FINAL_REPORT.md`（**交付主体**） | `785b9f15cc317723ceab73726ddeb663` | **不变** ✓（1195 行 / sha256 `a520e9b5…`） |
+
+⇒ 专题档 §…（行 5888 / 6944 / 6952 / 7022 / 7204 / 7317）与主档 §…（行 7387 / 7394 / 7464 / 7590）里的 `report.md` 旧指纹 `66653d4f…` 是**当时事实**，按档案纪律**不回改**，本节记变更。
+
+#### 37.34.5 全链实测（2026-11-05 07:26–07:35 CST，执行机 `test-Super-Server`）
+
+```bash
+cd /tmp/pycharm_project_10ae9e2e
+bash manu/tracking/lookahead/server_overnight/regen_reports_nogmc_fi.sh      # ⇒ 35 份全 rc=0，4.7 s
+bash manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh     # ⇒ 647 文件 / 缺失 0，5.2 s
+for s in audit_sec5_acceptance audit_sec5_deliverables audit_sec16_gap \
+         audit_sec17_reg_oracle audit_sec17_rbgate audit_pack_selfsufficient; do
+  /home/huangzhe/anaconda3/envs/uav/bin/python manu/tracking/lookahead/$s.py; done   # ⇒ 6 份 rc=0
+bash manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh     # ← 审计后必须再 pack（FRESH 判据）
+PY=... bash manu/tracking/lookahead/server_overnight/coldstart_verify_delivery.sh \
+    runs/lookahead/final/nogmc_fi_20261104 /tmp/coldstart_nogmc_fi2            # ⇒ 35/35 IDENTICAL，34.7 s
+bash manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh
+PY=... bash manu/tracking/lookahead/server_overnight/verify_all.sh            # ⇒ 全部通过，45.8 s
+```
+
+| 环节 | 结果 |
+|:--|:--|
+| regen（35 份报告重生成） | 全 rc=0；**除 `report.md` 外另有 8 份变了，但去时间戳后差异 = 0 行** ⇒ 内容幂等 ✓ |
+| 六份审计（仓根） | 全 rc=0：**1257**（§5 验收）/ **2245**（§5 交付物）/ **253**（§16）/ **29**（包自足性）断言 **PASS，FAIL 0** |
+| pack → 审计 → pack | 首轮 `audit_pack_selfsufficient` 报 **1 项 FAIL = `PKG.AUDIT-COPY-FRESH`**（仓内 10 份 vs 包内 10 份审计结论不一致）⇒ **正是「审计后必须再 pack」的机制**，再 pack 后 **29/29 PASS** ✓ |
+| 冷启动 | **35/35 IDENTICAL · DIFF 0 · MISSING 0**；包内 6 份审计 rc=0 / FAIL 0；5 份审计输出 IDENTICAL；**真仓 0 处污染** ⇒ rc=0 |
+| `verify_all` | 包级清单 **646 OK / 0 FAILED**；镜像清单 **512 OK / 0 FAILED**；包内审计 **6/6 rc=0**；变异测试 **10 用例（跳过 4）期望不符 0 ⇒ PASS**；崩溃重试 **0** 次 ⇒ **全部通过** |
+| 单测 | `PYTHONPATH=. python -m unittest discover -s manu/tracking/tests -t .` ⇒ **167 OK / skipped 10** |
+
+#### 37.34.6 ⚠️ 订正 §37.33.5 的**两处分类错误**（我的自查脚本有盲区）
+
+| §37.33.5 的说法 | 订正 | 根因 |
+|:--|:--|:--|
+| 「只有 json、无人读 md：…`osd/osd_3arm_cs_t0043_d3.md`」 | ❌ **错** —— 包根**有** `osd_3arm_cs_t0043_d3.md`（`pack_delivery_nogmc_fi.sh` 4/4 段 copy） | 我的 `/tmp/check_refs.py` 只查了**仓根** + 包内 `repo/` 镜像，**没查「包根提层」** |
+| 「命名不一致：`fi_nogmc24/report_house_style.md` ↔ 包内 `report_house_style_d{2,3,4,8}.md`」 | ⚠️ **不准确** —— 仓内**两份都在**（无后缀 + `_d3`）；pack 把**无后缀那份**复制成包根 `report_house_style_24seq_d3.md`，而镜像只收 `_d{2,3,4,8}` ⇒ 实质是「**镜像未收无后缀那份**」，非命名冲突 | 同上（只看了镜像清单） |
+
+⇒ **真缺失仍只有 `gateA/gateA.md` / `gateA24/gateA.md` 两条**（`pack` 只 copy 两者的 `.json`）⇒ **仍留作下一轮补包项**（可加进 `pack_delivery_nogmc_fi.sh` 的 copy 列表）。
+
+#### 37.34.7 结论
+
+1. **§37.33「不动包」的判断被实测推翻**（全链 ≈ 2 分钟）⇒ 该修就修，但**只在生成器里改**。
+2. 两条 IMPORTANT 的**实质错误措辞**已在包内**消除**（①②）；③④ 按代价/收益**明确不改**并留档。
+3. **交付主体 `FINAL_REPORT.md` md5 `785b9f15…` 逐位未动** ⇒ §37.31 / §54 / §55 / §37.32 / §37.33 的跨节引用**继续有效**。
+4. `report.md` md5 `66653d4f…` → **`4cbd41fa…`**（措辞修正）⇒ 历史节旧指纹是**当时事实**，不回改，本节记变更。
+5. 终态：**包级 646 OK / 镜像 512 OK / 6-6 审计 rc=0 / 变异测试 PASS / 冷启动 35/35 0 污染 / 单测 167 OK**。
+
+### 37.34 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.34 ⭐⭐⭐ 2026-11-05 夜 16（补做）：**补包清单真做了**（改**生成器**不碰产物 + 全链 ≈2 分钟实测推翻「不动包」判断）＋ IMPORTANT-1/2 措辞已消除 ＋ NIT-4 只对 §2.9 成立（§2.10 表下已披露）＋ **订正 §37.33.5 两处分类错误**（我的自查脚本漏查「包根提层」）＋ 交付主体 md5 逐位未动 | lookahead_extrapolator_20261102.md | 7902 |
+
+### 37.35 ⭐⭐⭐ 2026-11-05 夜 16（补做二）：**§8 产物索引在「只拿包」场景下 100% 闭合** —— 补 4 个文件 ＋ **判据升级为「内容 md5 比对」**
+
+**执行机**：服务器 `test-Super-Server` · 项目根 `/tmp/pycharm_project_10ae9e2e` · **窗口 2026-11-05 07:32–07:37 CST**（服务器 `date` 实测）
+**性质**：**只改 `pack_delivery_nogmc_fi.sh` 的 copy 列表 + 重跑交付链**；交付包 **651 文件 / 清单 650 条**，`FINAL_REPORT.md` md5 **`785b9f15cc317723ceab73726ddeb663` 逐位未动**（**连续三轮 §37.33/§37.34/§37.35 交付主体零改动** ✓）
+
+#### 37.35.1 起因：§37.34.6 留的「真缺失 2 条」，实测是 **4 类**；且**判据本身**需要升级
+
+§37.34.6 判定「真缺失 = `gateA/gateA.md` / `gateA24/gateA.md` 两条」⇒ 本轮照做时用**修正版**判据（**补查「包根提层」**）重扫，发现：
+1. **真缺口比记录的多 2 类**：§8 索引里的「8 序**全量指标真源**」`runs/lookahead/fi_nogmc/_facts/summary.md`（8575 B）+ `_facts/all_metrics.json`（654530 B）**同样未入包**（pack 此前只 copy 了 24 序的 `summary_24seq.*`）⇒ 一并补。
+2. ⚠️ **判据方法论升级**：前两轮的判据是「**路径字符串能否在包内拼出来**」（basename / 子目录 / 镜像），**会误判**：
+   - `runs/lookahead/gateA/gateA.md` 在包根被改名为 `gateA_8seq.md` ⇒ 路径判据判「缺失」，**内容其实在**；
+   - `runs/lookahead/fi_nogmc/audit_round7/*.md` 在包根是**子目录** ⇒ basename 判据判「缺失」，**内容其实在**。
+   ⇒ **正确判据是「内容判据」**：对每条 §8 引用，取**仓内**该文件的 **md5**，在**包内全部文件**里找同 md5 者 ⇒ 这才是「评审者能不能拿到同样的内容」的严谨标准。
+
+#### 37.35.2 改动：`pack_delivery_nogmc_fi.sh` 加 4 行 copy（**包根提层**，命名与已有对称）
+
+```bash
+copy runs/lookahead/fi_nogmc/_facts/summary.md             summary_8seq.md      # ← 新增
+copy runs/lookahead/fi_nogmc/_facts/all_metrics.json       summary_8seq.json    # ← 新增
+copy runs/lookahead/gateA/gateA.md                        gateA_8seq.md        # ← 新增
+copy runs/lookahead/gateA24/gateA.md                      gateA_24seq.md       # ← 新增
+```
+- 命名与包内既有风格对称：`summary_24seq.md/json` ⇄ `summary_8seq.md/json`；`gateA_8seq.json` ⇄ `gateA_8seq.md`。
+- **只提包根、不进镜像**：这 4 个都是**审计/汇总的产物**（不是审计的输入）⇒ 镜像（用途＝host 只拿包即可复跑审计）不需要它们 ⇒ 按「Less is more」不镜像。
+- `pack_delivery_nogmc_fi.sh` md5：`a394f336…`（旧）→ **`5874ba8808db6f104f9464205dd3a747`**（新）。
+
+#### 37.35.3 「只拿包」场景的 §8 索引闭合度（**内容 md5 判据**）
+
+| 判据 | 结果 |
+|:--|:--|
+| §8 引用（花括号展开后） | **56** 条 |
+| **内容判据**：包内可获取（md5 命中） | **52** 条 |
+| 不可获取 3 条 | ① `runs/lookahead/final/nogmc_fi_20261104`（**包自身**，递归自指，设计如此）② `…/repo`（**包自身的镜像**，设计如此）③ `runs/optuna_mix_ratio/trials/trial_0080/lq_eval_fpv8/ms_cache`（**24 序 RC2 对照缓存**，体积巨大，设计不入包 ⇒ host 侧需重建） |
+⇒ **除 1 条外部大缓存外，§8 索引在「只拿包」场景 100% 可获取** ✓（52/52 非递归引用内容级全中）
+
+新补 4 文件在包内的 md5（与仓内逐位一致）：
+`gateA_8seq.md` `1c61d3e10123ba8ec28d845ff298f87c` · `gateA_24seq.md` `bc86868aae015330dae4d0499fe3347e` · `summary_8seq.md` `ea9f2ba5197408f34ad49cd0d12905a5` · `summary_8seq.json` `dff8e00cef9dc213b1f397f48946e1ab`
+
+⚠️ 另核：24 序 `fi_nogmc24/report_house_style.md` 与 `report_house_style_d3.md` **内容相同**（md5 `e82314e3…`）⇒ 属「路径改写」非缺失 ✓（**再次订正 §37.33.5 的分类**）。
+
+#### 37.35.4 全链实测（2026-11-05 07:32–07:37 CST，执行机 `test-Super-Server`）
+
+```bash
+cd /tmp/pycharm_project_10ae9e2e
+bash manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh      # ⇒ 651 文件 / 缺失 0
+for s in audit_sec5_acceptance audit_sec5_deliverables audit_sec16_gap \
+         audit_sec17_reg_oracle audit_sec17_rbgate audit_pack_selfsufficient; do
+  /home/huangzhe/anaconda3/envs/uav/bin/python manu/tracking/lookahead/$s.py; done
+bash manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh      # ← 审计后必须再 pack
+PY=... bash manu/tracking/lookahead/server_overnight/coldstart_verify_delivery.sh \
+    runs/lookahead/final/nogmc_fi_20261104 /tmp/coldstart_nogmc_fi3
+bash manu/tracking/lookahead/server_overnight/pack_delivery_nogmc_fi.sh
+PY=... bash manu/tracking/lookahead/server_overnight/verify_all.sh
+```
+
+| 环节 | 结果 |
+|:--|:--|
+| pack | **651 文件 / 缺失源 0**；镜像 **513 文件 / 清单 512 条**（与上一包 `diff` 为空 ⇒ 镜像**无缺失**；pack 打印的「511」是其计数口径，非缺件） |
+| 六份审计 | 全 **rc=0 / FAIL 0** |
+| 冷启动 | **rc=0**；**35/35 IDENTICAL · DIFF 0 · MISSING 0**；真仓指纹 35 文件 |
+| `verify_all` | 包级清单 **650 OK / 0 FAILED**；镜像清单 **512 OK / 0 FAILED**；包内审计 **6/6 rc=0**；变异测试 **10 用例（跳过 4）期望不符 0 ⇒ PASS**；崩溃重试 **0** ⇒ **全部通过** |
+| 单测 | **167 OK / skipped 10** |
+
+#### 37.35.5 结论
+
+1. **§8 产物索引在「只拿包」场景已 100% 闭合**（内容 md5 判据：52/52 非递归引用内容级全中）；唯一例外是 **24 序 RC2 对照缓存**（体积巨大，设计不入包 ⇒ host 侧重建）。
+2. **判据升级是本节最大收获**：路径判据会误判「包根提层」与「子目录」两类**内容已在包内**的情形 ⇒ **内容 md5 判据**才是「评审者能否拿到同样内容」的严谨标准 ⇒ 已在 §37.35.1 留档。
+3. **交付主体 `FINAL_REPORT.md` md5 `785b9f15…` 连续三轮（§37.33/§37.34/§37.35）逐位未动** ⇒ 跨节引用全部继续有效。
+4. 终态：**包级 650 OK / 镜像 512 OK / 6-6 审计 rc=0 / 变异测试 PASS / 冷启动 35/35 0 污染 / 单测 167 OK / 导航表 163/163**。
+
+### 37.35 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.35 ⭐⭐⭐ 2026-11-05 夜 16（补做二）：**§8 索引「只拿包」100% 闭合**（补 4 文件：gateA_8seq/24seq.md + summary_8seq.md/json）＋ **判据升级为「内容 md5 比对」**（路径判据会误判「包根提层/子目录」）＋ 交付主体连续三轮逐位未动 | lookahead_extrapolator_20261102.md | 7999 |
+
+### 37.36 ⭐⭐⭐ 2026-11-05 夜 16（补做三）：**host 拉回仿真 #2（包内容变更后重跑）四件套全绿** ＋ **NIT-3 锚点实测**（表头只是注释 ⇒ 改列头**不会**破坏审计定位）＋ **NIT-3 / NIT-4 双双定案「不改」**（附硬证据）
+
+**性质**：**只做验证、不改任何产物**；执行机 `test-Super-Server`，时间 **2026-11-05 07:38–07:52 CST**；项目根 `/tmp/pycharm_project_10ae9e2e`。
+**交付主体 `FINAL_REPORT.md` md5 `785b9f15cc317723ceab73726ddeb663` / 1195 行 / sha256 `a520e9b5aee81553f99cb8b683305f3da14eb581a08a281722593c7962f912f2` —— 连续四轮（§37.33/§37.34/§37.35/§37.36）逐位未动** ✓
+
+#### 37.36.1 起因：§37.32 的旧仿真**已不适用**
+
+§37.32 的 host 拉回仿真是在 §37.35 **补 4 个文件进包**（`gateA_8seq.md` / `gateA_24seq.md` / `summary_8seq.md` / `summary_8seq.json`）**之前**做的 ⇒ 包内容已变 ⇒ 旧仿真的结论不能代表当前包 ⇒ **必须重做仿真 #2**。
+
+⚠️ 两个坑（沿用 §37.32.3 结论，本轮再次踩中并规避）：
+1. **rsync 多源必须带 `-R`**（`--relative`）⇒ 否则 `./manu` 与 `./runs/lookahead` 被拍平到同一层，目录结构丢失。
+2. **冷启动需 `runs/lookahead/` 全量**（12 个产物目录 + 2 个根 JSON）⇒ 只拉子集会 `[FATAL] 缺产物目录` rc=2。
+
+#### 37.36.2 仿真 #2 ＋ 四件套（全部在**拉回树**上跑，不是服务器原树）
+
+```bash
+cd /tmp/pycharm_project_10ae9e2e
+rsync -aR --checksum ./manu ./runs/lookahead /tmp/hostpull2/          # ⇒ rc=0 / 15475 文件 / 9.2G / 48s
+
+# ① 包清单
+cd /tmp/hostpull2/runs/lookahead/final/nogmc_fi_20261104 && md5sum -c MD5SUMS.txt
+# ② 导航表
+cd /tmp/hostpull2 && python3 manu/memory/validate_nav_table.py
+# ③ 单测
+cd /tmp/hostpull2 && PYTHONPATH=/tmp/hostpull2 /home/huangzhe/anaconda3/envs/uav/bin/python \
+    -m unittest discover -s /tmp/hostpull2/manu/tracking/tests -t /tmp/hostpull2
+# ④ 冷启动（真仓自定位 ⇒ 必须传 REPO/PY）
+cd /tmp/hostpull2 && REPO=/tmp/hostpull2 PY=/home/huangzhe/anaconda3/envs/uav/bin/python \
+    bash manu/tracking/lookahead/server_overnight/coldstart_verify_delivery.sh \
+    /tmp/hostpull2/runs/lookahead/final/nogmc_fi_20261104 /tmp/coldstart_pulled2
+```
+
+| # | 检查 | 结果 | 产物 |
+|:--|:--|:--|:--|
+| ① | 包清单 `MD5SUMS.txt` | **650 OK / 0 FAILED** | `/tmp/hostpull2/runs/lookahead/final/nogmc_fi_20261104/` |
+| ② | 导航表 | **163/163 PASS**（瘦版 774350 B / 8176 行） | `manu/memory/validate_nav_table.py` |
+| ③ | 单测 | **Ran 167 tests / OK (skipped=10)** / 15.889 s | `manu/tracking/tests/` |
+| ④ | 冷启动 | **rc=0**；`coldstart_diff.json` ⇒ `total 35 / identical 35 / diff 0 / missing 0`；`repo_before.md5` vs `repo_after.md5` **diff 为空** ⇒ **0 污染** | `/tmp/coldstart_pulled2/` |
+
+⇒ **这是「host 明早 09:00 拉回后，在评审者机器上会发生什么」的完整预演**：包完整、导航表可解析、单测可跑、**冷启动能从拉回树重建全部 35 个产物且逐字节一致**。
+
+#### 37.36.3 NIT-3 锚点实测：表头**只是注释** ⇒ 改列头**不会**破坏审计定位
+
+§37.33 的 NIT-3 是「8 序 `report.md` 总体表 CLE 列头缺「(池)」」。上一轮留下的悬案是：**审计脚本会不会把表头当定位锚点？** 本轮直接读源码定案：
+
+| 位置 | 内容 | 性质 |
+|:--|:--|:--|
+| `manu/tracking/lookahead/audit_sec5_deliverables.py` **L250** | `# \| 臂 \| 角色 \| F1% \| … \| CLE p50 \| CLE p95 \| …` | **纯 `#` 注释**（人类可读的表格镜像，**不参与解析**） |
+| `manu/tracking/lookahead/audit_sec5_deliverables.py` **L425** | `# \| 臂 \| 角色 \| F1% \| … \| CLE p50 \| CLE p95 \| 交付三门 \|` | **纯 `#` 注释** |
+
+**真实定位机制**（源码实证）：锚点是 **「臂名行」+「单元格位序」**两级，**与表头文字无关** ——
+- 行定位：`find_row(lines, lo, hi, arm)` —— 按**臂名**（`original`/`stale`/`kinematic`/`replay`）在行区间内找行；
+- 列定位：`cells[i]` —— **位序**索引（如 `cells[10]` = CLE p50、`cells[11]` = CLE p95、`cells[2]` = F1%）；
+- 列数校验只查 `len(cells) < 14`（**只数列，不看列头文字**）。
+
+⇒ **改列头文字不会让审计定位失效**（既不改行数也不改列数）⇒ NIT-3 的「审计锚点风险」**排除**。
+
+#### 37.36.4 但 NIT-3 / NIT-4 **仍然定案「不改」**（理由与证据均已变）
+
+| 项 | 决定 | 硬证据 |
+|:--|:--|:--|
+| **NIT-3** | **不改** | ① 8 序 `report.md` **同一文档 L14 口径声明 §5 已写明**「本报告**总体表用 `cle_pooled_*`（全帧池化）**」⇒ 口径无歧义；② house-style 权威表列头**已带「(池)」**；③ 改它要动**生成器** ⇒ 全链重跑（pack→6 份审计→再 pack→冷启动→再 pack→`verify_all`），host **09:00** 拉取前**风险≫收益**；④ 锚点风险本轮已实测**排除**（§37.36.3）⇒ 排除的只是「唯一反对理由」，不构成「该改」的充分理由 |
+| **NIT-4** | **不改** | ① **只对 §2.9 成立**：`FINAL_REPORT.md` **L162 表下正文已精确披露**「FAR 红线余量：Δ=8 裸配置 = 0.030 − 0.031037 = **−0.001037**（破线）；Δ=3 = 0.030 − 0.025523 = **0.004477**（过线）⇒ 从**破线翻转为过线**」⇒ §37.33 审计原话「§2.9/§2.10 无标记、只在 §7/§11 出现」**不准确**（§2.10 有）；② L380 另有 24 序 FAR 块把 `stale/kinematic/replay` 三臂标 **✗**；③ 改 §2.9 要动**交付主体 md5**（被 5 节引用）⇒ 收益≪代价 |
+
+⇒ **本轮零改动**：不碰生成器、不碰产物、不碰包 ⇒ 交付主体 md5 与包清单 **逐位不变**。
+
+#### 37.36.5 交付数字**真源逐位复核**（`runs/lookahead/fovgate24nogmc/runs/cs_t0043/d3/fov__m6/arms.json`）
+
+`cs_t0043`（no-GMC）· Δ=3（120 ms）· `replay` 臂 · `--replay-fov-margin-px 6` · 24 序官方口径：
+
+| 指标 | 真源值 | 折算 | 交付判据 | 判定 |
+|:--|--:|--:|:--|:--|
+| F1 | 0.9480935450254399 | **94.8094 %** | ≥ 0.88 | ✅ |
+| Recall | 0.9285065700113315 | **92.8507 %** | ≥ 0.85 | ✅ |
+| Precision | 0.9685247082214621 | **96.8525 %** | — | — |
+| FAR/帧 | 0.024336805408447976 | **0.024337** | ≤ 0.030（余量 **0.0056632**） | ✅ |
+| hit@5px | 0.8697179135054819 | **86.9718 %** | — | — |
+| CLE **pooled** p95 | 7.066306983688353 | **7.0663 px** | — | — |
+
+（`cle_pooled_aggregation = pooled_over_all_frames`，`cle_pooled_samples = 125523`；⚠️ `cle_p95 = 285.6836` 是 `percentile_aggregation = worst_over_sequences` 的**逐序最差值**，二者**不可混用** ⇒ 对外一律用 `cle_pooled_p95`。）
+
+#### 37.36.6 结论
+
+1. **host 拉回仿真 #2 四件套全绿**：包 **650 OK / 0 FAILED**、导航表 **163/163**、单测 **167 OK / skipped 10**、冷启动 **35/35 IDENTICAL · 0 污染 · rc=0** ⇒ **host 明早 09:00 拉回后可在评审机上直接复现全部结论**。
+2. **NIT-3 的「审计锚点」反对理由已被实测推翻**（表头只是 `#` 注释，锚点是臂名行 + 位序），**但仍定案不改** —— 真理由是「口径已在同文档 L14 声明 + 权威表已带「(池)」+ 全链重跑风险」⇒ **与 §37.33/§37.34 的结论一致，但依据更硬**。
+3. **NIT-4 的适用范围被订正为「只对 §2.9」**（§2.10 表下正文 L162 已精确披露破线翻转）⇒ §37.33 审计原话**不准确**，本轮据实订正。
+4. **交付主体 `FINAL_REPORT.md` md5 `785b9f15…` 连续四轮逐位未动** ⇒ 跨节引用全部继续有效；**交付数字已从真源逐位复核**（上表 6 项）。
+5. **本夜最终交付数字（对外口径）**：`cs_t0043`(no-GMC) · Δ=3(120 ms) · `replay` · m=6 ⇒ **F1 94.8094 / R 92.8507 / P 96.8525 / FAR 0.024337（余量 0.0056632）/ hit@5px 86.9718 / CLE pooled p95 7.0663** ⇒ **三门 PASS**。
+
+### 37.36 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.36 ⭐⭐⭐ 2026-11-05 夜 16（补做三）：**host 拉回仿真 #2 四件套全绿**（包 650 OK / 导航 163-163 / 单测 167 OK / 冷启动 35-35 0 污染 rc=0）＋ **NIT-3 锚点实测**（表头只是注释 ⇒ 改列头不破坏审计定位）＋ **NIT-3/NIT-4 定案不改**（NIT-4 只对 §2.9 成立，§2.10 已披露）＋ 交付数字真源逐位复核 | lookahead_extrapolator_20261102.md | 8074 |
+
+### 37.37 ⭐⭐⭐ 2026-11-05 夜 16（补做四）：**Δ=3 多旋钮组合 A/B（10 组）—— 8/10 帕累托占优，但幅度全在噪声内 ⇒ 交付 CFG 不改** ＋ **加性检验（近乎可加）** ＋ **两个口径坑**
+
+**性质**：**P3 探索**（新方法探索的最后一块拼图）；执行机 `test-Super-Server`，时间 **2026-11-05 07:45–07:58 CST**；项目根 `/tmp/pycharm_project_10ae9e2e`。
+**交付档 CFG 未改；交付主体 `FINAL_REPORT.md` md5 `785b9f15cc317723ceab73726ddeb663` 逐位未动；交付包 650 OK / 冷启动 35/35 不变。**
+
+#### 37.37.1 起因：P3 唯一剩下的缺口 =「没有把占优旋钮叠加起来」
+
+已有：§37.18 的 **24 序 Δ=3 单旋钮受控 A/B（14 旋钮 / 37 作业点）** + p3b 波（6 变体，含一个双旋钮）⇒ **每个旋钮各自**的效应与帕累托占优性都已量化。
+缺口：**帕累托占优旋钮叠加后**会怎样？两种可能——(a) 可加 ⇒ 叠加即得更大增益；(b) 交互（前沿移动相互抵消）⇒ 单旋钮表**不能**外推组合收益。**不测就无法回答**。
+
+#### 37.37.2 工具与命令（**不新建扫描器**：`extra` 阶段原生支持多旋钮组合）
+
+`manu/tracking/lookahead/server_overnight/run_knob_scan_d3.sh` 的 **`extra`** 阶段：`EXTRA_SPECS` 每项 = `model|delta|tag|flag=value[,flag=value]` ⇒ 逗号分隔即多旋钮；`do_run` 对每个 flag 逐个「**在 CFG 里替换 / 不在则追加**」并断言替换生效与不重复 ⇒ 语义唯一。
+
+```bash
+cd /tmp/pycharm_project_10ae9e2e
+export OUT=runs/lookahead/fi_nogmc24/knobscan_p3c \
+  CACHE_CS=/mnt/data/siping/runs/nogmc_t3/swa/ms_cache_24seq \
+  REF_ARMS=runs/lookahead/fovgate24nogmc/runs/cs_t0043/d3/fov__m6/arms.json \
+  EXTRA_BASE_CFG="--replay-fov-margin-px 6" JOBS=11 THREADS=4
+export EXTRA_SPECS="cs_t0043|3|c1_om64_pk015_ro8|--output-max-step-px=64,--replay-xcorr-min-peak=0.15,--replay-roi-selfpred-max-px=8
+cs_t0043|3|c2_om64_pk015_ro8_uq7|--output-max-step-px=64,--replay-xcorr-min-peak=0.15,--replay-roi-selfpred-max-px=8,--replay-xcorr-uniq-gate=0.7
+…（共 10 条；c3=om48 变体、c4/c5/c6=两旋钮、c7/c8=四旋钮、c9/c10=再加 --replay-abstain-peak-below 0.40）"
+bash manu/tracking/lookahead/server_overnight/run_knob_scan_d3.sh extra
+# 门禁（同一 OUT，必须先过）：
+bash manu/tracking/lookahead/server_overnight/run_knob_scan_d3.sh gate
+```
+
+- **产物**：`runs/lookahead/fi_nogmc24/knobscan_p3c/{report.md, report.json, manifest.tsv, runs/cs_t0043/d3/*/arms.json}`
+- **硬门禁**：baseline 复现 vs 参考产物 `runs/lookahead/fovgate24nogmc/runs/cs_t0043/d3/fov__m6/arms.json` ⇒ **4 臂 × 17 字段 = 68/68 逐位一致 ⇒ PASS**
+- **全部 11 个作业 rc=0**，431–435 s/个（11 路并行）
+
+#### 37.37.3 新增代码（1 个文件，工具函数复用不重写）
+
+**新增** `manu/tracking/lookahead/make_knob_combo_24seq_report.py`。
+⚠️ **为什么不能直接用单旋钮生成器 `make_knob_scan_24seq_report.py`**：那份的口径声明写死「每个作业点**只替换一个旋钮**、受控 A/B」⇒ 对组合实验是**假陈述** ⇒ 组合报告必须单独成文（工具函数 `arm_row`/`dominates`/`paired_stats`/`gate_compare`/`loso_sensitivity`/`seq_f1` 全部**复用**，不重复实现）。
+⭐ **加性检验**（本报告独有）：组合 ΔF1 − Σ(各单点 ΔF1) = **交互项**（单点参照 = `runs/lookahead/fi_nogmc24/knobscan_d3/report.json`）。
+
+#### 37.37.4 结果（基线 = 交付档 CFG + 出框门 m=6，24 序官方口径，Δ=3）
+
+| 组合 | 旋钮 | F1% | ΔF1(pp) | FAR/帧 | ΔFAR | hit@5px% | Δhit5(pp) | CLE p95(池) | Δp95 | 支配基线 | 配对 p |
+|:--|:--|--:|--:|--:|--:|--:|--:|--:|--:|:--|--:|
+| **`c1_om64_pk015_ro8`** | 3 | **94.8494** | **+0.0401** | **0.024058** | **−0.000278** | **87.1061** | **+0.1343** | **6.9082** | **−0.1581** | **是** | 0.1671 |
+| `c8_om64_pk015_uq7` | 3 | 94.8469 | +0.0376 | 0.024046 | −0.000291 | 87.1001 | +0.1283 | 6.9127 | −0.1536 | **是** | 0.0963 |
+| `c3_om48_pk015_ro8` | 3 | 94.8456 | +0.0363 | 0.024089 | −0.000248 | 87.1001 | +0.1283 | 6.9276 | −0.1387 | **是** | 0.0636 |
+| `c7_om64_pk015_ro12_uq7` | 4 | 94.8454 | +0.0360 | 0.024052 | −0.000284 | 87.1001 | +0.1283 | 6.9084 | −0.1579 | **是** | 0.0963 |
+| `c2_om64_pk015_ro8_uq7` | 4 | 94.8446 | +0.0352 | 0.024058 | −0.000278 | 87.0986 | +0.1268 | 6.9084 | −0.1579 | **是** | 0.1671 |
+| `c4_om64_pk015` | 2 | 94.8414 | +0.0321 | 0.024125 | −0.000212 | 87.1054 | +0.1336 | 6.9127 | −0.1536 | **是** | 0.0963 |
+| `c5_om64_ro8` | 2 | 94.8409 | +0.0315 | 0.024107 | −0.000230 | 87.0333 | +0.0615 | 6.9799 | −0.0864 | **是** | 0.0654 |
+| `c6_pk015_ro8` | 2 | 94.8318 | +0.0225 | 0.024198 | −0.000139 | 87.0573 | +0.0855 | 7.0007 | −0.0656 | **是** | 0.2379 |
+| `c10_om64_pk015_ro8_abst040` | 4 | 94.8038 | −0.0055 | **0.023126** | **−0.001210** | 86.9845 | +0.0128 | **6.7480** | **−0.3183** | 否 | 0.8238 |
+| `c9_om64_pk015_abst040` | 3 | 94.7972 | −0.0121 | 0.023169 | −0.001168 | 86.9838 | +0.0120 | 6.7562 | −0.3101 | 否 | 0.6476 |
+
+**结论 1 —— 帕累托占优可以叠加：8/10 组合四项（Recall/hit@5px/FAR/CLE p95）全不劣且至少一项严格更优** ⇒ 逐点占优的旋钮**作用在近似正交的轴上**（限幅 / 相关峰置信 / ROI 前推 各管一段）⇒ 叠加后前沿**继续外推**，不是互相抵消。
+**结论 2 —— 加性：交互项 = −0.0008 ~ −0.0172 pp（全部为负但极小）⇒ 组合收益 ≈ Σ 单点收益（略次可加）⇒ 单旋钮表**可以**近似外推组合收益**（这是本轮最有用的机理结论）。
+**结论 3 —— 但幅度全在噪声内 ⇒ 交付 CFG 不改**：LOSO 尺子A（中位 **0.1466 pp** / 最大 **1.9659 pp**）⇒ **10/10 组合的 ΔF1 都 < 0.1466 pp ⇒ 全部判为「噪声」**；**0 个**超过最大摆幅；配对符号检验 **p<0.05 的 0 个**（最好 `c3` p=0.0636，`c1` p=0.1671）⇒ **收益不可与序列构成噪声分离** ⇒ 改交付 CFG 属**过拟合**。
+**结论 4 —— 「FAR 交换型旋钮」单拿出来能换到最大的 FAR 改善，但要用召回付账**：`--replay-abstain-peak-below 0.40` 让 FAR 从 0.024337 降到 **0.023126 / 0.023169**（**本夜全部实验里最大的 FAR 改善**，红线余量 0.0056632 → **0.0068738**）、CLE p95 降 0.31~0.32 px，但 **ΔRecall −0.1456 / −0.1531 pp** ⇒ **前沿滑动**（阈值权衡），非免费增益。
+**结论 5 —— 候选配置登记（不改交付）**：`c1_om64_pk015_ro8` = 交付档 CFG + `--output-max-step-px 64 --replay-xcorr-min-peak 0.15 --replay-roi-selfpred-max-px 8`，24 序 Δ=3 ⇒ **F1 94.8494 / R 92.8942 / P 96.8888 / FAR 0.024058（红线余量 0.0059416）/ hit@5px 87.1061 / CLE pooled p95 6.9082** ⇒ 三门 PASS。
+⇒ **定档条件（未满足）**：需 (a) 24 序**全 Δ**（2/3/4/8）复核（避免变成「Δ 专属配置」的隐性风险），(b) 交付链全链重跑（24 序 Δ 扫描 + 报告重生成 + pack/审计/冷启动/verify_all），(c) 收益幅度**超过尺子A 中位 0.1466 pp** 或配对检验 p<0.05。三条任一不满足 ⇒ 维持现交付档。
+
+#### 37.37.5 本轮踩到的两个坑（都会造成「假结论」，必须留档）
+
+1. ⚠️ **LOSO「最大摆幅」有两个定义**：`loso_sensitivity` 的 `swing` = **max(loo) − min(loo)（跨度）= 1.9659 pp**；我首版写成 **max|loo − full|（偏离）= 1.3676 pp** ⇒ 与既有报告口径不一致。**已修正为「跨度」**（与 §37.18 / p3b 报告同口径），修正后**结论不变**（10/10 仍在噪声内）⇒ 说明结论对该统计量选择**稳健**。
+2. ⚠️ **沙箱 PID 命名空间里 `ps` 看不到后台扫描进程** ⇒ 我一度把「11 个作业同时停在同一序列」误判成「被系统性杀死」（无 `.done`/`.rc`、manifest 空）。**正确判据 = `run.log` 的 mtime 与体积是否推进** ⇒ 实际全部存活，只是卡在最后一条大序列（VIDEO00031，4378 帧）⇒ **不要据 `ps` 空输出下「进程被杀」的结论**。
+
+#### 37.37.6 交付链**不动**的判定（为什么新报告不入包）
+
+- 新报告是 **P3 探索**产物，**不被权威报告消费**；交付包的收录规则是「权威报告 + 其输入 + 复现链」（§8 索引只收权威报告的输入，24 序旋钮报告 `knobscan_24seq_d3` / `knobscan_p3b_24seq` 即按此例在包内但不在 §8）⇒ **按同一规则，新组合报告同样应留在仓内 `runs/lookahead/fi_nogmc24/knobscan_p3c/`**（host 整目录 rsync 会带走）。
+- 入包则要改 `pack_delivery_nogmc_fi.sh` + `regen_reports_nogmc_fi.sh` + `coldstart_verify_delivery.sh`（GEN_PAIRS 35 → 37）并重跑全链；且冷启动的**比较会把时间戳归一化**（`TS` 正则）⇒ 新报告可逐字节复现，**技术上可行**，但收益仅是「多一份探索材料」，而 host 09:00 拉取前动交付链风险≫收益 ⇒ **本轮不动**。
+- 已确认**不动包不会破坏自洽性**：包镜像 `repo/` 按**显式清单**构建（`mirror`/`mirror_dir` 调用，不是整目录拷贝），`verify_all.sh` 只校验「包级清单 / 镜像级清单 / 包内六份审计」，**不比对镜像与活仓的 `manu/`** ⇒ 镜像停在 07:35 快照仍然自洽。
+- **交付主体零改动**：`FINAL_REPORT.md` md5 `785b9f15…`（连续五轮逐位未动）、包 **650 OK / 0 FAILED**、镜像 **512 OK**、冷启动 **35/35 IDENTICAL · 0 污染**。
+
+### 37.37 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.37 ⭐⭐⭐ 2026-11-05 夜 16（补做四）：**Δ=3 多旋钮组合 A/B（10 组）—— 8/10 帕累托占优、加性检验（交互项 ≤0.0172 pp ⇒ 近乎可加）但幅度全在噪声内 ⇒ 交付 CFG 不改** ＋ 候选 `c1_om64_pk015_ro8`（F1 94.8494 / FAR 0.024058）＋ **两个口径坑**（LOSO 摆幅两种定义 / 沙箱 `ps` 看不到后台进程） | lookahead_extrapolator_20261102.md | 8168 |
+
+### 37.38 ⭐⭐ 2026-11-05 夜 16（补做五）：**host 拉回仿真 #3（含本轮全部新增）—— 四件套 + 包内 6/6 审计全绿 ＋ 新脚本路径无关可复现**
+
+**性质**：**只验证、不改任何产物**；执行机 `test-Super-Server`，时间 **2026-11-05 08:12–08:18 CST**。
+**背景**：§37.36 的仿真 #2 之后，包内容未变、但**活树新增了** §37.37 的组合产物（`runs/lookahead/fi_nogmc24/knobscan_p3c/`，286 MB）、新脚本 `manu/tracking/lookahead/make_knob_combo_24seq_report.py`、以及 §37.36/§37.37 的 memory 追加 ⇒ 「host 明早拉回的到底是哪一份」需要**再验一次**。
+
+```bash
+cd /tmp/pycharm_project_10ae9e2e
+rsync -aR --checksum ./manu ./runs/lookahead /tmp/hostpull3/          # ⇒ rc=0 / 9.5 G / 15755 文件 / 49s
+cd /tmp/hostpull3/runs/lookahead/final/nogmc_fi_20261104 && md5sum -c MD5SUMS.txt
+cd /tmp/hostpull3 && python3 manu/memory/validate_nav_table.py
+cd /tmp/hostpull3 && PYTHONPATH=/tmp/hostpull3 /home/huangzhe/anaconda3/envs/uav/bin/python \
+    -m unittest discover -s /tmp/hostpull3/manu/tracking/tests -t /tmp/hostpull3
+cd /tmp/hostpull3 && REPO=/tmp/hostpull3 PY=/home/huangzhe/anaconda3/envs/uav/bin/python \
+    bash manu/tracking/lookahead/server_overnight/coldstart_verify_delivery.sh \
+    /tmp/hostpull3/runs/lookahead/final/nogmc_fi_20261104 /tmp/coldstart_pulled3
+```
+
+| # | 检查 | 结果 |
+|:--|:--|:--|
+| ① | 包清单 `MD5SUMS.txt`（**包自 §37.35 起未再改动**） | **650 OK / 0 FAILED** |
+| ② | 导航表（拉回树上） | **167/167 PASS**（+ 归档完整性拼接 md5 与基准一致） |
+| ③ | 单测（拉回树上） | **Ran 167 tests / OK (skipped=10)** |
+| ④ | 冷启动（拉回树上） | **rc=0**；`coldstart_diff.json` ⇒ `identical 35 / diff 0 / missing 0`；`repo_before.md5` vs `repo_after.md5` **diff 为空** ⇒ **0 污染**；**包内 6 份审计全 rc=0 / FAIL 0** |
+| ⑤ | **新脚本路径无关性**（本轮新增） | 在拉回树上重跑 `make_knob_combo_24seq_report.py` ⇒ 报告 md **归一化时间戳后逐字节相同**（10059 vs 10059 字符）、report.json **除 `generated` 外逐位相同** ⇒ **新脚本在 host 机器上可直接复跑** |
+
+⇒ **host 明早 09:00 拉回后**：包完整（650 OK）、导航表可解析（167/167）、单测可跑（167 OK）、**冷启动能从拉回树重建全部 35 个产物且逐字节一致**、包内六份审计全过、**本轮新增的组合报告可由新脚本在 host 侧原样复现**。
+
+### 37.38 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.38 ⭐⭐ 2026-11-05 夜 16（补做五）：**host 拉回仿真 #3（含本轮全部新增）四件套 + 包内 6/6 审计全绿**（包 650 OK / 导航 167-167 / 单测 167 OK / 冷启动 35-35 0 污染）＋ **新脚本路径无关可复现**（归一化时间戳后逐字节相同） | lookahead_extrapolator_20261102.md | 8245 |
+### 37.39 ⭐⭐ 2026-11-05 夜 16（补做六）：**候选 `c1_om64_pk015_ro8` 的跨 Δ 复核（24 序官方口径，Δ∈{2,3,4,8} 四档全覆盖）** —— 交付 CFG **仍不改**
+
+**性质**：**只做 A/B、不改任何交付产物**；执行机 `test-Super-Server`，时间 **2026-11-05 08:17 CST**。
+**背景**：§37.37 在 Δ=3（24 序官方口径）上筛出候选组合 `c1_om64_pk015_ro8`（`--output-max-step-px 64` + `--replay-xcorr-min-peak 0.15` + `--replay-roi-selfpred-max-px 8`，叠加出框门 `--replay-fov-margin-px 6`）；其**定档三条件**为：① 24 序**全 Δ** 复核 ② 交付链全链重跑 ③ 幅度超 LOSO 噪声中位或配对 p<0.05。**本节补条件①**（Δ=2/4/8；Δ=3 已在 §37.37 测过）。
+
+```bash
+cd /tmp/pycharm_project_10ae9e2e
+bash manu/tracking/lookahead/server_overnight/run_knob_combo_delta_sweep.sh   # Δ=2/4/8 各跑「门禁 → 组合」
+# 报告（每个 Δ 一份；--single-report 指向**不存在**的路径 ⇒ 加性检验显示「—」）
+python manu/tracking/lookahead/make_knob_combo_24seq_report.py --root runs/lookahead/fi_nogmc24/knobscan_p3c_d2 \
+    --target-delta 2 --ref-arms runs/lookahead/fovgate24nogmc_d2/runs/cs_t0043/d2/fov__m6/arms.json \
+    --single-report runs/lookahead/fi_nogmc24/knobscan_p3c_d2/nonexistent_single.json \
+    --out-md runs/lookahead/fi_nogmc24/knobscan_p3c_d2/report.md --out-json runs/lookahead/fi_nogmc24/knobscan_p3c_d2/report.json
+python manu/tracking/lookahead/make_knob_combo_24seq_report.py --root runs/lookahead/fi_nogmc24/knobscan_p3c_d4 \
+    --target-delta 4 --ref-arms runs/lookahead/fovgate24nogmc_d4/runs/cs_t0043/d4/fov__m6/arms.json \
+    --single-report runs/lookahead/fi_nogmc24/knobscan_p3c_d4/nonexistent_single.json \
+    --out-md runs/lookahead/fi_nogmc24/knobscan_p3c_d4/report.md --out-json runs/lookahead/fi_nogmc24/knobscan_p3c_d4/report.json
+python manu/tracking/lookahead/make_knob_combo_24seq_report.py --root runs/lookahead/fi_nogmc24/knobscan_p3c_d8 \
+    --target-delta 8 --ref-arms runs/lookahead/fovgate24nogmc_d8/runs/cs_t0043/d8/fov__m6/arms.json \
+    --single-report runs/lookahead/fi_nogmc24/knobscan_p3c_d8/nonexistent_single.json \
+    --out-md runs/lookahead/fi_nogmc24/knobscan_p3c_d8/report.md --out-json runs/lookahead/fi_nogmc24/knobscan_p3c_d8/report.json
+```
+
+**新增/改动代码（2 个文件）**：
+
+1. `manu/tracking/lookahead/server_overnight/run_knob_combo_delta_sweep.sh`（**新**）—— 跨 Δ 复核驱动：**每个 Δ 用自己的 `REF_ARMS`**（参考产物随 Δ 变，拿错 Δ 的参考 ⇒ 门禁拿错基线 ⇒ 结论做反）；**先门禁、后扫描**，三个 Δ 并行。
+2. `manu/tracking/lookahead/make_knob_combo_24seq_report.py`（**改**）—— 标题/小节里的 `Δ=3` 由硬编码改为 `--target-delta`；并在本 Δ 无单旋钮参照时显式标注「**加性检验不可算**」。
+
+> ⚠️ **加性检验在 Δ≠3 基本不可算**：单旋钮扫描只覆盖 Δ=3（`knobscan_d3/manifest.tsv` 按 Δ 统计：d2=3 条 / d3=56 条 / d4=3 条 / d8=3 条）⇒ Δ=2/4/8 的组合**没有同基线同 Δ 的单点参照** ⇒ §4 的「Σ 单点 ΔF1 / 交互项」列显示「—」；**切勿**把 Δ=3 的单点行混进 Δ≠3 的组合分析（既不同基线，也不同 Δ）。
+
+#### 37.39.1 逐 Δ 结果（基线 = 交付档 CFG + 出框门 m=6，各 Δ 各自）
+
+| Δ | 时延 | 门禁（四臂逐位） | 基线 replay F1% / FAR / hit@5px% | 组合 F1% | ΔF1(pp) | ΔFAR | Δhit5(pp) | ΔCLE p95(px) | 支配基线 | 配对 p | 噪声判读 |
+|--:|--:|:--|:--|--:|--:|--:|--:|--:|:--|--:|:--|
+| 2 | 80 ms | **68/68 PASS** | 95.0767 / 0.022921 / 87.6599 | 95.1033 | +0.0266 | -0.000375 | +0.1096 | -0.1512 | **是** | 0.0414 | 噪声（< 0.1283） |
+| 3 | 120 ms | **68/68 PASS** | 94.8094 / 0.024337 / 86.9718 | 94.8494 | +0.0401 | -0.000278 | +0.1343 | -0.1581 | **是** | 0.1671 | 噪声（< 0.1466） |
+| 4 | 160 ms | **68/68 PASS** | 94.5955 / 0.025305 / 86.3699 | 94.6442 | +0.0487 | -0.000206 | +0.1786 | -0.2185 | **是** | 0.4807 | 噪声（< 0.1519） |
+| 8 | 320 ms | **68/68 PASS** | 93.7438 / 0.029608 / 84.1142 | 93.8268 | +0.0830 | -0.000448 | +0.1884 | -0.3646 | **是** | 0.0784 | 噪声（< 0.1430） |
+
+**各 Δ 的 LOSO 噪声标尺（尺子A，摆幅 = max(loo) − min(loo)）**：
+
+| Δ | 摆幅中位(pp) | 摆幅最大(pp) | 最差单序 |
+|--:|--:|--:|:--|
+| 2 | 0.1283 | 1.9680 | VIDEO00006_19700101_000322 |
+| 3 | 0.1466 | 1.9659 | VIDEO00006_19700101_000322 |
+| 4 | 0.1519 | 1.9630 | VIDEO00006_19700101_000322 |
+| 8 | 0.1430 | 2.0358 | VIDEO00006_19700101_000322 |
+
+#### 37.39.2 结论
+
+1. **门禁全绿**：Δ=2/4/8 的 baseline 复现产物与**各自 Δ** 的参考产物**各 68/68**（Δ=3 见 §37.37 同为 68/68）逐位一致 ⇒ **扫描器在每个 Δ 上都没引入额外变量** ⇒ 组合结果可比。
+2. **方向一致性**：帕累托支配基线（recall/hit@5px/FAR/CLE p95 四项全不劣且至少一项严格更优）的 Δ = 2、3、4、8 ⇒ **四个 Δ 上都没有回归**，且 FAR/CLE/hit@5px 的改善方向一致。
+3. **幅度显著性（两把尺子）**：ΔF1 超 LOSO 摆幅**中位**的 Δ = **无**（即**池化 F1 幅度全部落在单序列波动噪声内**）；配对符号检验 p<0.05 的 Δ = 2 ⇒ **交付 Δ=3 上两把尺子都不过**（p=0.1671；ΔF1 0.0401 < 中位 0.1466）。
+4. **交付三门**：组合在四个 Δ 上 F1/Recall/FAR 三门**全部满足**（详见上表与各 Δ 报告的「交付三门」列）。
+5. **裁定**：**条件①（跨 Δ 复核）只「部分满足」** —— 四个 Δ 上**无回归、方向一致、Δ=2 配对显著**，但**交付工况 Δ=3 上两把尺子都不过** ⇒ **交付档 CFG 保持不变**（`--replay-roi-selfpred-max-px 16` / `--output-max-step-px 30` / `--replay-abstain-peak-below 0.30` / `--replay-xcorr-uniq-gate 0.6` …），候选 `c1_om64_pk015_ro8` 继续**登记待定档**（条件② 全链重跑、③ 幅度显著性均未满足）。
+6. **如实报告的负结论（连同唯一的反例一起报）**：Δ=3 上 8/10 组合帕累托占优（§37.37），但**占优 ≠ 可交付** —— 占优只说明「在既有前沿上往外挪了一点」，**幅度**仍在单序列波动噪声内；**跨 Δ 复核把这一点从「Δ=3 单点」升级为「四档一致」**。**唯一反例 = Δ=2（80 ms）**：那里配对符号检验 **p=0.0414（15 序变好 / 5 序变差）** 达到显著 —— 即「**方向确实一致地更好**」，只是池化 F1 幅度（+0.0266 pp）小于单序列波动。⇒ 结论对**交付工况 Δ=3** 是「不改」；若将来工况改到 **Δ=2**，该候选值得重新评估（**这不影响今天的交付裁定**）。
+
+### 37.39 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.39 ⭐⭐ 2026-11-05 夜 16（补做六）：**候选 `c1_om64_pk015_ro8` 的跨 Δ 复核（24 序全 Δ = 2/3/4/8）—— 门禁全绿、幅度仍全在噪声内 ⇒ 交付 CFG 仍不改** ＋ **加性检验在 Δ≠3 不可算**（单旋钮只覆盖 Δ=3） | lookahead_extrapolator_20261102.md | 8276 |
+### 37.40 ⭐⭐ 2026-11-05 夜 16（补做七）：**host 拉回仿真 #4（含本轮全部新增）—— 四件套全绿 ＋ 新跨 Δ 驱动/报告生成器路径无关可复现**
+
+**性质**：**只验证、不改任何产物**；执行机 `test-Super-Server`，时间 **2026-11-05 08:20 CST**。
+**背景**：§37.37–§37.39 之后，活树新增了 `runs/lookahead/fi_nogmc24/knobscan_p3c_d{2,4,8}/`（跨 Δ 组合产物）、新脚本 `run_knob_combo_delta_sweep.sh`、改过的 `make_knob_combo_24seq_report.py`，以及本专题档/主档的新章节 ⇒ 「host 明早 09:00 拉回的到底是哪一份」需要**再验一次**。
+
+```bash
+cd /tmp/pycharm_project_10ae9e2e
+rsync -aR --checksum ./manu ./runs/lookahead /tmp/hostpull4/     # ⇒ rc=0 / 9.6 G / 15982 文件 / 50s
+cd /tmp/hostpull4/runs/lookahead/final/nogmc_fi_20261104 && md5sum -c MD5SUMS.txt
+cd /tmp/hostpull4 && python3 manu/memory/validate_nav_table.py
+cd /tmp/hostpull4 && PYTHONPATH=/tmp/hostpull4 /home/huangzhe/anaconda3/envs/uav/bin/python \
+    -m unittest discover -s /tmp/hostpull4/manu/tracking/tests -t /tmp/hostpull4
+cd /tmp/hostpull4 && REPO=/tmp/hostpull4 PY=/home/huangzhe/anaconda3/envs/uav/bin/python \
+    bash manu/tracking/lookahead/server_overnight/coldstart_verify_delivery.sh \
+    /tmp/hostpull4/runs/lookahead/final/nogmc_fi_20261104 /tmp/coldstart_pulled4
+```
+
+| # | 检查 | 结果 |
+|:--|:--|:--|
+| ① | 包清单 `MD5SUMS.txt`（**包自 §37.35 起未再改动**） | **650 OK / 0 FAILED** |
+| ② | 导航表（拉回树上） | **171/171 PASS** |
+| ③ | 单测（拉回树上） | **Ran 167 tests / OK (skipped=10)** |
+| ④ | 冷启动（拉回树上） | **rc=0**；`coldstart_diff.json` ⇒ `identical 35 / diff 0 / missing 0`；`repo_before.md5` vs `repo_after.md5` **diff 为空** ⇒ **0 污染**；**包内 6 份审计全 rc=0 / FAIL 0** |
+| ⑤ | **新增脚本路径无关性**（本轮新增） | 在拉回树上重跑 `make_knob_combo_24seq_report.py`（Δ=2）⇒ 报告 md **归一化时间戳后逐字节相同**（4655 vs 4655 字符）、report.json **除 `generated` 外逐位相同** ⇒ **host 侧可原样复跑** |
+
+**本轮新增/改动的文件指纹（便于 host 侧核对）**：
+
+- `manu/tracking/lookahead/server_overnight/run_knob_combo_delta_sweep.sh`（新）md5 **`9a25454d651b05483c63efdf82487494`**
+- `manu/tracking/lookahead/make_knob_combo_24seq_report.py`（改：Δ 硬编码 → `--target-delta`）md5 **`d67c506a00eaa6e88a6419a4240c1986`**
+
+⇒ **host 明早 09:00 拉回后**：包完整（650 OK）、导航表可解析（171/171）、单测可跑（167 OK）、**冷启动能从拉回树重建全部 35 个产物且逐字节一致**、包内六份审计全过、**本轮新增的跨 Δ 驱动与组合报告可由新脚本在 host 侧原样复现**。
+
+### 37.40 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.40 ⭐⭐ 2026-11-05 夜 16（补做七）：**host 拉回仿真 #4（含本轮全部新增）四件套全绿**（包 650 OK / 导航 171-171 / 单测 167 OK / 冷启动 35-35 0 污染 rc=0）＋ **新跨 Δ 驱动与报告生成器路径无关可复现** | lookahead_extrapolator_20261102.md | 8337 |
+### 37.41 ⭐⭐ 2026-11-05 夜 16（补做八）：**Δ=2 显著性的复现检验** —— 同一旋钮族的另两个独立组合在 Δ=2 上重跑 ⇒ **「Δ=2 显著」不是单组合偶然**
+
+**性质**：**只做 A/B、不改任何交付产物**；执行机 `test-Super-Server`，时间 **2026-11-05 08:28 CST**。
+**起因（问题）**：§37.39 的跨 Δ 复核里，Δ=2（80 ms）是**唯一**配对符号检验显著的 Δ（`c1`：p=0.0414，15 序变好 / 5 序变差），其余三档都不显著。**问题**：这个显著性是「旋钮族的性质」（⇒ 若工况改到 80 ms 就该用这族 CFG），还是「c1 这一个组合碰巧显著」（⇒ 多重比较下的偶然）？
+**做法**：**同基线、同 Δ=2、同门禁**，把 §37.37 在 Δ=3 上排名第二/第三的两个组合（`c8`=uniq-gate 0.7 路线、`c2`=roimax 8 + uniq-gate 0.7 路线）在 **Δ=2** 上重跑 ⇒ **跨组合复现**。
+
+```bash
+cd /tmp/pycharm_project_10ae9e2e
+env DELTAS="2" JOBS=2 THREADS=4 COMBO_SPECS="\
+  c8_om64_pk015_uq7|--output-max-step-px=64,--replay-xcorr-min-peak=0.15,--replay-xcorr-uniq-gate=0.7 \
+  c2_om64_pk015_ro8_uq7|--output-max-step-px=64,--replay-xcorr-min-peak=0.15,--replay-roi-selfpred-max-px=8,--replay-xcorr-uniq-gate=0.7" \
+  bash manu/tracking/lookahead/server_overnight/run_knob_combo_delta_sweep.sh
+python manu/tracking/lookahead/make_knob_combo_24seq_report.py --root runs/lookahead/fi_nogmc24/knobscan_p3c_d2 \
+    --target-delta 2 --ref-arms runs/lookahead/fovgate24nogmc_d2/runs/cs_t0043/d2/fov__m6/arms.json \
+    --single-report runs/lookahead/fi_nogmc24/knobscan_p3c_d2/nonexistent_single.json \
+    --out-md runs/lookahead/fi_nogmc24/knobscan_p3c_d2/report.md --out-json runs/lookahead/fi_nogmc24/knobscan_p3c_d2/report.json
+```
+
+**脚本扩展**：`run_knob_combo_delta_sweep.sh` 增加 `COMBO_SPECS`（一次跑多个组合，`"tag|knobs"` 空格分隔）与 `JOBS`（并行度，原硬编码 1）⇒ md5 `61369312fde013b42bcf99b80fcb579d`。
+
+#### 37.41.1 Δ=2 上的跨组合复现（基线 = 交付档 CFG + 出框门 m=6，Δ=2）
+
+| 组合 | 旋钮串 | F1% | ΔF1(pp) | ΔR(pp) | ΔFAR | Δhit5(pp) | ΔCLE p95(px) | 支配基线 | 配对 p | 变好/变差序 | Δ=3 同组合的配对 p |
+|:--|:--|--:|--:|--:|--:|--:|:--|--:|:--|--:|
+| `c1_om64_pk015_ro8` | output-max-step-px=64 / xcorr-min-peak=0.15 / roi-selfpred-max-px=8 | 95.1033 | +0.0266 | +0.0075 | -0.000375 | +0.1096 | -0.1512 | **是** | 0.0414 | 15/5 | 0.1671 |
+| `c8_om64_pk015_uq7` | output-max-step-px=64 / xcorr-min-peak=0.15 / xcorr-uniq-gate=0.7 | 95.0908 | +0.0141 | -0.0090 | -0.000315 | +0.0931 | -0.1382 | 否 | 0.0414 | 15/5 | 0.0963 |
+| `c2_om64_pk015_ro8_uq7` | output-max-step-px=64 / xcorr-min-peak=0.15 / roi-selfpred-max-px=8 / xcorr-uniq-gate=0.7 | 95.1021 | +0.0254 | +0.0053 | -0.000375 | +0.1118 | -0.1517 | **是** | 0.0414 | 15/5 | 0.1671 |
+
+（基线 replay：F1 95.0767 / FAR 0.022921 / hit@5px 87.6599 / CLE p95 6.5050；LOSO 摆幅中位 0.1283 pp / 最大 1.9680 pp；门禁 68/68 PASS）
+
+#### 37.41.2 结论
+
+1. **复现结果**：Δ=2 上配对 p<0.05 的组合 = **3/3**（`c1_om64_pk015_ro8`、`c8_om64_pk015_uq7`、`c2_om64_pk015_ro8_uq7`）；帕累托支配基线的组合 = **2/3**（`c1_om64_pk015_ro8`、`c2_om64_pk015_ro8_uq7`）。
+2. **显著 ≠ 四门全占优**：`c8` 的 ΔRecall **−0.0090 pp** ⇒ **不构成帕累托占优**（前沿滑动），但配对检验**同样显著**（p=0.0414，15/5）⇒ **「统计显著」与「帕累托占优」是两件事**，必须两把尺子一起看。
+3. **同一批组合在 Δ=3 上配对 p<0.05 的个数 = 0/3** ⇒ **显著性是 Δ=2 特有的，不是「组合本身就好」**（同一组合换到 Δ=3 就不显著）⇒ **Δ 依赖是真的，不是选组合选出来的**。
+4. **裁定不变**：**交付档 CFG 不改**。理由：交付工况是 **Δ=3（120 ms）**，在该工况下这三个组合的配对检验**全部不显著**、ΔF1 幅度全部小于 LOSO 摆幅中位 ⇒ 改 CFG 没有证据支撑。**若将来工况改到 Δ=2（80 ms）**，则应重新评估这族 CFG（届时可给出「Δ=2 专用工作点」的建议）。
+
+### 37.41 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.41 ⭐⭐ 2026-11-05 夜 16（补做八）：**Δ=2 显著性的跨组合复现检验**（同一族的另两个组合在 Δ=2 上重跑）⇒ 显著性是 **Δ 特有**、不是组合偶然 ⇒ **交付 CFG 仍不改** | lookahead_extrapolator_20261102.md | 8373 |
+### 37.42 ⭐⭐ 2026-11-05 夜 16（补做九）：**host 拉回仿真 #5（含 §37.41 的新增）—— 四件套全绿 ＋ 交付主体自 §37.36 起每轮复验均逐位未动**
+
+**性质**：**只验证、不改任何产物**；执行机 `test-Super-Server`，时间 **2026-11-05 08:31 CST**。
+
+```bash
+cd /tmp/pycharm_project_10ae9e2e
+rsync -aR --checksum ./manu ./runs/lookahead /tmp/hostpull5/     # ⇒ rc=0 / 9.7 G / 16044 文件
+cd /tmp/hostpull5/runs/lookahead/final/nogmc_fi_20261104 && md5sum -c MD5SUMS.txt
+cd /tmp/hostpull5 && python3 manu/memory/validate_nav_table.py
+cd /tmp/hostpull5 && PYTHONPATH=/tmp/hostpull5 /home/huangzhe/anaconda3/envs/uav/bin/python \
+    -m unittest discover -s /tmp/hostpull5/manu/tracking/tests -t /tmp/hostpull5
+cd /tmp/hostpull5 && REPO=/tmp/hostpull5 PY=/home/huangzhe/anaconda3/envs/uav/bin/python \
+    bash manu/tracking/lookahead/server_overnight/coldstart_verify_delivery.sh \
+    /tmp/hostpull5/runs/lookahead/final/nogmc_fi_20261104 /tmp/coldstart_pulled5
+```
+
+| # | 检查 | 结果 |
+|:--|:--|:--|
+| ① | 包清单 `MD5SUMS.txt`（**包自 §37.35 起未再改动**） | **650 OK / 0 FAILED** |
+| ② | 导航表（拉回树上） | **175/175 PASS** |
+| ③ | 单测（拉回树上） | **Ran 167 tests / OK (skipped=10)** |
+| ④ | 冷启动（拉回树上） | **rc=0**；`coldstart_diff.json` ⇒ `identical 35 / diff 0 / missing 0`；`repo_before.md5` vs `repo_after.md5` **diff 为空** ⇒ **0 污染**；**包内审计输出全 `FAIL 0`** |
+| ⑤ | 交付主体指纹 | `FINAL_REPORT.md` md5 **`785b9f15cc317723ceab73726ddeb663`**（1195 行）⇒ **自 §37.36 起每轮复验均逐位未动** |
+
+⇒ **host 明早 09:00 拉回后**：包完整 / 导航可解析 / 单测可跑 / **冷启动 35 产物逐字节重建一致** / 包内审计全过。
+
+**本轮新增/改动文件指纹**：`run_knob_combo_delta_sweep.sh`（加 `COMBO_SPECS` + `JOBS`）md5 **`61369312fde013b42bcf99b80fcb579d`**。
+
+### 37.42 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.42 ⭐⭐ 2026-11-05 夜 16（补做九）：**host 拉回仿真 #5（含 §37.41 新增）四件套全绿**（包 650 OK / 导航 175-175 / 单测 167 OK / 冷启动 35-35 0 污染 rc=0）＋ **交付主体自 §37.36 起每轮复验均逐位未动** | lookahead_extrapolator_20261102.md | 8414 |
+### 37.43 ⭐⭐ 2026-11-05 夜 16（补做十）：**24 序官方口径 · 交付档（m=6）Δ 敏感性补表** —— 「小延时 ⇒ 精度提升」在**交付档**上成立，且 **`stale` 在四个 Δ 全部破 FAR 红线**
+
+**性质**：**只补表、不改任何交付产物**（§37.37 的既定裁定：新报告不被权威报告消费 ⇒ 不入包、不改 `FINAL_REPORT.md`）；执行机 `test-Super-Server`，时间 **2026-11-05 08:33 CST**。
+
+**为什么需要这张表**：权威报告 `FINAL_REPORT.md` §2.9 的「Δ 敏感性」是 **m=0 裸配置**口径（要横向可比就不能混门），**交付推荐档是 m=6** ⇒ 交付档自己的 Δ 曲线在包里散落在 §9.4/§9.5/§9.6 的 m-scan 行里，**没有单独一张表**；本节补上（**四个 Δ 的 m=6 基线产物本来就都在** ⇒ 零重算）。　⚠️ **口径澄清**：权威报告 §2.1–§2.8 四臂表里的 **`replay` 行同样是 m=0 口径**（出框门只作用于 `replay` 臂，其余三臂不受影响 ⇒ 与本表逐位相同）⇒ **本表的 `replay` 行才是交付推荐档（m=6）**。
+
+```bash
+cd /tmp/pycharm_project_10ae9e2e
+python manu/tracking/lookahead/make_delta_sens_m6_24seq.py \
+    --out-md runs/lookahead/fi_nogmc24/delta_sens_m6_24seq.md \
+    --out-json runs/lookahead/fi_nogmc24/delta_sens_m6_24seq.json
+```
+
+**新增脚本**：`manu/tracking/lookahead/make_delta_sens_m6_24seq.py` md5 `7085a3fb20fcd32deec4457b30d3ce10`（只读四个 m=6 基线产物，取数/统计工具函数**复用** `make_knob_scan_24seq_report`，不重写）。
+
+#### 37.43.1 Δ 敏感性（`replay` 臂 = 交付推荐档，24 序 / 133,257 GT）
+
+| Δ | 时延 | F1% | Recall% | FAR/帧 | hit@5px% | CLE p95(池) | FAR 红线 ≤0.030 | 三门 |
+|--:|:--|--:|--:|--:|--:|--:|:--|:--|
+| 2 | 80 ms | 95.0767 | 93.1906 | 0.022921 | 87.6599 | 6.5050 | **PASS** | **PASS** |
+| 3 | 120 ms | 94.8094 | 92.8507 | 0.024337 | 86.9718 | 7.0663 | **PASS** | **PASS** |
+| 4 | 160 ms | 94.5955 | 92.5610 | 0.025305 | 86.3699 | 7.6840 | **PASS** | **PASS** |
+| 8 | 320 ms | 93.7438 | 91.4631 | 0.029608 | 84.1142 | 10.2269 | **PASS** | **PASS** |
+
+#### 37.43.2 滞后代价与追回（**交付基线 = `stale`**）+ 老逻辑的红线状态
+
+| Δ | oracle F1% | stale F1% | replay F1% | 滞后代价(pp) | replay 追回(pp) | 追回占比 | oracle FAR | replay FAR | **stale FAR** | stale 破 0.030 红线？ |
+|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|:--|
+| 2 | 95.4462 | 92.8948 | 95.0767 | −2.5514 | +2.1819 | 85.5% | 0.021056 | 0.022921 | 0.041187 | **是（不可交付）** |
+| 3 | 95.4462 | 90.6049 | 94.8094 | −4.8412 | +4.2044 | 86.8% | 0.021056 | 0.024337 | 0.059277 | **是（不可交付）** |
+| 4 | 95.4462 | 88.0342 | 94.5955 | −7.4120 | +6.5613 | 88.5% | 0.021056 | 0.025305 | 0.079589 | **是（不可交付）** |
+| 8 | 95.4462 | 77.9538 | 93.7438 | −17.4924 | +15.7900 | 90.3% | 0.021056 | 0.029608 | 0.159227 | **是（不可交付）** |
+
+#### 37.43.3 结论
+
+1. **「小延时 ⇒ 精度提升」在 24 序官方口径 + 交付档（m=6）上成立且单调**：replay F1 随 Δ 减小单调上升（Δ=8 93.7438 → Δ=4 94.5955 → Δ=3 94.8094 → Δ=2 95.0767）；FAR 随 Δ 减小**单调下降**（0.029608 → 0.025305 → 0.024337 → 0.022921）⇒ **延时越小、误报越少**，这条单调性本身是交付论据（不是只在某个 Δ 上偶然成立）。
+2. **★★ 老逻辑（`stale`）在 24 序官方口径上、四个 Δ 全部破 FAR 红线**：0.041187 / 0.059277 / 0.079589 / 0.159227（红线 0.030）⇒ **120 ms 工况下「硬吃滞后」不可交付**，必须上视觉重推外挂。注意这比 8 序 gate 集的同一口径（Δ=3 stale FAR 0.038763）**更严重** ⇒ **8 序 gate 集上的 FAR 结论不可用于交付放行**。
+3. **`replay` 的追回能力随 Δ 增大而增强**：追回占比 85.5% / 86.8% / 88.5% / 90.3%（Δ=2/3/4/8）⇒ Δ 越大、外挂的价值越高；但 Δ=8 时 replay FAR 0.029608 已**贴着 0.030 红线**（余量仅 0.000392）⇒ **交付工况取 Δ=3（余量 0.0056632）是正确的**，Δ=8 不宜交付。
+4. **交付档三门在四个 Δ 上全部 PASS**（F1 ≥ 0.88 / Recall ≥ 0.85 / FAR ≤ 0.030）⇒ 交付档在 80~320 ms 全工况可用。
+
+### 37.43 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.43 ⭐⭐ 2026-11-05 夜 16（补做十）：**24 序官方口径 · 交付档（m=6）Δ 敏感性补表** —— 「小延时 ⇒ 精度提升」在交付档上成立（单调）＋ **`stale` 四个 Δ 全部破 FAR 红线**（0.0412/0.0593/0.0796/0.1592） | lookahead_extrapolator_20261102.md | 8446 |
+### 37.44 ⭐ 2026-11-05 夜 16（补做十一）：**最终树的 last-mile 复验（仿真 #6，轻量）—— 两个新增脚本在拉回树上逐字节可复现**
+
+**性质**：**只验证**；执行机 `test-Super-Server`，时间 **2026-11-05 08:35 CST**（§37.42 的仿真 #5 之后，活树又多了 §37.43 的补表与新脚本 ⇒ 复验一次最终树）。
+
+```bash
+cd /tmp/pycharm_project_10ae9e2e
+rsync -aR --checksum ./manu ./runs/lookahead /tmp/hostpull6/     # ⇒ rc=0 / 16011 文件
+cd /tmp/hostpull6 && (cd runs/lookahead/final/nogmc_fi_20261104 && md5sum -c MD5SUMS.txt)
+cd /tmp/hostpull6 && python3 manu/memory/validate_nav_table.py
+cd /tmp/hostpull6 && PYTHONPATH=/tmp/hostpull6 /home/huangzhe/anaconda3/envs/uav/bin/python \
+    -m unittest discover -s /tmp/hostpull6/manu/tracking/tests -t /tmp/hostpull6
+# 两个新增脚本在**拉回树**上重跑 ⇒ 与活仓产物逐字节比对
+```
+
+| # | 检查 | 结果 |
+|:--|:--|:--|
+| ① | 包清单（拉回树） | **650 OK / 0 FAILED** |
+| ② | 归档完整性 + 导航表（拉回树） | **PASS**（拼接 md5 与基准一致）/ **179/179 PASS** |
+| ③ | 单测（拉回树） | **Ran 167 tests / OK (skipped=10)** |
+| ④ | `make_delta_sens_m6_24seq.py`（拉回树重跑） | 报告 md **归一化时间戳后逐字节相同**、json **除 `generated` 外逐位相同** ⇒ md5 `7085a3fb20fcd32deec4457b30d3ce10` |
+| ⑤ | `make_knob_combo_24seq_report.py --target-delta 2`（拉回树重跑） | md **归一化时间戳后逐字节相同**、json **除 `generated` 外逐位相同** ⇒ 驱动 md5 `61369312fde013b42bcf99b80fcb579d` |
+
+⇒ **host 明早拉回后**：包/导航/单测/两个新脚本全部可原样复跑；**交付主体 md5 `785b9f15cc317723ceab73726ddeb663` 未变**。
+
+### 37.44 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.44 ⭐ 2026-11-05 夜 16（补做十一）：**最终树 last-mile 复验（仿真 #6）—— 包 650 OK / 导航 179-179 / 单测 167 OK / 两个新增脚本在拉回树上逐字节可复现** | lookahead_extrapolator_20261102.md | 8490 |
+### 37.45 ⭐⭐⭐ 2026-11-05 夜 16（补做十二）：**交付档（m=6）下的换模型包净效果** —— **24 序官方口径上 no-GMC 是净收益（F1 +0.5672 pp）**，且与 8 序 gate 集的结论**方向相反**
+
+**性质**：**只做对照、不改任何交付产物**；执行机 `test-Super-Server`，时间 **2026-11-05 08:38 CST**。
+
+**背景**：用户原话是「把原来的模型换成 cs_t0043」。8 序 gate 集（§1.2 结论 C）给的是「no-GMC 的 F1 **低** 0.1491 pp、但 FAR 更好」；权威报告 §2.10（**24 序官方口径 · m=0**）给的是「no-GMC **高** 0.5537 pp」。**本节补上「交付档（m=6）下的同一对照」**（rc2 的 24 序 m=6 产物只有 Δ=3 与 Δ=8 ⇒ Δ=2/Δ=4 的 rc2 行如实标「—」，**不用 m=0 顶替**）。
+
+```bash
+cd /tmp/pycharm_project_10ae9e2e
+python manu/tracking/lookahead/make_modelpkg_swap_m6_24seq.py \
+    --out-md runs/lookahead/fi_nogmc24/modelpkg_swap_m6_24seq.md \
+    --out-json runs/lookahead/fi_nogmc24/modelpkg_swap_m6_24seq.json
+```
+
+**新增脚本**：`manu/tracking/lookahead/make_modelpkg_swap_m6_24seq.py` md5 `64af2afea8d05292eb76a8fe5858e876`（只读 6 份 m=6 产物 + 2 份 m=0 产物，工具函数**复用** `make_knob_scan_24seq_report`）。
+
+#### 37.45.1 交付工况 Δ=3（120 ms）· 24 序官方口径 · `replay` 臂（= 交付推荐档）
+
+| 模型包 | F1% | Recall% | FAR/帧 | hit@5px% | CLE p95(池) | 三门 |
+|:--|--:|--:|--:|--:|--:|:--|
+| RC2 trial_0080ep3（GMC 语义） | 94.2422 | 91.7460 | 0.023847 | 84.1292 | 8.7301 | **PASS** |
+| cs_t0043（no-GMC 语义） | 94.8094 | 92.8507 | 0.024337 | 86.9718 | 7.0663 | **PASS** |
+| **差（no-GMC − GMC）** | **+0.5672 pp** | **+1.1046 pp** | **+0.000490（GMC 更好）** | **+2.8426 pp** | **−1.6638 px** | 两包都 PASS |
+
+#### 37.45.2 口径稳健性（同一对照在 m=0 与 m=6 下同号）
+
+| Δ | 口径 | F1 差(no-GMC − GMC) | FAR 差 | hit@5px 差 | CLE p95 差 |
+|--:|:--|--:|--:|--:|--:|
+| 3 | m=0 裸配置 | **+0.5537 pp** | +0.001162 | +2.8892 pp | -1.6604 px |
+| 3 | **m=6 交付档** | **+0.5672 pp** | +0.000490 | +2.8426 pp | -1.6638 px |
+| 8 | **m=6 交付档** | **+0.5221 pp** | +0.000884 | +2.5650 pp | -2.6614 px |
+
+#### 37.45.3 结论
+
+1. **★ 用户那句「把模型换成 cs_t0043」在官方口径 + 交付档下是净收益**：Δ=3 时 F1 **+0.5672 pp**、Recall **+1.1046 pp**、hit@5px **+2.8426 pp**、CLE p95 **−1.6638 px**；**唯一劣势项是 FAR**（+0.000490，GMC 更好），但 cs_t0043 的 FAR 0.024337 仍**余量 0.0056632**、三门 PASS ⇒ **可交付**。
+2. **口径稳健**：同一对照在 m=0（+0.5537 pp）与 m=6（+0.5672 pp）下**同号同量级** ⇒ 「换 no-GMC 是净收益」**不是出框门或工作点造成的假象**；Δ=8（+0.5221 pp）方向一致。
+3. **★★ 8 序 gate 集的跨模型结论与官方口径相反**（8 序：no-GMC F1 **−0.1491 pp**；24 序官方：**+0.55~0.57 pp**）⇒ 这是「8 序 gate 集只覆盖官方口径 20.39% GT / 17.55% 帧、**不能给交付档排序**」的**直接反例**（不是泛泛提醒，而是**方向相反**）⇒ **任何交付档的模型包取舍都必须回到 24 序官方口径**。
+4. **交付结论**：交付档用 `cs_t0043`（no-GMC）+ Δ=3 + `replay` + 出框门 m=6，**F1 94.8094 / R 92.8507 / P 96.8525 / FAR 0.024337 / hit@5px 86.9718 / CLE 池化 p95 7.0663，三门 PASS**。
+
+### 37.45 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.45 ⭐⭐⭐ 2026-11-05 夜 16（补做十二）：**交付档（m=6）换模型包净效果** —— 24 序官方口径 **no-GMC 净收益 F1 +0.5672 pp**（FAR 略差 +0.000490）、m=0/m=6 同号稳健 ＋ **8 序 gate 集结论方向相反（−0.1491 pp）⇒ 交付档取舍必须回 24 序** | lookahead_extrapolator_20261102.md | 8518 |
+
+### 37.46 ⭐ 2026-11-05 夜 16（补做十三）：**收口复验 —— 第三个新脚本路径无关可复现 ＋ 四件套终检全绿（host 09:00 拉回前）**
+
+**性质**：**只验证、不改任何交付产物**；执行机 `test-Super-Server`，时间 **2026-11-05 08:38–08:41 CST**（§37.45 之后、host 09:00 rsync 拉回之前）。
+
+```bash
+cd /tmp/pycharm_project_10ae9e2e
+# ① 单测（§37.45/§69 写入之后补跑）
+PYTHONPATH=. /home/huangzhe/anaconda3/envs/uav/bin/python -m unittest discover -s manu/tracking/tests -t .
+# ② 交付包 + 权威报告终检
+cd runs/lookahead/final/nogmc_fi_20261104 && md5sum -c MD5SUMS.txt && md5sum FINAL_REPORT.md && wc -l FINAL_REPORT.md
+# ③ 导航表
+python3 manu/memory/validate_nav_table.py
+# ④ 新脚本路径无关（构造等价「拉回树」：相对布局相同、绝对路径不同）
+mkdir -p /tmp/hostpull7/manu/tracking/lookahead
+rsync -a --checksum manu/tracking/lookahead/ /tmp/hostpull7/manu/tracking/lookahead/
+#   再把 6 个输入 arms.json 拷到同一相对路径下
+cd /tmp/hostpull7 && /home/huangzhe/anaconda3/envs/uav/bin/python \
+    manu/tracking/lookahead/make_modelpkg_swap_m6_24seq.py \
+    --out-md runs/lookahead/fi_nogmc24/modelpkg_swap_m6_24seq.md \
+    --out-json runs/lookahead/fi_nogmc24/modelpkg_swap_m6_24seq.json
+```
+
+| # | 检查 | 结果 |
+|:--|:--|:--|
+| ① | 单测（活树，§37.45/§69 写入之后） | **Ran 167 tests / OK (skipped=10)** |
+| ② | 交付包清单 + 权威报告（活树） | **650 OK / 0 FAILED**；`FINAL_REPORT.md` md5 **`785b9f15cc317723ceab73726ddeb663`**、**1195 行**（自 §37.36 起每轮复验**逐位未动**） |
+| ③ | 导航表（活树） | **183/183 PASS** |
+| ④ | `make_modelpkg_swap_m6_24seq.py`（拉回树重跑） | 报告 md **归一化时间戳后逐字节相同**（5198 vs 5198 字符）、report.json **除 `generated` 外逐位相同** ⇒ 脚本 md5 `64af2afea8d05292eb76a8fe5858e876` |
+
+**本轮全部新增脚本 md5（host 拉回后逐位核对）**：
+`make_delta_sens_m6_24seq.py` `7085a3fb20fcd32deec4457b30d3ce10` ·
+`make_modelpkg_swap_m6_24seq.py` `64af2afea8d05292eb76a8fe5858e876` ·
+`make_knob_combo_24seq_report.py` `d67c506a00eaa6e88a6419a4240c1986` ·
+`server_overnight/run_knob_combo_delta_sweep.sh` `61369312fde013b42bcf99b80fcb579d`
+
+⇒ **结论**：§37.38 / §37.40 / §37.44 已验的两个脚本 ＋ 本节新验的第三个 ⇒ **本轮新增脚本在 host 机器上全部可直接复跑**；交付包 / 权威报告 / 导航表 / 单测**四件套全绿且逐位未动**。
+
+### 37.46 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.46 ⭐ 2026-11-05 夜 16（补做十三）：**收口复验 —— 第三个新脚本路径无关可复现 ＋ 四件套终检全绿**（单测 167 OK / 包 650 OK / 导航 183-183 / 权威报告 md5 逐位未动） | lookahead_extrapolator_20261102.md | 8561 |
+
+### 37.47 ⭐⭐ 2026-11-05 09:05 CST（夜 16 补做十四）：**host 拉回收尾 ＋ 三处遗留修正** —— 服务器会话完整回到 host（服务器副本领先 62 turn）＋ 20/20 md5 全同 ＋ 导航 185/185 ＋ 单测 167 OK
+
+**执行机** host（`/media/manu/1TB-Volume/workspace`，Codex CLI 0.166.0）；**时间** 2026-11-05 08:54–09:06 CST；**性质**：只做**状态迁移 + 注释/默认值修正**，**交付产物一个字节没动**。
+
+#### 37.47.1 会话回迁（adopt → import → resume；第三步被写锁挡下但结果已等效）
+
+| 步骤 | 实测结果 |
+|:--|:--|
+| ① adopt | 服务器 rollout `105,741,776 B / 75 turn_context` vs host `9,614,548 B / 13` ⇒ **服务器领先 62 turn**；`handoff_helper.py adopt` 把 `session_meta.cwd` 与 `runtime_workspace_roots` 由 `/tmp/pycharm_project_10ae9e2e` 改写为 `/media/manu/1TB-Volume/workspace` |
+| ② import | 落盘 `/home/manu/.codex/sessions/2026/11/04/rollout-2026-11-04T16-38-36-01a1a5b5-*.jsonl`，**sha256 `8b031a2e686c38e441111daafb3cd753d651311b35c4d81d7897b74d62fcfc43`**、安装时 `105,826,568 B`；旧副本自动备份 `.bak.20261105-085820` / `.bak.20261105-085823` |
+| ③ resume | RPC 报 `thread 01a1a5b5-… already has an active writer` —— **本 host 会话自己就是该线程的活写者**（§37.46 之后一直在写）⇒ skill 规定的 120 s「活跃写入保护」**正确拦下**；脚本自动改用 `--force` 重试，adopt / import 全部完成 |
+
+**「resume 被挡」为何无害（逐位对账）**：历史索引**本来就已经物化且与 rollout 同步** ⇒
+`thread_turns` 84 行、`thread_items` 8,265 行、**`max(rollout_end_ordinal) = 28654` = rollout 的 `max ordinal` 28654**；
+索引内可检出服务器端最后的落档标记（`§37.46` / `§70` / `§69` / `185/185` / `make_modelpkg_swap_m6_24seq` 均有命中）。
+app-server 侧 `thread/turns/list` 实测能分页读出服务器端最后一条收口消息（`hasMore=true` 且带游标）⇒ **不需要再补一次 resume**。
+
+**state 库验收（`/home/manu/.codex/state_5.sqlite`）**：`cwd = /media/manu/1TB-Volume/workspace` ✅ ｜ `history_mode = paginated` ✅ ｜ `archived = 0` ✅ ｜ `title / first_user_message / preview` 已回填 ✅ ｜ `rollout_path` 已重指 ✅
+⇒ **host 的 thread 选择器可见该线程**（`list_threads` 实测：标题 =「读取yolo工程下的memroy…」，cwd 正确）。
+
+**同批回迁的另一个线程** `01a1a469-…`（qlib 会话）：`cwd` 已改写为 host 工作区、`history_mode=paginated`、`archived=0`、`thread_turns` 110 行 / `thread_items` 10,381 行、**`max(rollout_end_ordinal) = 35770` = 其 rollout `max ordinal` 35770** ⇒ 同样完好。
+
+#### 37.47.2 关键文件 md5 交叉核对（server vs host）**20/20 全 MATCH** ✅
+
+`manu/memory/{memory.md, lookahead_extrapolator_20261102.md, lookahead_nogmc24_overnight_20261104.md, lookahead_nogmc24_results_20261104.md}` ｜
+`manu/tracking/lookahead/{extrapolator.py, lookahead_longquan.py, xcorr.py, make_report_table.py, make_fastinfer_nogmc_report.py, make_fastinfer_final_report.py}` ｜
+`manu/tracking/tests/test_xcorr_halfpixel.py` ｜
+`manu/tracking/lookahead/server_overnight/{drive_nogmc24_pipeline.sh, rebuild_fpv8_24seq_nogmc24_server.sh, run_fastinfer_24seq_nogmc24_sweep.sh, run_fastinfer_24seq_sweep.sh, check_nogmc24_byte_equal.py, check_sweep_cfg_identical.py, summarize_nogmc24_results.py, finalize_nogmc24_report.sh}`
+⇒ **服务器夜里的全部代码 / 文档改动逐位回到 host**。
+
+**顺带拉回的结果产物**：`runs/lookahead/{final, osd, fi_nogmc, fi_nogmc24, gateA, gateA24, fpv8_24_nogmc}`（只拉 `*.json/*.md/*.csv/*.txt`，**不拉 706 MB 的 `preds/`**）＋ 日志 `nogmc24_{build,pipeline,finalize,cfg_check}.log` / `nogmc24_finalize.md5` / `nogmc24_cfg_identical.json`。
+**唯一 FAIL**：服务器上不存在 `runs/lookahead/_facts/`（该目录从未生成）⇒ rsync 报 `No such file or directory (2)`，**无害**。
+
+#### 37.47.3 四件套终检（全绿）
+
+| 项 | 结果 |
+|:--|:--|
+| 导航表 `manu/memory/validate_nav_table.py` | **185/185 PASS** |
+| 单测 `PYTHONPATH=. python -m unittest discover -s manu/tracking/tests -t .` | **167 OK**（`Ran 167 tests in 17.567s`，skipped 10） |
+| 交付包 `runs/lookahead/final/nogmc_fi_20261104/` | `FINAL_REPORT.md` md5 **`785b9f15cc317723ceab73726ddeb663`**（**逐位未动**） |
+| 服务器残留进程 | `pgrep -af 'codex exec\|server_overnight_loop'` 仅剩本次查询自身 ⇒ 无夜间任务在跑 |
+
+#### 37.47.4 三处遗留修正（**注释 / 默认值层，交付产物零改动**）
+
+| # | 文件 | 问题（实测取证） | 修正 |
+|:--|:--|:--|:--|
+| ① | `server_overnight/rebuild_fpv8_24seq_nogmc24_server.sh:9` | 注释称官方 rc2 24 序 GMC 缓存 `trial_0080/lq_eval_fpv8/ms_cache` 是「**2026-10-22 建**」；服务器实测该目录 mtime = **2026-11-03 15:09:35**、内含 pkl mtime **2026-11-03 14:40~14:45** ⇒ 注释与事实不符 | 「2026-10-22 建」→「**2026-11-03 重建**」（其余一字不动，含「产出冻结基线 F1 94.747% 的那份」） |
+| ② | `server_overnight/run_fastinfer_nogmc24_sweep.sh` | 这是 **no-GMC 语义**的 Δ 扫描脚本，但 `CACHE` 默认却指向 **rc2 / GMC** 的官方缓存 ⇒ 裸跑会「**GMC 缓存 + no-GMC 模型包**」串味，结论作废；`OUT` 默认又落进**交付判据目录** `runs/lookahead/fi_nogmc24/` | `CACHE` 默认 → **`/mnt/data/siping/runs/nogmc_t3/swa/ms_cache_24seq`**（no-GMC 24 序缓存，本轮实测 24/24 pkl，2026-11-04 18:10~18:52）；`OUT` 默认 → **`runs/lookahead/fi_nogmc24_sweep_runs/nogmc`**；并加**口径自证**注释：模型包是**建缓存**那一步经 `--hm-weights` 烤进 pkl 的 ⇒ **换缓存 = 换整套 {特征语义, 模型包} 口径**，跑 rc2 必须显式覆盖 `CACHE` |
+| ③ | `make_fastinfer_final_report.py` §2.12 | 首段把「变体改了两个旋钮」写成既定事实；实测两版产物 `lookahead` 块逐键 diff：**产物级可核验的旋钮差异只有 `replay_rollback_min_peak`（0.90 → 0.80）一项**，`--replay-abstain-peak-below 0.50` 在变体产物里**读不到**（变体产物 2026-11-04 18:02/18:08 生成，早于 18:53 给产物补记该旋钮的脚本补丁） | §2.12 首段后新增「**证据分级（产物级可核验 ≠ 仅脚本自证）**」段，显式区分两项的证据来源并指向紧随的「诚实声明」段；**数字与表格逻辑零改动**，**已交付 `FINAL_REPORT.md` 未重新生成**（md5 仍 `785b9f15…`） |
+| ③' | `server_overnight/make_p0b_handoff.py:276,284` | P0b 交接文档生成器仍写死旧 `OUT` 路径 `runs/lookahead/fi_nogmc24/nogmc/d*/arms.json` ⇒ 与 ② 改后的脚本默认值不一致 | 同步为新默认路径，并注明「如需落回旧路径，显式 `OUT=$REPO/runs/lookahead/fi_nogmc24/nogmc` 覆盖」 |
+
+**②③ 的两个边界（如实记录，不掩盖）**：
+- `summarize_nogmc24_results.py` 的白名单只认 `rc2 / cs_t0043 / trial_0049`，`pack_delivery_nogmc_fi.sh` 是**逐文件白名单**打包 ⇒ 旧 `OUT`（`fi_nogmc24/nogmc`）**本来也不会被误收进交付包**；改 `OUT` 是**卫生性**修正，**不是「原来有 bug」**。但 **②的 `CACHE` 口径串味是真的 bug**；且 `fi_nogmc24/nogmc` 在服务器上**从未生成过**（实跑走的是 `run_fastinfer_24seq_nogmc24_sweep.sh`，`OUT=$REPO/runs/lookahead/fi_nogmc24`，按模型包分 `rc2/ cs_t0043/ trial_0049/` 三个子目录）。
+- 已生成的 `runs/lookahead/fi_nogmc/_p0b/GPU_REQUIRED.md`（2026-11-04 18:01）**未重新生成** ⇒ 它仍写旧路径；它是**当时的 as-of 交接件**，重生成需跑 `probe_p0b_nogmc24_cost.sh` 重新取实测 ETA，**本轮不重生成**。
+
+#### 37.47.5 可复制的命令
+
+```bash
+# ① 服务器会话回迁（host 侧；幂等，可重跑）
+bash /media/manu/1TB-Volume/workspace/handoff/overnight/morning_pullback.sh
+#   5 步：停服务器夜间 session → rsync(manu/memory, manu/tracking/lookahead, manu/tracking/tests)
+#        → rsync(runs/lookahead/{final,osd,fi_nogmc,fi_nogmc24,gateA,gateA24,fpv8_24_nogmc})
+#        → handoff_from_server.sh --adopt（被活跃写入保护挡下时自动 --force）→ md5 交叉核对 + 导航表 + 单测
+
+# ② 拉回后必跑的两道自检
+cd /media/manu/1TB-Volume/workspace/ultralytics
+python3 manu/memory/validate_nav_table.py                                                        # 期望 PASS（本次 185/185）
+PYTHONPATH=. /home/manu/anaconda3/envs/uav/bin/python -m unittest discover -s manu/tracking/tests -t .   # 期望 OK（本次 167）
+
+# ③ 服务器侧 mtime 取证（§37.47.4① 的依据）
+ssh -F /dev/null -p 32222 huangzhe@192.168.99.40 \
+  "cd /tmp/pycharm_project_10ae9e2e && ls -ld --time-style=full-iso runs/optuna_mix_ratio/trials/trial_0080/lq_eval_fpv8/ms_cache"
+```
+
+**⚠️ 铁律提醒（本节全程遵守）**：本节**未启动任何训练 / 推理 / 评测 / 缓存重建**（铁律一）；全部改动只发生在 **host 本地工程**（铁律零「本地优先」），**服务器代码零改动**；交付产物 `FINAL_REPORT.md` 与交付包清单**逐位未动**。
+
+
+**铁律三同步（已完成，双侧 md5 逐位一致 ✅）**：本节改动的 6 个文件已由 host 经 SSH `rsync --checksum` 同步回服务器 `/tmp/pycharm_project_10ae9e2e`（host 侧 SSHFS 挂载只读、写不进去）—— `memory.md` `b2b6759a…` ｜ `lookahead_extrapolator_20261102.md` `f739202c…` ｜ `make_fastinfer_final_report.py` `cc1e2893…` ｜ `rebuild_fpv8_24seq_nogmc24_server.sh` `5c1507f1…` ｜ `run_fastinfer_nogmc24_sweep.sh` `f6144277…` ｜ `make_p0b_handoff.py` `ff186277…`。
+
+### 37.47 导航条目（本节新增）
+
+> ⚠️ **导航表行号口径（踩坑记录）**：主档 `memory.md` 组的「起始行」= **瘦版物理行号 − 410**（校验器唯一自洽 offset = **+410**）；专题档 `lookahead_extrapolator_20261102.md` 组 offset = **0**（填物理行号）。填错会让**整组 61 条同时 FAIL**，加完必须跑校验器确认 RC=0。
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.47 ⭐⭐ 2026-11-05 09:05 CST（夜 16 补做十四）：**host 拉回收尾 ＋ 三处遗留修正** —— 会话完整回迁（服务器领先 62 turn / 索引与 rollout 逐位同步）＋ 20/20 md5 全同 ＋ 导航 185/185 ＋ 单测 167 OK | lookahead_extrapolator_20261102.md | 8603 |
+| 七十一 | 主档 §71 ⭐⭐ 2026-11-05 09:05 CST（夜 16 补做十四）：**host 拉回收尾 ＋ 三处遗留修正**（会话回迁逐位对账通过 / 交付产物零改动） | memory.md | 8112 |
+
+### 37.48 ⭐⭐ 2026-11-05 09:20 CST（夜 16 补做十五）：**完成度审计 —— 8 组产物独立复算逐位吻合 ＋ 补齐「换成 cs_t0043」的可执行交付入口**
+
+**执行机** host；**时间** 2026-11-05 09:10–09:20 CST；**性质**：**只读复算 + 新增一个交付入口脚本**，**交付产物与已冻结报告一个字节没动**（`FINAL_REPORT.md` md5 仍 `785b9f15cc317723ceab73726ddeb663`）。
+
+#### 37.48.1 完成度审计：目标五项要求逐条取证（**不复述报告自述，全部从产物 JSON 重算**）
+
+| 目标要求 | 判定 | 权威证据（host 侧独立复算） |
+|:--|:--:|:--|
+| ① 把模型换成 `cs_t0043` | ✅ | 24 序官方口径 `cs_t0043` × Δ∈{2,3,4,8} **四档产物齐全**；`rc2` 同四档作对照 ⇒ 唯一变量 = {模型包, Δ} |
+| ② 假设延时 = 120 ms（≈3 帧） | ✅ | `fi_nogmc24/cs_t0043/d3/arms.json`（裸配置 m=0）＋ `fovgate24nogmc/runs/cs_t0043/d3/fov__m6/arms.json`（推荐档 m=6），`lookahead.delta = 3` |
+| ③ 小延时提升精度 | ✅ | cs_t0043 Δ=3 vs Δ=8：F1 **94.7861 → 93.7005（+1.0857pp）**、FAR **0.025523 → 0.031037（−0.005514，且破 0.030 红线）**、hit@5px **87.0363 → 84.1614（+2.8749pp）**、CLE 池化 p95 **7.099 → 10.293**；且随 Δ 单调（Δ2 95.0554 > Δ3 94.7861 > Δ4 94.5661 > Δ8 93.7005） |
+| ④ 严格精度对比报告 | ✅ | `runs/lookahead/final/nogmc_fi_20261104/FINAL_REPORT.md` **1195 行**、md5 `785b9f15…`；含 §0 口径声明 **11 条纪律**、§1 受控设计「唯一变量 = {模型包, Δ}」、§2 24 序官方口径、§4 工作点对齐审计、§5 Gate A、§7 FAR 红线、§12 交付裁定 |
+| ⑤ 沿用 fast infer 历史的「精度对齐」方法论 | ✅ | 四件套全绿（见 §37.48.2） |
+
+#### 37.48.2 精度对齐四件套（host 侧**逐项独立复验**）
+
+| 件 | 内容 | 复验结果 |
+|:--|:--|:--|
+| **A1 尺子1** | 四臂 `source_frame.overall.f1` 必须**逐位相等**（外挂不扰动跟踪资产） | **8/8 组逐位相等**：cs_t0043 Δ2/3/4/8 = `0.9544774949430062 / 0.9544853115511399 / 0.9544931294148242 / 0.9545171101206985`；rc2 Δ2/3/4/8 = `0.9474831252141838 / 0.9474904307509839 / 0.9474977374694319 / 0.9475269761654357` ✅ |
+| **A2 Gate A（24 序官方口径）** | 关开关 ⇒ 整份 JSON 逐位一致 | `runs/lookahead/gateA24/gateA.json` ⇒ **`verdict = PASS`**、`ruler1.all_bit_identical = True` ✅ |
+| **A3 对齐锚点** | rc2 Δ=8 必须与 README §5.18.1 权威数一致 | 复算 rc2 Δ=8 replay：**F1 93.1879 / FAR 0.029548 / hit@5px 81.5612 / CLE p95 12.946** ⇒ 与历史权威数逐位一致 ✅ |
+| **A4 两把尺子** | 对外一律 `current_frame.overall`（尺子2）；基线臂 = `stale`；`original` = 天花板 | 全表按尺子2 读出；`stale` Δ=3 破 FAR 红线（0.041187）、`original` 作天花板 ✅ |
+| **A5 特征集逐字节等价** | no-GMC 特征集与官方那套逐字节同 | `nogmc24_byte_equal.json` ⇒ 28,997/28,997 **md5 全同**，mismatched 0 ✅ |
+| **A7 CFG 逐 token** | rc2 与 cs_t0043 的 CFG 必须逐字相同 | `nogmc24_cfg_identical.json` ⇒ **`verdict = IDENTICAL`**、`exact_string_equal = true`、563 字符 / **22 token**、`token_diffs = []` ✅ |
+| **§0.5 唯一变量（产物级）** | GT 数 / 序列集合 / FAR 隐含分母必须全同 | GT **133,257** 跨 8 组全同；FAR 隐含分母 `fp / far_per_frame` 跨 8 组 **全部 = 165,223.0** ✅ |
+
+#### 37.48.3 ★ 补齐缺口：新增「推荐档」的可执行交付入口 `manu/tracking/lookahead/run_delivery_nogmc.sh`
+
+**发现的缺口**：§12 交付裁定已推荐「**`cs_t0043` · Δ=3 · `replay` · 出框门 m=6**」，实测 **F1 94.8094% / Recall 92.8507% / Precision 96.8525% / FAR 0.024337 帧⁻¹ / hit@5px 86.9718% / CLE 池化 p95 7.0663（三门 PASS）**（host 侧从 `fovgate24nogmc/.../fov__m6/arms.json` **独立复算，逐位吻合**）；但仓库里唯一的「交付档一键复现」入口 `manu/tracking/lookahead/run_delivery.sh` **仍指向 rc2 / GMC 语义缓存、且 CFG 里没有出框门** ⇒ **照老入口跑复现不出推荐档的数字** ⇒ 「把模型换成 cs_t0043」只做了一半（测了、裁定了，但**跑不出来**）。
+
+**处置：新增并列入口，老入口一个字不动**。理由（不是偷懒，是会连锁断裂）：`run_delivery.sh` 的 `CFG=` 块是**全仓 CFG 单一真值**，被 **12 个脚本**用 `awk '/^CFG="/ {f=1} f {print} f && /"[[:space:]]*$/ {exit}'` **逐字解析** ⇒ 动它哪怕只多一个旋钮都会引发大面积口径断裂。新脚本**仍从它取 CFG**（唯一真值不分裂），只多传一个 `--replay-fov-margin-px 6`。
+
+新脚本要素：`CACHE=/mnt/data/siping/runs/nogmc_t3/swa/ms_cache_24seq`（no-GMC 24 序，**pkl 数必须 = 24** 否则 exit 3）｜`DELTA=3` `MARGIN=6` `MODEL=cs_t0043` ｜`OUT=$REPO/runs/lookahead/delivery_nogmc_d3`（**独立目录，不写进交付判据目录**）｜7 个必需旋钮断言（缺一 ⇒ exit 3）＋「CFG 里不得混入出框门」断言｜幂等（已有产物 ⇒ SKIP 不重跑）｜`DRY_RUN=1` / `--dry-run` 只打印完整命令行不执行。
+
+**★ 自证门禁（脚本内置，主代理已独立复跑正反两路）**：跑完把新产物 replay 臂 **15 个字段**与已验收参考产物 `runs/lookahead/fovgate24nogmc/runs/cs_t0043/d3/fov__m6/arms.json` 做**逐位相等**比对（无容差），并打印双方绝对值 + 交付三门：
+
+| 场景 | 实测 | 退出码 |
+|:--|:--|:--|
+| 正例（新产物 = 参考产物） | `[GATE][PASS] replay 臂 15 字段与参考产物逐位一致`；打印 F1 **94.8094%** · FAR **0.024336805408447976** · hit@5px **86.9718%** · CLE p95 **7.066306983688353**；三门 **PASS** | **0** ✅ |
+| 反例（篡改 `f1` + `cle_pooled_p95`） | `[GATE][FAIL] 逐位不一致 2 处`：`f1: new=0.949 ref=0.9480935450254399`、`cle_pooled_p95: new=7.0 ref=7.066306983688353` | **3** ✅（响亮失败，不静默放过） |
+| 参考产物缺失 | `[GATE][WARN] 参考产物缺失 ⇒ 未做逐位门禁（跳过，不影响退出码）` | 0 |
+| 新产物缺失 | `[GATE][FAIL] 新产物缺失` | 3 |
+| `bash -n`（host + **服务器**双侧） | PASS | 0 |
+| `DRY_RUN=1` | 打印完整命令行，**未执行任何 python、未建任何目录** | 0 |
+
+**⚠️ 边界（如实记录，不掩盖）**：脚本第 ⑥ 段的**真实执行分支从未端到端跑过**（host 侧不许跑重活，铁律一）⇒ **首次上机必须先 `DRY_RUN=1` 再真跑**；逐位门禁**只覆盖 replay 臂 15 字段**（出框门只作用于 replay，另三臂是对照基线）；`REF_ARMS` 默认值随 `MODEL/DELTA/MARGIN` 派生，覆盖成不存在的组合会退化为「跳过 + exit 0」；`trial_0080` 路径守卫只是启发式告警、不 exit。
+
+**md5**：`run_delivery_nogmc.sh` = **`4ba5efb2720167c4491e6720c7b6ceb0`**（host 与服务器双侧一致，铁律三已同步；服务器侧 `bash -n` PASS）。
+**已冻结交付包零影响**：新文件**不进入** `runs/lookahead/final/nogmc_fi_20261104/`（包的 650 文件清单与 `FINAL_REPORT.md` md5 `785b9f15…` **逐位未动**）。
+
+#### 37.48.4 可复制的命令
+
+```bash
+# ① 新增交付入口：干跑（host 侧安全，不执行任何 python）
+cd /media/manu/1TB-Volume/workspace/ultralytics
+DRY_RUN=1 bash manu/tracking/lookahead/run_delivery_nogmc.sh
+
+# ② 服务器上真跑（重活；必须服务器）
+ssh -F /dev/null -p 32222 huangzhe@192.168.99.40 \
+  "cd /tmp/pycharm_project_10ae9e2e && bash -n manu/tracking/lookahead/run_delivery_nogmc.sh && \
+   DRY_RUN=1 bash manu/tracking/lookahead/run_delivery_nogmc.sh && \
+   bash manu/tracking/lookahead/run_delivery_nogmc.sh"
+
+# ③ 本节 37.48.1/§37.48.2 的独立复算（host 侧，纯读 JSON）
+cd /media/manu/1TB-Volume/workspace/ultralytics
+python3 - <<'PY'
+import json
+for pkg in ("cs_t0043","rc2"):
+    for d in (2,3,4,8):
+        doc=json.load(open(f"runs/lookahead/fi_nogmc24/{pkg}/d{d}/arms.json"))
+        a=doc["arms"]["replay"]; cf=a["current_frame"]["overall"]; sv=a["servo"]["overall"]
+        f1s={repr(v["source_frame"]["overall"]["f1"]) for v in doc["arms"].values()}
+        print(pkg,d,f"F1={cf['f1']*100:.4f}",f"FAR={cf['far_per_frame']:.6f}",
+              f"hit5={sv['hit_rate_5px']*100:.4f}",f"cle95={sv['cle_pooled_p95']:.3f}",
+              f"GT={cf['gt']}",f"尺子1逐位相等={len(f1s)==1}")
+PY
+```
+
+**⚠️ 铁律提醒**：本节**未启动任何训练 / 推理 / 评测 / 缓存重建**（铁律一）；只做了只读复算 + 新增脚本 + 文档落档；服务器代码**零改动**（新文件是同步过去的，不是改出来的）。
+
+### 37.48 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.48 ⭐⭐ 2026-11-05 09:20 CST（夜 16 补做十五）：**完成度审计 —— 8 组产物独立复算逐位吻合 ＋ 补齐「换成 cs_t0043」的可执行交付入口**（四件套全绿 / 新增 `run_delivery_nogmc.sh` 逐位门禁正反两路实测） | lookahead_extrapolator_20261102.md | 8690 |
+| 七十二 | 主档 §72 ⭐⭐ 2026-11-05 09:20 CST（夜 16 补做十五）：**完成度审计 ＋ 交付入口补齐**（换模型/Δ=3/小延时提升/精度对齐 四项全部取证通过） | memory.md | 8570 |
+
+### 37.49 ⭐⭐ 2026-11-05 09:52 CST：**Fast Infer 目标闭环 —— 脚本化独立复算 34/34 PASS ＋ 交付入口真实执行分支首次端到端跑通（逐位门禁 PASS）**
+
+**执行机** host（复算 + 落档）／服务器 `192.168.99.40:32222`（端到端跑）；**性质**：**只读复算 + 一次评测**（纯 CPU，不占 GPU、不训练）；**已冻结交付包零改动**（`FINAL_REPORT.md` md5 仍 `785b9f15cc317723ceab73726ddeb663`）。
+
+#### 37.49.1 为什么还要再做一遍（§72 之后）
+
+§72 是**人工**逐条取证（结论可信，但不可重复执行）；本节把同一批结论做成**脚本化、可重复、零人工转录**的审计：新增 `manu/tracking/lookahead/audit_goal_closure_20261105.py`
+—— **不 import / 不调用**报告生成器（`make_fastinfer_final_report.py` 等）的任何函数（那些函数本身就是被审计对象），
+所有指标**从产物 JSON 独立重算**，再用**与报告同精度**的格式化做**字符串全等**比较（容差 = 0 个显示单位）。
+
+```bash
+cd /media/manu/1TB-Volume/workspace/ultralytics
+python3 manu/tracking/lookahead/audit_goal_closure_20261105.py
+# ⇒ [AUDIT] 34/34 PASS, 0 FAIL
+# 产物：runs/lookahead/fi_nogmc24/audit_goal_closure/audit_goal_closure.{md,json}
+```
+
+#### 37.49.2 目标四项逐条独立取证（全部从产物重算，不引用报告自述）
+
+| 目标要求 | 判定 | 独立复算实测 |
+|:--|:--:|:--|
+| ① 把模型换成 `cs_t0043` | ✅ | `cs_t0043` × Δ∈{2,3,4,8} 四档产物齐全，**rc2 同四档作对照** ⇒ 唯一变量 = {模型包, Δ}；产物级唯一性：GT **133,257** 跨 8 组全同、FAR 隐含分母 **165,223.0** 跨 8 组全同、序列集合 24 全同、同 Δ 下 CFG（剔除权重/特征/缓存路径）逐字相同 |
+| ② 假设延时 **120 ms（≈3 帧）** | ✅ | 产物 `delta` 字段：stale/kinematic/replay 三臂 = **3**（original = 零延迟天花板 0）；报告 §2.2 标题「Δ=3（120 ms）」、§0 纪律 6「Δ=3 = 120 ms @25 Hz」 |
+| ③ 小延时提升精度 | ✅ | cs_t0043 **Δ=3 vs Δ=8**：F1 **94.7861 vs 93.7005（+1.0857pp）**、FAR **0.025523 vs 0.031037（−0.005514，Δ=8 破 0.030 红线）**、hit@5px **87.0363 vs 84.1614（+2.8749pp）**、CLE 池化 p95 **7.099 vs 10.293（−3.194px）**；随 Δ **单调**（Δ2 95.0554 > Δ3 > Δ4 94.5661 > Δ8 93.7005）；相对 stale 交付基线 **+4.1812pp**；同 Δ 下换模型净收益 **+0.5537pp F1 / +2.8892pp hit@5px / −1.660px CLE p95** |
+| ④ 严格精度对比报告 | ✅ | `runs/lookahead/final/nogmc_fi_20261104/FINAL_REPORT.md` **1195 行** / md5 `785b9f15cc317723ceab73726ddeb663`；**§2.1~§2.8 八张表 × 4 臂 × 8 列、§2.9 敏感性 8 行、§2.10 跨模型包 16 行、§2.11 锚点 4 项 —— 全部字符串全等** |
+| ⑤ 沿用 fast infer 历史的「精度对齐」四件套 | ✅ | 尺子1 **8/8 组逐位相等**（例 `0.9544853115511399`）｜Gate A 24 序 `verdict=PASS` + `ruler1.all_bit_identical=True`｜锚点 rc2 Δ=8 四项与 README §5 红框逐位相同｜两把尺子（对外 `current_frame.overall`；`stale` 才是基线、`original` 是天花板）｜CFG 逐 token **IDENTICAL**（563 字符 / 22 token / `token_diffs=[]`）｜特征集 **28,997/28,997 md5 全同**（mismatch 0 / missing 0） |
+
+#### 37.49.3 ★ 交付入口真实执行分支：首次端到端跑通（补上 §72.3 的最后一块）
+
+§72.3 新增了 `manu/tracking/lookahead/run_delivery_nogmc.sh`（`cs_t0043` · Δ=3 · 出框门 m=6 的一键复现入口），
+但**真实执行分支从未端到端跑过**（只验过 `DRY_RUN=1` + 门禁正反两路）⇒ 本节把它真跑了一遍。
+
+| 项 | 实测 |
+|:--|:--|
+| 执行机 | 服务器 `192.168.99.40:32222`，项目 `/tmp/pycharm_project_10ae9e2e`，conda env `uav` |
+| 命令 | `setsid nohup bash manu/tracking/lookahead/run_delivery_nogmc.sh`（日志 `/mnt/data/siping/runs/nogmc_t3/logs/delivery_nogmc_d3.log`） |
+| 墙钟 | **09:21:57 → 09:29:36（459 s ≈ 7.7 min）**，24/24 序列跑完 |
+| 资源 | **纯 CPU**（只读 ms_cache pkl + 帧 memmap，**不推理、不占 GPU**）⇒ 与其它会话零卡冲突 |
+| 产物 | `runs/lookahead/delivery_nogmc_d3/runs/cs_t0043/d3/fov__m6/arms.json`，md5 **`b1e249adfa9281fbbebe2d8809fb9440`**（host / 服务器双侧一致，已拉回 host） |
+| 内置逐位门禁 | **15 字段全部逐位一致（严格相等、无容差）** ⇒ `[GATE][PASS]`；`f1 / recall / precision / far_per_frame / tp / fp / fn / det / gt / hit_rate_5px / cle_pooled_p50 / p95 / p99 / max / samples` 全 OK |
+| 交付三门 | F1 **94.8094%**（≥88）· Recall **92.8507%**（≥85）· FAR **0.024336805408447976**（≤0.030）⇒ **PASS**，`rc=0` |
+
+**⇒ 闭环结论**：「把模型换成 `cs_t0043` + 假设延时 120 ms」**不再只是「测了、裁定了」**，而是**从交付入口一键跑出来的数字**，
+且与已验收参考产物**逐位一致** ⇒ 复现路径与结论路径同源。
+
+#### 37.49.4 边界（如实记录，不掩盖）
+
+1. 逐位门禁**只覆盖 `replay` 臂的 15 个指标字段**（出框门只作用于 `replay`；`stale`/`kinematic` 是对照基线，不在门禁内）。
+2. `REF_ARMS` 覆盖成不存在的组合 ⇒ 门禁退化为「跳过 + exit 0」（打印 WARN 标明）。
+3. 本次端到端跑**未重跑缓存**：直接复用已建好的 no-GMC 24 序 ms_cache（`/mnt/data/siping/runs/nogmc_t3/swa/ms_cache_24seq`，pkl = **24**，脚本内断言 pkl 数必须 = 24）。
+4. 8 序 gate 集只做**机理筛选与 A/B**，**不能给交付档排序**（§0 纪律 3）⇒ 本节全部排序结论都取自 **24 序官方口径**。
+5. Δ 是**假设值**：Δ=3 = 假设检测链路延时 3 个 record（120 ms @25 Hz）；管线绝对精度由模型决定，Δ 只决定外挂要补多少。
+
+#### 37.49.5 可复制的命令
+
+```bash
+# ① 目标闭环独立复算（host，纯读 JSON，秒级）
+cd /media/manu/1TB-Volume/workspace/ultralytics
+python3 manu/tracking/lookahead/audit_goal_closure_20261105.py
+
+# ② 交付入口端到端（服务器；纯 CPU；先干跑再真跑）
+ssh -F /dev/null -p 32222 huangzhe@192.168.99.40 'cd /tmp/pycharm_project_10ae9e2e && \
+  bash -n manu/tracking/lookahead/run_delivery_nogmc.sh && \
+  DRY_RUN=1 bash manu/tracking/lookahead/run_delivery_nogmc.sh && \
+  bash manu/tracking/lookahead/run_delivery_nogmc.sh'
+```
+
+### 37.49 导航条目（本节新增）
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 三十七 | 专题档 §37.49 ⭐⭐ 2026-11-05 09:52 CST：**Fast Infer 目标闭环** —— 脚本化独立复算 34/34 PASS ＋ 交付入口真实执行分支首次端到端跑通（逐位门禁 PASS） | lookahead_extrapolator_20261102.md | 8776 |
+| 七十四 | 主档 §74 ⭐⭐ 2026-11-05 09:52 CST：**Fast Infer 目标闭环** —— 独立复算 34/34 PASS ＋ 交付入口端到端跑通 | memory.md | 8313 |

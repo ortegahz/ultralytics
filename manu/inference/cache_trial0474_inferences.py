@@ -41,6 +41,7 @@ from ultralytics.data import build_dataloader, build_yolo_dataset
 from ultralytics.data.utils import check_det_dataset
 from ultralytics.utils import DEFAULT_CFG, colorstr
 from manu.evaluation.heatmap_evaluate import extract_peaks
+from manu.evaluation.peak_attributes import DEFAULT_COMPONENT_THRESH, extract_peaks_with_area_sums
 from manu.models.heatmap_model import YOLO26HeatmapDetector
 
 
@@ -70,6 +71,21 @@ def parse_args():
     parser.add_argument("--device", type=str, default="0")
     parser.add_argument("--conf-thresh", type=float, default=0.02, help="Deep harvest threshold (default: 0.02)")
     parser.add_argument("--top-k", type=int, default=100, help="Max candidate peaks to store per frame (default: 100)")
+    parser.add_argument(
+        "--component-thresh",
+        type=float,
+        default=DEFAULT_COMPONENT_THRESH,
+        help="Binarisation level of the connected-component analysis that produces "
+             "pred_area / pred_sums (default: 0.06, the per-scale region_threshold of the "
+             "Longquanshan multi-scale cache)",
+    )
+    parser.add_argument(
+        "--no-peak-attrs",
+        action="store_true",
+        help="Skip the connected-component attributes and write the legacy cache format "
+             "(no pred_area / pred_sums keys). Use it only when a byte-comparable copy of an "
+             "older cache is required.",
+    )
     parser.add_argument(
         "--ablate-p0",
         action="store_true",
@@ -268,12 +284,23 @@ def main():
                 preds = dict(preds)
                 preds["heatmap"] = corrected
 
-            peaks_list = extract_peaks(
-                heatmap=preds["heatmap"],
-                offset=preds["offset"],
-                stride=stride,
-                conf_thresh=args.conf_thresh,
-                top_k=args.top_k,
+            peaks_list = (
+                extract_peaks(
+                    heatmap=preds["heatmap"],
+                    offset=preds["offset"],
+                    stride=stride,
+                    conf_thresh=args.conf_thresh,
+                    top_k=args.top_k,
+                )
+                if args.no_peak_attrs
+                else extract_peaks_with_area_sums(
+                    heatmap=preds["heatmap"],
+                    offset=preds["offset"],
+                    stride=stride,
+                    conf_thresh=args.conf_thresh,
+                    top_k=args.top_k,
+                    component_thresh=args.component_thresh,
+                )
             )
 
             for b in range(bs):
@@ -307,6 +334,10 @@ def main():
                     "gt_bboxes": gt_bboxes.astype(np.float32),
                     "pred_points": peaks_list[b]["points"].astype(np.float32),
                     "pred_scores": peaks_list[b]["scores"].astype(np.float16),
+                    **({} if args.no_peak_attrs else {
+                        "pred_area": peaks_list[b]["area"].astype(np.int32),
+                        "pred_sums": peaks_list[b]["sums"].astype(np.float32),
+                    }),
                 })
 
     elapsed = time.time() - t0
@@ -319,6 +350,16 @@ def main():
 
     print(f"[INFO] Record dtypes: pred_points/gt_pts/gt_bboxes = float32 "
           f"(mandatory for 8 px matching), pred_scores = float16")
+    if args.no_peak_attrs:
+        print("[INFO] Peak attributes: SKIPPED (--no-peak-attrs, legacy cache format)")
+    else:
+        areas = np.concatenate([r["pred_area"] for r in records]) if records else np.zeros(1, np.int32)
+        sums = np.concatenate([r["pred_sums"] for r in records]) if records else np.zeros(1, np.float32)
+        print(f"[INFO] Peak attributes: component_thresh={args.component_thresh}  "
+              f"candidates={areas.size}  area==0: {int((areas == 0).sum())} "
+              f"({100.0 * (areas == 0).mean():.2f}%)  "
+              f"sums>0: {int((sums > 0).sum())} ({100.0 * (sums > 0).mean():.2f}%)  "
+              f"sums median={float(np.median(sums)):.4f} p90={float(np.percentile(sums, 90)):.4f}")
     file_size_mb = output_path.stat().st_size / (1024 * 1024)
     print(colorstr("bold", colorstr("green", f"[SUCCESS] Inference cache saved ({file_size_mb:.1f} MB) -> {output_path.resolve()}\n")))
 

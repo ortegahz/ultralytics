@@ -461,10 +461,10 @@ class CachedFrameSource:
     缓存由 ``manu/tracking/lookahead/build_frame_cache.py`` 生成。
     """
 
-    def __init__(self, npy_path, frame_indices: list[int], delta: int):
+    def __init__(self, npy_path, frame_indices: list[int], delta: int, extra_window: int = 0):
         self.path = Path(npy_path)
         self.frame_indices = list(frame_indices)
-        self.capacity = max(2, int(delta) + 2)
+        self.capacity = max(2, int(delta) + 2 + int(extra_window))
         self.reads = 0
         self._array = np.load(self.path, mmap_mode="r")
         self._cache: OrderedDict[int, np.ndarray] = OrderedDict()
@@ -489,16 +489,22 @@ class CachedFrameSource:
         return image
 
 
-def build_frame_source(frames_root, frames_cache, sequence, frame_indices, delta):
-    """优先用本地 memmap 缓存，退回 sshfs 上的 JPEG 目录，都没有则返回 ``None``。"""
+def build_frame_source(frames_root, frames_cache, sequence, frame_indices, delta, extra_window=0):
+    """优先用本地 memmap 缓存，退回 sshfs 上的 JPEG 目录，都没有则返回 ``None``。
+
+    ``extra_window`` = 回退链的最长回退帧数（``--replay-rollback-max-frames``）：
+    回退后源帧变成 ``f' = t − Δ − step_back``，重推链要读的区间变成 ``[f', t]``
+    （最长 Δ+1+extra_window 帧）⇒ 缓存窗口必须**含回退**，否则每帧会被重复读盘
+    （实测交付档 CFG 下 `frame_reads` 比帧数多 7.8%~16.5%）。
+    """
     if frames_cache:
         npy_path = Path(frames_cache) / f"{sequence}.npy"
         if npy_path.exists():
-            return CachedFrameSource(npy_path, frame_indices, delta)
+            return CachedFrameSource(npy_path, frame_indices, delta, extra_window)
     if frames_root:
         directory = Path(frames_root) / sequence
         if directory.is_dir():
-            return SequenceFrameSource(directory, frame_indices, delta)
+            return SequenceFrameSource(directory, frame_indices, delta, extra_window)
     return None
 
 
@@ -506,14 +512,15 @@ class SequenceFrameSource:
     """按**管线时间轴**（record 下标）取灰度整帧。
 
     record 下标与视频里的绝对帧号不是一回事（绝对帧号存在 ``records[i]["frame_index"]``），
-    所以这里先把 record 下标映射回绝对帧号再取图。缓存只留最近 ``delta + 2`` 张：
-    replay 的重推区间是 ``f+1..f+Δ``，正好落在缓存窗口内 ⇒ 每帧只读一次。
+    所以这里先把 record 下标映射回绝对帧号再取图。缓存留最近 ``delta + 2 + 回退窗口`` 张：
+    replay 的重推区间是 ``f+1..f+Δ``，**回退后**是 ``f−rollback+1..f+Δ``
+    ⇒ 窗口含回退时每个源帧**至多读一次**（``frame_reads`` 与帧数相等）。
     """
 
-    def __init__(self, frames_root, frame_indices: list[int], delta: int):
+    def __init__(self, frames_root, frame_indices: list[int], delta: int, extra_window: int = 0):
         self.root = Path(frames_root)
         self.frame_indices = list(frame_indices)
-        self.capacity = max(2, int(delta) + 2)
+        self.capacity = max(2, int(delta) + 2 + int(extra_window))
         self.reads = 0
         self._cache: OrderedDict[int, np.ndarray] = OrderedDict()
 
@@ -583,6 +590,8 @@ def build_lookahead_config(args, mode: str) -> LookaheadConfig:
         replay_rollback_max_frames=int(args.replay_rollback_max_frames),
         replay_rollback_min_peak=float(args.replay_rollback_min_peak),
         replay_abstain_disp_px=float(args.replay_abstain_disp_px),
+        replay_fov_margin_px=float(args.replay_fov_margin_px),
+        replay_fov_frame_size=(IMG_W, IMG_H),
         replay_xcorr_mode=str(args.replay_xcorr_mode),
         replay_xcorr_chain_radius=float(args.replay_xcorr_chain_radius),
         replay_xcorr_stride=int(args.replay_xcorr_stride),
@@ -599,6 +608,7 @@ def build_lookahead_config(args, mode: str) -> LookaheadConfig:
         replay_freeze_speed_px=float(args.replay_freeze_speed_px),
         replay_disp_shrink_alpha=float(args.replay_disp_shrink_alpha),
         replay_disp_merge_sigma_px=float(args.replay_disp_merge_sigma_px),
+        replay_disp_gain=float(args.replay_disp_gain),
         replay_mode=str(args.replay_mode),
         rolling_recenter=bool(int(args.rolling_recenter)),
         rolling_hold_mode=str(args.rolling_hold_mode),
@@ -1066,6 +1076,12 @@ def parse_args() -> argparse.Namespace:
         help="位移自适应融合：w=1/(1+(d/sigma)^2)，d=实测位移与参考位移之差（0=不融合）",
     )
     parser.add_argument(
+        "--replay-disp-gain",
+        type=float,
+        default=1.0,
+        help="位移增益：对最终位移做整体放大，补偿模板配准的向心偏置（1.0=关闭）",
+    )
+    parser.add_argument(
         "--replay-disp-shrink-alpha",
         type=float,
         default=1.0,
@@ -1190,6 +1206,15 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.0,
         help="配合 --replay-abstain-peak-below：链位移（px）超过此值才算「跟丢」；0 = 不看位移",
+    )
+    parser.add_argument(
+        "--replay-fov-margin-px",
+        type=float,
+        default=0.0,
+        help=(
+            "出框门：上报坐标必须落在画面内且距边界 ≥ 此值（px），否则该条上报丢弃；"
+            "0 = 关（默认，历史行为，逐位不变）"
+        ),
     )
     parser.add_argument(
         "--replay-rollback-max-frames",
@@ -1399,6 +1424,7 @@ def main() -> None:
                 sequence,
                 [int(record["frame_index"]) for record in records],
                 int(args.delta),
+                int(args.replay_rollback_max_frames),
             )
             if frame_source is None:
                 print(
@@ -1517,6 +1543,7 @@ def main() -> None:
                     "replay_xcorr_uniq_n": sum(
                         int(row.get("replay_xcorr_uniq_n", 0)) for row in stats_rows.values()
                     ),
+                    "fov_gated": sum(int(row.get("fov_gated", 0)) for row in stats_rows.values()),
                 },
                 "per_sequence": stats_rows,
             },
@@ -1630,6 +1657,7 @@ def main() -> None:
                         "replay_freeze_speed_px": float(args.replay_freeze_speed_px),
                         "replay_disp_shrink_alpha": float(args.replay_disp_shrink_alpha),
                         "replay_disp_merge_sigma_px": float(args.replay_disp_merge_sigma_px),
+                        "replay_disp_gain": float(args.replay_disp_gain),
                         "replay_roi_mode": str(args.replay_roi_mode),
                         "replay_roi_selfpred_window": int(args.replay_roi_selfpred_window),
                         "replay_roi_selfpred_max_px": float(args.replay_roi_selfpred_max_px),
@@ -1645,8 +1673,14 @@ def main() -> None:
                         "replay_xcorr_stride": int(args.replay_xcorr_stride),
                         "replay_rollback_max_frames": int(args.replay_rollback_max_frames),
                         "replay_rollback_min_peak": float(args.replay_rollback_min_peak),
+                        # ↓ 2026-11-04：补记**此前漏记**的弃权/回退旋钮 —— 缺了它们
+                        # 就无法从产物 JSON 反查「这份 F1 是哪套参数跑出来的」
+                        # （本轮 p3knobs 变体的 diff 只看得到 rollback_min_peak）。
+                        "replay_abstain_peak_below": float(args.replay_abstain_peak_below),
+                        "replay_abstain_disp_px": float(args.replay_abstain_disp_px),
+                        "replay_fov_margin_px": float(args.replay_fov_margin_px),
                         "replay_polarity": str(args.replay_polarity),
-                       "replay_polarity_ratio": float(args.replay_polarity_ratio),
+                        "replay_polarity_ratio": float(args.replay_polarity_ratio),
                         "output_max_step_px": float(args.output_max_step_px),
                         "arms": arms,
                         "frames_root": args.frames_root,

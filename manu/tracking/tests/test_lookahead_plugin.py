@@ -26,6 +26,7 @@ import pytest
 from manu.tracking.lookahead.extrapolator import (
     FrameSource,
     LookaheadConfig,
+    _apply_fov_margin_gate,
     _apply_output_slew_limit,
     build_report_stream,
     estimate_velocity,
@@ -962,6 +963,78 @@ class OutputSlewLimitTest(unittest.TestCase):
         self.assertEqual(report[3][0]["pos"], (280.0, 100.0))
 
 
+class FovMarginGateTest(unittest.TestCase):
+    """「出框门」的契约测试。
+
+    锁的是**机制**，不是数据集上的数字：
+
+    * ``replay_fov_margin_px = 0``（默认）⇒ 输出**逐位**不变（既有行为完全可复现）；
+    * 坐标落在画面外、或距边界不足 m px 的那一条上报被丢弃，画面内的照常保留；
+    * 门**必须早于输出限幅**：限幅把每 track 最近一次上报位置写进 ``last_pos`` 锚点，
+      门若跑在限幅之后，那些被拖回画内的误报就再也删不掉了；
+    * 退化的边距（≥ 画面短边的一半）直接报错，不静默丢光；
+    * stale / kinematic 对照基线臂不受门影响。
+    """
+
+    @staticmethod
+    def _det(pos, track_id=1):
+        return {
+            "pos": (float(pos[0]), float(pos[1])),
+            "score": 0.9,
+            "track_id": track_id,
+            "infilled": False,
+        }
+
+    def test_gate_off_keeps_the_output_verbatim(self):
+        report = [[self._det((-40.0, 300.0))], [self._det((300.0, 305.0))]]
+        stats = {}
+        _apply_fov_margin_gate(report, LookaheadConfig(), stats)
+        self.assertEqual(report[0][0]["pos"], (-40.0, 300.0))
+        self.assertEqual(report[1][0]["pos"], (300.0, 305.0))
+        self.assertEqual(int(stats.get("fov_gated", 0)), 0)
+
+    def test_out_of_frame_and_too_close_to_the_edge_are_dropped(self):
+        report = [[self._det((-3.0, 250.0)), self._det((643.0, 250.0)), self._det((100.0, 4.0))]]
+        stats = {}
+        _apply_fov_margin_gate(report, LookaheadConfig(replay_fov_margin_px=8.0), stats)
+        self.assertEqual(len(report[0]), 0)
+        self.assertEqual(int(stats.get("fov_gated", 0)), 3)
+
+    def test_in_frame_detections_survive(self):
+        report = [[self._det((320.0, 256.0))]]
+        stats = {}
+        _apply_fov_margin_gate(report, LookaheadConfig(replay_fov_margin_px=8.0), stats)
+        self.assertEqual(len(report[0]), 1)
+        self.assertEqual(int(stats.get("fov_gated", 0)), 0)
+
+    def test_gate_runs_before_the_output_slew_limit(self):
+        """门在限幅**之前**：画外的那一条不能污染限幅的锚点。
+
+        门在限幅之后时，第 0 帧的画外坐标会被写进 ``last_pos`` ⇒ 第 1 帧被朝它拖回
+        画内（−10 px）⇒ 门删不掉；第 2 帧则被拖到 (20, 256)（画面内）⇒ 变成误报。
+        """
+        report = [[self._det((-40.0, 256.0))], [self._det((300.0, 256.0))], [self._det((305.0, 256.0))]]
+        stats = {}
+        config = LookaheadConfig(replay_fov_margin_px=8.0, output_max_step_px=30.0)
+        _apply_fov_margin_gate(report, config, stats)
+        _apply_output_slew_limit(report, config, stats)
+        self.assertEqual(len(report[0]), 0)
+        self.assertEqual(report[1][0]["pos"], (300.0, 256.0))
+        self.assertEqual(report[2][0]["pos"], (305.0, 256.0))
+
+    def test_degenerate_margin_raises_instead_of_dropping_everything(self):
+        report = [[self._det((320.0, 256.0))]]
+        with self.assertRaises(ValueError):
+            _apply_fov_margin_gate(report, LookaheadConfig(replay_fov_margin_px=256.0), {})
+
+    def test_baseline_arms_are_not_gated(self):
+        # stale 臂是「老逻辑硬吃 Δ 帧滞后」的对照基线：门不得作用到它
+        dets = [[self._det((-40.0, 256.0))], [self._det((-40.0, 256.0))]]
+        config = LookaheadConfig(delta=1, mode="stale", replay_fov_margin_px=8.0)
+        report, _ = build_report_stream(dets, len(dets), config)
+        self.assertEqual(report[1][0]["pos"], (-40.0, 256.0))
+
+
 class AbstentionOnUnconfidentMatchTest(unittest.TestCase):
     """「不自信就不上报」：模板峰值低 **且** 链跑得远 ⇒ 该帧不上报。
 
@@ -1028,3 +1101,73 @@ class AbstentionOnUnconfidentMatchTest(unittest.TestCase):
         report, stats = build_report_stream(dets, frames, cfg, frame_source=_DictFrameSource(images))
         self.assertEqual(len(report[frames - 1]), 1)
         self.assertEqual(stats.get("replay_xcorr_abstained", 0), 0)
+
+
+class SilentFrameAttributionTest(unittest.TestCase):
+    """静默帧归因必须**按生产代码的判定顺序**复刻（夜 8 实踩的坑）。
+
+    生产顺序（``_build_refine_report_stream``）：
+
+    1. **回退链峰值门**（``rolled_back and peak < replay_rollback_min_peak``）⇒ ``continue``，
+       ``report`` 那一格**根本不写** ⇒ 即使 outcome 自带上报点也照样是静默帧；
+    2. ``outcome["failed"]`` ⇒ 走 ``replay_fallback``（通常**有**上报）；
+    3. 正常路径写 ``report`` ⇒ **之后**才过出框门。
+
+    ⇒ 「有门前上报点却没上报」**不能**判成出框门丢掉 —— 夜 8 第一版就是这么归因错的
+    （把 842 帧记成出框门，实际是回退链峰值门 1846 帧）。
+    """
+
+    @staticmethod
+    def _frame(**kwargs):
+        frame = {"t": 10, "e": [], "g": [[100.0, 100.0, 20.0, 20.0]], "r": [], "pe": [], "f": False, "rs": ""}
+        frame.update(kwargs)
+        return frame
+
+    @staticmethod
+    def _refine(src, peak, position=None, chain=(110.0, 110.0), anchor=(100.0, 100.0)):
+        return {
+            "s": src,
+            "d": 10,
+            "a": list(anchor),
+            "c": list(chain),
+            "p": None if position is None else list(position),
+            "m": [{"pk": peak, "k": [{"x": 300.0, "y": 300.0, "v": 1.0}]}],
+        }
+
+    def test_rolled_back_low_peak_is_the_rollback_gate_not_the_fov_gate(self):
+        """回退链 + 峰值不达标 ⇒ 归因「回退链峰值门」，**不是**出框门（尽管上报点在画面内）。
+
+        回退链 = 源帧 **不等于** ``t − Δ``（``extrapolator.py``：回退时源帧再往前挪 ⇒
+        ``s != t − Δ``）⇒ 这里用 ``t=10, Δ=3, s=6``（回退 1 帧）。
+        """
+        from manu.tracking.lookahead.diag_reg_oracle import _silent_cause
+
+        frame = self._frame(r=[self._refine(6, 0.83, position=(300.0, 300.0))], pe=[[300.0, 300.0]])
+        self.assertEqual(_silent_cause(frame, delta=3, rollback_min_peak=0.90), "rollback_gate")
+
+    def test_non_rolled_back_low_peak_is_not_the_rollback_gate(self):
+        """源帧 = t − Δ（非回退）⇒ 回退链峰值门**不适用**。"""
+        from manu.tracking.lookahead.diag_reg_oracle import _silent_cause
+
+        frame = self._frame(r=[self._refine(7, 0.83, position=(300.0, 300.0))], pe=[[300.0, 300.0]])
+        self.assertNotEqual(_silent_cause(frame, delta=3, rollback_min_peak=0.90), "rollback_gate")
+
+    def test_illegal_report_point_is_the_fov_gate(self):
+        """上报点落在画面外 ⇒ 出框门（且此时源帧非回退）。"""
+        from manu.tracking.lookahead.diag_reg_oracle import _silent_cause
+
+        frame = self._frame(r=[self._refine(7, 0.83, position=(-20.0, 300.0))], pe=[[-20.0, 300.0]])
+        self.assertEqual(_silent_cause(frame, delta=3, rollback_min_peak=0.90), "fov_gate")
+
+    def test_no_refine_is_no_decision(self):
+        """没有任何配准决策 ⇒ 无链可跑。"""
+        from manu.tracking.lookahead.diag_reg_oracle import _silent_cause
+
+        self.assertEqual(_silent_cause(self._frame(), delta=3), "no_decision")
+
+    def test_failed_chain_without_fallback(self):
+        """重推失败且没有兜底 ⇒ failed_no_fallback。"""
+        from manu.tracking.lookahead.diag_reg_oracle import _silent_cause
+
+        frame = self._frame(r=[self._refine(7, 0.0, position=None)], pe=[], f=True)
+        self.assertEqual(_silent_cause(frame, delta=3), "failed_no_fallback")

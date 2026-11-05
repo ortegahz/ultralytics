@@ -107,6 +107,14 @@ class LookaheadConfig:
     # 目标可能早就飞走了 ⇒ 模板配准会锁到背景结构上 ⇒ 产出的是「幽灵坐标」。
     # 回退链要求相关峰值 ≥ 此值，否则该帧不上报（0 = 不设门）。
     replay_rollback_min_peak: float = 0.0
+    # ↓ 2026-11-04 新增：**出框门**（上报坐标必须落在画面内且距边界 ≥ 此值）。
+    # 机理：转台只能瞄画面里的东西。重推链跑飞时会把坐标甩到画面**之外**
+    # （8 序实测：001324 上 4 个 FP 的坐标为负），或甩到紧贴画面边缘
+    # （目标已半出视场、质心不可靠）⇒ 这些上报必然是误报。
+    # 0 = 关（= 历史行为，逐位不变）。
+    replay_fov_margin_px: float = 0.0
+    # 出框门用的画面尺寸（宽, 高，px）—— 与上报坐标同一坐标系（``coordinate_space="native_pixel"``）。
+    replay_fov_frame_size: tuple[int, int] = (640, 512)
     # ↓ 2026-11-03 新增：xcorr 的**用法**。direct = 一次跨 Δ 帧的大匹配（历史行为）；
     #    chain = 逐步配准（每步用「上一帧的模板」配准「当前帧」，模板逐步刷新）。
     #    chain 的机理：direct 模式两端相隔 Δ 帧，目标姿态/亮度在这 Δ 帧里变了 ⇒
@@ -158,6 +166,11 @@ class LookaheadConfig:
     #    按两者差值 d 给实测赋权 w = 1/(1+(d/σ)²)：一致时几乎纯实测，矛盾时退向参考。
     #    σ = 0 = 不融合（关闭）。
     replay_disp_merge_sigma_px: float = 0.0
+    # ⑤ 位移增益：模板配准有**向心偏置**（每步的匹配点被拽向 ROI 中心）⇒ Δ 步累积后
+    #    系统性**欠冲**，且欠冲量 ∝ 真实位移（实测 corr(真实位移, 沿轨误差) = −0.346）。
+    #    增益 g 对**最终位移**做一次整体放大来补偿该偏置；g = 1.0 = 不补偿（关闭，
+    #    ⇒ 与交付档逐位一致）。
+    replay_disp_gain: float = 1.0
     replay_mode: str = "perframe"        # perframe | rolling（replay 档位的两种实现方式）
     rolling_recenter: bool = True        # rolling：锚点到达时把快核 ROI 中心重锚到校正后的绝对位置
     rolling_hold_mode: str = "last_step"  # rolling：链观测失效时的推进依据 last_step | prev_report
@@ -273,8 +286,13 @@ def _xcorr_refine(frame_source, src_frame, dst_frame, anchor, chain_pos, cfg, re
     uniq_gate = float(cfg.replay_xcorr_uniq_gate)
     if uniq_gate > 0.0:
         uniq = float(diagnostics.get("uniqueness", 0.0))
-        result["xcorr_uniq_sum"] = float(result.get("xcorr_uniq_sum", 0.0)) + uniq
-        result["xcorr_uniq_n"] = int(result.get("xcorr_uniq_n", 0)) + 1
+        # `uniqueness` 在**匹配峰 ≤ 1e-6**（完全没匹配上）时是 NaN 哨兵（见 xcorr.py），
+        # 而 NaN 参与累加会把整条序列的 `xcorr_uniq_sum` 污染成 NaN ⇒ 写进 arms.json
+        # 就是**非法 JSON**（裸 NaN，RFC 8259 不允许）。这里只累加**有限值**：
+        # 判定逻辑（`uniq > uniq_gate`）仍用原值，NaN ⇒ False ⇒ 行为逐位不变。
+        if np.isfinite(uniq):
+            result["xcorr_uniq_sum"] = float(result.get("xcorr_uniq_sum", 0.0)) + uniq
+            result["xcorr_uniq_n"] = int(result.get("xcorr_uniq_n", 0)) + 1
         if uniq > uniq_gate:
             result["xcorr_ambiguous"] = int(result.get("xcorr_ambiguous", 0)) + 1
             diag2: dict = {}
@@ -290,7 +308,8 @@ def _xcorr_refine(frame_source, src_frame, dst_frame, anchor, chain_pos, cfg, re
                 diagnostics=diag2,
             )
             uniq2 = float(diag2.get("uniqueness", 0.0))
-            result["xcorr_uniq2_sum"] = float(result.get("xcorr_uniq2_sum", 0.0)) + uniq2
+            if np.isfinite(uniq2):
+                result["xcorr_uniq2_sum"] = float(result.get("xcorr_uniq2_sum", 0.0)) + uniq2
             # 采纳条件（三条都要满足，缺一不可）：
             # ① 重配结果**唯一**（uniq2 ≤ 门限）⇒ 它锁的是真目标，不是背景结构；
             # ② 重配**比原配更自信**（peak2 > peak）⇒ 原配是糊的、重配是清晰的；
@@ -692,6 +711,7 @@ def _replay_detections(
         "source_anchor_fallback": 0,
         "frozen": 0,
         "disp_shrunk": 0,
+        "disp_gained": 0,
         "disp_merged": 0,
         "disp_merge_weight_sum": 0.0,
         "consistency_rejected": 0,
@@ -1130,6 +1150,11 @@ def _replay_detections(
                 result["disp_merge_weight_sum"] = float(
                     result.get("disp_merge_weight_sum", 0.0)
                 ) + weight
+            # ---- 位移增益：补偿模板配准的向心偏置（欠冲 ∝ 真实位移）----
+            disp_gain = float(cfg.replay_disp_gain)
+            if disp_gain != 1.0:
+                displacement = displacement * disp_gain
+                result["disp_gained"] = int(result.get("disp_gained", 0)) + 1
             position = anchor + displacement
         # ---- 低速冻结：目标几乎不动 ⇒ 重推位移**锁死为 0** ----
         # 机理：红外小目标常常**悬停**（真值帧间位移 0~1 px/帧，见 015000）。此时
@@ -2076,6 +2101,7 @@ def build_report_stream(
             "xcorr_rematch_rejected",
             "xcorr_abstained",
             "xcorr_stride_hold",
+            "disp_gained",
         ):
             stats[f"replay_{key}"] = int(stats.get(f"replay_{key}", 0)) + int(outcome.get(key, 0))
         for key in ("xcorr_uniq_sum", "xcorr_uniq2_sum"):
@@ -2168,8 +2194,49 @@ def build_report_stream(
     # 限幅**只作用于 replay 臂**：stale / kinematic 是对照基线（老逻辑硬吃滞后、
     # 纯前向外推），给它们加限幅等于粉饰基线，会低估外挂的真实收益。
     if mode == "replay":
+        # 出框门**必须在限幅之前**：限幅把每 track 最近一次上报位置写进锚点，
+        # 若那个位置在画面外，后续帧会被朝这个画外锚点拖回画内 ⇒ 门再也删不掉它
+        # （实测 001324 @margin=8：门在限幅后 FP 106 / 门在限幅前 FP 105）。
+        _apply_fov_margin_gate(report, cfg, stats)
         _apply_output_slew_limit(report, cfg, stats)
     return report, stats
+
+
+def _apply_fov_margin_gate(report: list[list[dict]], cfg: LookaheadConfig, stats: dict) -> None:
+    """出框门：上报坐标必须落在画面内，且距边界 ≥ ``cfg.replay_fov_margin_px``，否则**该条**不上报。
+
+    机理：转台只能瞄画面里的东西。重推链跑飞时会把坐标甩到画面**之外**
+    （8 序 cs_t0043 Δ=3 实测：001324 上 4 个 FP 的坐标为负），或甩到紧贴画面边缘
+    （目标已半出视场、质心不可靠）⇒ 这些上报必然是误报。
+    FAR 增量的构成（8 序 Δ=3 实测）：58% 是「框被推歪 12~136 px」、41% 是
+    「当前帧无检出时凭空上报」⇒ 出框门打的是这两类里最靠边的那部分。
+
+    ``margin_px <= 0`` ⇒ 直接返回（**逐位不变**，= 历史行为）。
+    边距 ≥ 画面短边的一半 ⇒ 可用区域退化 ⇒ 直接报错，不静默丢光。
+    """
+    margin = float(cfg.replay_fov_margin_px)
+    if margin <= 0.0:
+        return
+    width, height = int(cfg.replay_fov_frame_size[0]), int(cfg.replay_fov_frame_size[1])
+    if margin >= min(width, height) / 2:
+        raise ValueError(
+            f"replay_fov_margin_px={margin} 过大：画面 {width}x{height} 的边距必须 < {min(width, height) / 2}"
+        )
+    dropped = 0
+    for entries in report:
+        kept = []
+        for det in entries:
+            pos = det.get("pos")
+            if pos is None:
+                dropped += 1
+                continue
+            x, y = float(pos[0]), float(pos[1])
+            if margin <= x <= width - margin and margin <= y <= height - margin:
+                kept.append(det)
+            else:
+                dropped += 1
+        entries[:] = kept
+    stats["fov_gated"] = int(stats.get("fov_gated", 0)) + dropped
 
 
 def _apply_output_slew_limit(
