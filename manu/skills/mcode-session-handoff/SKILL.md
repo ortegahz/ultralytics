@@ -14,9 +14,21 @@ description: 把当前 MCode/MiniMax Code 对话交接到训练服务器，让�
 
 ```bash
 # 一键端到端（export → 传输 → import → verify → 实际加载测试）
-bash /media/manu/1TB-Volume/workspace/handoff/mcode/mcode_handoff_to_server.sh \
+bash /media/manu/1TB-Volume/workspace/ultralytics/manu/skills/mcode-session-handoff/scripts/mcode_handoff_to_server.sh \
      --session mvs_<会话ID> --exec
 ```
+
+反向（把 server 上的活儿拿回 host）：
+
+```bash
+# 不带 --force 只做差异预览（哪边更新、会不会覆盖）
+bash .../scripts/mcode_pullback_from_server.sh --session mvs_<会话ID>
+
+# 确认后再真正回拉 + 加载测试
+bash .../scripts/mcode_pullback_from_server.sh --session mvs_<会话ID> --force --exec
+```
+
+⚠️ **推是单向快照，不是双向同步** —— 回拉会覆盖本机较新的轮次，详见 §10。
 
 三步命令（要自己控制每一步时）：
 
@@ -314,26 +326,86 @@ python3 mcode_handoff.py list --workspace /media/manu/1TB-Volume/workspace
 
 ---
 
-## 10. 边界与注意事项
+## 10. 双向语义：推是单向快照，不是双向同步
 
-- **推是单向快照**：host 之后再加的轮次不会出现在服务器上；重跑交接会用 host 副本**覆盖**服务器那份。
-  `import` 会先删目标目录再写入（无自动备份）。⇒ 交接后**服务器是对话的所有者**，不要在两边同时继续。
-- **不要搬正在运行的会话**：host 侧 `status='started'` 的会话文件仍在追加中 ⇒ 传过去的是半截文件。
-  先让 host 侧会话停下来再搬。
-- **`llm-call.json` / `reports/` 体积占比不小**，只影响包大小，不影响加载。
+**两个方向都已经实测跑通**（2026-11-05，host 0.6.12 ↔ server 0.6.13）：
+
+| 方向 | 脚本 | 实测结果 |
+|---|---|---|
+| host → server | `mcode_handoff_to_server.sh` | 257 条/1 代 + 439 条/13 代，均 `succeeded` |
+| server → host | `mcode_pullback_from_server.sh` | 261 条 + 441 条，均 `succeeded` |
+| host → server → host | 手动串 | **前 261 行逐字节完全相同**，差异仅为新 append 的 2 条 |
+| host → server → host → server | 手动串 | `succeeded`，217572 tokens |
+
+### ⚠️ 三个必须知道的语义
+
+**(1) 推是覆盖，不是合并**
+
+`import` 会 **先 `rmtree` 目标目录再写入**（无自动备份）。⇒ 回拉会用 server 版本**整体覆盖** host 版本，
+host 上较新的轮次**直接丢失**。
+
+回拉脚本默认**不带 `--force` 就只做差异预览**，明确告诉你哪边更新：
+
+```
+本机   : msg=439 rev=sha256:7bb5882fd52ed7764
+服务器 : msg=441 rev=sha256:4f3ab8e6b111d9162
+⇒ 服务器更新（多 2 条），回拉会推进本机
+```
+
+若显示「本机更新（多 N 条）」，回拉会**覆盖掉本机较新的轮次** —— 此时应先决定是否放弃本机进展。
+
+**(2) 交接后目标机是对话的所有者**
+
+host 再加的轮次不会自动出现在 server 上；重跑 handoff 会用 host 副本**再次覆盖** server。
+⇒ **不要在两边同时继续同一个会话**。正确用法是「谁接手谁独占」。
+
+**(3) 版本兼容已验证，但别赌**
+
+0.6.13 写过的 `messages.jsonl` / `history-catalog.json` 被 0.6.12 正常读取并加载（实测 `succeeded`），
+反向也通。**但这是两个相邻小版本**；跨大版本（0.6.x ↔ 0.7.x）前应先在隔离目录验一次：
+
+```bash
+# 用 MINIMAX_DATA_DIR 指向隔离副本做无破坏验证
+MINIMAX_DATA_DIR=/tmp/xxx mcode exec --session <id> --output-format json --max-steps 1 "reply OK only"
+```
+
+（MCode 认 `MINIMAX_DATA_DIR`，也认 `MAVIS_DATA_DIR`。隔离副本里需要 `auth/` 与 `config.yaml`，
+否则会报 `Sign in to MiniMax to use Agent features`。）
+
+### 身份字段不随路径改写而变
+
+`manifest.json` 的 `sessionId` / `createdAtMs` / `schemaVersion` 在往返中**逐位未变**，
+只有 `paths.*` 被改写成当前机器路径 —— 这是必须的，否则运行时按旧路径找历史文件。
+
+### 其他注意事项
+
 - **包的体积**：base64 编码后约为原目录的 1.37 倍（40 MB 目录 → 72 MB 包，13 代会话 224 文件）。
   大会话传输要留时间。
 - **别用 symlink 装 skill**：MCode 运行时枚举 skill 目录时用 `entry.isDirectory()`（lstat 语义），
   对符号链接返回 false ⇒ symlink 装的 skill 会被**整批静默跳过**。必须用真实目录 + `cp -r`。
+- **备份建议**：真正覆盖前先 `cp -a` 备份会话目录 + 用 `sqlite3` 导出相关表行。
+  本次实测的备份方式见 §13。
 
 ---
 
 ## 11. 已验证的实测记录（2026-11-05）
 
+**单向（host → server）**
+
 | # | 会话 | 规模 | 压缩代数 | 结果 |
 |---|---|---|---|---|
 | 1 | `mvs_d81a182fa1e5401c8dd21eec4a1317c9` | 257 条 / 29 文件 | 1 代 | `succeeded`，inputTokens=215278 |
 | 2 | `mvs_80d99b058e8249fbbcd785c4e2f53064` | 99 条 / 224 文件 / 2708 投影行 | **13 代**（14 artifact） | `succeeded`，inputTokens=115470，cacheRead=116455 |
+
+**双向（往返）**
+
+| # | 场景 | 结果 |
+|---|---|---|
+| 3 | server → host 回拉（261 条） | host `succeeded`，inputTokens=216461 |
+| 4 | host → server → host 往返 | **前 261 行逐字节完全相同**，差异仅为新 append 的 2 条（我实测的那次 exec） |
+| 5 | host → server → host → server | `succeeded`，inputTokens=217572 |
+| 6 | 439 条 / 13 代会话 host → server | `succeeded`，inputTokens=305517 |
+| 7 | server → host 回拉（441 条，13 代） | host `succeeded`，inputTokens=305862 |
 
 指纹校验：**40 个真实会话 40/40 通过**。
 
@@ -343,8 +415,46 @@ python3 mcode_handoff.py list --workspace /media/manu/1TB-Volume/workspace
 
 | 路径 | 作用 |
 |---|---|
-| `/media/manu/1TB-Volume/workspace/handoff/mcode/mcode_handoff.py` | 核心：export / import / verify / list |
-| `/media/manu/1TB-Volume/workspace/handoff/mcode/mcode_session_tool.mjs` | 指纹计算 + 打包（**必须用 Node，不要用 Python 重写**） |
-| `/media/manu/1TB-Volume/workspace/handoff/mcode/mcode_handoff_to_server.sh` | 一键端到端脚本 |
+| `scripts/mcode_handoff.py` | 核心：export / import / verify / list |
+| `scripts/mcode_session_tool.mjs` | 指纹计算 + 打包（**必须用 Node，不要用 Python 重写**） |
+| `scripts/mcode_handoff_to_server.sh` | 一键端到端：host → server |
+| `scripts/mcode_pullback_from_server.sh` | 一键端到端：server → host（带差异预览 + `--force` 保护） |
+| `/media/manu/1TB-Volume/workspace/handoff/mcode/` | 同上三个脚本的工作副本（md5 一致） |
 | `/media/manu/1TB-Volume/workspace/handoff/README.md` | Codex 版交接文档（本 skill 的姊妹篇） |
 | `~/.minimax/v2/observability/logs/runtime-*.log` | 目标机加载失败时的真实报错出处 |
+
+---
+
+## 13. 覆盖前备份（实测用过，可靠）
+
+```bash
+SID=mvs_<会话ID>
+BK=/tmp/host_backup_$SID
+rm -rf $BK && mkdir -p $BK
+
+# ① 会话目录
+REL=$(python3 -c "
+import sqlite3
+c=sqlite3.connect('$HOME/.minimax/v2/sqlite/runtime-state.sqlite')
+print(c.execute('SELECT history_relative_dir FROM local_runtime_sessions WHERE session_id=?',('$SID',)).fetchone()[0])
+")
+cp -a ~/.minimax/v2/sessions/$REL $BK/sessiondir
+
+# ② 相关表行（JSON 导出，含自增 id 需自行处理）
+python3 - <<'EOF'
+import sqlite3, json, os
+SID = os.environ.get("SID") or "mvs_xxx"
+c = sqlite3.connect(os.path.expanduser("~/.minimax/v2/sqlite/runtime-state.sqlite"))
+c.row_factory = sqlite3.Row
+out = {}
+for t in ["local_runtime_sessions","local_runtime_message_rows","local_runtime_thread_goals",
+          "local_runtime_session_locks","local_runtime_pi_history_file_migrations",
+          "local_runtime_message_row_migrations"]:
+    out[t] = [dict(r) for r in c.execute(f"SELECT * FROM {t} WHERE session_id=?", (SID,))]
+json.dump(out, open("/tmp/host_backup/db_rows.json","w"), ensure_ascii=False, default=str)
+print({k: len(v) for k, v in out.items()})
+EOF
+```
+
+恢复：目录 `cp -a` 回去，表行按 JSON 逐表 `DELETE` + `INSERT`（`local_runtime_message_rows`
+的自增 `id` 建议保留原值以免与其它行冲突）。
