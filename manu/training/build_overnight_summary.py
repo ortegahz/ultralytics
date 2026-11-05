@@ -360,10 +360,16 @@ def main() -> int:
         L.append("* ⇒ **「T1 余量宽裕」与「T3 高」互斥**这条结构性结论再次成立（见专题档 §3.9.10）")
         # 决策层判别门的贡献（它把「T1 过线」那一侧的 T3 顶上去了，但到不了 0.89）
         gate_best = None
+        gate_ship = None
         for r in dec_rows:
             if r["arm"] == "p2" and r["sum_mode"] == "abs":
                 if gate_best is None or r["t3"] > gate_best["t3"]:
                     gate_best = r
+                # 交付默认：两臂 T2 硬门余量都最厚的那一档（sums>=16）
+                if abs(float(r["sum_value"]) - 16.0) < 1e-9 and to_int(r["area"]) == 1 \
+                        and r["gstage"] == "post" and abs(float(r["th"]) - 0.30) < 1e-9:
+                    if gate_ship is None or r["t3"] > gate_ship["t3"]:
+                        gate_ship = r
         if gate_best is not None:
             gate_t2_ok = gate_best["t2_f1"] >= T2_F1_MIN and gate_best["t2_fp"] <= T2_FP_MAX
             L.append(f"* ⭐ **决策层 area/sum 判别门（样本外口径）把「T1 过线」侧的 T3 顶到 "
@@ -372,7 +378,27 @@ def main() -> int:
                      f"**{(T3_BOTH - gate_best['t3']) * 100:.4f} pp**；T2 硬门 "
                      f"**{'PASS' if gate_t2_ok else 'FAIL'}**"
                      f"（{gate_best['t2_f1']:.6f}/FP{gate_best['t2_fp']}）")
-            L.append("* ⇒ **T3 侧到此为顶**：3792 点低阈值网格证实「降阈值换 TP」净亏、冻结 `th_base=0.30` 仍是最优点")
+            if gate_ship is not None:
+                L.append(f"* ⭐ **两臂通用交付默认档位是 `sums≥16`** —— "
+                         f"`sums≥16` 时 p2 T3 = **{gate_ship['t3']:.9f}**"
+                         f"（T2 {gate_ship['t2_f1']:.6f}/FP{gate_ship['t2_fp']}），"
+                         f"而 `sums≥18` 会把 `trial_0049` 的 T2 余量压到 0.995964、`sums≥20` 直接**破 T2 硬门**（0.978459）"
+                         f" ⇒ **16 是两臂都安全的最大档**")
+            # 进阶档：trial_0049 专属最高点（0.5 步长细扫后由 sums=14 改判为 sums=14.5）
+            gate_t49 = None
+            for r in dec_rows:
+                if r["arm"] == "t49" and r["sum_mode"] == "abs":
+                    if gate_t49 is None or r["t3"] > gate_t49["t3"]:
+                        gate_t49 = r
+            if gate_t49 is not None:
+                L.append(f"* ⭐⭐ **进阶档 `trial_0049 + 判别门` 的 T3 最高点 = **{gate_t49['t3']:.9f}**"
+                         f"（门配置 `area≥{gate_t49['area']}, sums≥{gate_t49['sum_value']}, "
+                         f"{gate_t49['gstage']}, th {gate_t49['th']}`；TP {gate_t49['tp']} / FP {gate_t49['fp']} / "
+                         f"FN {gate_t49['fn']}；T2 {gate_t49['t2_f1']:.6f}/FP{gate_t49['t2_fp']}）**"
+                         f" ⇒ 偶数格点精扫（floor 6..28）曾把峰判在 `sums=14`（0.910854879），"
+                         f"**0.5 步长细扫（floor 11..17）证真峰在 `sums=14.5`** ⇒ 进阶档已改档")
+            L.append("* ⇒ **T3 侧到此为顶**：3792 点低阈值网格证实「降阈值换 TP」净亏、冻结 `th_base=0.30` 仍是最优点；"
+                     "能量门常数另做 0.5 步长细扫（见上行）")
         L.append("* ⇒ **T1 侧移植实测 0 过线**（见 ④-b）⇒ **两条路都封 ⇒ 「兼得」在本轮全部搜索空间下不可达**")
         L.append("* ⇒ **维持现行交付裁定**：主装 `cs_t0043` + 峰值单兵 `trial_0049` + 备验 `cs_t0008p2`（双基线）")
     L.append("")

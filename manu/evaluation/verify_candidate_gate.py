@@ -126,8 +126,9 @@ GATE_TAG_ALLOW = (0, 1, 2)
 
 # The delivered default of the gate: an ABSOLUTE energy floor, i.e. a hard constant that does not depend on
 # any dataset distribution (no quantile table, hence no in-sample / out-of-sample distinction).
-GATE_ABS_SUM = 10.0   # the arm-robust absolute floor (sums>=20 is better on cs_t0008p2 but breaks the T2 hard gate on trial_0049)
-GATE_ABS_SCAN = (5.0, 10.0, 20.0, 40.0)
+GATE_ABS_SUM = 16.0   # largest arm-robust absolute floor (see the fine out-of-sample sweep 6..28:
+                      # 16 keeps the T2 hard gate comfortable on BOTH arms; 20 breaks it on trial_0049)
+GATE_ABS_SCAN = (6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 22.0, 28.0)
 
 # The hard gate of the current gate chain on the golden pool (track2_golden: F1 >= 0.985 and FP <= 112).
 T2_GATE_F1_MIN = 0.985

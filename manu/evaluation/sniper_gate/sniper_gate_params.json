@@ -1,0 +1,177 @@
+{
+  "schema_version": "sniper_gate_params/1.1",
+  "package": "sniper_gate_trial_0049",
+  "enabled": false,
+  "summary": "High-precision sniper tier of the no-GMC line: trial_0049@epoch20 with the discriminative candidate gate frozen at area>=1, sum_mode=abs, sum_value=14.5, gate_stage=post, tag_allow=[0,1,2], th_base=0.30. sum_value=14.5 is the true peak found by the 0.5-step fine sweep (fine_abs_finer_exclude-primary); the earlier 14.0 was an artifact of the even-grid coarse sweep. Ships DISABLED, like every other candidate-gate parameter file in this repository.",
+  "tier": {
+    "name": "high_precision_sniper",
+    "primary_install": "cs_t0043",
+    "note": "The main install stays cs_t0043 (Model Soup). This package is the advanced tier, not the primary install. trial_0049 is a single-seed single-model bottom (epoch20, a sharp local minimum); its robustness on unseen extreme cold/hot operating points is slightly below the Model Soup products.",
+    "arm": "trial_0049",
+    "epoch": 20
+  },
+  "upstream": {
+    "arm": "trial_0049",
+    "epoch": 20,
+    "weights_path": "/mnt/data/siping/runs/nogmc_t3/trials/trial_0049/weights/epoch20.pt",
+    "weights_md5": "93627d0605c5865701b0a75d855faf0b",
+    "gate_dir": "/mnt/data/siping/runs/nogmc_t3/trials/trial_0049/gate/epoch20",
+    "cache_root": "/mnt/data/siping/runs/nogmc_t3/trials/trial_0049/gate/epoch20/ms_cache",
+    "trial_result": "/mnt/data/siping/runs/nogmc_t3/trials/trial_0049/trial_result.json"
+  },
+  "gate": {
+    "area_min": 1,
+    "sum_mode": "abs",
+    "sum_value": 14.5,
+    "gate_stage": "post",
+    "tag_allow": [0, 1, 2],
+    "th_base": 0.30
+  },
+  "cand_gate_block": {
+    "enabled": false,
+    "area_min": 1,
+    "sum_mode": "abs",
+    "sum_value": 14.5,
+    "tag_allow": [0, 1, 2],
+    "gate_stage": "post",
+    "thresholds": {}
+  },
+  "expected": {
+    "t1": {
+      "f1": 0.8909556600604635,
+      "tp": 21219,
+      "fp": 1302,
+      "fn": 3892,
+      "f1_vs_upstream_red_line_pp": -0.4941,
+      "passes_upstream_red_line": false
+    },
+    "t2": {
+      "f1": 0.998979,
+      "f1_artifact_exact": 0.9989791016094163,
+      "tp": 16635,
+      "fp": 31,
+      "fn": 3,
+      "passes_upstream_hard_gate": true
+    },
+    "t3": {
+      "f1": 0.911096427,
+      "f1_artifact_exact": 0.9110964265744929,
+      "tp": 8962,
+      "fp": 176,
+      "fn": 1573
+    },
+    "rc2": {
+      "arm": "trial_0080",
+      "epoch": 3,
+      "t1_f1": 0.901909759,
+      "t2_f1": 0.998949170,
+      "t2_tp": 16636,
+      "t2_fp": 33,
+      "t2_fn": 2,
+      "t3_f1": 0.897693732,
+      "t3_tp": 8972,
+      "t3_fp": 482,
+      "t3_fn": 1563,
+      "t3_delta_vs_t49_pp": 1.3403,
+      "t3_fp_reduction_vs_t49_pct": 63.49
+    }
+  },
+  "cross_checks": {
+    "t3_f1_delta_vs_rc2_pp": 1.3403,
+    "t1_f1_delta_vs_red_line_pp": -0.4941,
+    "t2_f1_minus_artifact_exact": -1.016e-07,
+    "t3_f1_delta_vs_previous_tier_pp": 0.0242,
+    "t3_fp_change_vs_previous_tier": -10
+  },
+  "previous_tier": {
+    "sum_value": 14.0,
+    "superseded_by": 14.5,
+    "reason": "The even-grid coarse sweep (fine_abs_exclude-primary, floor 6..28 step 2) placed the peak on the grid point 14. The 0.5-step fine sweep (fine_abs_finer_exclude-primary) resolved the true peak at 14.5.",
+    "t2_f1": 0.9989491067407296,
+    "t2_fp": 32,
+    "t3_f1": 0.9108548788540661,
+    "t3_tp": 8966,
+    "t3_fp": 186,
+    "t3_fn": 1569
+  },
+  "provenance": {
+    "note": "Every number below is copied digit for digit from an existing artifact. Nothing in this package redefines a gate red line: the T1/T2/T3 thresholds and the hard-gate rule live upstream in the three-track gate chain and are only quoted here as observed values.",
+    "t1": {
+      "source": "/mnt/data/siping/runs/nogmc_t3/trials/trial_0049/gate/epoch20/gate_report.json",
+      "fields": "tracks.track1_uav.finetune_peak.f1 / .tp / .fp / .fn",
+      "red_line_source": "tracks.track1_uav.min_f1_required = 0.8958967482400269 (upstream; quoted, not defined here)",
+      "gate_independence": "T1 is not affected by the gate: the K2/K3 sweep measured only the T2 and T3 tracks, so the T1 value is carried over unchanged from the gate report."
+    },
+    "t2": {
+      "source": "/mnt/data/siping/runs/nogmc_t3/decision_sweep/fine_abs_finer_exclude-primary/sweep_results.json",
+      "fields": "rows[arm=t49, sum_mode=abs, sum_value=14.5, area_min=1, gate_stage=post, th_base=0.3] -> t2_f1 / t2_tp / t2_fp / t2_fn",
+      "artifact_exact_t2_f1": 0.9989791016094163,
+      "t2_gt": 16638,
+      "discrepancy_note": "The 'f1' field holds the 9-decimal display value 0.998979; the artifact field is 0.9989791016094163. The difference is -1.016e-07. Both clear the upstream hard gate (F1 >= 0.985, FP <= 112)."
+    },
+    "t3": {
+      "source": "/mnt/data/siping/runs/nogmc_t3/decision_sweep/fine_abs_finer_exclude-primary/sweep_results.json",
+      "fields": "rows[arm=t49, sum_mode=abs, sum_value=14.5, area_min=1, gate_stage=post, th_base=0.3] -> t3_f1 / t3_tp / t3_fp / t3_fn",
+      "artifact_exact_t3_f1": 0.9110964265744929,
+      "t3_gt": 10535,
+      "discrepancy_note": "The 'f1' field holds the 9-decimal display value 0.911096427; the artifact field is 0.9110964265744929."
+    },
+    "rc2": {
+      "source": "/mnt/data/siping/runs/nogmc_t3/CANDIDATE_COMPARISON.md",
+      "fields": "section 0 reference table, row 'RC2 = trial_0080 ep3'",
+      "discrepancy_note": "RC2 is a GMC-feature arm; it is a benchmark only and carries a different feature semantics. Its T2 F1 0.998949170 is RC2's own value and must not be mixed with trial_0049's T2."
+    },
+    "weights_md5": {
+      "source": "md5sum /mnt/data/siping/runs/nogmc_t3/trials/trial_0049/weights/epoch20.pt"
+    },
+    "gate_semantics": {
+      "source": "manu/evaluation/candidate_gate.py (read-only reference; md5 d57ff8b77e4e37448d2e0f096c0c25b7)",
+      "fields": "CandidateGate.mask / from_params / to_params, filter_merged_frames, apply_candidate_gate"
+    },
+    "frozen_delivery_params": {
+      "source": "manu/evaluation/system_sota_longquan_delivery_params.json",
+      "md5_of_source_file": "0ca8267f4ad340df11b3aa7d679d9068",
+      "note": "th_base = 0.30 and dedup_radius = 768.0 are inherited from the frozen delivery configuration and are NOT changed by this package."
+    },
+    "threshold_search": {
+      "coarse_sweep": {
+        "source": "/mnt/data/siping/runs/nogmc_t3/decision_sweep/fine_abs_exclude-primary",
+        "grid": "floor 6..28 step 2",
+        "verdict": "placed the peak on the grid point 14.0 -- a grid artifact, not the true peak"
+      },
+      "fine_sweep": {
+        "source": "/mnt/data/siping/runs/nogmc_t3/decision_sweep/fine_abs_finer_exclude-primary/sweep_results.json",
+        "generated_at": "2026-11-05 12:02:49",
+        "elapsed_s": 68.27721601596568,
+        "n_rows": 62,
+        "grid": "floor 11..17 step 0.5",
+        "scope": "arm=t49, sum_mode=abs, area_min=1, gate_stage=post, th_base=0.3, sum_quantile_scope=exclude-primary",
+        "verdict": "true peak at sum_value=14.5 (post), T3 F1 0.9110964265744929"
+      },
+      "platform": {
+        "note": "14.5..15.5 is a short plateau, not a knife edge",
+        "t3_f1": {
+          "15.5/pre": 0.911042164691521,
+          "14.5/pre": 0.911021901519386,
+          "15.5/post": 0.911005953289574,
+          "15.0/post": 0.910940440465897
+        }
+      }
+    },
+    "float_sensitivity": {
+      "risk": "sums is a floating-point accumulation of heatmap intensity over the connected component. A board implementation that accumulates in a different order or precision can produce slightly different sums values, so individual candidates sitting close to 14.5 can flip across the threshold.",
+      "server_reference": "The server accumulates the component integral in float64 (numpy bincount with float64 weights) and stores it as float32 in the cache; the gate then compares the stored float32 value against the float32 threshold.",
+      "measured_sensitivity": "Across the 0.5-step fine grid (post stage, 11..17) the largest adjacent-step change in T3 F1 is 0.000592 (13.5 -> 14.0); within the plateau neighbourhood 14.5 -> 16.0 the largest is 0.000222 (15.5 -> 16.0). A threshold perturbation of +/-0.25 around 14.5 moves T3 F1 by at most 0.000121 (interpolated: 14.25 -> 0.910975653, 14.75 -> 0.911018434), i.e. below 0.02 pp and far smaller than the gaps that separate the tiers.",
+      "plateau_safety": "The delivered point sits on the 14.5..15.5 plateau (0.911096427 / 0.910940440 / 0.911005953, spread 0.000156 F1 = 0.0156 pp). A board implementation that lands anywhere on that plateau keeps the tier ordering and the delivery conclusion.",
+      "worst_case_regression": "If the effective threshold drifted all the way to sums >= 16, T3 F1 would be 0.910784263830220 -- that is 0.0071 pp BELOW the superseded 14.0 tier (0.910854878854066), not above it, but still +1.3091 pp over RC2 (0.897693732) and still above 0.91.",
+      "contract_guidance": "Accumulate sums in float32 with a fixed, deterministic summation order (aligned with the server's numpy.float32 storage), and implement the comparison as 'sums >= 14.5f' with a configurable +/-0.1 tolerance so that a near-threshold candidate flip cannot silently change the tier."
+    }
+  },
+  "usage_notes": {
+    "enabled_default": "false -- the gate must be switched on explicitly by a downstream pipeline, exactly like manu/evaluation/system_sota_longquan_candgate_params.json.",
+    "difference_to_general_delivery_default": "The general delivery default tier is sum_value = 16.0 (the largest floor that keeps the T2 hard gate comfortable on BOTH arms). This package freezes 14.5 because 14.5 is the T3 optimum for trial_0049 specifically; 16.0 costs trial_0049 about 0.0312 pp of T3 F1 and is better for cs_t0008p2. The two tiers are arm-specific and must not be interchanged.",
+    "why_not_20": "sums >= 20 breaks the T2 hard gate on trial_0049 (T2 F1 0.978459 < 0.985). The safe delivery band for this arm remains 14..16.",
+    "corpus_scope": "Across every sweep artifact in /mnt/data/siping/runs/nogmc_t3/decision_sweep, the global maximum T3 F1 is this package's 0.9110964265744929. The quantile-gate family peaks lower, at 0.910940440465897, so it is now surpassed; but a quantile gate has no construction guarantee of out-of-sample behaviour, which the absolute energy floor does have. The 119 pure-weight gate_report.json products contain none above 0.91; their maximum is trial_0049 at 0.906392.",
+    "out_of_sample_basis": "sum_mode=abs is an absolute constant floor, so it carries no dataset-distribution calibration and needs no per-tag quantile table. That is a construction guarantee, not a measured property. sum_mode=tagq has no such guarantee: its threshold is a quantile of the energy population, and the in-sample optimum of that form failed out of sample."
+  }
+}

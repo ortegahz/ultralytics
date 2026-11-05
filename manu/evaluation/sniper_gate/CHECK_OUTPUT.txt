@@ -1,0 +1,41 @@
+# CHECK_OUTPUT.txt -- real local run of the sniper gate regression stub
+
+timestamp : 2026-11-05T12:17:10+08:00
+platform  : Linux 7.0.0-38-generic x86_64
+python    : 3.14.4 (/usr/bin/python3)
+numpy     : 2.5.4
+cwd       : /media/manu/1TB-Volume/workspace/ultralytics
+command   : python3 manu/evaluation/sniper_gate/test_sniper_gate.py
+
+--------------------------------------------------------------------------------
+sniper gate regression stub -- package /media/manu/1TB-Volume/workspace/ultralytics/manu/evaluation/sniper_gate
+  candidate_gate.py : /media/manu/1TB-Volume/workspace/ultralytics/manu/evaluation/candidate_gate.py
+  fusion dependency : shim (the gate predicate itself is always the real upstream code)
+  numpy             : 2.5.4
+------------------------------------------------------------------------------
+[PASS] A1 params package parses
+[PASS] A2 gate block is self-consistent
+[PASS] A3 cand_gate_block matches the gate block
+[PASS] A4 th_base stays frozen at 0.30
+[PASS] B1 EXPECTED.json agrees with the params file
+[PASS] B2 frozen constants are reproduced digit for digit
+[PASS] B3 sums>=14.5 is paired with the frozen T3 numbers
+[PASS] B4 RC2 comparison deltas are reproducible
+[PASS] B5 the delivered tier supersedes 14.0 and improves on it
+[PASS] C1 area<1 is rejected, area>=1 is kept
+[PASS] C2 sums<14.5 is rejected, sums>=14.5 is kept
+[PASS] C3 a tag outside tag_allow is rejected
+[PASS] C4 the fused row tag 255 is rejected
+[PASS] C5 the gate predicate is score independent
+[PASS] C6 th_base uses >= semantics (0.30 kept, 0.29 dropped)
+[PASS] C7 apply_candidate_gate keeps the survivor order
+[PASS] D1 a disabled gate builds no gate
+[PASS] D2 the closed gate is bit for bit identical to the pre-gate pool
+[PASS] D3 an enabled gate that rejects nothing changes nothing
+[PASS] D4 the open gate filters exactly the non-compliant candidates
+[PASS] D5 the disabled gate does not touch the frozen chain
+------------------------------------------------------------------------------
+[PASS] all 21 checks passed
+
+--------------------------------------------------------------------------------
+exit code : 0

@@ -1,4 +1,4 @@
-# Skill Registry · 领域迁移工程方法论（5 个可插拔专业工具包）
+# Skill Registry · 领域迁移工程方法论（6 个可插拔专业工具包）
 
 > **定位**：本目录是**"怎么做"（SOP）**的唯一真值；`manu/memory/` 是**"做过什么 / 当前是什么"**（事实）。
 > 二者严格分工：事实进 memory，方法进 skill。**不要在 skill 里写实验历史，也不要在 memory 里写操作步骤。**
@@ -6,7 +6,7 @@
 
 ---
 
-## 1. 五个 Skill 速查
+## 1. 六个 Skill 速查
 
 | # | Skill | 一句话能力 | 典型触发语 |
 |:--|:--|:--|:--|
@@ -14,7 +14,8 @@
 | 2 | **`mixed-ft-orchestrator`**<br>(混合微调流水线) | 路线 B 全帧对等混训的启动与调度标准：冻结策略、采样器口径、退火周期绑定 | "起一次混训"、"配比怎么定"、"1:4 到底怎么实现"、"正式训练怎么跑"、"换新场景先动哪个参数" |
 | 3 | **`three-track-gatekeeper`**<br>(三轨门禁与裁决) | 三轨评测 + 一级双通道红线 → 二级帕累托 → 三级同基准 U 的**串行**漏斗判决 | "给模型过门禁"、"这个 checkpoint 能不能上线"、"候选和 RC1 比谁好"、"三级漏斗判一下"、"是不是复现了" |
 | 4 | **`hparam-search-operator`**<br>(超参搜索操作规程) | Optuna 多卡并发搜索的启动、守护、断点续跑、异常熔断与结果收割 | "起一轮超参搜索"、"搜索怎么停了"、"断点续跑"、"trial 报错了怎么办"、"能不能加个参数维度" |
-| 5 | **`codex-handoff-to-server`**<br>(对话跨机交接规程) | 把当前 Codex 对话交接到训练服务器：cwd 匹配可见性规则、adopt/import/resume 三步机制、host 一行命令传输、无网只读验收、agent 无网时的 git 钩子触发器 | "把对话交接到服务器"、"让服务器接着干"、"host 要关机了"、"服务器上的对话是空的"、"为什么这个线程在服务器上看不见" |
+| 5 | **`codex-handoff-to-server`**<br>(Codex 对话跨机交接规程) | 把当前 Codex 对话交接到训练服务器：cwd 匹配可见性规则、adopt/import/resume 三步机制、host 一行命令传输、无网只读验收、agent 无网时的 git 钩子触发器 | "把对话交接到服务器"、"让服务器接着干"、"host 要关机了"、"服务器上的对话是空的"、"为什么这个线程在服务器上看不见" |
+| 6 | **`mcode-session-handoff`**<br>(MCode 对话跨机交接规程) | 把当前 MCode/MiniMax Code 对话交接到训练服务器：v2/sessions + runtime-state.sqlite 双写布局、workspace_dir 可见性规则、搬运清单（含 checkpoint 行）、activeRevision 指纹算法与三个坑、一键命令 + 只读验收 | "把 mcode 对话交接到服务器"、"让服务器接着干"、"服务器上看不见这个会话"、"mcode 会话怎么搬"、"会话迁移到训练机" |
 
 ---
 
@@ -26,7 +27,7 @@
 | "我已经训完了，这个模型能不能上线" | `three-track-gatekeeper` |
 | "帮我跑一轮配比搜索" | `hparam-search-operator`（先读 `mixed-ft-orchestrator` 确认搜索空间口径） |
 | "为什么这个 trial 分数这么高/这么低" | `hparam-search-operator`（收割与口径） + `three-track-gatekeeper`（判决） |
-| "host 要关机了，把这个对话弄到服务器去" | `codex-handoff-to-server`（**与检测流水线无关**，只管会话搬移） |
+| "host 要关机了，把这个对话弄到服务器去" | `codex-handoff-to-server`（Codex 侧）/ `mcode-session-handoff`（MCode 侧）——**与检测流水线无关**，只管会话搬移 |
 | "这个数字是哪来的 / 之前做过什么" | **不调 skill** → 读 `manu/memory/memory.md` + `manu/memory/archive/` |
 
 ⚠️ **边界**：门禁/搜索 skill **不负责**数据标注，训练 skill **不负责**上线判决。

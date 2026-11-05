@@ -21,7 +21,7 @@
     "usage": "python manu/evaluation/system_sota_longquan.py --params-json <this file> --seqs <pool> ...  The behaviour is identical to the frozen file while cand_gate.enabled is false.",
     "cand_gate": {
       "what": "A per-candidate predicate applied to the candidates that survived the cross-scale de-duplication (gate_stage=post): area >= area_min AND sums >= sum_value AND tag in tag_allow.",
-      "form": "sum_mode='abs': an ABSOLUTE energy floor (sums >= 10.0).  It is a hard constant, so it does not depend on any dataset distribution and needs no per-tag quantile table (thresholds is empty).  This makes it the distribution-free form of the gate and the one that can be shipped as a fixed threshold.  The per-tag quantile form lives in the separate file manu/evaluation/system_sota_longquan_candgate_oos.json.",
+      "form": "sum_mode='abs': an ABSOLUTE energy floor (sums >= 16.0).  It is a hard constant, so it does not depend on any dataset distribution and needs no per-tag quantile table (thresholds is empty).  This makes it the distribution-free form of the gate and the one that can be shipped as a fixed threshold.  The per-tag quantile form lives in the separate file manu/evaluation/system_sota_longquan_candgate_oos.json.",
       "how_the_threshold_was_chosen": "The absolute floor was picked on the evaluation pools of the out-of-sample sweep (decision_sweep/20261105_093017_k2k3_oos).  It was chosen on the evaluation set, therefore the evidence as a whole stays EXPLORATORY -- but, unlike a quantile, the constant itself carries no dataset-specific calibration, so it transfers between arms and sequences.",
       "status": "EXPLORATORY EVIDENCE -- NOT RELEASED, NOT ONLINE, NOT A DELIVERY",
       "evidence": {
@@ -230,12 +230,12 @@
       "enabled": false,
       "area_min": 1,
       "sum_mode": "abs",
-      "sum_value": 10.0,
+      "sum_value": 16.0,
       "tag_allow": [0, 1, 2],
       "gate_stage": "post",
       "thresholds": {},
-      "threshold_scope": "not applicable: the absolute energy floor is a hard constant (sums >= 10.0), it does not depend on any dataset distribution and therefore needs no per-tag quantile table",
-      "reference_arm": "both delivery members (cs_t0008p2 = runs/nogmc_t3/swa/gate/cs_t0008p2, trial_0049 = runs/nogmc_t3/trials/trial_0049/gate/epoch20).  The floor 10.0 is the only absolute value that keeps the T2 hard gate on BOTH arms; the stricter 20.0 is better on cs_t0008p2 (T3 +1.0213 pp) but BREAKS the T2 hard gate on trial_0049 (T2 F1 0.9785 < 0.985) and is therefore not shipped as the default.",
+      "threshold_scope": "not applicable: the absolute energy floor is a hard constant (sums >= 16.0), it does not depend on any dataset distribution and therefore needs no per-tag quantile table",
+      "reference_arm": "both delivery members (cs_t0008p2 = runs/nogmc_t3/swa/gate/cs_t0008p2, trial_0049 = runs/nogmc_t3/trials/trial_0049/gate/epoch20).  A fine out-of-sample sweep of the absolute floor (6..28, decision_sweep/fine_abs_exclude-primary) shows 16.0 is the largest floor that keeps the T2 hard gate comfortable on BOTH arms: cs_t0008p2 T3 0.880177210 (T2 0.999009/FP29 PASS) and trial_0049 T3 0.910784264 (T2 0.998979/FP31 PASS).  18.0 is marginally better on cs_t0008p2 (T3 0.880383762) but thins the T2 margin to 0.995964; 20.0 BREAKS the T2 hard gate on trial_0049 (T2 F1 0.978459 < 0.985) and is therefore not shipped.",
       "note": "The gate is a post-processing step on the merged candidate pool (after the cross-scale de-duplication, before the score threshold).  It changes no frozen parameter: th_base, dedup_radius and the rest of the params block are byte-identical to the frozen delivery file.  The gate ships DISABLED -- see _provenance.cand_gate.evidence for the measured numbers and for the arm each configuration is valid on."
     }
   }

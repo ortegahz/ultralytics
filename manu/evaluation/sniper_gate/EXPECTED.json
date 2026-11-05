@@ -1,0 +1,118 @@
+{
+  "schema_version": "sniper_gate_expected/1.1",
+  "package": "sniper_gate_trial_0049",
+  "purpose": "Frozen regression baseline for the high-precision sniper gate package. Kept separate from sniper_gate_params.json so that a baseline comparison does not depend on the parameter file being loaded correctly.",
+  "enabled": false,
+  "gate": {
+    "area_min": 1,
+    "sum_mode": "abs",
+    "sum_value": 14.5,
+    "gate_stage": "post",
+    "tag_allow": [0, 1, 2],
+    "th_base": 0.30
+  },
+  "upstream": {
+    "arm": "trial_0049",
+    "epoch": 20,
+    "weights_path": "/mnt/data/siping/runs/nogmc_t3/trials/trial_0049/weights/epoch20.pt",
+    "weights_md5": "93627d0605c5865701b0a75d855faf0b"
+  },
+  "expected": {
+    "t1": {
+      "f1": 0.8909556600604635,
+      "tp": 21219,
+      "fp": 1302,
+      "fn": 3892,
+      "f1_vs_upstream_red_line_pp": -0.4941,
+      "passes_upstream_red_line": false
+    },
+    "t2": {
+      "f1": 0.998979,
+      "f1_artifact_exact": 0.9989791016094163,
+      "tp": 16635,
+      "fp": 31,
+      "fn": 3,
+      "passes_upstream_hard_gate": true
+    },
+    "t3": {
+      "f1": 0.911096427,
+      "f1_artifact_exact": 0.9110964265744929,
+      "tp": 8962,
+      "fp": 176,
+      "fn": 1573
+    },
+    "rc2": {
+      "arm": "trial_0080",
+      "epoch": 3,
+      "t1_f1": 0.901909759,
+      "t2_f1": 0.998949170,
+      "t2_tp": 16636,
+      "t2_fp": 33,
+      "t2_fn": 2,
+      "t3_f1": 0.897693732,
+      "t3_tp": 8972,
+      "t3_fp": 482,
+      "t3_fn": 1563,
+      "t3_delta_vs_t49_pp": 1.3403,
+      "t3_fp_reduction_vs_t49_pct": 63.49
+    }
+  },
+  "cross_checks": {
+    "t3_f1_delta_vs_rc2_pp": 1.3403,
+    "t1_f1_delta_vs_red_line_pp": -0.4941,
+    "t2_f1_minus_artifact_exact": -1.016e-07,
+    "t3_f1_delta_vs_previous_tier_pp": 0.0242,
+    "t3_fp_change_vs_previous_tier": -10
+  },
+  "previous_tier": {
+    "sum_value": 14.0,
+    "superseded_by": 14.5,
+    "reason": "The even-grid coarse sweep placed the peak on the grid point 14; the 0.5-step fine sweep resolved the true peak at 14.5.",
+    "t2_f1": 0.9989491067407296,
+    "t2_fp": 32,
+    "t3_f1": 0.9108548788540661,
+    "t3_tp": 8966,
+    "t3_fp": 186,
+    "t3_fn": 1569
+  },
+  "sources": {
+    "t1": "/mnt/data/siping/runs/nogmc_t3/trials/trial_0049/gate/epoch20/gate_report.json :: tracks.track1_uav.finetune_peak.{f1,tp,fp,fn}; red line tracks.track1_uav.min_f1_required = 0.8958967482400269 (upstream value, quoted not defined here)",
+    "t2": "/mnt/data/siping/runs/nogmc_t3/decision_sweep/fine_abs_finer_exclude-primary/sweep_results.json :: rows[arm=t49, sum_mode=abs, sum_value=14.5, area_min=1, gate_stage=post, th_base=0.3].{t2_f1,t2_tp,t2_fp,t2_fn}",
+    "t3": "/mnt/data/siping/runs/nogmc_t3/decision_sweep/fine_abs_finer_exclude-primary/sweep_results.json :: rows[arm=t49, sum_mode=abs, sum_value=14.5, area_min=1, gate_stage=post, th_base=0.3].{t3_f1,t3_tp,t3_fp,t3_fn}",
+    "rc2": "/mnt/data/siping/runs/nogmc_t3/CANDIDATE_COMPARISON.md :: section 0 reference table, row 'RC2 = trial_0080 ep3'",
+    "weights_md5": "md5sum /mnt/data/siping/runs/nogmc_t3/trials/trial_0049/weights/epoch20.pt",
+    "gate_semantics": "manu/evaluation/candidate_gate.py (read-only reference)",
+    "threshold_search": "/mnt/data/siping/runs/nogmc_t3/decision_sweep/fine_abs_finer_exclude-primary/sweep_results.json :: meta.generated_at=2026-11-05 12:02:49, meta.elapsed_s=68.27721601596568, 62 rows, sum_quantile_scope=exclude-primary"
+  },
+  "float_sensitivity": {
+    "risk": "sums is a floating-point accumulation of heatmap intensity over the connected component. A board implementation that accumulates in a different order or precision can produce slightly different sums values, so individual candidates sitting close to 14.5 can flip across the threshold.",
+    "server_reference": "The server accumulates the component integral in float64 (numpy bincount with float64 weights) and stores it as float32 in the cache; the gate then compares the stored float32 value against the float32 threshold.",
+    "measured_sensitivity": "Across the 0.5-step fine grid (post stage, 11..17) the largest adjacent-step change in T3 F1 is 0.000592 (13.5 -> 14.0); within the plateau neighbourhood 14.5 -> 16.0 the largest is 0.000222 (15.5 -> 16.0). A threshold perturbation of +/-0.25 around 14.5 moves T3 F1 by at most 0.000121 (interpolated: 14.25 -> 0.910975653, 14.75 -> 0.911018434), i.e. below 0.02 pp and far smaller than the gaps that separate the tiers.",
+    "plateau_safety": "The delivered point sits on the 14.5..15.5 plateau (0.911096427 / 0.910940440 / 0.911005953, spread 0.000156 F1 = 0.0156 pp). A board implementation that lands anywhere on that plateau keeps the tier ordering and the delivery conclusion.",
+    "worst_case_regression": "If the effective threshold drifted all the way to sums >= 16, T3 F1 would be 0.910784263830220 -- that is 0.0071 pp BELOW the superseded 14.0 tier (0.910854878854066), not above it, but still +1.3091 pp over RC2 (0.897693732) and still above 0.91.",
+    "contract_guidance": "Accumulate sums in float32 with a fixed, deterministic summation order (aligned with the server's numpy.float32 storage), and implement the comparison as 'sums >= 14.5f' with a configurable +/-0.1 tolerance so that a near-threshold candidate flip cannot silently change the tier."
+  },
+  "discrepancies": [
+    {
+      "field": "expected.t2.f1",
+      "display_value": 0.998979,
+      "artifact_exact": 0.9989791016094163,
+      "note": "The 'f1' field holds the 9-decimal display value; the artifact field is the full-precision value. The difference is -1.016e-07 and both clear the upstream hard gate identically."
+    },
+    {
+      "field": "expected.t3.f1",
+      "display_value": 0.911096427,
+      "artifact_exact": 0.9110964265744929,
+      "note": "Same convention: the 'f1' field holds the 9-decimal display value, the artifact field the full precision."
+    },
+    {
+      "field": "expected.rc2.t2_f1",
+      "value": 0.998949170,
+      "note": "This is RC2's (trial_0080 ep3) own T2 F1 and must NOT be mixed with trial_0049's T2 (0.9989791016094163). The two arms have different T2 TP/FP/FN (16636/33/2 vs 16635/31/3)."
+    },
+    {
+      "field": "previous_tier vs delivered tier",
+      "note": "The superseded 14.0 tier came from an even-grid coarse sweep (floor 6..28 step 2) and was a grid artifact. The 0.5-step fine sweep (fine_abs_finer_exclude-primary, generated 2026-11-05 12:02:49, 62 rows) resolved the true peak at 14.5."
+    }
+  ]
+}
