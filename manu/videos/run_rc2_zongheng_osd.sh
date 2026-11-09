@@ -42,6 +42,7 @@ OLD_OSD="$DATA_ROOT/纵横AI数据采集_osd"
 OUT="${OUT:-$DATA_ROOT/纵横AI数据采集_osd_rc2_20261109}"
 SHARDS="${SHARDS:-4}"
 DEVICES="${DEVICES:-}"          # 空 = 分片 i 用 GPU i；否则逗号分隔的卡号列表
+RESUME="${RESUME:-0}"           # 1 = 允许在非空输出目录上续跑（已完成的跳过，半截的重渲）
 LIMIT="${LIMIT:-0}"
 BATCH="${BATCH:-8}"
 TH="${TH:-0.44}"
@@ -58,12 +59,20 @@ echo " 帧源 mp4: $NV 个"
 if [ "$NV" -ne 58 ]; then
   echo "[WARN] 帧源不是预期的 58 个，实际 $NV"
 fi
-if [ -e "$OUT" ] && [ -n "$(ls -A "$OUT" 2>/dev/null)" ]; then
-  echo "[FAIL] 输出目录已存在且非空: $OUT —— 换一个 OUT，绝不覆盖既有 OSD"
-  exit 1
-fi
 mkdir -p "$OUT/logs"
 echo " 旧 OSD（只读，不动）: $OLD_OSD ($(ls -1 "$OLD_OSD"/*.mp4 2>/dev/null | wc -l) 个 mp4)"
+
+# 目录保护：**空目录**才允许开跑；非空目录只在「全是已完成的视频」时按续跑处理。
+# 判定「已完成」= MP4 与其每帧记录**都**存在（记录只在视频渲完后落盘 ⇒ 半截文件会被识别出来）。
+if [ -d "$OUT" ] && [ -n "$(ls -A "$OUT" 2>/dev/null)" ]; then
+  if [ "$RESUME" = "1" ]; then
+    echo " 输出目录已存在，按 RESUME=1 续跑（已完成的视频会被跳过，半截的会重渲）"
+  else
+    echo "[FAIL] 输出目录已存在且非空: $OUT —— 换一个 OUT，绝不覆盖既有 OSD"
+    echo "       （确需在**同一目录**上续跑时加 RESUME=1）"
+    exit 1
+  fi
+fi
 
 echo
 echo "=============================================================="

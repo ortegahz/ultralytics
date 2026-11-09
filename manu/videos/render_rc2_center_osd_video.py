@@ -214,7 +214,15 @@ def collect_jobs(args: argparse.Namespace) -> list[tuple[Path, Path]]:
         taken[name] = video
         output = output_dir / name
         if args.skip_existing and output.exists():
-            continue
+            # A video that already has an output is skipped -- but only if it was **finished**.
+            # A half-written MP4 (the process died mid-render) must be re-rendered, otherwise the
+            # review set silently contains a truncated video. The per-frame record file is written
+            # only after the video completes, so its presence is the completion marker.
+            if args.out_frames_dir:
+                record = Path(args.out_frames_dir) / f"{video.stem}.jsonl"
+                if record.exists():
+                    continue
+            output.unlink(missing_ok=True)
         jobs.append((video, output))
     return jobs
 
