@@ -26,6 +26,21 @@ The proposals are the RC2 **fused multi-scale detections at the delivery working
 same points the reviewer sees in the OSD video. They are *proposals*, not truth: the human edits
 them. A proposal that lands on nothing should simply be deleted in the UI.
 
+Coordinate space
+----------------
+The detections live in the model's **native 640x512 grid** (the letterbox cropped back), but the
+web annotator displays the **raw 1920x1080 video**. Writing native coordinates straight into the
+label file would silently misplace every proposal by a factor of two plus a 320px shift, so the
+space is an explicit choice:
+
+* ``--frame-space full`` (default) — raw video pixels. Use this when the annotator scans the mp4
+  files directly, which is what ``VideoSequence`` does.
+* ``--frame-space native`` — the model's 640x512 grid. Use this when the annotator scans a frame
+  directory that was extracted with the same crop.
+
+The mapping is the exact inverse of ``restore_native``:
+``full_x = crop_left + native_x * crop_width / native_width`` (and likewise for y).
+
 Usage
 -----
     python manu/data/build_zongheng_prelabels.py \
@@ -55,8 +70,23 @@ def parse_args() -> argparse.Namespace:
         help="Directory of <sequence>.jsonl per-frame detection records written by the RC2 OSD renderer",
     )
     parser.add_argument("--out", required=True, help="Output directory for the pre-labels")
+    parser.add_argument(
+        "--frame-space",
+        choices=("full", "native"),
+        default="full",
+        help=(
+            "'full' (default) writes raw video pixels, for an annotator that scans the mp4 files; "
+            "'native' writes the model's 640x512 grid, for an annotator that scans cropped frames"
+        ),
+    )
     parser.add_argument("--native-width", type=int, default=640)
     parser.add_argument("--native-height", type=int, default=512)
+    parser.add_argument("--crop-left", type=int, default=320)
+    parser.add_argument("--crop-top", type=int, default=0)
+    parser.add_argument("--crop-width", type=int, default=1280)
+    parser.add_argument("--crop-height", type=int, default=1024)
+    parser.add_argument("--full-width", type=int, default=1920)
+    parser.add_argument("--full-height", type=int, default=1080)
     parser.add_argument("--min-visible", type=float, default=0.10, help="Minimum visible fraction of a proposal")
     parser.add_argument(
         "--min-score",
@@ -74,6 +104,22 @@ def main() -> None:
         raise SystemExit(f"not a directory: {frames_dir}")
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+
+    # The records live on the model's native grid; the annotator may want raw video pixels.
+    # This is the exact inverse of restore_native() in the renderer.
+    if args.frame_space == "full":
+        scale_x = args.crop_width / args.native_width
+        scale_y = args.crop_height / args.native_height
+        offset_x, offset_y = args.crop_left, args.crop_top
+        label_width, label_height = args.full_width, args.full_height
+    else:
+        scale_x = scale_y = 1.0
+        offset_x = offset_y = 0
+        label_width, label_height = args.native_width, args.native_height
+    print(
+        f"[INFO] frame space = {args.frame_space} | label canvas {label_width}x{label_height} | "
+        f"native->label scale ({scale_x:g}, {scale_y:g}) offset ({offset_x}, {offset_y})"
+    )
 
     sources = sorted(frames_dir.glob("*.jsonl"))
     if not sources:
@@ -94,17 +140,22 @@ def main() -> None:
                 detections = [
                     item for item in (record.get("detections") or []) if float(item["score"]) >= args.min_score
                 ]
-                boxes = [
-                    {
-                        "cls": 0,
-                        "x1": float(item["cx"]) - float(item["w"]) / 2.0,
-                        "y1": float(item["cy"]) - float(item["h"]) / 2.0,
-                        "x2": float(item["cx"]) + float(item["w"]) / 2.0,
-                        "y2": float(item["cy"]) + float(item["h"]) / 2.0,
-                    }
-                    for item in detections
-                ]
-                payload = format_yolo(boxes, args.native_width, args.native_height, args.min_visible)
+                boxes = []
+                for item in detections:
+                    cx = float(item["cx"]) * scale_x + offset_x
+                    cy = float(item["cy"]) * scale_y + offset_y
+                    bw = float(item["w"]) * scale_x
+                    bh = float(item["h"]) * scale_y
+                    boxes.append(
+                        {
+                            "cls": 0,
+                            "x1": cx - bw / 2.0,
+                            "y1": cy - bh / 2.0,
+                            "x2": cx + bw / 2.0,
+                            "y2": cy + bh / 2.0,
+                        }
+                    )
+                payload = format_yolo(boxes, label_width, label_height, args.min_visible)
                 if not payload:
                     continue
                 index = int(record["frame"])

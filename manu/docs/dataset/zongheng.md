@@ -46,12 +46,18 @@
 | 产物 | 路径 | 说明 |
 |:--|:--|:--|
 | 复核视频 | `/mnt/data/siping/datasets/manu/纵横AI数据采集_osd_rc2_20261109/<SEQ>_osd.mp4` | 58 条，1920×1080，左主画面 + 右 48px 局部放大 |
-| 每帧检测记录 | `.../纵横AI数据采集_osd_rc2_20261109/frames/<SEQ>.jsonl` | 每帧一行：`{sequence, video, frame, detections:[{cx, cy, score}]}`，原生像素 |
+| 每帧检测记录 | `.../纵横AI数据采集_osd_rc2_20261109/frames/<SEQ>.jsonl` | 每帧一行：`{sequence, video, frame, detections:[{cx, cy, w, h, score}]}`，**原生 640×512 像素** |
 | 分片统计 | `.../summary_shard{0..3}.json` | 每条序列的帧数 / 检出帧数 / 检出数 / 首末检出帧 |
 | 序列划分 | `manu/data/zongheng_ft_split.json` | 见 §4 |
 | 人工复核底稿 | `manu/docs/dataset/zongheng-tk.md` | `# pass` / `# unpass` 格式，同 `long-quan-tk.md` |
+| 标注候选 | `/mnt/data/siping/datasets/manu/纵横AI数据采集_preannot_rc2` | web 标注器可直接读的 `<SEQ>__<帧号>.txt` + `scores.json` |
 
 **旧 OSD `/mnt/data/siping/datasets/manu/纵横AI数据采集_osd`（trial_0474 时代）保持不动**，新产物一律进新目录。
+
+🔴 **坐标空间必须对齐**：每帧记录在**原生 640×512** 网格上，而 web 标注器显示的是**原始 1920×1080** 视频。
+直接写原生坐标会让每个候选整体偏移（2 倍 + 320px）。预标注导出器默认 `--frame-space full`
+（`full_x = crop_left + native_x * crop_width / native_width`），已用真实视频逐帧比对验证。
+若标注器扫的是**裁剪后的帧目录**，则要改用 `--frame-space native`。
 
 ## 4. 序列划分的口径
 
@@ -81,6 +87,27 @@
   交付/评测前用 `python -m manu.annotate.export_labels` 转扁平 `<seq>__<idx>.txt`。
 * 训练集构建用 `manu/data/build_longquan_ft_dataset.py --split-config manu/data/zongheng_ft_split.json`
   （`ignore` 桶不构建）。
+
+### 6.1 怎么把标注器挂上这个域
+
+web 标注器既可以扫 mp4（`VideoSequence`），也可以扫帧目录（`ImageDirSequence`）：
+
+* **扫 mp4**（推荐，零抽帧开销）⇒ 标注坐标在 **1920×1080** ⇒ 预标注用 `--frame-space full`（默认）。
+  注意标注器 worker 自己走的是**另一条口径**（`worker_infer.py` 不做裁剪、也不做跨尺度合并），
+  所以**本域的预标注用本仓库的 RC2 记录导出**，不要点标注器自带的「预标注」。
+* **扫裁剪后的帧目录**（`extract_video_frames.py --restore-native`）⇒ 坐标在 **640×512** ⇒ 预标注用
+  `--frame-space native`。
+
+启动示例：
+
+```bash
+python -m manu.annotate.server \
+  --root /mnt/data/siping/datasets/manu/纵横AI数据采集_mp4 \
+  --workspace /home/manu/mnt/pycharm_project_10ae9e2e/manu/annotate_workspace \
+  --port 8777
+# 预标注（只读挂载）
+--prelabel-source /mnt/data/siping/datasets/manu/纵横AI数据采集_preannot_rc2 --prelabel-class 0
+```
 
 ## 7. 复现命令
 
