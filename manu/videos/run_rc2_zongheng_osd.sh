@@ -35,8 +35,13 @@ conda activate uav
 DATA_ROOT=/mnt/data/siping/datasets/manu
 SRC="$DATA_ROOT/纵横AI数据采集_mp4"
 OLD_OSD="$DATA_ROOT/纵横AI数据采集_osd"
+# Default = the RC2 delivery working point (th 0.44 / r 768), measured on the real Longquan RC2 cache.
+# A lower threshold (e.g. TH=0.20) is the *sensitive* variant: more frames carry a detection centre,
+# which is what a reviewer wants when the point is to catch every candidate. Give it its OWN output
+# directory (OUT=) so the two working points never overwrite each other.
 OUT="${OUT:-$DATA_ROOT/纵横AI数据采集_osd_rc2_20261109}"
 SHARDS="${SHARDS:-4}"
+DEVICES="${DEVICES:-}"          # 空 = 分片 i 用 GPU i；否则逗号分隔的卡号列表
 LIMIT="${LIMIT:-0}"
 BATCH="${BATCH:-8}"
 TH="${TH:-0.44}"
@@ -62,10 +67,14 @@ echo " 旧 OSD（只读，不动）: $OLD_OSD ($(ls -1 "$OLD_OSD"/*.mp4 2>/dev/n
 
 echo
 echo "=============================================================="
-echo " 1. 渲染（$SHARDS 分片，每片一卡）"
+echo " 1. 渲染（$SHARDS 分片）"
 echo "=============================================================="
+# DEVICES 允许把分片映射到**指定的** GPU 列表（例如另一条训练臂占着 1 号卡时
+# 写 DEVICES="0,2,3"），分片序号与卡号解耦。
+IFS=',' read -r -a DEV_ARR <<< "$DEVICES"
 PIDS=()
 for ((i = 0; i < SHARDS; i++)); do
+  DEV="${DEV_ARR[$i]:-$i}"
   python manu/videos/render_rc2_center_osd_video.py \
     --input-root "$SRC" \
     --output-dir "$OUT" \
@@ -75,14 +84,14 @@ for ((i = 0; i < SHARDS; i++)); do
     --merge-radius "$RADIUS" \
     --batch-size "$BATCH" \
     --cpu-threads 2 \
-    --device "$i" \
+    --device "$DEV" \
     --limit "$LIMIT" \
     --skip-existing \
     --out-json "$OUT/summary_shard$i.json" \
     --out-frames-dir "$OUT/frames" \
     > "$OUT/logs/shard$i.log" 2>&1 &
   PIDS+=($!)
-  echo " shard $i/$SHARDS -> pid ${PIDS[-1]} (gpu $i)"
+  echo " shard $i/$SHARDS -> pid ${PIDS[-1]} (gpu $DEV)"
 done
 
 RC=0

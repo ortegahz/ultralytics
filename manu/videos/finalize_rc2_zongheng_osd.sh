@@ -13,14 +13,16 @@ source /home/huangzhe/anaconda3/etc/profile.d/conda.sh
 conda activate uav
 export PYTHONPATH=.
 
-OUT=/mnt/data/siping/datasets/manu/纵横AI数据采集_osd_rc2_20261109
+OUT="${OUT:-/mnt/data/siping/datasets/manu/纵横AI数据采集_osd_rc2_20261109}"
 FRAMES="$OUT/frames"
-LOG=/mnt/data/siping/runs/zongheng_rc2_osd_20261109.log
-SPLIT_LOCAL=manu/data/zongheng_ft_split.json
-REVIEW_LOCAL=manu/docs/dataset/zongheng-tk.md
-PRELABEL_OUT=/mnt/data/siping/datasets/manu/纵横AI数据采集_preannot_rc2
+LOG="${LOG:-/mnt/data/siping/runs/zongheng_rc2_osd_20261109.log}"
+SPLIT_LOCAL="${SPLIT_LOCAL:-manu/data/zongheng_ft_split.json}"
+REVIEW_LOCAL="${REVIEW_LOCAL:-manu/docs/dataset/zongheng-tk.md}"
+PRELABEL_OUT="${PRELABEL_OUT:-/mnt/data/siping/datasets/manu/纵横AI数据采集_preannot_rc2}"
 
 echo "[FINALIZE] $(date '+%F %T') waiting for the render to finish..."
+echo "[FINALIZE] out=$OUT"
+echo "[FINALIZE] split=$SPLIT_LOCAL review=$REVIEW_LOCAL prelabels=$PRELABEL_OUT"
 
 # 等渲染进程全部退出（最长等 6 小时）
 for i in $(seq 1 720); do
