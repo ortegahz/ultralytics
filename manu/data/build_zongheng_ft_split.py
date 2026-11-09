@@ -167,6 +167,9 @@ def build_manifest(sequences: dict[str, dict], args: argparse.Namespace) -> dict
             "sequence": name,
             "role": role,
             "note": note,
+            # The template's per-sequence metric field. This domain has no GT yet, so it stays null
+            # until the annotation pass fills it in -- same field name, no new name invented.
+            "single_frame_f1": None,
             "detection_coverage": round(bucket["coverage"], 4),
             "frames": bucket["frames"],
             "frames_with_detection": bucket["det_frames"],
@@ -176,6 +179,21 @@ def build_manifest(sequences: dict[str, dict], args: argparse.Namespace) -> dict
             "last_detected_frame": bucket["last"] if bucket["last"] is not None else -1,
         }
         groups[group].append(entry)
+
+    # The template keeps one absolute hold-out in val (role blind_hardcase, absolute_holdout=true) so the
+    # blind set is never touched while the rest of the domain is being curated. The sequence to reserve
+    # is a human decision -- it has to be one the annotator has never worked on -- so the slot is reserved
+    # here and the choice is recorded as pending rather than invented here.
+    if groups["val"]:
+        reserve = groups["val"].pop()  # the last one by sort order, so the choice is explicit and stable
+        reserve["role"] = "blind_hardcase"
+        reserve["note"] = (
+            "【待人工指定】本序列从 val 池中预留为**绝对留出盲测**（absolute_holdout=true）："
+            "标注阶段不得先看它，训练/调参一律不碰；具体选哪一条由人工复核拍板后改写本条。"
+            f"原始归类依据：{reserve['note']}"
+        )
+        reserve["absolute_holdout"] = True
+        groups["val"].append(reserve)
 
     total_frames = sum(bucket["frames"] for bucket in sequences.values())
     total_det_frames = sum(bucket["det_frames"] for bucket in sequences.values())
@@ -274,30 +292,68 @@ def build_manifest(sequences: dict[str, dict], args: argparse.Namespace) -> dict
                 "note": "本域只用单帧检测（无 track），与用户要求一致",
             },
             "golden_pool_single_frame": {
-                "f1": 0.9884359729262149,
-                "tp": 16283,
-                "fp": 26,
-                "fn": 355,
-                "gt": 16638,
-                "frames": 17187,
-                "recall": 0.9786633008775093,
-                "precision": 0.998405788215096,
-                "far_per_frame": 0.0015127712806190725,
+                "gt": 0,
+                "f1": None,
+                "tp": None,
+                "fp": None,
+                "fn": None,
+                "frames": None,
+                "recall": None,
+                "precision": None,
+                "far_per_frame": None,
                 "semantics": "official",
-                "note": "龙泉山黄金池单帧基线（非本域指标），用于对照 RC2 在有 GT 域上的表现",
+                "note": (
+                    "本域黄金池的冻结单帧基线。**本域尚未标注 ⇒ gt=0、其余指标为 null**，"
+                    "标注完成后回填真实数值（键名沿用龙泉山，见 domain-data-curator SKILL 步骤 2）。"
+                    "注意：gt=0 时 GT 对账会**平凡通过**（数据集 0 行 == baseline 0 行）—— "
+                    "这只是占位，真正的对账要等标注回填后才成立。"
+                ),
             },
             "blind_001324_single_frame": {
-                "f1": 0.8373308251032032,
-                "tp": 8012,
-                "fp": 590,
-                "fn": 2523,
-                "gt": 10535,
-                "frames": 11810,
-                "recall": 0.7605125771238728,
-                "precision": 0.9314112996977447,
-                "far_per_frame": 0.04995766299745978,
+                "gt": 0,
+                "f1": None,
+                "tp": None,
+                "fp": None,
+                "fn": None,
+                "frames": None,
+                "recall": None,
+                "precision": None,
+                "far_per_frame": None,
                 "semantics": "official",
-                "note": "龙泉山独立难例盲测单帧基线（非本域指标）",
+                "note": (
+                    "本域独立难例盲测序列的冻结单帧基线。同样**待标注后回填**（gt=0）。"
+                    "本域当前**没有**指定 blind_hardcase 序列（该 role 需人工复核后指定）。"
+                ),
+            },
+            "longquan_reference": {
+                "note": (
+                    "以下是**龙泉山**业务域 RC2 的实测数值（不是本域指标），"
+                    "放在这里只为说明「工作点从哪来」：同一模型在同一原生画幅上的表现。"
+                ),
+                "golden_pool_single_frame": {
+                    "f1": 0.9884359729262149,
+                    "tp": 16283,
+                    "fp": 26,
+                    "fn": 355,
+                    "gt": 16638,
+                    "frames": 17187,
+                    "recall": 0.9786633008775093,
+                    "precision": 0.998405788215096,
+                    "far_per_frame": 0.0015127712806190725,
+                    "semantics": "official",
+                },
+                "blind_001324_single_frame": {
+                    "f1": 0.8373308251032032,
+                    "tp": 8012,
+                    "fp": 590,
+                    "fn": 2523,
+                    "gt": 10535,
+                    "frames": 11810,
+                    "recall": 0.7605125771238728,
+                    "precision": 0.9314112996977447,
+                    "far_per_frame": 0.04995766299745978,
+                    "semantics": "official",
+                },
             },
             "this_domain_detection_summary": {
                 "sequences": len(sequences),
