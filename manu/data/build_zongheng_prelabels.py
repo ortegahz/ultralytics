@@ -71,6 +71,18 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--out", required=True, help="Output directory for the pre-labels")
     parser.add_argument(
+        "--layout",
+        choices=("sequence", "flat"),
+        default="sequence",
+        help=(
+            "'sequence' (default) writes <out>/<seq_id>/<frame:06d>.txt plus a scores.json sidecar "
+            "inside each sequence directory. That is the annotator's own layout, and it is the only "
+            "one whose score sidecar the tool actually reads (manu/annotate/server.py:_scores). "
+            "'flat' writes <out>/<seq_id>__<frame:06d>.txt, the delivery layout; the scores are then "
+            "carried in a per-sequence sidecar that the tool ignores when the tree is mounted read-only."
+        ),
+    )
+    parser.add_argument(
         "--frame-space",
         choices=("full", "native"),
         default="full",
@@ -131,6 +143,8 @@ def main() -> None:
         sequence = source.stem
         scores: dict[str, list[float]] = {}
         written = 0
+        if args.layout == "sequence":
+            (out / sequence).mkdir(parents=True, exist_ok=True)
         with source.open(encoding="utf-8") as handle:
             for line in handle:
                 line = line.strip()
@@ -159,12 +173,18 @@ def main() -> None:
                 if not payload:
                     continue
                 index = int(record["frame"])
-                (out / f"{sequence}__{index:06d}.txt").write_text(payload, encoding="utf-8")
+                if args.layout == "sequence":
+                    (out / sequence / f"{index:06d}.txt").write_text(payload, encoding="utf-8")
+                else:
+                    (out / f"{sequence}__{index:06d}.txt").write_text(payload, encoding="utf-8")
                 scores[f"{index:06d}"] = [round(float(item["score"]), 5) for item in detections]
                 written += 1
                 total_proposals += len(detections)
         # The score sidecar sits next to the labels, named after the sequence.
-        (out / f"{sequence}__scores.json").write_text(json.dumps(scores), encoding="utf-8")
+        if args.layout == "sequence":
+            (out / sequence / "scores.json").write_text(json.dumps(scores), encoding="utf-8")
+        else:
+            (out / f"{sequence}__scores.json").write_text(json.dumps(scores), encoding="utf-8")
         total_files += written
         print(f"[OK] {sequence}: {written} frame files, {sum(len(v) for v in scores.values())} proposals")
 

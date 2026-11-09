@@ -10555,6 +10555,10 @@ web 标注器显示的是**原始 1920×1080** mp4（`VideoSequence` 直接解�
 * 🔴 **标注器自带的 `worker_infer.py` 是另一条口径**（不裁剪、不做跨尺度合并、只用融合行）
   ⇒ 本域的预标注**用本仓库的 RC2 记录导出**，不要点标注器自带的「预标注」按钮。
 * **验证方法**：把记录映射回全幅后画到**源 mp4** 的同一帧上逐帧比对（本轮已做，框正好套住目标）。
+* 🔴 **预标注树的布局也会影响功能**：只有 `<SEQ>/<帧号>.txt` + `<SEQ>/scores.json`
+  （`manu/annotate/server.py:_scores` 只读 `<workspace>/prelabels/<seq_id>/scores.json`）
+  才会让**阈值滑块生效**；扁平 `<SEQ>__<帧号>.txt` 虽能被读到，但分数被当「缺失 ⇒ 始终显示」。
+  ⇒ 导出器默认 `--layout sequence`，已用 `LabelStore.external_prelabel_path` 实测能解析。
 
 ### 91.8 复现命令（服务器）
 ```bash

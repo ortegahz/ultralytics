@@ -50,7 +50,7 @@
 | 分片统计 | `.../summary_shard{0..3}.json` | 每条序列的帧数 / 检出帧数 / 检出数 / 首末检出帧 |
 | 序列划分 | `manu/data/zongheng_ft_split.json` | 见 §4 |
 | 人工复核底稿 | `manu/docs/dataset/zongheng-tk.md` | `# pass` / `# unpass` 格式，同 `long-quan-tk.md` |
-| 标注候选 | `/mnt/data/siping/datasets/manu/纵横AI数据采集_preannot_rc2` | web 标注器可直接读的 `<SEQ>__<帧号>.txt` + `scores.json` |
+| 标注候选 | `/mnt/data/siping/datasets/manu/纵横AI数据采集_preannot_rc2` | web 标注器原生布局 `<SEQ>/<帧号>.txt` + `<SEQ>/scores.json` |
 
 **旧 OSD `/mnt/data/siping/datasets/manu/纵横AI数据采集_osd`（trial_0474 时代）保持不动**，新产物一律进新目录。
 
@@ -108,6 +108,11 @@ python -m manu.annotate.server \
 # 预标注（只读挂载）
 --prelabel-source /mnt/data/siping/datasets/manu/纵横AI数据采集_preannot_rc2 --prelabel-class 0
 ```
+
+🔴 **预标注树的布局要用 `--layout sequence`（默认）**：`<SEQ>/<帧号>.txt` + `<SEQ>/scores.json`。
+这是标注器**唯一会读分数边车**的布局（`manu/annotate/server.py:_scores` 只看
+`<workspace>/prelabels/<seq_id>/scores.json`）；扁平 `<SEQ>__<帧号>.txt` 虽然也能被读到，
+但分数会被当成「缺失 ⇒ 始终显示」，阈值滑块就失效了。
 
 ## 7. 复现命令
 
