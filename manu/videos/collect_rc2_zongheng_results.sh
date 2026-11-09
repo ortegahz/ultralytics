@@ -29,8 +29,10 @@ REVIEW_NAME="zongheng-tk${REVIEW_SUFFIX}.md"
 
 echo "[COLLECT] $(date '+%F %T') waiting for the render to finish..."
 for i in $(seq 1 720); do
+  # ⚠️ 模式锚定在 python 上：`-f` 匹配完整命令行，模式若出现在别的 shell 的命令行里
+  # （监控脚本、pgrep 自己）⇒ 计数永远不为 0 ⇒ 等待循环永不退出。
   n=$(ssh -p "$PORT" -o BatchMode=yes -o ConnectTimeout=10 "$SERVER" \
-      'pgrep -cf "render_rc2_center_osd_video.py --input-root" || true' 2>/dev/null || echo 1)
+      'pgrep -cf "^python .*render_rc2_center_osd_video\.py" || true' 2>/dev/null || echo 1)
   [ "${n:-1}" -eq 0 ] && break
   sleep 30
 done

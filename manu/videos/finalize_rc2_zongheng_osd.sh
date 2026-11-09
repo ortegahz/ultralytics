@@ -24,9 +24,11 @@ echo "[FINALIZE] $(date '+%F %T') waiting for the render to finish..."
 echo "[FINALIZE] out=$OUT"
 echo "[FINALIZE] split=$SPLIT_LOCAL review=$REVIEW_LOCAL prelabels=$PRELABEL_OUT"
 
-# 等渲染进程全部退出（最长等 6 小时）
+# 等渲染进程全部退出（最长等 6 小时）。
+# ⚠️ 模式必须**锚定**在 python 上：`-f` 匹配完整命令行，若模式出现在别的 shell 的命令行里
+# （例如监控脚本、pgrep 自己），计数就永远不为 0 ⇒ 这个等待循环会**永不退出**。
 for i in $(seq 1 720); do
-  n=$(pgrep -cf "render_rc2_center_osd_video.py --input-root" || true)
+  n=$(pgrep -cf "^python .*render_rc2_center_osd_video\.py" || true)
   [ "${n:-0}" -eq 0 ] && break
   sleep 30
 done
