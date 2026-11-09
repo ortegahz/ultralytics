@@ -10559,6 +10559,13 @@ web 标注器显示的是**原始 1920×1080** mp4（`VideoSequence` 直接解�
   （`manu/annotate/server.py:_scores` 只读 `<workspace>/prelabels/<seq_id>/scores.json`）
   才会让**阈值滑块生效**；扁平 `<SEQ>__<帧号>.txt` 虽能被读到，但分数被当「缺失 ⇒ 始终显示」。
   ⇒ 导出器默认 `--layout sequence`，已用 `LabelStore.external_prelabel_path` 实测能解析。
+* 🔴 **更关键：外部只读树（`--prelabel-source`）根本不读分数** —— `_scores` 只看
+  `<workspace>/prelabels/<seq_id>/scores.json`（工具自己的树）。
+  ⇒ **要让阈值滑块可用，预标注必须放进 workspace 自己的 `prelabels/` 目录**，
+  只挂 `--prelabel-source` 只能拿到框、拿不到分。
+  本轮已端到端实测：记录 `cx=545.05 cy=373.47 w=11 h=8 score=0.491`
+  ⇒ 标签 `0.734427 0.691611 0.011458 0.014815`（1920×1080 归一化）
+  ⇒ 服务端 `prelabels` 同一条框 + `scores:[0.491]`。
 
 ### 91.8 复现命令（服务器）
 ```bash
@@ -10666,3 +10673,35 @@ p2f 家族    0.871796~0.874633（20.83ms，4px 格距 ⇒ 与 p3 统计上不�
 * 而 T3 轨（Longquan 实战）相对基线有 **+11.10 pp** 的巨大余量（门禁只要求 ΔT3 ≥ −1.0 pp）⇒ **⇒ 存在真实的可交易空间**。
 * K1 = `w4.0`（P(UAV)=0.8000）、K2 = `w6.0`（P(UAV)=0.8571），其余同 J 家族。
 * ⇒ 这是**唯一还没试过、且与「检出灵敏度」直接相关**的杠杆（模型在 Anti-UAV 域上专门多学）。
+
+## 94. ★★★★ 2026-11-09 13:10 — 「口径分歧」的正确定性：**不是代码漂移，是特征语义（no-GMC vs GMC）**
+
+### 94.1 三份基线缓存的实测对照（同一权重 trial_0474）
+| 缓存 | 数据集（特征语义） | 候选点 | A/B F1 |
+|---|---|---|---|
+| 冻结参照 `nogmc_ref_weekend/uav_cache_base.pkl` | **no-GMC** | **77001** | **0.900897**（TP 21499 / FP 1118） |
+| 我用**当前代码**重建（`t1_fix_20261109/base_cache_rebuild2.pkl`） | **no-GMC** | **77001** | ⇒ **与冻结参照逐位一致 ✅** |
+| 门禁自建 `runs/mixed_ft_route_b/baseline/uav_cache_deP0.pkl` | **GMC**（`uav_gmc_median`） | 75863 | **0.905736**（TP 21624 / FP 1014） |
+
+⇒ **⇒ 当前代码的缓存构建是确定的**（两次独立重建逐位一致）⇒ **那 0.48 pp 差 = 特征语义差异（GMC vs no-GMC），不是版本漂移、不是噪声底**
+⇒ ⇒ **判据在同一语义内是稳定的 ✅**（好消息：−0.5 pp 红线在同语义内可复现）
+
+### 94.2 ★ 两种语义下的 T1 对照（trial_0031）
+| 语义 | 基线 | trial_0031 | ΔT1 |
+|---|---|---|---|
+| **no-GMC**（验收表 `npu20ms_acceptance.py` / 参照系 `nogmc_ref_weekend`） | 0.900897（trial_0474）/ 0.890767（cs_t0043 在位交付基线） | **0.886899** | −1.40 pp（vs trial_0474） / **−0.39 pp（vs cs_t0043）** |
+| **GMC**（官方门禁 `auto_epoch_gate_check.py`，`UAV_DATA=uav_gmc_median`） | 0.905736 | 0.885997 | **−1.97 pp** |
+
+⇒ ⇒ **⇒ 缺口在两种语义下都真实存在（1.4~2.0 pp）⇒ 不是语义错配、也不是评测噪声 ⇒ 结论稳固。**
+⇒ ⇒ ⚠️ **操作要点**：本轮臂**训练用 no-GMC**（`uav_gmc_median_nogmc` + `longquanshan_ft_gmc_median_nogmc`），
+  而官方门禁在 **GMC** 语义上测 ⇒ **门禁的 T1 是"跨语义外推"口径**；验收表的 cs_t0043 对照才是同语义。
+  ⇒ **⇒ 建议：门禁的 T1 轨按训练语义（no-GMC）跑，或在报告里同时给出两种语义的数字（当前两套都有）。**
+
+### 94.3 host↔NPU 抽峰逐位一致性（parity_check）
+* `native_scale=4`（= **p3/late 臂的交付路径**）：8/8 帧 **dxy_max=0, dscore_max=0 ✅**
+* `native_scale=1 + 校准`：frame2 出现 dxy_max=37.15 ⇒ **torch.topk 与 numpy 稳定排序在并列(score 相同)时选取不同**
+  ⇒ 交付路径无此问题（native_scale=4 每帧候选 1~2 个）；校准路径若要启用需先把 topk 改成稳定排序。
+
+### 94.4 待办（下轮协议）
+* 门禁 T1 轨与训练语义对齐（no-GMC），或双语义并报。
+* 若要启用 offset 校准：先把 torch 侧 topk 改为稳定排序（与 numpy 一致），再重测 host↔NPU 一致性。

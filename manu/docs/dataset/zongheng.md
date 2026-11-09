@@ -105,14 +105,24 @@ python -m manu.annotate.server \
   --root /mnt/data/siping/datasets/manu/纵横AI数据采集_mp4 \
   --workspace /home/manu/mnt/pycharm_project_10ae9e2e/manu/annotate_workspace \
   --port 8777
-# 预标注（只读挂载）
---prelabel-source /mnt/data/siping/datasets/manu/纵横AI数据采集_preannot_rc2 --prelabel-class 0
 ```
 
-🔴 **预标注树的布局要用 `--layout sequence`（默认）**：`<SEQ>/<帧号>.txt` + `<SEQ>/scores.json`。
-这是标注器**唯一会读分数边车**的布局（`manu/annotate/server.py:_scores` 只看
-`<workspace>/prelabels/<seq_id>/scores.json`）；扁平 `<SEQ>__<帧号>.txt` 虽然也能被读到，
-但分数会被当成「缺失 ⇒ 始终显示」，阈值滑块就失效了。
+🔴 **预标注树要放进 workspace 自己的 `prelabels/`，不要只挂 `--prelabel-source`**：
+
+| 放法 | 候选框 | 分数 / 阈值滑块 |
+|:--|:--|:--|
+| 复制到 `<workspace>/prelabels/<SEQ>/` | ✅ | ✅（读 `<workspace>/prelabels/<SEQ>/scores.json`） |
+| 只 `--prelabel-source <tree>` | ✅ | ❌（外部树无分数 ⇒ 一律「始终显示」，滑块失效） |
+
+⇒ 推荐：
+```bash
+cp -r /mnt/data/siping/datasets/manu/纵横AI数据采集_preannot_rc2/* \
+      /home/manu/mnt/pycharm_project_10ae9e2e/manu/annotate_workspace/prelabels/
+```
+（workspace 必须在 SSHFS 内，服务器才看得到。）
+
+已实测：记录 `cx=545.05, cy=373.47, w=11, h=8, score=0.491`
+⇒ 标签 `0.734427 0.691611 0.011458 0.014815`（1920×1080 归一化）⇒ 服务端返回同一条框 + `scores:[0.491]`。
 
 ## 7. 复现命令
 
