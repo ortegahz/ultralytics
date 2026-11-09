@@ -373,3 +373,25 @@ python manu/diagnostics/probe_heatmap_regions_video.py \
 1. 悬停目标召回差，特别是复杂背景悬停更差，运动目标相对检出比较稳定。
 2. 近距离大目标检出没有中等距离目标检出稳定，感觉还是感受野问题。
 3. 路灯和窗户有误检，分数还不低。
+# ============================================================================
+# 新交付域「纵横AI数据采集」：RC2 中心点 OSD 复核视频 + 序列划分（2026-11-09 新增）
+# 详见主档 memory.md §91 与 manu/docs/dataset/zongheng.md
+# ============================================================================
+
+# 全量渲染（服务器，4 卡分片，每片一卡；detached 起活）
+bash manu/videos/launch_rc2_zongheng_osd.sh
+
+# 单分片冒烟（只渲 150 帧，先验证工作点与画法）
+LIMIT=150 SHARDS=1 bash manu/videos/run_rc2_zongheng_osd.sh
+
+# 序列划分（读每帧检测记录 → split 清单 + 人工复核底稿）
+python manu/data/build_zongheng_ft_split.py \
+  --frames-dir /mnt/data/siping/datasets/manu/纵横AI数据采集_osd_rc2_20261109/frames \
+  --out manu/data/zongheng_ft_split.json \
+  --review-sheet manu/docs/dataset/zongheng-tk.md
+
+# 工作点复扫（CPU-only，不需要 GPU；在真实龙泉山 RC2 缓存上实测 th/radius）
+python manu/evaluation/eval_multiscale_cache_th.py \
+  --cache-root runs/optuna_mix_ratio/trials/trial_0080/lq_eval_fpv8/ms_cache \
+  --labels-root "/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010" \
+  --tag all --match-mode inbox --merge-radius 768 --th-min 0.30 --th-max 0.55 --th-step 0.02
