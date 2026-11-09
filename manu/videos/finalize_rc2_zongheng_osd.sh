@@ -63,6 +63,7 @@ echo " 3. 标注候选（web 标注器可直接读）"
 echo "=============================================================="
 python manu/data/build_zongheng_prelabels.py \
   --frames-dir "$FRAMES" \
+  --layout sequence \
   --out "$PRELABEL_OUT"
 
 echo
