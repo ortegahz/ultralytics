@@ -65,6 +65,13 @@ def main():
     ap.add_argument("--tag", default="int8")
     ap.add_argument("--th", type=float, default=0.25)
     ap.add_argument("--stride", type=int, default=2)
+    ap.add_argument("--native-scale", type=int, default=1,
+                    help="late_upsample 的原生网格复制倍数 L（P3: 4；P2_fused: 2；无 late 上采样时为 1）。"
+                    " L>1 时峰必须在原生网格上抽、且用 stride*L 解码（见 hm_common.extract_peaks_np）")
+    ap.add_argument("--offset-scale", type=float, default=1.0,
+                help="offset 仿射校准：ô_cal = (ô - offset_bias) / offset_scale（默认空操作）")
+    ap.add_argument("--offset-bias", type=float, default=0.0,
+                help="offset 仿射校准的 bias（默认 0.0 ⇒ 空操作）")
     ap.add_argument("--dist", type=float, default=8.0)
     args = ap.parse_args()
 
@@ -86,7 +93,10 @@ def main():
         hm_diffs.append(np.abs(hm_n - hm_c))
         off_diffs.append(np.abs(off_n - off_c))
 
-        d = extract_peaks_np(hm_n[None], off_n, stride=args.stride, conf_thresh=args.th)
+        d = extract_peaks_np(hm_n[None], off_n, stride=args.stride, conf_thresh=args.th,
+                                   native_scale=args.native_scale,
+                                        offset_scale=args.offset_scale,
+                                        offset_bias=args.offset_bias)
         npu_canvas, npu_sc = d["points"], d["scores"]
         cpu_canvas = np.array(r["det_canvas"], np.float64).reshape(-1, 2)
         cpu_sc = np.array(r["scores"], np.float64)

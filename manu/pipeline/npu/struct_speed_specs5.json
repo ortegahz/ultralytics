@@ -1,0 +1,10 @@
+[
+ {"name": "p1_hc32_sc075",     "head_src": "p1", "head_conv": 32, "act": "relu", "ablate_p0": true, "stride": 2, "p2_out_scale": 0.75, "note": "★保320头+neck收窄0.75"},
+ {"name": "p1_hc32_sc05",      "head_src": "p1", "head_conv": 32, "act": "relu", "ablate_p0": true, "stride": 2, "p2_out_scale": 0.5,  "note": "★保320头+neck收窄0.5"},
+ {"name": "p1_hc48_sc05",      "head_src": "p1", "head_conv": 48, "act": "relu", "ablate_p0": true, "stride": 2, "p2_out_scale": 0.5,  "note": "保320头+宽头+neck收窄0.5"},
+ {"name": "p1_hc64_sc05",      "head_src": "p1", "head_conv": 64, "act": "relu", "ablate_p0": true, "stride": 2, "p2_out_scale": 0.5,  "note": "★保320头+hc64+neck收窄0.5"},
+ {"name": "p1_hc32_sc05_late", "head_src": "p1", "head_conv": 32, "act": "relu", "ablate_p0": true, "stride": 2, "late_upsample": true, "p2_out_scale": 0.5, "note": "★320输出+160计算+neck收窄0.5"},
+ {"name": "p1_hc64_sc05_late", "head_src": "p1", "head_conv": 64, "act": "relu", "ablate_p0": true, "stride": 2, "late_upsample": true, "p2_out_scale": 0.5, "note": "★★320输出+宽头+neck收窄0.5 ⇒ 终极候选"},
+ {"name": "p1_hc64_sc025",     "head_src": "p1", "head_conv": 64, "act": "relu", "ablate_p0": true, "stride": 2, "p2_out_scale": 0.25, "note": "保320头+neck收窄0.25"},
+ {"name": "p2f_hc64_late_sc05","head_src": "p2_fused", "head_conv": 64, "act": "relu", "ablate_p0": true, "stride": 2, "late_upsample": true, "p2_out_scale": 0.5, "note": "★320输出+宽头+neck收窄0.5"}
+]

@@ -1,0 +1,85 @@
+[
+ {
+  "name": "p2f_hc64_relu",
+  "head_src": "p2_fused",
+  "head_conv": 64,
+  "act": "relu",
+  "ablate_p0": true,
+  "stride": 4,
+  "note": "★结构B宽头(64)relu——卡在21ms线上，必须实测定论"
+ },
+ {
+  "name": "p2f_hc64_sc075",
+  "head_src": "p2_fused",
+  "head_conv": 64,
+  "act": "relu",
+  "ablate_p0": true,
+  "stride": 4,
+  "p2_out_scale": 0.75,
+  "note": "★结构B宽头64+neck收窄0.75——期望落进21ms"
+ },
+ {
+  "name": "p2f_hc32_late_sc025",
+  "head_src": "p2_fused",
+  "head_conv": 32,
+  "act": "relu",
+  "ablate_p0": true,
+  "stride": 2,
+  "late_upsample": true,
+  "p2_out_scale": 0.25,
+  "note": "★320输出+neck收窄0.25——期望比hc32_late_sc05(20.06)更快"
+ },
+ {
+  "name": "p2f_hc24_late_sc05",
+  "head_src": "p2_fused",
+  "head_conv": 24,
+  "act": "relu",
+  "ablate_p0": true,
+  "stride": 2,
+  "late_upsample": true,
+  "p2_out_scale": 0.5,
+  "note": "320输出+窄头24+neck收窄0.5"
+ },
+ {
+  "name": "p2f_hc48_late_sc025",
+  "head_src": "p2_fused",
+  "head_conv": 48,
+  "act": "relu",
+  "ablate_p0": true,
+  "stride": 2,
+  "late_upsample": true,
+  "p2_out_scale": 0.25,
+  "note": "320输出+宽头48+neck收窄0.25——上一轮实测22.43超线"
+ },
+ {
+  "name": "p2f_hc40_relu",
+  "head_src": "p2_fused",
+  "head_conv": 40,
+  "act": "relu",
+  "ablate_p0": true,
+  "stride": 4,
+  "note": "★hc32(死模型嫌疑)与hc48之间的中间宽度——用于定位宽度-容量拐点"
+ },
+ {
+  "name": "p2f_hc40_late_sc05",
+  "head_src": "p2_fused",
+  "head_conv": 40,
+  "act": "relu",
+  "ablate_p0": true,
+  "stride": 2,
+  "late_upsample": true,
+  "p2_out_scale": 0.5,
+  "note": "★320输出+中间宽度40+neck收窄0.5——期望落在21ms内"
+ },
+ {
+  "name": "p2f_hc48_late_sc025b",
+  "head_src": "p2_fused",
+  "head_conv": 48,
+  "act": "relu",
+  "ablate_p0": true,
+  "stride": 2,
+  "late_upsample": true,
+  "p2_out_scale": 0.25,
+  "note": "复核臂：p2f_hc48_late_sc025 的复测（验证同板重复性）"
+ }
+]

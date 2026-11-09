@@ -1,0 +1,10 @@
+[
+ {"name": "p1_hc24_relu",     "head_src": "p1",       "head_conv": 24, "act": "relu", "ablate_p0": true, "stride": 2, "note": "保320头(定位强)+极窄头"},
+ {"name": "p1_hc16_relu",     "head_src": "p1",       "head_conv": 16, "act": "relu", "ablate_p0": true, "stride": 2, "note": "保320头+更窄"},
+ {"name": "p2f_hc24_relu",    "head_src": "p2_fused", "head_conv": 24, "act": "relu", "ablate_p0": true, "stride": 4, "note": "结构B+极窄头"},
+ {"name": "p2f_hc16_relu",    "head_src": "p2_fused", "head_conv": 16, "act": "relu", "ablate_p0": true, "stride": 4, "note": "结构B+更窄"},
+ {"name": "p2f_hc64_silu",    "head_src": "p2_fused", "head_conv": 64, "act": "silu", "ablate_p0": true, "stride": 4, "note": "隔离 act 对速度的影响"},
+ {"name": "p1_hc64_silu2",    "head_src": "p1",       "head_conv": 64, "act": "silu", "ablate_p0": true, "stride": 2, "note": "基线复现(校验表一致性)"},
+ {"name": "p2f_hc96_relu",    "head_src": "p2_fused", "head_conv": 96, "act": "relu", "ablate_p0": true, "stride": 4, "note": "结构B+更宽头(精度可能更好)"},
+ {"name": "p1_hc96_relu",     "head_src": "p1",       "head_conv": 96, "act": "relu", "ablate_p0": true, "stride": 2, "note": "保320头+宽头"}
+]

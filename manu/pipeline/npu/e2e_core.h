@@ -83,6 +83,12 @@ struct InferParams {
     float th = 0.25f;
     int stride = 2;
     int top_k = 100;
+    // late_upsample 的原生网格复制倍数 L（P3: 4；P2_fused: 2；无 late 上采样时为 1）。
+    // L>1 时热图是原生网格的最近邻复制 ⇒ 峰必须在原生网格上抽、且用 stride*L 解码，
+    // 否则同一目标裂成 L² 个等分候选（假阳洪泛）+ 坐标偏 0~(L-1) px（召回塌陷）。
+    int native_scale = 1;
+    // offset 仿射校准（默认空操作）：ô_cal = (ô - offset_bias) / offset_scale
+    double offset_scale = 1.0, offset_bias = 0.0;
     std::string dump_dir;             // writes <tag>_<stem>_hm.bin / _off.bin
     std::string detections_out;       // TSV: <stem>\t<ndet>\t<x y score>...
     std::string tag = "frame";

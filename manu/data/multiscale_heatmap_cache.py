@@ -315,8 +315,19 @@ def main() -> None:
         raise FileNotFoundError(f"No sequences selected under {source_root}")
 
     device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() and args.device != "cpu" else "cpu")
+    # ★ 结构自描述显式下传（2026-11-06 修静默丢权重 bug）：这条路径以前只传 use_p0_highway
+    #   ⇒ head_conv 回落 64、late_upsample 回落 False ⇒ 重建出的头与 ckpt 形状对不上
+    #   ⇒ 头权重被静默跳过 ⇒ 随机头 ⇒ 热图全 0 ⇒ 被误判成死模型。
+    hm_weights = resolve_weights(args.hm_weights)
+    ckpt = torch.load(hm_weights, map_location="cpu")
+    ck_head_conv = ckpt.get("head_conv", None)
+    ck_late_upsample = bool(ckpt.get("late_upsample", False))
+    print(f"[STRUCT] ckpt 自描述: {hm_weights} | head_conv={ck_head_conv} late_upsample={ck_late_upsample}",
+          flush=True)
     model, stride = load_hm_model(
-        resolve_weights(args.hm_weights), device, use_p0_highway=not args.ablate_p0
+        hm_weights, device, use_p0_highway=not args.ablate_p0,
+        head_conv=int(ck_head_conv) if ck_head_conv else None,
+        late_upsample=ck_late_upsample,
     )
     adapter = None
     if args.adapter_weights:

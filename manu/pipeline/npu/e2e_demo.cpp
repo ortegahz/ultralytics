@@ -68,6 +68,9 @@ int main(int argc, char** argv) {
     std::string fused = "gpu", out_ext = "bmp";
     float th = 0.25f;
     int stride = 2, top_k = 100, anchor_step = 10, limit = 0, dump_heatmap = 1, dump_input = 0;
+    // late_upsample 的原生网格复制倍数 L（P3: 4；P2_fused: 2；无 late 上采样时为 1）
+    int native_scale = 1;
+    double offset_scale = 1.0, offset_bias = 0.0;
     int no_feat = 0;
 
     for (int i = 1; i < argc; ++i) {
@@ -80,6 +83,9 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(a, "--fused"))      fused = need(argc, argv, i, "--fused");
         else if (!std::strcmp(a, "--th"))         th = (float)std::atof(need(argc, argv, i, "--th"));
         else if (!std::strcmp(a, "--stride"))     stride = std::atoi(need(argc, argv, i, "--stride"));
+        else if (!std::strcmp(a, "--native-scale")) native_scale = std::atoi(need(argc, argv, i, "--native-scale"));
+        else if (!std::strcmp(a, "--offset-scale")) offset_scale = std::atof(need(argc, argv, i, "--offset-scale"));
+        else if (!std::strcmp(a, "--offset-bias")) offset_bias = std::atof(need(argc, argv, i, "--offset-bias"));
         else if (!std::strcmp(a, "--topk"))       top_k = std::atoi(need(argc, argv, i, "--topk"));
         else if (!std::strcmp(a, "--anchor-step")) anchor_step = std::atoi(need(argc, argv, i, "--anchor-step"));
         else if (!std::strcmp(a, "--limit"))      limit = std::atoi(need(argc, argv, i, "--limit"));
@@ -133,6 +139,9 @@ int main(int argc, char** argv) {
     ip.frames = fr.frames;
     ip.th = th;
     ip.stride = stride;
+    ip.native_scale = native_scale;
+    ip.offset_scale = offset_scale;
+    ip.offset_bias = offset_bias;
     ip.top_k = top_k;
     ip.detections_out = out_root + "/npu_det.tsv";
     ip.tag = sequence;

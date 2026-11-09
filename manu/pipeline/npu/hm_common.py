@@ -207,6 +207,9 @@ def extract_peaks_np(
     stride: int = 2,
     conf_thresh: float = 0.22,
     top_k: int = 100,
+    native_scale: int = 1,
+    offset_scale: float = 1.0,
+    offset_bias: float = 0.0,
 ) -> dict[str, np.ndarray]:
     """Port of extract_peaks() for a single (1,H,W) heatmap and (2,H,W) offset.
 
@@ -218,9 +221,20 @@ def extract_peaks_np(
     keep row-major order because torch.topk on CPU is stable for ties in
     practice -- and any residual tie-break difference shows up immediately in the
     host-vs-NPU comparison, which is exactly what that comparison is for.
+
+    ★ 2026-11-09 修（与 manu/evaluation/heatmap_evaluate.py::extract_peaks 逐位一致）：
+      ``native_scale`` = late_upsample 的原生网格复制倍数 L（P3: 4；P2_fused: 2）。
+      L>1 时热图是原生网格的**最近邻复制** ⇒ 峰必须在原生网格上抽、且用 stride*L 解码，
+      否则同一目标裂成 L² 个等分候选（假阳洪泛）+ 坐标偏 0~(L-1) px（召回塌陷）。
+      L=1 时逐位空操作 ⇒ 冻结基线不变。
+      offset_scale/offset_bias：offset 仿射校准（默认 1.0/0.0 ⇒ 空操作）。
     """
     hm = np.asarray(heatmap, np.float32).reshape(heatmap.shape[-2], heatmap.shape[-1])
     off = np.asarray(offset, np.float32).reshape(2, *hm.shape)
+    if native_scale and native_scale > 1:
+        hm = hm[::native_scale, ::native_scale]
+        off = off[:, ::native_scale, ::native_scale]
+        stride = stride * native_scale
     hmax = _maxpool3x3(hm)
     mask = (hmax == hm) & (hm >= conf_thresh)
     ys, xs = np.nonzero(mask)
@@ -233,6 +247,9 @@ def extract_peaks_np(
         ys, xs, scores = ys[keep], xs[keep], scores[keep]
     dx = off[0, ys, xs]
     dy = off[1, ys, xs]
+    if offset_scale != 1.0 or offset_bias != 0.0:
+        dx = (dx - offset_bias) / offset_scale
+        dy = (dy - offset_bias) / offset_scale
     pts = np.stack([(xs.astype(np.float32) + dx) * stride,
                     (ys.astype(np.float32) + dy) * stride], axis=1)
     return {"points": pts.astype(np.float32), "scores": scores.astype(np.float32)}

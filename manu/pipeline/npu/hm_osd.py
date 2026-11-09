@@ -125,6 +125,13 @@ def main():
     ap.add_argument("--frames", help="json or txt listing stems (sequence mode)")
     ap.add_argument("--th", type=float, default=0.25)
     ap.add_argument("--stride", type=int, default=2)
+    ap.add_argument("--native-scale", type=int, default=1,
+                    help="late_upsample 的原生网格复制倍数 L（P3: 4；P2_fused: 2；无 late 上采样时为 1）。"
+                    " L>1 时峰必须在原生网格上抽、且用 stride*L 解码（见 hm_common.extract_peaks_np）")
+    ap.add_argument("--offset-scale", type=float, default=1.0,
+                help="offset 仿射校准：ô_cal = (ô - offset_bias) / offset_scale（默认空操作）")
+    ap.add_argument("--offset-bias", type=float, default=0.0,
+                help="offset 仿射校准的 bias（默认 0.0 ⇒ 空操作）")
     ap.add_argument("--out", required=True)
     ap.add_argument("--zoom", type=int, default=0,
                     help="sequence mode: crop +/- N source px around the target (a 3 px UAV "
@@ -162,7 +169,10 @@ def main():
         hm_img = None
         if npu is not None:
             h, o = npu
-            d = extract_peaks_np(h[None], o, stride=args.stride, conf_thresh=args.th)
+            d = extract_peaks_np(h[None], o, stride=args.stride, conf_thresh=args.th,
+                                        native_scale=args.native_scale,
+                                        offset_scale=args.offset_scale,
+                                        offset_bias=args.offset_bias)
             npu_pts = canvas_to_src(d["points"], geom)
             npu_sc = d["scores"]
             hm_img = h
@@ -288,7 +298,10 @@ def main():
         if npu is not None:
             n_npu += 1
             h, o = npu
-            d = extract_peaks_np(h[None], o, stride=args.stride, conf_thresh=args.th)
+            d = extract_peaks_np(h[None], o, stride=args.stride, conf_thresh=args.th,
+                                        native_scale=args.native_scale,
+                                        offset_scale=args.offset_scale,
+                                        offset_bias=args.offset_bias)
             npu_pts = canvas_to_src(d["points"], geom)
             npu_sc = d["scores"]
             # Score the NPU detections against GT HERE. rec["tp"/"fp"/"fn"]

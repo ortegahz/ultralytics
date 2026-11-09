@@ -1,0 +1,872 @@
+{
+  "arms": [
+    {
+      "name": "p3_hc32_relu",
+      "spec": {
+        "name": "p3_hc32_relu",
+        "head_src": "p3",
+        "head_conv": 32,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 8,
+        "note": "结构A+窄头"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes/p3_hc32_relu_int8.rknn",
+      "cycles": {
+        "ops": 101,
+        "npu_cycles": 4263200,
+        "ddr_cycles": 1489789,
+        "rw_mb": 29.8271484375,
+        "cpu_ops": 3
+      },
+      "ms": 9.384,
+      "fatal": null
+    },
+    {
+      "name": "p2f_hc16_relu",
+      "spec": {
+        "name": "p2f_hc16_relu",
+        "head_src": "p2_fused",
+        "head_conv": 16,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 4,
+        "note": "结构B+更窄"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes3/p2f_hc16_relu_int8.rknn",
+      "cycles": {
+        "ops": 132,
+        "npu_cycles": 8717600,
+        "ddr_cycles": 2666236,
+        "rw_mb": 58.1142578125,
+        "cpu_ops": 3
+      },
+      "ms": 17.869,
+      "fatal": null
+    },
+    {
+      "name": "p2f_hc32_relu",
+      "spec": {
+        "name": "p2f_hc32_relu",
+        "head_src": "p2_fused",
+        "head_conv": 32,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 4,
+        "note": "结构B+窄头"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes/p2f_hc32_relu_int8.rknn",
+      "cycles": {
+        "ops": 132,
+        "npu_cycles": 8717600,
+        "ddr_cycles": 2823254,
+        "rw_mb": 60.09375,
+        "cpu_ops": 3
+      },
+      "ms": 17.973,
+      "fatal": null
+    },
+    {
+      "name": "p2f_hc24_relu",
+      "spec": {
+        "name": "p2f_hc24_relu",
+        "head_src": "p2_fused",
+        "head_conv": 24,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 4,
+        "note": "结构B+极窄头"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes3/p2f_hc24_relu_int8.rknn",
+      "cycles": {
+        "ops": 132,
+        "npu_cycles": 8717600,
+        "ddr_cycles": 2822817,
+        "rw_mb": 60.0849609375,
+        "cpu_ops": 3
+      },
+      "ms": 18.006,
+      "fatal": null
+    },
+    {
+      "name": "p2f_hc32_sc075",
+      "spec": {
+        "name": "p2f_hc32_sc075",
+        "head_src": "p2_fused",
+        "head_conv": 32,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 4,
+        "p2_out_scale": 0.75,
+        "note": "结构B+neck收窄0.75"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes4/p2f_hc32_sc075_int8.rknn",
+      "cycles": {
+        "ops": 132,
+        "npu_cycles": 8717600,
+        "ddr_cycles": 2735538,
+        "rw_mb": 58.5068359375,
+        "cpu_ops": 3
+      },
+      "ms": 18.435,
+      "fatal": null
+    },
+    {
+      "name": "p2f_hc32_late_sc025",
+      "spec": {
+        "name": "p2f_hc32_late_sc025",
+        "head_src": "p2_fused",
+        "head_conv": 32,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 2,
+        "late_upsample": true,
+        "p2_out_scale": 0.25,
+        "note": "★320输出+neck收窄0.25——期望比hc32_late_sc05(20.06)更快"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes6/p2f_hc32_late_sc025_int8.rknn",
+      "cycles": {
+        "ops": 136,
+        "npu_cycles": 7808800,
+        "ddr_cycles": 2490877,
+        "rw_mb": 61.5791015625,
+        "cpu_ops": 3
+      },
+      "ms": 19.827,
+      "fatal": null,
+      "ms_source": "measured"
+    },
+    {
+      "name": "p2f_hc24_late_sc05",
+      "spec": {
+        "name": "p2f_hc24_late_sc05",
+        "head_src": "p2_fused",
+        "head_conv": 24,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 2,
+        "late_upsample": true,
+        "p2_out_scale": 0.5,
+        "note": "320输出+窄头24+neck收窄0.5"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes6/p2f_hc24_late_sc05_int8.rknn",
+      "cycles": {
+        "ops": 136,
+        "npu_cycles": 7808800,
+        "ddr_cycles": 2595446,
+        "rw_mb": 63.55078125,
+        "cpu_ops": 3
+      },
+      "ms": 20.015,
+      "fatal": null,
+      "ms_source": "measured"
+    },
+    {
+      "name": "p2f_hc32_late_sc05",
+      "spec": {
+        "name": "p2f_hc32_late_sc05",
+        "head_src": "p2_fused",
+        "head_conv": 32,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 2,
+        "late_upsample": true,
+        "p2_out_scale": 0.5,
+        "note": "★320输出+160计算+neck收窄0.5"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes6/p2f_hc32_late_sc05_int8.rknn",
+      "cycles": {
+        "ops": 136,
+        "npu_cycles": 7808800,
+        "ddr_cycles": 2595883,
+        "rw_mb": 63.5595703125,
+        "cpu_ops": 3
+      },
+      "ms": 20.057,
+      "fatal": null
+    },
+    {
+      "name": "p2f_hc48_relu",
+      "spec": {
+        "name": "p2f_hc48_relu",
+        "head_src": "p2_fused",
+        "head_conv": 48,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 4,
+        "note": "结构B+窄头"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes/p2f_hc48_relu_int8.rknn",
+      "cycles": {
+        "ops": 132,
+        "npu_cycles": 11252000,
+        "ddr_cycles": 2980900,
+        "rw_mb": 62.0859375,
+        "cpu_ops": 3
+      },
+      "ms": 20.6,
+      "fatal": null
+    },
+    {
+      "name": "p2f_hc40_relu",
+      "spec": {
+        "name": "p2f_hc40_relu",
+        "head_src": "p2_fused",
+        "head_conv": 40,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 4,
+        "note": "★hc32(死模型嫌疑)与hc48之间的中间宽度——用于定位宽度-容量拐点"
+      },
+      "cycles": {
+        "ops": 132,
+        "npu_cycles": 11252000,
+        "ddr_cycles": 2979949,
+        "rw_mb": 62.0654296875,
+        "cpu_ops": 3
+      },
+      "ms": 20.612,
+      "ms_source": "measured",
+      "fatal": null
+    },
+    {
+      "name": "p2f_hc32_late",
+      "spec": {
+        "name": "p2f_hc32_late",
+        "head_src": "p2_fused",
+        "head_conv": 32,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 2,
+        "late_upsample": true,
+        "note": "★结构B+late+窄头"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes3/p2f_hc32_late_int8.rknn",
+      "cycles": {
+        "ops": 136,
+        "npu_cycles": 8717600,
+        "ddr_cycles": 2805938,
+        "rw_mb": 67.515625,
+        "cpu_ops": 3
+      },
+      "ms": 20.829,
+      "fatal": null
+    },
+    {
+      "name": "p2f_hc64_sc075",
+      "spec": {
+        "name": "p2f_hc64_sc075",
+        "head_src": "p2_fused",
+        "head_conv": 64,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 4,
+        "p2_out_scale": 0.75,
+        "note": "★结构B宽头64+neck收窄0.75——期望落进21ms"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes4/p2f_hc64_sc075_int8.rknn",
+      "cycles": {
+        "ops": 132,
+        "npu_cycles": 11252000,
+        "ddr_cycles": 3051372,
+        "rw_mb": 62.505859375,
+        "cpu_ops": 3
+      },
+      "ms": 21.03,
+      "fatal": "[FATAL] NPU output independent of input -- results are not trustworthy",
+      "ms_source": "pred"
+    },
+    {
+      "name": "p2f_hc48_sc075",
+      "spec": {
+        "name": "p2f_hc48_sc075",
+        "head_src": "p2_fused",
+        "head_conv": 48,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 4,
+        "p2_out_scale": 0.75,
+        "note": "结构B+宽头+neck收窄"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes4/p2f_hc48_sc075_int8.rknn",
+      "cycles": {
+        "ops": 132,
+        "npu_cycles": 11252000,
+        "ddr_cycles": 2893184,
+        "rw_mb": 60.4990234375,
+        "cpu_ops": 3
+      },
+      "ms": 21.05,
+      "fatal": null
+    },
+    {
+      "name": "p2f_hc64_relu",
+      "spec": {
+        "name": "p2f_hc64_relu",
+        "head_src": "p2_fused",
+        "head_conv": 64,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 4,
+        "note": "★结构B宽头(64)relu——卡在21ms线上，必须实测定论"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes/p2f_hc64_relu_int8.rknn",
+      "cycles": {
+        "ops": 132,
+        "npu_cycles": 11252000,
+        "ddr_cycles": 3139088,
+        "rw_mb": 64.0927734375,
+        "cpu_ops": 3
+      },
+      "ms": 21.277,
+      "fatal": "[FATAL] NPU output independent of input -- results are not trustworthy",
+      "ms_source": "pred"
+    },
+    {
+      "name": "p2f_hc32_late_sc075",
+      "spec": {
+        "name": "p2f_hc32_late_sc075",
+        "head_src": "p2_fused",
+        "head_conv": 32,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 2,
+        "late_upsample": true,
+        "p2_out_scale": 0.75,
+        "note": "★320输出+160计算+neck收窄"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes4/p2f_hc32_late_sc075_int8.rknn",
+      "cycles": {
+        "ops": 136,
+        "npu_cycles": 8717600,
+        "ddr_cycles": 2718222,
+        "rw_mb": 65.9287109375,
+        "cpu_ops": 3
+      },
+      "ms": 21.317,
+      "fatal": null
+    },
+    {
+      "name": "p2f_hc48_late_sc025b",
+      "spec": {
+        "name": "p2f_hc48_late_sc025b",
+        "head_src": "p2_fused",
+        "head_conv": 48,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 2,
+        "late_upsample": true,
+        "p2_out_scale": 0.25,
+        "note": "复核臂：p2f_hc48_late_sc025 的复测（验证同板重复性）"
+      },
+      "cycles": {
+        "ops": 136,
+        "npu_cycles": 10343200,
+        "ddr_cycles": 2648523,
+        "rw_mb": 63.5712890625,
+        "cpu_ops": 3
+      },
+      "ms": 22.419,
+      "ms_source": "measured",
+      "fatal": null
+    },
+    {
+      "name": "p2f_hc48_late_sc025",
+      "spec": {
+        "name": "p2f_hc48_late_sc025",
+        "head_src": "p2_fused",
+        "head_conv": 48,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 2,
+        "late_upsample": true,
+        "p2_out_scale": 0.25,
+        "note": "320输出+宽头48+neck收窄0.25——上一轮实测22.43超线"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes6/p2f_hc48_late_sc025_int8.rknn",
+      "cycles": {
+        "ops": 136,
+        "npu_cycles": 10343200,
+        "ddr_cycles": 2648523,
+        "rw_mb": 63.5712890625,
+        "cpu_ops": 3
+      },
+      "ms": 22.431,
+      "fatal": "[FATAL] NPU output independent of input -- results are not trustworthy",
+      "ms_source": "measured"
+    },
+    {
+      "name": "p2f_hc40_late_sc05",
+      "spec": {
+        "name": "p2f_hc40_late_sc05",
+        "head_src": "p2_fused",
+        "head_conv": 40,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 2,
+        "late_upsample": true,
+        "p2_out_scale": 0.5,
+        "note": "★320输出+中间宽度40+neck收窄0.5——期望落在21ms内"
+      },
+      "cycles": {
+        "ops": 136,
+        "npu_cycles": 10343200,
+        "ddr_cycles": 2752578,
+        "rw_mb": 65.53125,
+        "cpu_ops": 3
+      },
+      "ms": 22.492,
+      "ms_source": "pred",
+      "fatal": "[FATAL] NPU output independent of input -- results are not trustworthy"
+    },
+    {
+      "name": "p2f_hc48_late_sc05",
+      "spec": {
+        "name": "p2f_hc48_late_sc05",
+        "head_src": "p2_fused",
+        "head_conv": 48,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 2,
+        "late_upsample": true,
+        "p2_out_scale": 0.5,
+        "note": "320输出+160计算+neck收窄0.5"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes4/p2f_hc48_late_sc05_int8.rknn",
+      "cycles": {
+        "ops": 136,
+        "npu_cycles": 10343200,
+        "ddr_cycles": 2753529,
+        "rw_mb": 65.5517578125,
+        "cpu_ops": 3
+      },
+      "ms": 22.568,
+      "fatal": null
+    },
+    {
+      "name": "p2f_hc48_late",
+      "spec": {
+        "name": "p2f_hc48_late",
+        "head_src": "p2_fused",
+        "head_conv": 48,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 2,
+        "late_upsample": true,
+        "note": "★结构B+late+窄头"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes3/p2f_hc48_late_int8.rknn",
+      "cycles": {
+        "ops": 136,
+        "npu_cycles": 11252000,
+        "ddr_cycles": 2963584,
+        "rw_mb": 69.5078125,
+        "cpu_ops": 3
+      },
+      "ms": 23.447,
+      "fatal": null
+    },
+    {
+      "name": "p2f_hc96_relu",
+      "spec": {
+        "name": "p2f_hc96_relu",
+        "head_src": "p2_fused",
+        "head_conv": 96,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 4,
+        "note": "结构B+更宽头(精度可能更好)"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes2/p2f_hc96_relu_int8.rknn",
+      "cycles": {
+        "ops": 132,
+        "npu_cycles": 15168800,
+        "ddr_cycles": 3457258,
+        "rw_mb": 68.14453125,
+        "cpu_ops": 3
+      },
+      "ms": 25.085,
+      "fatal": null
+    },
+    {
+      "name": "p2f_hc64_silu",
+      "spec": {
+        "name": "p2f_hc64_silu",
+        "head_src": "p2_fused",
+        "head_conv": 64,
+        "act": "silu",
+        "ablate_p0": true,
+        "stride": 4,
+        "note": "隔离 act 对速度的影响"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes2/p2f_hc64_silu_int8.rknn",
+      "cycles": {
+        "ops": 147,
+        "npu_cycles": 11252000,
+        "ddr_cycles": 3046011,
+        "rw_mb": 66.1923828125,
+        "cpu_ops": 3
+      },
+      "ms": 32.005,
+      "fatal": null
+    },
+    {
+      "name": "p2f_hc64_silu2",
+      "spec": {
+        "name": "p2f_hc64_silu2",
+        "head_src": "p2_fused",
+        "head_conv": 64,
+        "act": "silu",
+        "ablate_p0": true,
+        "stride": 4,
+        "note": "结构B+SiLU对照"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes3/p2f_hc64_silu2_int8.rknn",
+      "cycles": {
+        "ops": 147,
+        "npu_cycles": 11252000,
+        "ddr_cycles": 3046011,
+        "rw_mb": 66.1923828125,
+        "cpu_ops": 3
+      },
+      "ms": 32.131,
+      "fatal": null
+    },
+    {
+      "name": "p1_hc16_relu",
+      "spec": {
+        "name": "p1_hc16_relu",
+        "head_src": "p1",
+        "head_conv": 16,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 2,
+        "note": "保320头+更窄"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes3/p1_hc16_relu_int8.rknn",
+      "cycles": {
+        "ops": 134,
+        "npu_cycles": 18112800,
+        "ddr_cycles": 3879708,
+        "rw_mb": 87.83203125,
+        "cpu_ops": 3
+      },
+      "ms": 32.14,
+      "fatal": null
+    },
+    {
+      "name": "p1_hc32_relu",
+      "spec": {
+        "name": "p1_hc32_relu",
+        "head_src": "p1",
+        "head_conv": 32,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 2,
+        "note": "保 320 头，宽度砍半"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes/p1_hc32_relu_int8.rknn",
+      "cycles": {
+        "ops": 134,
+        "npu_cycles": 18112800,
+        "ddr_cycles": 4504268,
+        "rw_mb": 95.6708984375,
+        "cpu_ops": 3
+      },
+      "ms": 32.77,
+      "fatal": null
+    },
+    {
+      "name": "p1_hc24_relu",
+      "spec": {
+        "name": "p1_hc24_relu",
+        "head_src": "p1",
+        "head_conv": 24,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 2,
+        "note": "保320头+极窄"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes3/p1_hc24_relu_int8.rknn",
+      "cycles": {
+        "ops": 134,
+        "npu_cycles": 18112800,
+        "ddr_cycles": 4503828,
+        "rw_mb": 95.662109375,
+        "cpu_ops": 3
+      },
+      "ms": 32.785,
+      "fatal": null
+    },
+    {
+      "name": "p1_hc48_relu",
+      "spec": {
+        "name": "p1_hc48_relu",
+        "head_src": "p1",
+        "head_conv": 48,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 2,
+        "note": "保 320 头，宽度收窄"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes/p1_hc48_relu_int8.rknn",
+      "cycles": {
+        "ops": 134,
+        "npu_cycles": 28250400,
+        "ddr_cycles": 5129452,
+        "rw_mb": 103.5224609375,
+        "cpu_ops": 3
+      },
+      "ms": 43.603,
+      "fatal": null
+    },
+    {
+      "name": "p1_hc64_silu2",
+      "spec": {
+        "name": "p1_hc64_silu2",
+        "head_src": "p1",
+        "head_conv": 64,
+        "act": "silu",
+        "ablate_p0": true,
+        "stride": 2,
+        "note": "基线复现(校验表一致性)"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes2/p1_hc64_silu2_int8.rknn",
+      "cycles": {
+        "ops": 149,
+        "npu_cycles": 28250400,
+        "ddr_cycles": 5662107,
+        "rw_mb": 113.48828125,
+        "cpu_ops": 3
+      },
+      "ms": 55.394,
+      "fatal": null
+    },
+    {
+      "name": "p1_hc64_silu",
+      "spec": {
+        "name": "p1_hc64_silu",
+        "head_src": "p1",
+        "head_conv": 64,
+        "act": "silu",
+        "ablate_p0": true,
+        "stride": 2,
+        "note": "基线：原结构+SiLU（P0关）"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes/p1_hc64_silu_int8.rknn",
+      "cycles": {
+        "ops": 149,
+        "npu_cycles": 28250400,
+        "ddr_cycles": 5662107,
+        "rw_mb": 113.48828125,
+        "cpu_ops": 3
+      },
+      "ms": 55.482,
+      "fatal": null
+    },
+    {
+      "name": "p1_hc96_relu",
+      "spec": {
+        "name": "p1_hc96_relu",
+        "head_src": "p1",
+        "head_conv": 96,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 2,
+        "note": "保320头+宽头"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes2/p1_hc96_relu_int8.rknn",
+      "cycles": {
+        "ops": 134,
+        "npu_cycles": 43917600,
+        "ddr_cycles": 7008432,
+        "rw_mb": 127.1591796875,
+        "cpu_ops": 3
+      },
+      "ms": 62.598,
+      "fatal": null
+    },
+    {
+      "name": "p1_hc64_p0_relu",
+      "spec": {
+        "name": "p1_hc64_p0_relu",
+        "head_src": "p1",
+        "head_conv": 64,
+        "act": "relu",
+        "ablate_p0": false,
+        "stride": 2,
+        "note": "P0 highway 的成本"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes/p1_hc64_p0_relu_int8.rknn",
+      "cycles": {
+        "ops": 145,
+        "npu_cycles": 40231200,
+        "ddr_cycles": 9167120,
+        "rw_mb": 175.8525390625,
+        "cpu_ops": 3
+      },
+      "ms": 72.612,
+      "fatal": null
+    },
+    {
+      "name": "p1_hc64_relu",
+      "spec": {
+        "name": "p1_hc64_relu",
+        "head_src": "p1",
+        "head_conv": 64,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 2,
+        "note": "all-relu 单独贡献"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes/p1_hc64_relu_int8.rknn",
+      "cycles": {
+        "ops": 134,
+        "npu_cycles": 28250400,
+        "ddr_cycles": 5755184,
+        "rw_mb": 111.388671875,
+        "cpu_ops": 3
+      },
+      "ms": null,
+      "fatal": "[FATAL] NPU output independent of input -- results are not trustworthy"
+    },
+    {
+      "name": "p3_hc64_relu",
+      "spec": {
+        "name": "p3_hc64_relu",
+        "head_src": "p3",
+        "head_conv": 64,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 8,
+        "note": "结构A：头降到P3"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes/p3_hc64_relu_int8.rknn",
+      "cycles": {
+        "ops": 101,
+        "npu_cycles": 4896800,
+        "ddr_cycles": 1571853,
+        "rw_mb": 30.896484375,
+        "cpu_ops": 3
+      },
+      "ms": null,
+      "fatal": "[FATAL] NPU output independent of input -- results are not trustworthy"
+    },
+    {
+      "name": "p2f_hc64_late",
+      "spec": {
+        "name": "p2f_hc64_late",
+        "head_src": "p2_fused",
+        "head_conv": 64,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 2,
+        "late_upsample": true,
+        "note": "★结构B+late：320输出/160计算"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes3/p2f_hc64_late_int8.rknn",
+      "cycles": {
+        "ops": 136,
+        "npu_cycles": 11252000,
+        "ddr_cycles": 3121771,
+        "rw_mb": 71.5146484375,
+        "cpu_ops": 3
+      },
+      "ms": null,
+      "fatal": "[FATAL] NPU output independent of input -- results are not trustworthy"
+    },
+    {
+      "name": "p2f_hc32_sc05",
+      "spec": {
+        "name": "p2f_hc32_sc05",
+        "head_src": "p2_fused",
+        "head_conv": 32,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 4,
+        "p2_out_scale": 0.5,
+        "note": "结构B+neck收窄0.5"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes4/p2f_hc32_sc05_int8.rknn",
+      "cycles": {
+        "ops": 132,
+        "npu_cycles": 7808800,
+        "ddr_cycles": 2613199,
+        "rw_mb": 56.1376953125,
+        "cpu_ops": 3
+      },
+      "ms": null,
+      "fatal": "[FATAL] NPU output independent of input -- results are not trustworthy"
+    },
+    {
+      "name": "p2f_hc64_late_sc075",
+      "spec": {
+        "name": "p2f_hc64_late_sc075",
+        "head_src": "p2_fused",
+        "head_conv": 64,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 2,
+        "late_upsample": true,
+        "p2_out_scale": 0.75,
+        "note": "★320输出+160计算+宽头+neck收窄 ⇒ 精度最优候选"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes4/p2f_hc64_late_sc075_int8.rknn",
+      "cycles": {
+        "ops": 136,
+        "npu_cycles": 11252000,
+        "ddr_cycles": 3034055,
+        "rw_mb": 69.927734375,
+        "cpu_ops": 3
+      },
+      "ms": null,
+      "fatal": "[FATAL] NPU output independent of input -- results are not trustworthy"
+    },
+    {
+      "name": "p2f_hc64_late_sc05",
+      "spec": {
+        "name": "p2f_hc64_late_sc05",
+        "head_src": "p2_fused",
+        "head_conv": 64,
+        "act": "relu",
+        "ablate_p0": true,
+        "stride": 2,
+        "late_upsample": true,
+        "p2_out_scale": 0.5,
+        "note": "★320输出+160计算+宽头+neck收窄0.5"
+      },
+      "rknn": "/media/manu/1TB-Volume/rknn_work/hm_speed/probes4/p2f_hc64_late_sc05_int8.rknn",
+      "cycles": {
+        "ops": 136,
+        "npu_cycles": 10343200,
+        "ddr_cycles": 2911716,
+        "rw_mb": 67.55859375,
+        "cpu_ops": 3
+      },
+      "ms": null,
+      "fatal": "[FATAL] NPU output independent of input -- results are not trustworthy"
+    },
+    {
+      "name": "p3_hc64_relu_late",
+      "ms": 13.131,
+      "ms_source": "measured",
+      "spec": {
+        "head_src": "p3",
+        "head_conv": 64,
+        "act": "relu",
+        "late_upsample": true,
+        "p2_out_scale": 1.0,
+        "ablate_p0": true
+      },
+      "note": "★2026-11-06 18:02 板卡实测（用 D1 臂 epoch1 真权重；null control CHANGED 通过 + determinism IDENTICAL 通过；heatmap 320x320 / implied stride 2）| rknn_run avg 13.131 ms | NPU+dequant 14.084 ms / 71.0 fps"
+    }
+  ],
+  "predictor": {
+    "a": 0.466433,
+    "b": 0.960332,
+    "c": 0.156106,
+    "late_coef": 1.862533,
+    "model": "relu-family + late dummy (23-point refit, sigma=0.367ms)",
+    "note": "只对 act=relu 的结构有效；silu 结构实测比本式慢 6.5~8.6 ms（周期表没给 SiLU 定价）"
+  }
+}

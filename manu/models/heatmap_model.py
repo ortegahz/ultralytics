@@ -30,11 +30,13 @@ class HeatmapHead(nn.Module):
     """
 
     def __init__(self, in_channels: int, head_conv: int = 64, num_classes: int = 1, merge_branches: bool = False,
-                 dw_head: bool = False, late_upsample: bool = False):
+                 dw_head: bool = False, late_upsample: bool = False, late_scale: int = 2):
         super().__init__()
         self.merge_branches = merge_branches
         self.dw_head = dw_head
         self.late_upsample = late_upsample
+        # ★ 2026-11-06：late 上采样倍数（p2_fused = 2；p3 = 4 才能到 320/stride 2）
+        self.late_scale = int(late_scale)
         self.head_conv = head_conv
 
         # Feature refining convolution layers
@@ -129,7 +131,7 @@ class HeatmapHead(nn.Module):
             # DW 探针（只降 MAC、搬运不动）没能做到的事。
             # ⚠️ 非等价改写：P1 高频信息经 AvgPool2d 降采样进融合，必须重训。
             both = F.interpolate(torch.cat([hm_logit, offset], dim=1),
-                                 scale_factor=2, mode="nearest")
+                                 scale_factor=self.late_scale, mode="nearest")
             hm_logit, offset = both[:, :1], both[:, 1:]
 
         # Clamp hm to avoid log(0) and fp16 underflow/overflow
@@ -562,6 +564,42 @@ class P0ResidualHighway(nn.Module):
         return self.gate * feat_p1_res
 
 
+
+def swap_act_to_relu(model: nn.Module, scope: str = "all") -> int:
+    """把模块里的 nn.SiLU 全部换成 nn.ReLU，返回替换个数。
+
+    为什么需要它：SiLU 在 NPU 上被融合成 Rockchip 的 ``ConvExSwish`` 算子，ReLU 不会。
+    RKNN 的周期表对两者**给出完全相同的 NPU 周期**（stock YOLO26n 实测 5,204,400），
+    但板端实测 23.814 ms -> 14.330 ms（-39.8%）⇒ 周期模型根本没给激活函数定价。
+
+    scope="all"      ⇒ 连冻结底模 b0..b4 一起换（用户口径 "all relu"）。
+                      ⚠️ 这会**改变冻结底模的函数** ⇒ 底模必须同时解冻，否则永久退化。
+    scope="trainable" ⇒ 只换 b5..b10 + neck + head，b0..b4 保持 SiLU（底模函数不变）。
+
+    ``Conv.default_act`` 是类属性（所有 Conv 共享同一个 SiLU 实例），
+    所以必须**逐个 parent 替换实例属性**，否则改一个会污染全部。
+    """
+    import torch
+
+    if scope == "all":
+        targets = [model]
+    else:
+        names = (
+            "b5", "b6", "b7", "b8", "b9", "b10",
+            "up1", "c13", "up2", "c16", "up3", "c19", "down1", "c22",
+            "up_p2", "fuse_p2", "fuse_p1", "head", "head_in",
+        )
+        targets = [m for m in (getattr(model, n, None) for n in names) if m is not None]
+    n = 0
+    for root in targets:
+        for parent in root.modules():
+            for cname, child in list(parent.named_children()):
+                if isinstance(child, torch.nn.SiLU):
+                    setattr(parent, cname, torch.nn.ReLU())
+                    n += 1
+    return n
+
+
 class YOLO26HeatmapDetector(nn.Module):
     """
     Detector integrating YOLO26 backbone + P2 Neck with Heatmap Head.
@@ -587,11 +625,85 @@ class YOLO26HeatmapDetector(nn.Module):
         dw_head: bool = False,
         late_upsample: bool = False,
         head_conv: int | None = None,
+        no_p2: bool = False,
+        head_level: str = "p3",
+        act: str = "silu",
+        head_src: str = "",
+        p2_out_scale: float = 1.0,
     ):
         super().__init__()
-        assert stride in (2, 4), f"Only stride 4 (P2) or stride 2 (P1) is supported, got {stride}."
+        # ⚠️ stride=8（P3 头）只在 no_p2 结构下允许。
+        #    2026-11-05 实测踩坑：门禁侧 cache_trial0474_inferences.py 用 `ckpt["stride"]`(=8)
+        #    重建模型时，这条 assert 把 6 条 p3 臂的**门禁**全打成 GATE_REPORT_INCOMPLETE
+        #    （训练本身正常，权重完好）⇒ 断言必须放行 8。
+        assert stride in (2, 4, 8), (
+            f"stride must be 2 (P1), 4 (P2) or 8 (P3, no_p2 only), got {stride}."
+        )
         assert scale in ("n", "s"), f"Only scale 'n' or 's' is supported, got {scale}."
+        # ⚠️ "p1" 必须在这里：head_src="p1"（现状结构）时 head_level 原样就是 "p1"，
+        #    ckpt 自描述也会写 "p1" ⇒ 漏了它会让**控制臂的门禁/导出**全挂（2026-11-06 实测）。
+        assert head_level in ("p1", "p3", "p2", "p2_fused"), (
+            f"head_level must be 'p1', 'p3', 'p2' or 'p2_fused', got {head_level!r}."
+        )
+        assert act in ("silu", "relu"), f"act must be 'silu' or 'relu', got {act!r}."
+        # ---- head_src：头吃哪一级特征（结构维度）----
+        #   ""         ⇒ 走 legacy 的 no_p2/head_level 组合
+        #   "p1"       ⇒ 现状：fuse_p1 的 320x320（带 P1 头分支）
+        #   "p2_raw"   ⇒ 骨干原始 /4（160x160）—— **已证伪**：无语义 ⇒ 精度塌陷
+        #   "p2_fused" ⇒ **结构 B**：fuse_p2 的 160x160（带 P3 语义）⇒ 删 P1 320 头、保留 P2 融合
+        #   "p3"       ⇒ **结构 A**：p3_fpn 的 80x80 ⇒ 删 P2 融合级、删 P1 头
+        if head_src:
+            assert head_src in ("p1", "p2_raw", "p2_fused", "p3"), head_src
+        else:
+            # ⚠️ **从 head_level 反推 head_src**（2026-11-06 修）：
+            #   正在跑的那轮搜索是**在 head_src 写进 ckpt 之前**启动的 ⇒ 它存出的 ckpt
+            #   没有 head_src 字段、只有 head_level="p2_fused"
+            #   ⇒ 若这里按 legacy 走 no_p2=False ⇒ head_src="p1" ⇒ **门禁会用原结构重建**
+            #      ⇒ 精度数据全废（测的不是训练的那个模型）。
+            #   ⇒ 所以 head_level="p2_fused" 必须直接映射到 head_src="p2_fused"。
+            if head_level == "p2_fused":
+                head_src = "p2_fused"
+            elif no_p2:
+                head_src = "p3" if head_level == "p3" else "p2_raw"
+            else:
+                head_src = "p1"
+        self.head_src = head_src
+        if head_src == "p2_fused":
+            no_p2 = False           # P2 融合级要保留
+            head_level = "p2_fused"
+        elif head_src == "p3":
+            no_p2 = True
+            head_level = "p3"
+        elif head_src == "p2_raw":
+            no_p2 = True
+            head_level = "p2"
+        self.no_p2 = no_p2
+        self.head_level = head_level
+        self.act_kind = act
+        # no_p2 => neck 只保留标准 YOLO26 的 P3/P4/P5，不做 P2 融合。
+        # 输出 stride 由 head 吃哪一级决定：p3 => /8, p2 => /4（骨干 /4 stem，本就存在）。
+        if head_src == "p2_fused":
+            # ★ p2_fused + late_upsample：**头在 160×160 上算，输出经 2× 上采样回到 320×320**
+            #   ⇒ 定位分辨率（320）与原模型**完全一致**（门禁/评测的 stride 口径零改动），
+            #     但卷积计算量降 4× ⇒ 这是「20 ms 预算内保精度」的最优结构候选。
+            stride = 2 if late_upsample else 4
+        elif no_p2:
+            stride = 8 if head_level == "p3" else 4
+            if late_upsample:
+                # ★★ 2026-11-06 修（**结构线致命坑**）：p3/p2_raw + late_upsample 之前
+                #   **被完全忽略** ⇒ stride 仍声明 8（= 80×80 输出），而 late 分支固定
+                #   2× 上采样 ⇒ 实际输出 160 ⇒ 与训练目标（80）不匹配 ⇒ **训练秒崩**
+                #   （RuntimeError: The size of tensor a (160) must match the size of
+                #     tensor b (80) at non-singleton dimension 3）。
+                #   ⇒ 老轮（nogmc_struct4）的 p3+late 语义是 **4× 上采样 → 320（stride 2）**
+                #   ⇒ 这里恢复该语义：stride=2，且 late_scale=4（p3: 80→320）/ 2（p2_raw: 160→320）。
+                stride = 2
         self.stride = stride
+        # ★ 2026-11-06：late 上采样倍数（p3 的头在 80×80 ⇒ 需 4× 才到 320/stride 2；
+        #   p2_fused 的头在 160×160 ⇒ 2×，与历史逐位一致）
+        late_scale = 2
+        if late_upsample and no_p2 and head_level == "p3":
+            late_scale = 4
         self.scale = scale
         self.num_classes = num_classes
         self.use_temporal_stem = use_temporal_stem
@@ -605,7 +717,10 @@ class YOLO26HeatmapDetector(nn.Module):
 
         c_p1 = 16 * w    # 16 or 32
         c_p2 = 32 * w    # 32 or 64
-        c_p2_out = 64 * w  # 64 or 128
+        # ★ p2_out_scale：收窄 **P2 融合级**的输出通道（1.0/0.75/0.5）
+        #   ⇒ 直接砍 160x160 张量的搬运量与算力（这是 21ms 预算下最有效的"省带宽"旋钮）
+        #   ⇒ 只影响 **neck（G3，可训练组）** ⇒ 骨干 b0..b10 与头的形状不变 ⇒ 起点依旧很好
+        c_p2_out = max(16, int(64 * w * p2_out_scale))  # 64 or 128
         c_p3 = 64 * w    # 64 or 128
         c_p3_out = 128 * w  # 128 or 256
         c_p4 = 128 * w   # 128 or 256
@@ -630,34 +745,64 @@ class YOLO26HeatmapDetector(nn.Module):
         self.b10 = C2PSA(c_p5, c_p5, n=1)                         # 10: P5 / 32
 
         # Neck (FPN top-down to P2):
+        # ---- 标准 YOLO26 的 FPN（P5→P4→P3）：**两种结构都要建** ----
+        # ⚠️ no_p2 只删 **P2 专属**的部分（up3/c19/down1/c22/up_p2/fuse_p2），
+        #    c13/c16 是标准 YOLO26 的 P4/P3 融合，必须保留。
         if upsample_mode == "pixelshuffle":
             self.up1 = PixelShuffleUpsample(in_channels=c_p5, out_channels=c_p4, scale_factor=2)
             self.c13 = C3k2(c_p4 + c_p4, c_p4, n=1, c3k=True)
             self.up2 = PixelShuffleUpsample(in_channels=c_p4, out_channels=c_p3, scale_factor=2)
             self.c16 = C3k2(c_p3 + c_p3_out, c_p3, n=1, c3k=True)
-            self.up3 = PixelShuffleUpsample(in_channels=c_p3, out_channels=c_p2, scale_factor=2)
-            self.c19 = C3k2(c_p2 + c_p2_out, c_p2, n=1, c3k=True)
         else:
             self.up1 = nn.Upsample(scale_factor=2, mode="nearest")
             self.c13 = C3k2(c_p5 + c_p4, c_p4, n=1, c3k=True)
             self.up2 = nn.Upsample(scale_factor=2, mode="nearest")
             self.c16 = C3k2(c_p4 + c_p3_out, c_p3, n=1, c3k=True)
-            self.up3 = nn.Upsample(scale_factor=2, mode="nearest")
-            self.c19 = C3k2(c_p3 + c_p2_out, c_p2, n=1, c3k=True)
 
-        # Neck (PAN bottom-up):
-        self.down1 = Conv(c_p2, c_p2, 3, 2)
-        self.c22 = C3k2(c_p2 + c_p3, c_p3, n=1, c3k=True)
+        if not no_p2:
+            # ---- P2 专属：FPN 的 P2 级 + PAN 底向上 + P2 融合 + P1 头分支 ----
+            if upsample_mode == "pixelshuffle":
+                self.up3 = PixelShuffleUpsample(in_channels=c_p3, out_channels=c_p2, scale_factor=2)
+                self.c19 = C3k2(c_p2 + c_p2_out, c_p2, n=1, c3k=True)
+            else:
+                self.up3 = nn.Upsample(scale_factor=2, mode="nearest")
+                self.c19 = C3k2(c_p3 + c_p2_out, c_p2, n=1, c3k=True)
 
-        # Final fusion onto P2 (re-injecting enriched semantic context from P3 to P2)
-        if upsample_mode == "pixelshuffle":
-            self.up_p2 = PixelShuffleUpsample(in_channels=c_p3, out_channels=c_p2_out, scale_factor=2)
-            self.fuse_p2 = Conv(c_p2 + c_p2_out, c_p2_out, 3, 1)
-        else:
-            self.up_p2 = nn.Upsample(scale_factor=2, mode="nearest")
-            self.fuse_p2 = Conv(c_p2 + c_p3, c_p2_out, 3, 1)
+            # Neck (PAN bottom-up):
+            self.down1 = Conv(c_p2, c_p2, 3, 2)
+            self.c22 = C3k2(c_p2 + c_p3, c_p3, n=1, c3k=True)
 
-        if stride == 2:
+            # Final fusion onto P2 (re-injecting enriched semantic context from P3 to P2)
+            if upsample_mode == "pixelshuffle":
+                self.up_p2 = PixelShuffleUpsample(in_channels=c_p3, out_channels=c_p2_out, scale_factor=2)
+                self.fuse_p2 = Conv(c_p2 + c_p2_out, c_p2_out, 3, 1)
+            else:
+                self.up_p2 = nn.Upsample(scale_factor=2, mode="nearest")
+                self.fuse_p2 = Conv(c_p2 + c_p3, c_p2_out, 3, 1)
+
+        # ---- no_p2 分支：标准 YOLO26 的 P3/P4 FPN + 头适配器 ----
+        if self.head_src == "p2_fused":
+            # 结构 B：保留 P2 融合（fuse_p2，160x160，带 P3 语义），**只删 P1 320 头分支**
+            c_p1_fuse = 48 * w
+            self.head_in = Conv(c_p2_out, c_p1_fuse, 1)
+            head_in_ch = c_p1_fuse
+        elif no_p2:
+            # 头吃哪一级：p3 => FPN 的 P3（/8, 80x80）；p2_raw => 骨干 /4 stem（/4, 160x160）。
+            # 两种来源的通道数都是 c_p2_out / c_p3（64*w），所以适配器形状一致。
+            c_head_src = c_p3 if head_level == "p3" else c_p2_out
+            c_p1_fuse = 48 * w
+            # 1x1 适配器把 64*w 压到 48*w ⇒ head.feat_conv.0 的权重形状 (64,48,3,3)
+            # 与既有 checkpoint **完全一致** ⇒ 整个头（feat_conv/heatmap/offset）
+            # 都能从 cs_t0043 继承，只有这个适配器是新的。
+            self.head_in = Conv(c_head_src, c_p1_fuse, 1)
+            head_in_ch = c_p1_fuse
+        elif head_src == "p2_fused":
+            # 结构 B：保留 P2 融合（fuse_p2，160x160，带 P3 语义），
+            # **只删 P1 320 头分支**（up_p1/fuse_p1）⇒ 头吃 p2_out
+            c_p1_fuse = 48 * w
+            self.head_in = Conv(c_p2_out, c_p1_fuse, 1)
+            head_in_ch = c_p1_fuse
+        elif stride == 2:
             # Stride 2 branch: upsample P2 to P1 and fuse with backbone b0
             c_p1_fuse = 48 * w
             if upsample_mode == "pixelshuffle":
@@ -690,13 +835,19 @@ class YOLO26HeatmapDetector(nn.Module):
         # head_conv 显式覆盖：只减搬运、不增算力（late 结构下 Head 已在 160x160）。
         # None = 保持 64*w 原值，对既有路径零影响。
         hc = (64 * w) if head_conv is None else head_conv
-        self.head = HeatmapHead(in_channels=head_in_ch, head_conv=hc, 
+        self.head = HeatmapHead(in_channels=head_in_ch, head_conv=hc,
                                 num_classes=num_classes, merge_branches=merge_head_branches,
-                                dw_head=dw_head, late_upsample=late_upsample)
+                                dw_head=dw_head, late_upsample=late_upsample,
+                                late_scale=late_scale)
         print(f"[head_conv] {hc}")
 
         if weights:
             self.load_pretrained(weights)
+
+        # ---- 激活函数：silu（默认，逐位不变）/ relu ----
+        if act == "relu":
+            n_sw = swap_act_to_relu(self, "all")
+            print(f"[ACT  ] SiLU -> ReLU on {n_sw} modules (scope=all)", flush=True)
 
     def extract_features(self, x: torch.Tensor) -> torch.Tensor:
         # Backbone forward
@@ -709,6 +860,14 @@ class YOLO26HeatmapDetector(nn.Module):
         # FPN Top-down
         p4_fpn = self.c13(torch.cat([self.up1(p5_in), p4_in], dim=1))
         p3_fpn = self.c16(torch.cat([self.up2(p4_fpn), p3_in], dim=1))
+
+        if self.no_p2:
+            # no_p2：不做 P2 融合、不做 P1 头分支 ⇒ 回到标准 YOLO26 的 P3/P4/P5 拓扑。
+            # p2 => 直接用骨干 /4 的 p2_in（160x160），保住极小目标分辨率；
+            # p3 => 用 FPN 的 P3（80x80），最省搬运。
+            src = p3_fpn if self.head_level == "p3" else p2_in
+            return self.head_in(src)
+
         p2_fpn = self.c19(torch.cat([self.up3(p3_fpn), p2_in], dim=1))
 
         # Bottom-up enhancement
@@ -716,6 +875,13 @@ class YOLO26HeatmapDetector(nn.Module):
         
         # P2 enriched feature
         p2_out = self.fuse_p2(torch.cat([p2_fpn, self.up_p2(p3_pan)], dim=1))
+
+        if self.head_src == "p2_fused":
+            # 结构 B：头吃 **P2 融合后** 的 160x160（有 P3 语义）⇒
+            #   删掉 P1 320 头分支（up_p1/fuse_p1），但**保留 P2 融合语义**
+            #   ⇒ 这是"精度友好"的那一版：P1 的 320x320 大张量没了，
+            #     而热图仍在 160x160（stride 4）⇒ 极小目标定位不掉。
+            return self.head_in(p2_out)
 
         if self.stride == 2:
             # late_upsample: b0 的 P1 特征也要降到 P2 尺度，否则拼接时尺寸不匹配。

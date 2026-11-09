@@ -1,0 +1,6 @@
+[
+ {"name": "p2f_hc32_late_sc05",  "head_src": "p2_fused", "head_conv": 32, "act": "relu", "ablate_p0": true, "stride": 2, "late_upsample": true, "p2_out_scale": 0.5,  "note": "★320输出+160计算+neck收窄0.5"},
+ {"name": "p2f_hc32_late_sc025", "head_src": "p2_fused", "head_conv": 32, "act": "relu", "ablate_p0": true, "stride": 2, "late_upsample": true, "p2_out_scale": 0.25, "note": "★320输出+neck收窄0.25"},
+ {"name": "p2f_hc48_late_sc025", "head_src": "p2_fused", "head_conv": 48, "act": "relu", "ablate_p0": true, "stride": 2, "late_upsample": true, "p2_out_scale": 0.25, "note": "★320输出+宽头+neck收窄0.25"},
+ {"name": "p2f_hc24_late_sc05",  "head_src": "p2_fused", "head_conv": 24, "act": "relu", "ablate_p0": true, "stride": 2, "late_upsample": true, "p2_out_scale": 0.5,  "note": "320输出+窄头+neck收窄0.5"}
+]

@@ -23,6 +23,7 @@ Usage on Server:
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import pickle
 import sys
@@ -87,11 +88,29 @@ def parse_args():
              "older cache is required.",
     )
     parser.add_argument(
+        "--offset-calib",
+        type=str,
+        default="",
+        help="offset 仿射校准 sidecar（JSON: {\"scale\": s, \"bias\": b}）。"
+             "默认自动发现 <weights>.offset_calib.json；校准只改解码、不改权重。",
+    )
+    parser.add_argument(
         "--ablate-p0",
         action="store_true",
         help="Ablation: build the model WITHOUT the P0 residual highway (self.p0_highway=None). "
              "Every p0_highway.* tensor in the checkpoint is then skipped and the detector is exactly "
              "the frozen base path. Asserts that no p0 tensor was loaded -- see the GATE below.",
+    )
+    parser.add_argument(
+        "--act-override",
+        type=str,
+        default="",
+        choices=["", "silu", "relu"],
+        help="Activation override for the REBUILT graph. Default '' = keep the checkpoint's own "
+             "act (no behaviour change). 'relu' reproduces the NPU export probe "
+             "(manu/pipeline/npu/hm_export_onnx.py --act relu, SiLU->ReLU on all modules) so the "
+             "host-side T1 of a ReLU board graph can be measured on a SiLU-trained checkpoint "
+             "(the export helper itself flags that swap as 'TIMING PROBE ONLY / changes numerics').",
     )
     parser.add_argument(
         "--adapter-weights",
@@ -160,6 +179,20 @@ def main():
 
     print(f"[INFO] P0 Micro-Architecture: {p0_kwargs}")
 
+    # ---- 结构线（2026-11-05）：ckpt 自描述，门禁/缓存零改动重建同一张图 ----
+    # 新结构臂的 ckpt 里带 no_p2/head_level/act/head_conv/late_upsample，
+    # ⇒ 任何消费者（门禁、缓存、导出）只要 load 这个 ckpt 就得到同一张图。
+    no_p2 = bool(ckpt.get("no_p2", False))
+    head_level = str(ckpt.get("head_level", "p3"))
+    act = str(ckpt.get("act", "silu"))
+    head_conv = ckpt.get("head_conv", None)
+    late_upsample = bool(ckpt.get("late_upsample", False))
+    head_src = str(ckpt.get("head_src", "") or "")
+    p2_out_scale = float(ckpt.get("p2_out_scale", 1.0) or 1.0)
+    if no_p2 or act != "silu" or head_conv or late_upsample:
+        print(f"[STRUCT] ckpt 自描述: no_p2={no_p2} head_level={head_level} act={act} "
+              f"head_conv={head_conv} late_upsample={late_upsample}")
+
     # Instantiate model with use_p0_highway=True and specific p0_kwargs
     model = YOLO26HeatmapDetector(
         stride=stride,
@@ -167,10 +200,37 @@ def main():
         temporal_mode="standard",
         use_p0_highway=not args.ablate_p0,
         p0_highway_kwargs=p0_kwargs,
+        no_p2=no_p2,
+        head_level=head_level,
+        act=act,
+        late_upsample=late_upsample,
+        head_conv=int(head_conv) if head_conv else None,
+        head_src=head_src,
+        p2_out_scale=p2_out_scale,
     )
+
+    # ---- 激活覆盖（默认空操作：沿用 ckpt 自带 act）----
+    # 目的：板卡导出默认用 ckpt 的 act（trial_0031 = silu ⇒ 数值一致）；
+    # 但 13.131 ms 的测速臂 D1 是 act=relu ⇒ 要回答「若板卡跑 relu 图，host 侧 T1 是多少」。
+    _act_override = (getattr(args, "act_override", "") or "").strip().lower()
+    if _act_override:
+        from manu.models.heatmap_model import swap_act_to_relu
+
+        _n = swap_act_to_relu(model, "all")
+        print(f"[ACT-OVERRIDE] SiLU -> ReLU on {_n} modules (probe only, changes numerics); "
+              f"ckpt act was '{act}'")
 
     # Load trained state_dict directly
     matched, skipped, n_p0_skipped = 0, 0, 0
+    # ★★ shape 不匹配**硬门禁**（2026-11-06 补，同 preannotate_hm_bbox.load_hm_model）：
+    #    以前「key 在模型里但形状不一致」被**静默跳过** ⇒ 权重没加载 ⇒ 模型带随机头推理
+    #    ⇒ 热图全 0 ⇒ det=0 ⇒ **被误读成「死模型」**（T2/T3 路径真发生过，见
+    #    manu/memory/hc32_deadmodel_truth_20261106.md）。
+    #    ⇒ 这里区分两种情况：
+    #      · missing  = 模型里**根本没有**这个 key（历史键/已消融键）⇒ 无害，只计数
+    #      · mismatch = 模型里**有**这个 key 但形状不一致 ⇒ 证明重建的结构 ≠ ckpt 的结构 ⇒ 致命
+    #    ⇒ 宁可响亮地崩，也不要静默产出假指标。
+    mismatched: list[tuple[str, tuple, tuple]] = []
     own_state = model.state_dict()
     for k, v in state_dict.items():
         clean_k = k.replace("module.", "").replace("model.model.", "").replace("model.", "")
@@ -181,6 +241,19 @@ def main():
             skipped += 1
             if clean_k.startswith("p0_highway"):
                 n_p0_skipped += 1
+            elif clean_k in own_state:
+                mismatched.append((clean_k, tuple(own_state[clean_k].shape), tuple(v.shape)))
+
+    if mismatched:
+        preview = "; ".join(f"{k}: model{tuple(s1)} vs ckpt{tuple(s2)}" for k, s1, s2 in mismatched[:5])
+        raise RuntimeError(
+            f"[STRUCT GATE] {len(mismatched)} 个非 p0 张量形状不匹配 ⇒ 重建的模型结构 ≠ ckpt 的结构\n"
+            f"  ckpt        : {args.weights}\n"
+            f"  ckpt 自描述 : head_conv={head_conv} late_upsample={late_upsample} "
+            f"head_src={head_src} no_p2={no_p2} act={act} p2_out_scale={p2_out_scale}\n"
+            f"  前几项      : {preview}\n"
+            "  ⇒ 拒绝继续（静默跳过会产出「随机头 ⇒ det=0 ⇒ 被误判成死模型」的假结论）"
+        )
 
     # ABLATION GATE: --ablate-p0 is only meaningful if the model really has no P0 stream AND
     # every p0_highway tensor was actually dropped. Silently "succeeding" with a P0 model would
@@ -204,6 +277,44 @@ def main():
 
     model.to(device)
     model.eval()
+
+    # ★★ 2026-11-09 修：late_upsample 的原生网格倍数 L（=1 ⇒ 没有 late 上采样 ⇒ 抽峰在输出网格上做）
+    #   late_upsample 用 ``F.interpolate(..., mode="nearest")`` 把头的**原生网格**复制 L 倍
+    #   （P3: 80x80 -> 320x320, L=4；P2_fused: 160x160 -> 320x320, L=2）。
+    #   ⇒ 峰必须在**原生网格**上抽、用 stride*L 解码，否则两个必然缺陷：
+    #     ① 一个目标的 L×L 个复制像素分数**完全相同** ⇒ 3x3 max-pool 的相等判定把它们全当峰
+    #        ⇒ 每个目标裂成 L² 个候选 ⇒ T1 假阳洪泛（实测 p3/L=4：每帧 51.9 候选 vs 基线 2.5；
+    #        317,074 个假阳里 86.6% 落在真目标 8px 内、87.9% 与某真目标分数**完全相同**）。
+    #     ② 峰落在块内哪个复制像素是**任意**的 ⇒ 坐标系统性偏 0~(L-1) px，offset 也被量化
+    #        ⇒ 8px 点对点容差被吃掉 ⇒ 召回塌陷（实测 72% vs 基线 86%）。
+    #   ⇒ L=1 时本段**逐位空操作** ⇒ 冻结基线（trial_0474 / cs_t0043）headline 数字不变。
+    native_scale = 1
+    if late_upsample:
+        native_scale = int(getattr(getattr(model, "head", None), "late_scale", 1) or 1)
+        print(colorstr("cyan", f"[STRUCT] late_upsample 原生网格 L={native_scale} ⇒ "
+                               f"抽峰在原生网格 / 解码 stride={stride}*{native_scale}={stride * native_scale}"))
+
+    # ★★ offset 仿射校准（2026-11-09）：**只改解码，不改任何权重**。
+    #   实测：P3/hc64/relu/late 臂的 offset 头塌缩成「常数≈0.5 + 幅度只有 1/8 的抖动」
+    #   （输出 std 仅 0.066，与真值回归斜率仅 0.129）⇒ 解码误差 = −6.97·tx
+    #   ⇒ σ≈2.32px（= 8px 格距的量化下限）⇒ T1 掉 2.4 pp（召回 72~82% vs 基线 86%）。
+    #   正解：**在训练集上**拟合 ô = s·t_rel + b，解码用 ô_cal = (ô − b)/s ⇒ 残差 0.052 格 ≈ 0.42px。
+    #   校准常数存 sidecar（<weights>.offset_calib.json）⇒ 权重文件保持逐字节不变。
+    offset_scale, offset_bias = 1.0, 0.0
+    calib_path = args.offset_calib or (str(weights_path.with_suffix("")) + ".offset_calib.json")
+    if Path(calib_path).is_file():
+        try:
+            _cal = json.loads(Path(calib_path).read_text())
+            offset_scale = float(_cal.get("scale", 1.0) or 1.0)
+            offset_bias = float(_cal.get("bias", 0.0) or 0.0)
+        except Exception as _e:  # 校准坏了 ⇒ 回落到空操作，绝不静默改变口径
+            print(colorstr("yellow", f"[CALIB] 读取失败，回落到空操作：{calib_path} ({_e})"))
+            offset_scale, offset_bias = 1.0, 0.0
+    if offset_scale != 1.0 or offset_bias != 0.0:
+        print(colorstr("cyan", f"[CALIB] offset 仿射校准生效：scale={offset_scale:.4f} bias={offset_bias:.4f} "
+                               f"(来源 {calib_path})"))
+    else:
+        print(colorstr("yellow", f"[CALIB] 无校准（空操作）| 查找过 {calib_path}"))
 
     # 2b. Optional lightweight adapter. Loaded AFTER the base model so the frozen detector is
     #     never touched; the adapter only rescales the heatmap that feeds extract_peaks.
@@ -291,6 +402,9 @@ def main():
                     stride=stride,
                     conf_thresh=args.conf_thresh,
                     top_k=args.top_k,
+                    native_scale=native_scale,
+                    offset_scale=offset_scale,
+                    offset_bias=offset_bias,
                 )
                 if args.no_peak_attrs
                 else extract_peaks_with_area_sums(
@@ -300,6 +414,9 @@ def main():
                     conf_thresh=args.conf_thresh,
                     top_k=args.top_k,
                     component_thresh=args.component_thresh,
+                    native_scale=native_scale,
+                    offset_scale=offset_scale,
+                    offset_bias=offset_bias,
                 )
             )
 

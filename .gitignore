@@ -211,3 +211,36 @@ results.csv
 fuzz-sources/
 fuzz-datasets/
 fuzz-models/
+
+# --------------------------------------------------------------------------------------
+# 本工程补充（2026-11-09，PyCharm / 本机运行时产物）
+# --------------------------------------------------------------------------------------
+
+# Ruff 格式/检查缓存（.pytest_cache / .mypy_cache / __pycache__ 上面已有）
+.ruff_cache/
+
+# PyCharm：.idea 整目录已在上面忽略；这里兜住被挪到仓库根的 .iml
+*.iml
+
+# Agent 运行时本地目录（角色配置、探针缓存、session 状态）——不进版本库
+.codex/
+.minimax/
+
+# NPU 板端构建产物：交叉编译 ELF + 每次跑都会变的检测导出/性能报告
+# （原只在 .git/info/exclude 里，本地有效；这里提到 .gitignore 便于随仓库分发）
+manu/pipeline/npu/out/
+manu/pipeline/npu/.build-include/
+manu/pipeline/npu/.demo-build-mobilenet/
+
+# 交付权重副本（本机保险副本，与服务器侧 canonical 权重 sha256 一致，但不入库）
+runs/
+
+# 编辑器/工具留下的备份文件
+*.bak
+*.orig
+*.rej
+
+# board/scratch 下的诊断脚本保留跟踪，但生成物（md5 清单等）不入库
+manu/pipeline/npu/board/scratch/*.txt
+manu/pipeline/npu/board/scratch/*.json
+

@@ -3,8 +3,9 @@
 # copy_to_nfs.sh -- 把【整棵交付源码包】镜像到 NFS 交付目录（板卡 /mnt/manu）。
 #
 # 交付包 = manu/pipeline/npu/build/（由 make_build_dir.sh 生成）。脚本所在目录
-# 就是包根；本脚本把整棵树（源码 + 第三方头 + kernel 资产 + 编译产物）原样
-# 镜像到 NFS 交付目录，再建 5 个兼容符号链接，旧的平铺命令仍然可用。
+# 就是包根；本脚本把整棵树（源码 + 第三方头 + kernel 资产 + **third_party/
+# 第三方依赖** + 编译产物）原样镜像到 NFS 交付目录，再建 5 个兼容符号链接，
+# 旧的平铺命令仍然可用。
 #
 # 用法:
 #   bash copy_to_nfs.sh [--build] [--nfs <目录>] [--verify]
@@ -222,6 +223,22 @@ REQUIRED_FILES=(
   "out/mosaic_pipeline.o" "out/libmosaic_pipeline.a"
   "out/mosaic_api_test" "out/mosaic_contract_test"
   "out/rknn_mosaic_e2e" "out/mosaic_client_example"
+  # 第三方依赖（**编译期硬依赖**，以前只存在于开发机的绝对路径里 ⇒ 包编不出来）
+  "third_party/MANIFEST.md" "third_party/README.md"
+  "third_party/opencv/include/opencv4/opencv2/core.hpp"
+  "third_party/opencv/include/opencv4/opencv2/imgcodecs.hpp"
+  "third_party/opencv/lib/libopencv_core.a"
+  "third_party/opencv/lib/libopencv_imgproc.a"
+  "third_party/opencv/lib/libopencv_imgcodecs.a"
+  "third_party/opencv/lib/libopencv_calib3d.a"
+  "third_party/opencv/lib/libopencv_features2d.a"
+  "third_party/opencv/lib/libopencv_flann.a"
+  "third_party/opencv/lib/libopencv_video.a"
+  "third_party/opencv/lib/opencv4/3rdparty/libtegra_hal.a"
+  "third_party/opencv/lib/opencv4/3rdparty/libzlib.a"
+  "third_party/boardlibs/libOpenCL.so" "third_party/boardlibs/libOpenCL.so.1"
+  "third_party/rknnrt/librknnrt.so"
+  "third_party/rknnrt/librga.so" "third_party/rknnrt/librga.so.2"
 )
 
 # ssh 通用参数：本机 ~/.ssh 只读（known_hosts 写不了），但**主机密钥必须钉死**
@@ -277,7 +294,19 @@ fi
 echo
 echo "== [2/5] 检查包内容 =="
 for f in "${REQUIRED_FILES[@]}"; do
-  [ -f "$PKG_DIR/$f" ] || die "缺少 $f —— 先跑 build_lib.sh / build_demo.sh（--build 可自动做）"
+  if [ ! -f "$PKG_DIR/$f" ]; then
+    case "$f" in
+      third_party/*)
+        die "缺少 $f —— 这个包缺【第三方依赖】（third_party/）。
+       ⇒ 上一版交付包（69 个文件）没有 third_party/，在集成方机器上**编不出来**
+         （构建脚本指向开发机的绝对路径）。
+       ⇒ 处置：① 重新打包：bash packaging/make_build_dir.sh（会自动带上 third_party/）
+                ② 或用 OPENCV_INSTALL / BOARD_LIBS / RT_LIB_DIR 三个环境变量
+                   指向你机器上的交叉编译版 OpenCV / 板卡 libOpenCL / 板卡 librknnrt+librga。" ;;
+      *)
+        die "缺少 $f —— 先跑 build_lib.sh / build_demo.sh（--build 可自动做）" ;;
+    esac
+  fi
   echo "  [ok] $f"
 done
 
@@ -691,7 +720,7 @@ REMOTE
   }
 
   echo
-  echo "  [1/3] 契约测试：mosaic_contract_test --limit 60（先落板卡 /tmp 再执行）"
+  echo "  [1/4] 契约测试：mosaic_contract_test --limit 60（先落板卡 /tmp 再执行）"
   rc=0
   run_board_test "契约测试" "mosaic_contract_test" --limit 60 --kernel-dir "$BOARD_DEST/runtime/kernels" || rc=$?
   [ "$rc" = "0" ] || die "板卡契约测试失败（退出码 $rc）—— 疑似 NFS 页缓存损坏（已先落 /tmp + 已 drop_caches 仍失败）或真回归"
@@ -702,7 +731,7 @@ REMOTE
   fi
 
   echo
-  echo "  [2/3] demo：mosaic_api_test --limit 6（先落板卡 /tmp 再执行）"
+  echo "  [2/4] demo：mosaic_api_test --limit 6（先落板卡 /tmp 再执行）"
   rc=0
   run_board_test "demo" "mosaic_api_test" --limit 6 --kernel-dir "$BOARD_DEST/runtime/kernels" || rc=$?
   [ "$rc" = "0" ] || die "板卡 demo 失败（退出码 $rc）—— 疑似 NFS 页缓存损坏（已先落 /tmp + 已 drop_caches 仍失败）或真回归"
@@ -714,7 +743,7 @@ REMOTE
   # **必须串行**：板卡 RKNN context 上限 2，并发跑会互相抢 context。跟前两步
   # 一样，二进制先落板卡 /tmp(tmpfs) + md5 对账再执行。
   echo
-  echo "  [3/3] 最小集成示范：mosaic_client_example <帧目录> <模型> <kernel> 6（先落板卡 /tmp 再执行）"
+  echo "  [3/4] 最小集成示范：mosaic_client_example <帧目录> <模型> <kernel> 6（先落板卡 /tmp 再执行）"
   rc=0
   run_board_test "最小集成示范" "mosaic_client_example" \
     "/mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324" \
@@ -723,6 +752,68 @@ REMOTE
     6 || rc=$?
   [ "$rc" = "0" ] || die "板卡最小集成示范失败（退出码 $rc）—— 疑似 NFS 页缓存损坏（已先落 /tmp + 已 drop_caches 仍失败）或真回归"
   echo "  [ok] 板卡从交付目录跑通（demo + 最小集成示范）"
+
+  # -------------------------------------------------------------------------
+  # [4/4] 新增门禁：**包内自带的第三方运行时库**在板卡上真的能用吗？
+  #
+  #   librknnrt.so / librga.so.2 / libOpenCL.so.1 这三个以前**不在包里**
+  #   （只存在于开发机的绝对路径），现在打进 third_party/ ⇒ 必须验证
+  #   「板卡能从包里加载它们」，否则这个依赖就白打包了。
+  #
+  #   ⚠️ 三个文件里 librknnrt.so 有 7.3 MB ⇒ 从 soft 挂载的 NFS 读会被
+  #      页缓存污染 ⇒ 同样先落板卡 /tmp（tmpfs）+ md5 对账再加载。
+  #   ⚠️ 板卡 BSP 里本来就有这三个库（ldconfig 能查到），但 LD_LIBRARY_PATH
+  #      的搜索顺序**在系统路径之前** ⇒ 加载的一定是**包里的**那一份，
+  #      这道门禁才有意义。
+  # -------------------------------------------------------------------------
+  echo
+  echo "  [4/4] 包内第三方运行时库：落板卡 /tmp → md5 对账 → 用【包里的】库跑一遍"
+  tp_w_rknn="$(md5sum "$PKG_DIR/third_party/rknnrt/librknnrt.so"       | cut -d' ' -f1)"
+  tp_w_rga="$(md5sum "$PKG_DIR/third_party/rknnrt/librga.so.2"           | cut -d' ' -f1)"
+  tp_w_cl="$(md5sum "$PKG_DIR/third_party/boardlibs/libOpenCL.so.1"     | cut -d' ' -f1)"
+  tp_w_mce="$(md5sum "$PKG_DIR/out/mosaic_client_example"                | cut -d' ' -f1)"
+  tp_tmp="/tmp/mosaic_tp_$$"
+  tp_out="$(ssh_board "bash -s -- '$tp_tmp' '$BOARD_DEST' '$tp_w_rknn' '$tp_w_rga' '$tp_w_cl' '$tp_w_mce'" 2>&1 <<'REMOTE'
+set -uo pipefail
+export LC_ALL=C
+tmp="$1"; dest="$2"; w_rknn="$3"; w_rga="$4"; w_cl="$5"; w_mce="$6"
+cleanup() { rm -rf "$tmp"; }
+trap cleanup EXIT
+
+rm -rf "$tmp"; mkdir -p "$tmp"
+cat "$dest/third_party/rknnrt/librknnrt.so"        > "$tmp/librknnrt.so"        || { echo "[ERROR] 从 NFS 读 librknnrt.so 失败" >&2; exit 1; }
+cat "$dest/third_party/rknnrt/librga.so.2"          > "$tmp/librga.so.2"          || { echo "[ERROR] 从 NFS 读 librga.so.2 失败" >&2; exit 1; }
+cat "$dest/third_party/boardlibs/libOpenCL.so.1"   > "$tmp/libOpenCL.so.1"      || { echo "[ERROR] 从 NFS 读 libOpenCL.so.1 失败" >&2; exit 1; }
+cat "$dest/out/mosaic_client_example"              > "$tmp/mosaic_client_example" || { echo "[ERROR] 从 NFS 读 mosaic_client_example 失败" >&2; exit 1; }
+chmod +x "$tmp/mosaic_client_example"
+
+g_rknn="$(md5sum "$tmp/librknnrt.so"     | cut -d' ' -f1)"
+g_rga="$(md5sum "$tmp/librga.so.2"       | cut -d' ' -f1)"
+g_cl="$(md5sum "$tmp/libOpenCL.so.1"     | cut -d' ' -f1)"
+g_mce="$(md5sum "$tmp/mosaic_client_example" | cut -d' ' -f1)"
+[ "$g_rknn" = "$w_rknn" ] || { echo "[ERROR] NFS 传输损坏：librknnrt.so md5=$g_rknn ≠ $w_rknn" >&2; exit 3; }
+[ "$g_rga"   = "$w_rga"   ] || { echo "[ERROR] NFS 传输损坏：librga.so.2 md5=$g_rga ≠ $w_rga" >&2; exit 3; }
+[ "$g_cl"    = "$w_cl"    ] || { echo "[ERROR] NFS 传输损坏：libOpenCL.so.1 md5=$g_cl ≠ $w_cl" >&2; exit 3; }
+[ "$g_mce"   = "$w_mce"   ] || { echo "[ERROR] NFS 传输损坏：mosaic_client_example md5=$g_mce ≠ $w_mce" >&2; exit 3; }
+echo "  [stage] 包内 3 个运行时库 + 示范程序已落板卡 /tmp，md5 与本机源文件逐位一致"
+
+# LD_LIBRARY_PATH 优先于系统路径 ⇒ 加载的一定是【包里的】那一份
+export LD_LIBRARY_PATH="$tmp"
+"$tmp/mosaic_client_example" \
+  "/mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324" \
+  "/mnt/manu/ptq/models/p0_off_A_none.rknn" \
+  "$dest/runtime/kernels" \
+  6
+rc=$?
+[ "$rc" = "0" ] && echo "  [ok] 已用【包内 third_party 的库】跑通最小集成示范（LD_LIBRARY_PATH=$tmp）"
+exit $rc
+REMOTE
+)" || tp_rc=$?
+  tp_rc="${tp_rc:-0}"
+  printf '%s\n' "$tp_out" | grep -E '\[stage\]|\[ok\]' || true
+  printf '%s\n' "$tp_out" | grep -vE '\[stage\]|\[ok\]' | tail -n 8 || true
+  [ "$tp_rc" = "0" ] || die "包内第三方运行时库验证失败（退出码 $tp_rc）—— ① NFS 传输损坏（md5 对不上）② 包里的库在板卡上装不上"
+  echo "  [ok] 包内 third_party 运行时库在板卡上可用"
 fi
 
 echo

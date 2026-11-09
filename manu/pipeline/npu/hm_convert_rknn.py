@@ -101,6 +101,14 @@ def main():
     ap.add_argument("--calib-n", type=int, default=200)
     ap.add_argument("--calib-list", default=str(WORK_ROOT / f"calib_{'train'}_features.txt"))
     ap.add_argument("--no-quant", action="store_true", help="fp16 arm (no calibration)")
+    ap.add_argument(
+        "--calib-list-only",
+        action="store_true",
+        help="use --calib-list VERBATIM instead of regenerating it from the dataset root. "
+        "Needed when the calibration images do NOT live in uav_gmc_median (e.g. a COCO "
+        "set for a COCO-pretrained baseline). Without this flag the list is always "
+        "REWRITTEN by build_calib_list(), which silently ignores --calib-list.",
+    )
     ap.add_argument("--optimization-level", type=int, default=3,
                     help="rknn.config optimization_level (3 = deepest fusion; "
                          "NOTE: this is already the toolkit default, see "
@@ -132,13 +140,31 @@ def main():
 
     calib = []
     if not args.no_quant:
-        calib = build_calib_list(args.calib_split, args.calib_n, Path(args.calib_list))
-        seqs = {seq_of(p) for p in calib}
-        print(f"[calib] {len(calib)} pre-built FEATURE images from split '{args.calib_split}' "
-              f"across {len(seqs)} sequences")
-        print(f"[calib] list -> {args.calib_list}")
-        for p in calib[:3]:
-            print(f"[calib]   e.g. {p}")
+        if args.calib_list_only:
+            # Use the given list verbatim. The default path ALWAYS regenerates the
+            # list from uav_gmc_median/images/<split>, so passing --calib-list
+            # alone silently ignored it (and overwrote the file) -- that bug cost
+            # one wasted "COCO-calibrated" build before it was found.
+            p = Path(args.calib_list)
+            if not p.is_file():
+                sys.exit(f"[FATAL] --calib-list-only but no such file: {p}")
+            lines = [ln.strip() for ln in p.read_text().splitlines() if ln.strip()]
+            missing = [ln for ln in lines if not Path(ln).is_file()]
+            if missing:
+                sys.exit(f"[FATAL] {len(missing)}/{len(lines)} calibration images do not exist, "
+                         f"e.g. {missing[0]}")
+            calib = [Path(ln) for ln in lines]
+            print(f"[calib] {len(calib)} images taken VERBATIM from {p} (--calib-list-only)")
+            for q in calib[:3]:
+                print(f"[calib]   e.g. {q}")
+        else:
+            calib = build_calib_list(args.calib_split, args.calib_n, Path(args.calib_list))
+            seqs = {seq_of(p) for p in calib}
+            print(f"[calib] {len(calib)} pre-built FEATURE images from split '{args.calib_split}' "
+                  f"across {len(seqs)} sequences")
+            print(f"[calib] list -> {args.calib_list}")
+            for p in calib[:3]:
+                print(f"[calib]   e.g. {p}")
 
     rknn = RKNN(verbose=True)
 

@@ -41,6 +41,22 @@ TOOLCHAIN_V="${RK3588_TOOLCHAIN:-/media/manu/1TB-Volume/rk3588/rk3588_cross_tool
 OPENCV_V="${OPENCV_INSTALL:-/media/manu/1TB-Volume/workspace/opencv-4.10.0-arm64-install}"
 BOARD_LIBS_V="${BOARD_LIBS:-/media/manu/1TB-Volume/rk3588/boardlibs}"
 RT_LIB_DIR_V="${RT_LIB_DIR:-/run/media/manu/SSD960-LOCAL/nfs/npu}"
+
+# ---------------------------------------------------------------------------
+# 第三方依赖的【来源】。这三个是编译期的硬依赖（缺一个就编不出来），
+# 以前只存在于开发机的绝对路径里 ⇒ 交付出去的包**根本没法原地重编**。
+# 现在把它们一并打进 third_party/，包才真正自包含。
+#
+#   OPENCV_INSTALL   → 交叉编译版 OpenCV（头 + **静态库** .a）
+#   BOARD_LIBS       → 板卡 libOpenCL.so
+#   RT_LIB_DIR       → 板卡 librknnrt.so / librga.so
+#
+# 交付态的包里，build_lib.sh / build_demo.sh 默认改用 third_party/ 里的副本；
+# 这三个环境变量仍可覆盖（换板卡、换 BSP 时用）。
+# ---------------------------------------------------------------------------
+TP_SRC_OPENCV="${OPENCV_INSTALL:-/media/manu/1TB-Volume/workspace/opencv-4.10.0-arm64-install}"
+TP_SRC_BOARDLIBS="${BOARD_LIBS:-/media/manu/1TB-Volume/rk3588/boardlibs}"
+TP_SRC_RT="${RT_LIB_DIR:-/run/media/manu/SSD960-LOCAL/nfs/npu}"
 NFS_ROOT_V="${NFS_ROOT:-/run/media/manu/SSD960-LOCAL/nfs}"
 BOARD_V="${BOARD:-root@192.168.0.64}"
 BOARD_PORT_V="${BOARD_PORT:-22}"
@@ -59,6 +75,8 @@ fill_placeholders() {
     -e "s|\{\{BOARD_LIBS\}\}|$BOARD_LIBS_V|g" \
     -e "s|\{\{RT_LIB_DIR\}\}|$RT_LIB_DIR_V|g" \
     -e "s|\{\{FILE_COUNT\}\}|$FILE_COUNT|g" \
+    -e "s|\{\{TP_COUNT\}\}|$TP_COUNT|g" \
+    -e "s|\{\{TP_SIZE\}\}|$TP_SIZE|g" \
     -e "s|\{\{SRC_COUNT\}\}|$SRC_COUNT|g" \
     -e "s|\{\{HDR_COUNT\}\}|$HDR_COUNT|g" \
     -e "s|\{\{KERNEL_COUNT\}\}|$KERNEL_COUNT|g" \
@@ -122,6 +140,8 @@ purpose_of() {
     runtime/kernels/gmc_feature_gpu.cl)    echo "可选：GPU 侧 GMC 特征 kernel（**库不加载**，仅探针 gmc_gpu_probe 用）" ;;
     include/rga/*)                echo "RGA API 头（第三方）" ;;
     include/CL/*)                 echo "Khronos OpenCL 头（第三方）" ;;
+    third_party/MANIFEST.md)      echo "**第三方依赖逐文件 md5 清单**（OpenCV / libOpenCL / librknnrt / librga）" ;;
+    third_party/README.md)        echo "**第三方依赖说明**（是什么 / 编译期怎么用 / 运行时怎么装到板卡）" ;;
     *)                            echo "—" ;;
   esac
 }
@@ -159,7 +179,7 @@ is_expected() {
 # ---------------------------------------------------------------------------
 # 0. 先决条件：暂存的第三方头
 # ---------------------------------------------------------------------------
-echo "== [1/7] 检查暂存的第三方头 =="
+echo "== [1/8] 检查暂存的第三方头 =="
 [ -d "$STAGE" ] || die "缺少暂存的第三方头：先跑一次 MOSAIC_NO_DEPLOY=1 bash build_mosaic_pipeline_arm64.sh（它会自动 stage 这些头）"
 [ -d "$STAGE/rga" ] || die "暂存的第三方头缺少 rga/：$STAGE/rga"
 [ -d "$STAGE/CL" ]  || die "暂存的第三方头缺少 CL/：$STAGE/CL"
@@ -169,7 +189,7 @@ echo "  [ok] $STAGE（rga/ + CL/ 齐备）"
 # 1. 拷贝源码、脚本、kernel 资产
 # ---------------------------------------------------------------------------
 echo
-echo "== [2/7] 拷贝源码 / 脚本 / kernel 资产 =="
+echo "== [2/8] 拷贝源码 / 脚本 / kernel 资产 =="
 mkdir -p "$DEST/src/npu" "$DEST/src/cpp" "$DEST/src/opencl/host" \
          "$DEST/runtime/kernels" "$DEST/include/rga" "$DEST/include/CL"
 
@@ -215,7 +235,7 @@ EXPECTED+=("README.md")   # 生成物，但在交付清单里（md5 在生成后
 # 2. 拷贝第三方头
 # ---------------------------------------------------------------------------
 echo
-echo "== [3/7] 拷贝第三方头（include/）=="
+echo "== [3/8] 拷贝第三方头（include/）=="
 for h in rknn_api.h stb_image.h stb_image_resize.h stb_image_write.h; do
   copy_one "$STAGE/$h" "include/$h"
 done
@@ -226,10 +246,181 @@ for sub in rga CL; do
 done
 
 # ---------------------------------------------------------------------------
-# 3. 清理陈旧文件（不在本次清单里的旧文件）—— 用 find -delete，不用 rm -rf
+# 4. 拷贝第三方依赖到 third_party/  ★ 本次改造的核心
+#
+#    这三个是**编译期硬依赖**（缺一个就编不出来），以前只存在于开发机的
+#    绝对路径里 ⇒ 交付出去的包**根本没法原地重编**，README 里
+#    「放到哪都能原地重编」那句话是假的：
+#
+#      OPENCV_INSTALL  交叉编译版 OpenCV（头 + **静态库** .a）
+#      BOARD_LIBS      板卡 libOpenCL.so
+#      RT_LIB_DIR      板卡 librknnrt.so / librga.so
+#
+#    现在打进包里 ⇒ 包真正自包含。包内副本优先，环境变量仍可覆盖。
+#
+#    ⚠️ 符号链接一律**转成实文件副本**：
+#       包内文件要参与 find -type f 枚举与 md5 回验，符号链接会被漏掉
+#       （copy_to_nfs.sh 的直写模式就是按 find -type f 逐个 cp 的）。
+#       链接器要 libX.so、运行时要 libX.so.1（SONAME）⇒ 两个名字各存一份。
 # ---------------------------------------------------------------------------
 echo
-echo "== [4/7] 清理陈旧文件 =="
+echo "== [4/8] 拷贝第三方依赖到 third_party/ =="
+rm -rf "$DEST/third_party"
+mkdir -p "$DEST/third_party/opencv/include/opencv4" \
+         "$DEST/third_party/opencv/lib/opencv4/3rdparty" \
+         "$DEST/third_party/boardlibs" \
+         "$DEST/third_party/rknnrt"
+
+TP_N=0
+tp_add() {   # tp_add <源文件> <third_party 内相对路径>
+  local src="$1" rel="$2"
+  [ -f "$src" ] || die "第三方依赖缺失：$src"
+  mkdir -p "$(dirname "$DEST/third_party/$rel")"
+  cp -f "$src" "$DEST/third_party/$rel"
+  TP_N=$((TP_N + 1))
+}
+
+# --- OpenCV：整个 opencv2 头树 + 7 个静态库 + 2 个 3rdparty 静态库 ---
+_ocv_hdr="$TP_SRC_OPENCV/include/opencv4/opencv2"
+[ -d "$_ocv_hdr" ] || die "交叉编译版 OpenCV 缺失：$_ocv_hdr"
+while IFS= read -r f; do
+  tp_add "$f" "opencv/include/opencv4/opencv2/${f#"$_ocv_hdr/"}"
+done < <(find "$_ocv_hdr" -type f | LC_ALL=C sort)
+for l in core imgproc imgcodecs calib3d features2d flann video; do
+  tp_add "$TP_SRC_OPENCV/lib/libopencv_$l.a" "opencv/lib/libopencv_$l.a"
+done
+# 3rdparty **整个目录**一起带上（当前链接行只用 tegra_hal + zlib，但 liblibopenjp2.a
+# 也在里面 ⇒ 集成方换链接方式时不会缺东西；多 642 KB，不值得为省它而留隐患）
+for a in "$TP_SRC_OPENCV/lib/opencv4/3rdparty/"*.a; do
+  [ -f "$a" ] || die "OpenCV 3rdparty 静态库缺失：$a"
+  tp_add "$a" "opencv/lib/opencv4/3rdparty/$(basename "$a")"
+done
+
+# --- 板卡 libOpenCL：链接名 libOpenCL.so + 运行名 libOpenCL.so.1（SONAME）---
+_cl_real="$(readlink -f "$TP_SRC_BOARDLIBS/libOpenCL.so.1" 2>/dev/null || true)"
+[ -n "$_cl_real" ] && [ -f "$_cl_real" ] || \
+  die "板卡 libOpenCL 缺失：$TP_SRC_BOARDLIBS/libOpenCL.so.1"
+tp_add "$_cl_real" "boardlibs/libOpenCL.so"
+tp_add "$_cl_real" "boardlibs/libOpenCL.so.1"
+
+# --- 板卡 RKNN Runtime / RGA：librknnrt.so（文件名即 SONAME）+ librga.so / librga.so.2 ---
+[ -f "$TP_SRC_RT/librknnrt.so" ] || die "板卡 librknnrt.so 缺失：$TP_SRC_RT/librknnrt.so"
+tp_add "$TP_SRC_RT/librknnrt.so" "rknnrt/librknnrt.so"
+_rga_real="$(readlink -f "$TP_SRC_RT/librga.so" 2>/dev/null || true)"
+[ -n "$_rga_real" ] && [ -f "$_rga_real" ] || \
+  die "板卡 librga 缺失：$TP_SRC_RT/librga.so"
+tp_add "$_rga_real" "rknnrt/librga.so"
+tp_add "$_rga_real" "rknnrt/librga.so.2"
+
+echo "  [ok] 第三方依赖 $TP_N 个文件（OpenCV 头+静态库 / libOpenCL / librknnrt+librga）"
+
+# third_party/MANIFEST.md：逐文件 md5（资产有 220+ 个，单独成册，
+# 免得顶层 MANIFEST 被撑爆；顶层清单只登记这一份）
+TP_MANIFEST="$DEST/third_party/MANIFEST.md"
+{
+  echo '# `third_party/` 清单（第三方依赖 · 逐文件 md5）'
+  echo
+  echo "**共 $TP_N 个依赖文件。**它们是**编译期硬依赖**——以前只存在于开发机的"
+  echo "绝对路径里，导致交付包根本没法原地重编；现在一并打包 ⇒ 包自包含。"
+  echo
+  echo "| 类别 | 何时需要 | 说明 |"
+  echo "|---|---|---|"
+  # ⚠️ 用单引号：反引号在双引号里会被 bash 当成**命令替换**执行掉 ⇒ 单元格会变空
+  echo '| `opencv/include/**` | 编译期 | OpenCV 头（交叉编译版） |'
+  echo '| `opencv/lib/**` | 编译期 | OpenCV **静态库** `.a` ⇒ **静态链接**，运行时不需要板卡装 OpenCV |'
+  echo '| `boardlibs/**` | 编译期 + 运行时 | 板卡 `libOpenCL.so`（OpenCL ICD） |'
+  echo '| `rknnrt/**` | 编译期 + 运行时 | 板卡 `librknnrt.so` / `librga.so`（RKNN Runtime / RGA） |'
+  echo
+  echo "| 路径 | md5 | 字节数 |"
+  echo "|---|---|---:|"
+  while IFS= read -r f; do
+    printf '| `%s` | `%s` | %s |\n' \
+      "${f#"$DEST/third_party/"}" "$(md5sum "$f" | cut -d' ' -f1)" "$(fmt_num "$(stat -c%s "$f")")"
+  done < <(find "$DEST/third_party" -type f ! -name MANIFEST.md ! -name README.md | LC_ALL=C sort)
+} > "$TP_MANIFEST"
+chmod 0644 "$TP_MANIFEST"
+echo "  [ok] $TP_MANIFEST（$TP_N 行明细）"
+
+# third_party/README.md：给集成方看的「这三个依赖到底是什么/怎么用」
+cat > "$DEST/third_party/README.md" <<'TPREADME'
+# `third_party/` —— 交付包自带的第三方依赖
+
+这个目录里的东西以前**不在交付包里**：它们只存在于开发机的绝对路径上
+（OpenCV 交叉编译版、板卡 `libOpenCL.so`、板卡 `librknnrt.so`/`librga.so`），
+导致交付出去的包**编不出来**，README 里「放到哪都能原地重编」那句话是假的。
+
+现在它们一并打包 ⇒ **包真正自包含**：源码 + 依赖 + 脚本全在里面，
+拷到任意目录都能原地重编，不需要再去找开发机上的路径。
+
+| 目录 | 是什么 | 什么时候需要 | 大小 |
+|---|---|---|---|
+| `opencv/include/` | 交叉编译版 OpenCV 头（整个 `opencv2/` 树） | 编译期 | 7.3 MB |
+| `opencv/lib/` | OpenCV **静态库** `.a`（7 个模块 + `tegra_hal`/`zlib`） | 编译期 | 25 MB |
+| `boardlibs/` | 板卡 `libOpenCL.so`（OpenCL ICD） | 编译期 + 运行时 | 70 KB |
+| `rknnrt/` | 板卡 `librknnrt.so`（RKNN Runtime）、`librga.so`（RGA） | 编译期 + 运行时 | 7.5 MB |
+
+## 编译期怎么用
+
+`build_lib.sh` / `build_demo.sh` **默认就用这个目录里的副本**
+（路径相对脚本自身 ⇒ 拷到哪都能编）。要换掉它，用这三个环境变量：
+
+```bash
+export OPENCV_INSTALL=/path/to/opencv-arm64-install   # 默认 <包>/third_party/opencv
+export BOARD_LIBS=/path/to/boardlibs                  # 默认 <包>/third_party/boardlibs
+export RT_LIB_DIR=/path/to/npu                        # 默认 <包>/third_party/rknnrt
+```
+
+交叉编译器**不在包里**（编译器没法随包发），用这个指定：
+
+```bash
+export RK3588_TOOLCHAIN=/path/to/toolchain-root       # 可以用 ':' 分隔多个候选，按顺序试
+export CROSS_CXX=/path/to/aarch64-linux-gnu-g++       # 可选：直接指定编译器
+export CROSS_AR=/path/to/aarch64-linux-gnu-ar         # 可选：直接指定 ar
+```
+
+## 运行时怎么用
+
+OpenCV 是**静态链接**的 ⇒ **板卡不需要装 OpenCV**。
+
+`librknnrt.so` / `librga.so` / `libOpenCL.so` 是运行时依赖。
+板卡 BSP 里一般已经有了（`ldconfig -p | grep -E 'rknnrt|librga|OpenCL'` 查一下）。
+如果你们的板卡没有，把这三个文件装到板卡上：
+
+```bash
+# ⚠️ 板卡 NFS 是 soft 挂载：>1 MB 的文件从 NFS 读会被读坏
+#    ⇒ 必须先 cat 到板卡 /tmp（tmpfs）再落到 /usr/lib，并对账 md5
+ssh <板卡> 'cat /mnt/manu/mosaic_sdk/third_party/rknnrt/librknnrt.so > /tmp/librknnrt.so && \
+            cat /mnt/manu/mosaic_sdk/third_party/rknnrt/librga.so.2   > /tmp/librga.so.2 && \
+            cat /mnt/manu/mosaic_sdk/third_party/boardlibs/libOpenCL.so.1 > /tmp/libOpenCL.so.1 && \
+            md5sum /tmp/librknnrt.so /tmp/librga.so.2 /tmp/libOpenCL.so.1'
+# 三个 md5 与本包 third_party/MANIFEST.md 里的一致 ⇒ 传输没坏
+ssh <板卡> 'install -m755 /tmp/librknnrt.so /usr/lib/ && \
+            install -m755 /tmp/librga.so.2 /usr/lib/ && \
+            install -m755 /tmp/libOpenCL.so.1 /usr/lib/ && ldconfig'
+```
+
+不想装进系统也行 —— 用 `LD_LIBRARY_PATH` 指到本包（**同样先 cat 到 /tmp**）：
+
+```bash
+export LD_LIBRARY_PATH=/tmp/tp:$LD_LIBRARY_PATH
+```
+
+## 逐文件 md5
+
+见同目录的 [`MANIFEST.md`](MANIFEST.md)（本目录每个文件一行，含 md5 与字节数）。
+TPREADME
+chmod 0644 "$DEST/third_party/README.md"
+echo "  [ok] $DEST/third_party/README.md"
+
+# 这两份说明文件登记进顶层清单（依赖资产本身由 third_party/MANIFEST.md 逐条登记）
+EXPECTED+=("third_party/MANIFEST.md")
+EXPECTED+=("third_party/README.md")
+
+# ---------------------------------------------------------------------------
+# 5. 清理陈旧文件（不在本次清单里的旧文件）—— 用 find -delete，不用 rm -rf
+# ---------------------------------------------------------------------------
+echo
+echo "== [5/8] 清理陈旧文件 =="
 stale=0
 for sub in src include runtime; do
   [ -d "$DEST/$sub" ] || continue
@@ -245,10 +436,10 @@ done
 echo "  [ok] 删除 $stale 个陈旧文件"
 
 # ---------------------------------------------------------------------------
-# 4. 生成 README（内容先落临时文件，让 MANIFEST 能登记它的 md5）
+# 5. 生成 README（内容先落临时文件，让 MANIFEST 能登记它的 md5）
 # ---------------------------------------------------------------------------
 echo
-echo "== [5/7] 生成 README =="
+echo "== [6/8] 生成 README =="
 README_TPL="$HERE/README.template.md"
 [ -f "$README_TPL" ] || die "缺模板：$README_TPL"
 
@@ -256,10 +447,13 @@ README_TPL="$HERE/README.template.md"
 SRC_COUNT=$(find "$DEST/src" -type f 2>/dev/null | wc -l)
 HDR_COUNT=$(find "$DEST/include" -type f 2>/dev/null | wc -l)
 KERNEL_COUNT=$(find "$DEST/runtime" -type f 2>/dev/null | wc -l)
+TP_COUNT="$TP_N"                       # 第三方依赖资产数（不含 third_party/ 下那两份说明文件）
 FILE_COUNT=$(( ${#EXPECTED[@]} + 1 ))   # + MANIFEST.md 自身
 # out/ 的产物**不进受管清单**（md5 会随构建变），单独计数后再加总
 if [ -d "$DEST/out" ]; then OUT_COUNT=$(find "$DEST/out" -type f | wc -l); else OUT_COUNT=0; fi
-TOTAL_COUNT=$(( FILE_COUNT + OUT_COUNT ))   # 磁盘上真实存在的文件总数
+# 磁盘上真实存在的文件总数 = 受管（含 third_party 两份说明）+ 依赖资产 + 编译产物
+TOTAL_COUNT=$(( FILE_COUNT + TP_COUNT + OUT_COUNT ))
+TP_SIZE="$(du -sh "$DEST/third_party" 2>/dev/null | cut -f1)"
 OBJ_MD5=$(md5_or_placeholder "$DEST/out/mosaic_pipeline.o")
 LIB_A_MD5=$(md5_or_placeholder "$DEST/out/libmosaic_pipeline.a")
 API_TEST_MD5=$(md5_or_placeholder "$DEST/out/mosaic_api_test")
@@ -269,13 +463,13 @@ CONTRACT_TEST_MD5=$(md5_or_placeholder "$DEST/out/mosaic_contract_test")
 README_TMP="$(mktemp)"
 fill_placeholders "$README_TPL" "$README_TMP"
 check_no_placeholder "$README_TMP"
-echo "  [ok] README 内容已生成（计数：$TOTAL_COUNT = $FILE_COUNT + $OUT_COUNT / $SRC_COUNT / $HDR_COUNT / $KERNEL_COUNT）"
+echo "  [ok] README 内容已生成（计数：$TOTAL_COUNT = $FILE_COUNT + $TP_COUNT + $OUT_COUNT / $SRC_COUNT / $HDR_COUNT / $KERNEL_COUNT）"
 
 # ---------------------------------------------------------------------------
-# 5. 生成 build/MANIFEST.md（模板 + 自动生成的 md5 表）
+# 6. 生成 build/MANIFEST.md（模板 + 自动生成的 md5 表）
 # ---------------------------------------------------------------------------
 echo
-echo "== [6/7] 生成 MANIFEST.md =="
+echo "== [7/8] 生成 MANIFEST.md =="
 TEMPLATE="$HERE/MANIFEST.template.md"
 [ -f "$TEMPLATE" ] || die "缺模板：$TEMPLATE"
 
@@ -334,7 +528,7 @@ chmod 0644 "$DEST/MANIFEST.md"
 echo "  [ok] $DEST/MANIFEST.md（模板 + 自动生成表）"
 
 # ---------------------------------------------------------------------------
-# 6. README 落盘（**最后生成的文件**）
+# 7. README 落盘（**最后生成的文件**）
 # ---------------------------------------------------------------------------
 cp -f "$README_TMP" "$DEST/README.md"
 chmod 0644 "$DEST/README.md"
@@ -342,10 +536,10 @@ check_no_placeholder "$DEST/README.md"
 echo "  [ok] $DEST/README.md（模板 + 占位符填充）"
 
 # ---------------------------------------------------------------------------
-# 5. 回验：表内 md5 与磁盘一致；表外不该有漏登记的文件
+# 8. 回验：表内 md5 与磁盘一致；表外不该有漏登记的文件
 # ---------------------------------------------------------------------------
 echo
-echo "== [7/7] 回验 MANIFEST =="
+echo "== [8/8] 回验 MANIFEST =="
 bad=0
 while IFS= read -r line; do
   rel=$(printf '%s' "$line" | sed -E 's/^\| `([^`]+)`.*/\1/')
@@ -370,7 +564,17 @@ done < <(grep -E '^\| `[^`]+` \| `[0-9a-f]{32}` \|' "$DEST/MANIFEST.md" | sed -E
 extra=0
 while IFS= read -r f; do
   rel="${f#$DEST/}"
-  case "$rel" in out/*|MANIFEST.md) continue ;; esac
+  case "$rel" in
+    out/*|MANIFEST.md) continue ;;
+    third_party/*)
+      # third_party 的**依赖资产**由 third_party/MANIFEST.md 逐条登记（220+ 行），
+      # 顶层清单只登记那两份说明文件 ⇒ 资产文件不参与本检查
+      case "$rel" in
+        third_party/MANIFEST.md|third_party/README.md) ;;
+        *) continue ;;
+      esac
+      ;;
+  esac
   if ! grep -qE "^\| \`$rel\` \| \`[0-9a-f]{32}\` \|" "$DEST/MANIFEST.md"; then
     echo "  [ERROR] 磁盘上有但清单里没登记：$rel" >&2
     extra=$((extra + 1))
@@ -380,11 +584,12 @@ done < <(find "$DEST" -type f | sort)
 echo "  [ok] 无漏登记文件"
 
 # ---------------------------------------------------------------------------
-# 6. 摘要
+# 9. 摘要
 # ---------------------------------------------------------------------------
 src_n=$(find "$DEST/src" -type f 2>/dev/null | wc -l)
 inc_n=$(find "$DEST/include" -type f 2>/dev/null | wc -l)
 ker_n=$(find "$DEST/runtime" -type f 2>/dev/null | wc -l)
+tp_n=$(find "$DEST/third_party" -type f 2>/dev/null | wc -l)
 all_n=$(find "$DEST" -type f | wc -l)
 echo
 echo "== 完成 =="
@@ -392,6 +597,7 @@ echo "  build/ 文件总数 : $all_n"
 echo "  源码/脚本      : $src_n 个（src/）"
 echo "  第三方头       : $inc_n 个（include/）"
 echo "  kernel 资产    : $ker_n 个（runtime/kernels/）"
+echo "  第三方依赖     : $tp_n 个（third_party/，含 2 份说明文件）← OpenCV/libOpenCL/librknnrt/librga"
 echo
 echo "  下一步（⚠️ 顺序不能颠倒）："
 echo "    cd $DEST && bash build_lib.sh && bash build_demo.sh   # ① 编译（库 + 4 个测试程序）"

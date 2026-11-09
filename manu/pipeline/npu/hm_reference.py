@@ -66,6 +66,13 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--th", type=float, default=0.25)
     ap.add_argument("--stride", type=int, default=2)
+    ap.add_argument("--native-scale", type=int, default=1,
+                    help="late_upsample 的原生网格复制倍数 L（P3: 4；P2_fused: 2；无 late 上采样时为 1）。"
+                    " L>1 时峰必须在原生网格上抽、且用 stride*L 解码（见 hm_common.extract_peaks_np）")
+    ap.add_argument("--offset-scale", type=float, default=1.0,
+                help="offset 仿射校准：ô_cal = (ô - offset_bias) / offset_scale（默认空操作）")
+    ap.add_argument("--offset-bias", type=float, default=0.0,
+                help="offset 仿射校准的 bias（默认 0.0 ⇒ 空操作）")
     ap.add_argument("--topk", type=int, default=100)
     ap.add_argument("--dist", type=float, default=8.0)
     ap.add_argument("--no-dump-tensors", action="store_true")
@@ -104,7 +111,10 @@ def main():
             hm = hm_t[0].numpy()      # (1, H, W)
             off = off_t[0].numpy()     # (2, H, W)
 
-            det = extract_peaks_np(hm, off, stride=stride, conf_thresh=args.th, top_k=args.topk)
+            det = extract_peaks_np(hm, off, stride=stride, conf_thresh=args.th, top_k=args.topk,
+                             native_scale=args.native_scale,
+                                        offset_scale=args.offset_scale,
+                                        offset_bias=args.offset_bias)
             pts_canvas = det["points"]
             pts_src = canvas_to_src(pts_canvas, geom)
 

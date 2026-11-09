@@ -1,0 +1,10 @@
+[
+ {"name": "p2f_hc64_late",  "head_src": "p2_fused", "head_conv": 64, "act": "relu", "ablate_p0": true, "stride": 2, "late_upsample": true, "note": "★结构B+late：320输出/160计算"},
+ {"name": "p2f_hc48_late",  "head_src": "p2_fused", "head_conv": 48, "act": "relu", "ablate_p0": true, "stride": 2, "late_upsample": true, "note": "★结构B+late+窄头"},
+ {"name": "p2f_hc32_late",  "head_src": "p2_fused", "head_conv": 32, "act": "relu", "ablate_p0": true, "stride": 2, "late_upsample": true, "note": "★结构B+late+窄头"},
+ {"name": "p2f_hc24_relu",  "head_src": "p2_fused", "head_conv": 24, "act": "relu", "ablate_p0": true, "stride": 4, "note": "结构B+极窄头"},
+ {"name": "p2f_hc16_relu",  "head_src": "p2_fused", "head_conv": 16, "act": "relu", "ablate_p0": true, "stride": 4, "note": "结构B+更窄"},
+ {"name": "p1_hc24_relu",   "head_src": "p1",       "head_conv": 24, "act": "relu", "ablate_p0": true, "stride": 2, "note": "保320头+极窄"},
+ {"name": "p1_hc16_relu",   "head_src": "p1",       "head_conv": 16, "act": "relu", "ablate_p0": true, "stride": 2, "note": "保320头+更窄"},
+ {"name": "p2f_hc64_silu2", "head_src": "p2_fused", "head_conv": 64, "act": "silu", "ablate_p0": true, "stride": 4, "note": "结构B+SiLU对照"}
+]

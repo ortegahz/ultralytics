@@ -245,6 +245,10 @@ def main() -> int:
         "baselines": base_eff,
         "tracks": {},
         "gates": {},
+        # ★ 基础设施失败清单（2026-11-06 加）：**评测没跑出来**的情况。
+        #   以前这些情况只记 status，verdict 最后又被无条件重算 ⇒
+        #   三条轨全挂也判 "PASS"、gates={} ⇒ 验收表里出现「没指标却达标」的垃圾行。
+        "infra_failures": [],
     }
     print("=" * 100, flush=True)
     print(f"  三轨门禁 | weights={args.weights}", flush=True)
@@ -318,6 +322,7 @@ def main() -> int:
         if rc != 0:
             print(f"[FAIL] Track1 推理失败 rc={rc}，见 {out/'track1_infer.log'}", flush=True)
             report["tracks"]["track1_uav"] = {"status": "infer_failed", "rc": rc}
+            report["infra_failures"].append(f"track1_uav: 推理失败 rc={rc}")
             if args.strict_gate:
                 report["verdict"] = "FAIL"
                 (out / "gate_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2))
@@ -352,6 +357,7 @@ def main() -> int:
             if rc2 != 0 or not ab_json.is_file():
                 print(f"[FAIL] Track1 A/B 评测失败 rc={rc2}（基线臂未复现冻结 headline）", flush=True)
                 report["tracks"]["track1_uav"] = {"status": "ab_failed", "rc": rc2}
+                report["infra_failures"].append(f"track1_uav: A/B 评测失败 rc={rc2}")
                 if args.strict_gate:
                     report["verdict"] = "FAIL"
                     (out / "gate_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2))
@@ -445,6 +451,7 @@ def main() -> int:
             if rc != 0:
                 print(f"[FAIL] 龙泉山缓存分片 {i} 失败 rc={rc}", flush=True)
                 report["tracks"]["track2_golden"] = {"status": "cache_failed", "rc": rc}
+                report["infra_failures"].append(f"track2_golden: 缓存分片 {i} 失败 rc={rc}")
                 if args.strict_gate:
                     report["verdict"] = "FAIL"
                     (out / "gate_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2))
@@ -476,6 +483,7 @@ def main() -> int:
             if rc != 0 or not js.is_file():
                 print(f"[FAIL] {track} 评测失败 rc={rc}", flush=True)
                 report["tracks"][key] = {"status": "eval_failed", "rc": rc}
+                report["infra_failures"].append(f"{key}: 评测失败 rc={rc}")
                 continue
             data = json.loads(js.read_text(encoding="utf-8"))
             overall = data["overall"]
@@ -530,15 +538,29 @@ def main() -> int:
     soft_fail = [k for k, v in report["gates"].items() if not v.get("veto") and not v.get("pass")]
     report["veto_failures"] = veto_fail
     report["observation_warnings"] = soft_fail
-    report["verdict"] = "FAIL" if veto_fail else ("PASS" if not soft_fail else "PASS_WITH_WARNING")
+    # ★★ 2026-11-06 关键修复（彩排实测抓到）：
+    #   ① verdict **不得**覆盖已有的 FAIL；
+    #   ② 「评测没跑出来」（基础设施失败）**绝不能**判 PASS。
+    #   以前这里是**无条件重算** ⇒ track1 推理失败 + 缓存分片失败 + track2/3 评测失败
+    #   ⇒ veto_fail 为空 ⇒ verdict 被改回 "PASS"、gates={} ⇒
+    #   验收表里出现「没有指标却判定达标」的垃圾行（还 rc=0，看起来一切正常）。
+    if report["infra_failures"]:
+        report["infrastructure_failure"] = True
+        report["verdict"] = "FAIL"
+    else:
+        report["verdict"] = "FAIL" if veto_fail else ("PASS" if not soft_fail else "PASS_WITH_WARNING")
     report["elapsed_seconds"] = round(time.time() - t0, 1)
     (out / "gate_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print("=" * 100, flush=True)
+    if report["infra_failures"]:
+        print(f"  ⚠️ 基础设施失败（评测未产出指标，**不能**当达标）：{report['infra_failures']}", flush=True)
     print(f"  门禁结论: {report['verdict']} | 一票否决失败: {veto_fail or '无'} | 观察告警: {soft_fail or '无'}", flush=True)
     print(f"  报告: {out/'gate_report.json'} | 耗时 {report['elapsed_seconds']}s", flush=True)
     print("=" * 100, flush=True)
 
+    if report["infra_failures"]:
+        return 3  # 基础设施失败（评测没跑出来）⇒ 与"指标未达标"严格区分
     if veto_fail and args.strict_gate:
         return 1
     return 0

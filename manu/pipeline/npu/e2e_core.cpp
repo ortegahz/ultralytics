@@ -90,6 +90,9 @@ struct InferEngine {
     std::string dump_dir, detections_out, tag, input_dump_dir;
     float th = 0.25f;
     int stride = 2, top_k = 100;
+    // late_upsample 的原生网格复制倍数 L（1 = 无 late 上采样 ⇒ 抽峰在输出网格上做）
+    int native_scale = 1;
+    double offset_scale = 1.0, offset_bias = 0.0;
     bool dump_input = false;
     bool want_perf = false;
     int64_t last_run_us = 0;   // PERF_RUN is CUMULATIVE since rknn_init, not per frame
@@ -303,6 +306,9 @@ InferEngine* infer_open(const InferParams& p) {
     e->th = p.th;
     e->stride = p.stride;
     e->top_k = p.top_k;
+    e->native_scale = p.native_scale;
+    e->offset_scale = p.offset_scale;
+    e->offset_bias = p.offset_bias;
     e->dump_input = p.dump_input;
     e->want_perf = p.rknn_perf;
 
@@ -417,7 +423,8 @@ InferEngine* infer_open(const InferParams& p) {
             return nullptr;
         }
     }
-    std::printf("[3] infer engine ready  th=%.4f stride=%d topk=%d\n", e->th, e->stride, e->top_k);
+    std::printf("[3] infer engine ready  th=%.4f stride=%d topk=%d native_scale=%d\n", e->th, e->stride,
+                e->top_k, e->native_scale);
     return e;
 }
 
@@ -510,7 +517,7 @@ static bool infer_frame(InferEngine* e, const uint8_t* rgb, int sw, int sh,
 
     const double t_pk0 = now_ms();
     extract_peaks(e->hm.data(), e->off.data(), e->c.hm_h, e->c.hm_w, e->stride, e->th, e->top_k,
-                  &e->dets);
+                  &e->dets, e->native_scale, e->offset_scale, e->offset_bias);
     if (t) t->peaks_ms = now_ms() - t_pk0;
 
     const char* base = out_name;

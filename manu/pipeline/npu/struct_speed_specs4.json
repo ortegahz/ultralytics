@@ -1,0 +1,10 @@
+[
+ {"name": "p2f_hc32_sc075",      "head_src": "p2_fused", "head_conv": 32, "act": "relu", "ablate_p0": true, "stride": 4, "p2_out_scale": 0.75, "note": "结构B+neck收窄0.75"},
+ {"name": "p2f_hc32_sc05",       "head_src": "p2_fused", "head_conv": 32, "act": "relu", "ablate_p0": true, "stride": 4, "p2_out_scale": 0.5,  "note": "结构B+neck收窄0.5"},
+ {"name": "p2f_hc48_sc075",      "head_src": "p2_fused", "head_conv": 48, "act": "relu", "ablate_p0": true, "stride": 4, "p2_out_scale": 0.75, "note": "结构B+宽头+neck收窄"},
+ {"name": "p2f_hc64_sc075",      "head_src": "p2_fused", "head_conv": 64, "act": "relu", "ablate_p0": true, "stride": 4, "p2_out_scale": 0.75, "note": "★结构B hc64+neck收窄 ⇒ 可能拉回21ms内"},
+ {"name": "p2f_hc32_late_sc075", "head_src": "p2_fused", "head_conv": 32, "act": "relu", "ablate_p0": true, "stride": 2, "late_upsample": true, "p2_out_scale": 0.75, "note": "★320输出+160计算+neck收窄"},
+ {"name": "p2f_hc64_late_sc075", "head_src": "p2_fused", "head_conv": 64, "act": "relu", "ablate_p0": true, "stride": 2, "late_upsample": true, "p2_out_scale": 0.75, "note": "★320输出+160计算+宽头+neck收窄 ⇒ 精度最优候选"},
+ {"name": "p2f_hc64_late_sc05",  "head_src": "p2_fused", "head_conv": 64, "act": "relu", "ablate_p0": true, "stride": 2, "late_upsample": true, "p2_out_scale": 0.5,  "note": "★320输出+160计算+宽头+neck收窄0.5"},
+ {"name": "p2f_hc48_late_sc05",  "head_src": "p2_fused", "head_conv": 48, "act": "relu", "ablate_p0": true, "stride": 2, "late_upsample": true, "p2_out_scale": 0.5,  "note": "320输出+160计算+neck收窄0.5"}
+]

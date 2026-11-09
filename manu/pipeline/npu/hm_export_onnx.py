@@ -53,7 +53,54 @@ class OnnxWrapper(torch.nn.Module):
         return out["heatmap"], out["offset"]
 
 
-def build_model(ckpt_path: str, ablate_p0: bool = False, merge_head_branches: bool = False):
+
+# ---------------------------------------------------------------------------
+# Activation swap -- TIMING PROBE ONLY.
+#
+# SiLU fuses on the NPU into Rockchip's `ConvExSwish` op; ReLU does not. The
+# RKNN cycle table prices them IDENTICALLY (measured on stock YOLO26n: 5,204,400
+# NPU cycles for both), yet on the board the ReLU variant runs
+# 23.814 -> 14.330 ms (-39.8%). So the toolkit's cycle model does not price the
+# activation at all, and this is the one lever the cycle table cannot see.
+#
+# Swapping the activation is NOT an equivalent rewrite: it changes the numerics
+# of a SiLU-trained checkpoint. It is therefore a probe for the size of the
+# prize, never an accuracy claim. For this project the only legally usable
+# scope is `trainable` (b5..b10 + neck + head): b0..b4 are the frozen base
+# model with official SiLU weights, and changing their activation would change
+# the frozen base model's behaviour (iron rule 6).
+# ---------------------------------------------------------------------------
+_TRAINABLE_ATTRS = (
+    "b5", "b6", "b7", "b8", "b9", "b10",
+    "up1", "up2", "up3", "c13", "c16", "c19", "down1", "c22",
+    "up_p2", "fuse_p2", "fuse_p1", "head",
+)
+
+
+def swap_act_to_relu(model, scope: str = "all") -> int:
+    """Replace every nn.SiLU inside the selected submodules with nn.ReLU."""
+    import torch
+
+    targets = []
+    if scope == "all":
+        targets = [model]
+    else:
+        for name in _TRAINABLE_ATTRS:
+            mod = getattr(model, name, None)
+            if mod is not None:
+                targets.append(mod)
+    n = 0
+    for root in targets:
+        for parent in root.modules():
+            for cname, child in list(parent.named_children()):
+                if isinstance(child, torch.nn.SiLU):
+                    setattr(parent, cname, torch.nn.ReLU())
+                    n += 1
+    return n
+
+
+def build_model(ckpt_path: str, ablate_p0: bool = False, merge_head_branches: bool = False,
+                  act: str = "silu", act_scope: str = "all"):
     """Rebuild the detector from the checkpoint.
 
     ``ablate_p0=True`` reproduces ``manu/inference/cache_trial0474_inferences.py
@@ -84,13 +131,36 @@ def build_model(ckpt_path: str, ablate_p0: bool = False, merge_head_branches: bo
     stride = ckpt.get("stride", 2)
     sd = ckpt["model"] if "model" in ckpt else ckpt
 
+    # ---- 结构线（2026-11-05）：ckpt 自描述 ⇒ 导出自动重建同一张图 ----
+    _no_p2 = bool(ckpt.get("no_p2", False))
+    _head_level = str(ckpt.get("head_level", "p3"))
+    _ck_act = str(ckpt.get("act", "silu"))
+    _head_conv = ckpt.get("head_conv", None)
+    _late = bool(ckpt.get("late_upsample", False))
+    _head_src = str(ckpt.get("head_src", "") or "")
+    _p2_out_scale = float(ckpt.get("p2_out_scale", 1.0) or 1.0)
+    if _no_p2 or _ck_act != "silu" or _head_conv or _late:
+        print(f"[STRUCT] ckpt 自描述: no_p2={_no_p2} head_level={_head_level} act={_ck_act} "
+              f"head_conv={_head_conv} late_upsample={_late}")
+
     model = YOLO26HeatmapDetector(
         stride=stride,
         num_classes=1,
         temporal_mode="standard",
-        use_p0_highway=not ablate_p0,
+        # ⚠️ P0 highway 在 **stride 2（320×320）** 尺度上输出，no_p2 结构（stride 8/4）
+        #    的特征是 80/160 宽 ⇒ `feat + p0_highway(x)` 形状对不上
+        #    （实测：The size of tensor a (80) must match the size of tensor b (320)）。
+        #    训练与门禁侧本来就用 use_p0_highway=False / --ablate-p0 ⇒ 这里必须一致。
+        use_p0_highway=(not ablate_p0) and (not _no_p2),
         p0_highway_kwargs=p0_kwargs,
         merge_head_branches=merge_head_branches,
+        no_p2=_no_p2,
+        head_level=_head_level,
+        act=_ck_act,
+        late_upsample=_late,
+        head_conv=int(_head_conv) if _head_conv else None,
+        head_src=_head_src,
+        p2_out_scale=_p2_out_scale,
     )
     own = model.state_dict()
 
@@ -160,6 +230,11 @@ def build_model(ckpt_path: str, ablate_p0: bool = False, merge_head_branches: bo
     print(f"[model] P0 highway trainable params = {n_p0}  (total {n_all})")
     print(f"[model] metrics in checkpoint = {ckpt.get('metrics')}")
     print(f"[model] state_dict: matched {matched}, skipped {skipped} (own keys {len(own)})")
+    if act == "relu":
+        n = swap_act_to_relu(model, act_scope)
+        print(f"[ACT  ] SiLU -> ReLU on {n} modules (scope={act_scope}; "
+              f"TIMING PROBE ONLY, numerics changed)")
+
     return model, ckpt
 
 
@@ -183,6 +258,13 @@ def main():
                     help="leave nn.PixelUnshuffle alone (default is to rewrite it "
                          "as a fixed stride-2 depthwise conv, which keeps the "
                          "shuffle on the NPU)")
+    ap.add_argument("--act", choices=["silu", "relu"], default="silu",
+                    help="activation for the exported graph. 'relu' is a TIMING "
+                         "PROBE ONLY (changes numerics); it measures what SiLU's "
+                         "ConvExSwish fusion costs on the NPU.")
+    ap.add_argument("--act-scope", choices=["all", "trainable"], default="all",
+                    help="'trainable' keeps the frozen b0..b4 on SiLU (the only "
+                         "legally usable scope for this project).")
     ap.add_argument("--merge-head-branches", action="store_true",
                     help="fold head.heatmap.0 + head.offset.0 into one "
                          "Conv2d(64,128,3) via a 4-key weight remap. Exactly "
@@ -214,7 +296,8 @@ def main():
     from manu.pipeline.npu.hm_pixelshuffle import swap_to_strided_conv
 
     model, _ = build_model(args.weights, ablate_p0=args.ablate_p0,
-                           merge_head_branches=args.merge_head_branches)
+                           merge_head_branches=args.merge_head_branches,
+                           act=args.act, act_scope=args.act_scope)
     assert not model.training, "model must be in eval mode before anything else"
 
     if args.late_upsample or args.dw_head:

@@ -107,13 +107,19 @@ def main() -> int:
     ap.add_argument("--prune-last", type=int, default=0,
                     help="剪掉队尾 N 条 **WAITING** 臂（标 PRUNED）")
     ap.add_argument("--prune-roles", default="", help="逗号分隔的 role，指定要剪的臂")
+    ap.add_argument("--bump-n-trials-to", type=int, default=0,
+                    help="把 runtime_config.json 的 n_trials 设为该值（0 = 不改）。"
+                         "★ **补投后必须用它**，否则调度器的派单上限（--n-trials）"
+                         "不会变 ⇒ 新臂永远排在 WAITING 队列里不会被派出。"
+                         "（dispatcher 每轮重读 runtime_config ⇒ 运行期生效，不重启。）")
     ap.add_argument("--status", action="store_true", help="只打印现状，不做任何修改")
     args = ap.parse_args()
 
     out_root = Path(args.out_root)
     st = load_study(out_root, args.study_name)
 
-    if args.status or (not args.plan_extra and not args.prune_last and not args.prune_roles):
+    if args.status or (not args.plan_extra and not args.prune_last and not args.prune_roles
+                       and not args.bump_n_trials_to):
         show_status(st, Path(args.plan) if args.plan else None)
         return 0
 
@@ -148,6 +154,12 @@ def main() -> int:
                    "offset_weight", "mosaic", "scale", "translate", "clip_max_norm", "freeze_bn",
                    "init_from", "init_from_x", "epochs", "backbone_lr_scale",
                    "freeze_backbone_epochs"}
+        # ★★ 结构线的维度（2026-11-06 补）：原 allowed 只覆盖 GMC/扩展空间，
+        #    **漏了结构维度** ⇒ 结构臂补投时会被这行过滤掉（p 被清空 ⇒
+        #    补进去的是一条「什么都不带」的臂 ⇒ 结构完全错）。
+        #    ⇒ 与 dispatcher 的 STRUCT_SPACE 分支保持一致。
+        allowed |= {"no_p2", "head_level", "act", "head_conv", "late_upsample",
+                    "unfreeze_b0b4", "head_src", "p2_out_scale"}
         existing = set()
         for t in st.get_trials(deepcopy=False):
             pr = dict(t.params or {})
@@ -170,6 +182,17 @@ def main() -> int:
             ua = {"role": str(item.get("role", "")), "enqueued_by": "enqueue_plan"}
             if seed is not None:
                 ua["seed"] = int(seed)
+            # ★ epochs 走 **user_attrs** 通道（2026-11-06，与 dispatcher 对齐）：
+            #    dispatcher 的 `trial_epochs = int(ua.get("epochs") or params.get("epochs")
+            #    or default_epochs)` —— 但结构轮**不开 --extended-space** ⇒
+            #    `suggest_params` 不会 suggest("epochs") ⇒ `params` 里没有 epochs
+            #    ⇒ 留在 fixed_params 里也没人读 ⇒ **逐臂的 epochs 会失效**。
+            #    ⇒ 放进 user_attrs 才是真正生效的通道。
+            _ep = p.pop("epochs", None)
+            if _ep is None:
+                _ep = dict(item.get("params") or {}).get("epochs")
+            if _ep is not None:
+                ua["epochs"] = int(_ep)
             for attempt in range(5):
                 try:
                     st.enqueue_trial(p, skip_if_exists=False, user_attrs=ua)
@@ -186,6 +209,27 @@ def main() -> int:
             else:
                 print("[ENQ] ❌ role=%s 最终失败（数据库锁？）" % ua["role"])
         print("[ENQ] 共补投 %d 条（**排在队尾**，trial number 更大）" % n)
+
+    # ---- ③ 放宽派单上限 ----
+    # ⚠️ 调度器的 `--n-trials` 是**启动参数、不可变** ⇒ 只补投不抬上限的话，
+    #    新臂会永远停在 WAITING 队列里（实测：追加成功但永远不会被派出去）。
+    # ⇒ runtime_config.json 的 `n_trials` 键可热更新（dispatcher 每轮重读）。
+    if args.bump_n_trials_to > 0:
+        cfg_path = out_root / "runtime_config.json"
+        cfg = {}
+        if cfg_path.is_file():
+            try:
+                cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+                if not isinstance(cfg, dict):
+                    cfg = {}
+            except Exception:
+                cfg = {}
+        old = cfg.get("n_trials")
+        cfg["n_trials"] = int(args.bump_n_trials_to)
+        cfg_path.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n",
+                            encoding="utf-8")
+        print("[ENQ] runtime_config.json: n_trials %s → %d（dispatcher 下一轮即生效）"
+              % (old, cfg["n_trials"]))
 
     show_status(st, Path(args.plan) if args.plan else None)
     return 0

@@ -530,24 +530,39 @@ struct Det {
 };
 
 void extract_peaks(const float* hm, const float* off, int H, int W, int stride, float thr,
-                   int top_k, std::vector<Det>* dets) {
+                   int top_k, std::vector<Det>* dets, int native_scale = 1,
+                   double offset_scale = 1.0, double offset_bias = 0.0) {
   dets->clear();
-  for (int y = 0; y < H; y++) {
-    for (int x = 0; x < W; x++) {
-      float v = hm[(size_t)y * W + x];
+  // ★ 2026-11-09 修（与 host 侧 manu/evaluation/heatmap_evaluate.py::extract_peaks 逐位一致）：
+  //   late_upsample 用 nearest 把头的**原生网格**复制 L 倍（P3: 80->320, L=4；P2_fused: 160->320, L=2）。
+  //   在复制后的网格上抽峰 ⇒ 同一目标的 L×L 个复制像素分数完全相同 ⇒ 每个目标裂成 L² 个候选
+  //   （假阳洪泛），且峰落在块内哪个像素任意 ⇒ 坐标偏 0~(L-1) px ⇒ 召回塌陷。
+  //   ⇒ 正解：在**原生网格**上抽峰、用 stride*L 解码。native_scale=1 时逐位空操作。
+  const int L = native_scale > 1 ? native_scale : 1;
+  const int Hn = H / L, Wn = W / L;
+  for (int y = 0; y < Hn; y++) {
+    for (int x = 0; x < Wn; x++) {
+      const size_t src = (size_t)(y * L) * W + (size_t)(x * L);  // 复制图里的代表像素
+      float v = hm[src];
       if (v < thr) continue;
-      // 3x3 local max == F.max_pool2d(k=3, s=1, p=1) equality test
+      // 3x3 local max == F.max_pool2d(k=3, s=1, p=1) equality test（原生网格上）
       bool is_max = true;
       for (int dy = -1; dy <= 1 && is_max; dy++)
         for (int dx = -1; dx <= 1 && is_max; dx++) {
-          int ny = std::max(0, std::min(H - 1, y + dy));
-          int nx = std::max(0, std::min(W - 1, x + dx));
-          if (hm[(size_t)ny * W + nx] > v) is_max = false;
+          int ny = std::max(0, std::min(Hn - 1, y + dy));
+          int nx = std::max(0, std::min(Wn - 1, x + dx));
+          const size_t nsrc = (size_t)(ny * L) * W + (size_t)(nx * L);
+          if (hm[nsrc] > v) is_max = false;
         }
       if (!is_max) continue;
-      float dx = off[(size_t)y * W + x];
-      float dy = off[(size_t)(H * W) + (size_t)y * W + x];
-      dets->push_back({(x + dx) * (float)stride, (y + dy) * (float)stride, v});
+      float dx = off[src];
+      float dy = off[(size_t)(H * W) + src];
+      // ★ offset 仿射校准（与 host 侧逐位一致；默认 1.0/0.0 ⇒ 空操作）
+      if (offset_scale != 1.0 || offset_bias != 0.0) {
+        dx = (float)((dx - offset_bias) / offset_scale);
+        dy = (float)((dy - offset_bias) / offset_scale);
+      }
+      dets->push_back({(x + dx) * (float)stride * (float)L, (y + dy) * (float)stride * (float)L, v});
     }
   }
   if ((int)dets->size() > top_k) {
@@ -861,7 +876,7 @@ bool run_once_io_mem(const Ctx& c, const uint8_t* input, size_t n, float conv_di
 #ifndef RKNN_HEATMAP_SMOKE_NO_MAIN
 int main(int argc, char** argv) {
   if (argc < 3) {
-    printf("Usage: %s <model.rknn> <feature.jpg> [--th F] [--stride N] [--topk N]\n"
+    printf("Usage: %s <model.rknn> <feature.jpg> [--th F] [--stride N] [--topk N] [--native-scale L]\n"
            "          [--loops N] [--warmup N] [--perf] [--dump DIR] [--tag NAME]\n"
            "          [--dump-input DIR]   save the exact uint8 NHWC NPU input\n"
            "       %s <model.rknn> --batch <list.txt> [--th F] [--dump DIR]\n"
@@ -877,6 +892,10 @@ int main(int argc, char** argv) {
   const char* dump_dir = nullptr;
   const char* tag = "frame";
   int loops = 0, warmup = 0, top_k = 100, stride = 2;
+  // late_upsample 的原生网格复制倍数 L（P3: 4；P2_fused: 2；无 late 上采样时为 1）
+  int native_scale = 1;
+  // offset 仿射校准：ô_cal = (ô - offset_bias) / offset_scale（默认空操作）
+  double offset_scale = 1.0, offset_bias = 0.0;
   float thr = 0.25f;
   int use_perf = 0;
   const char* input_dump = nullptr;
@@ -902,6 +921,9 @@ int main(int argc, char** argv) {
     else if (!strcmp(argv[i], "--th") && i + 1 < argc)      thr = (float)atof(argv[++i]);
     else if (!strcmp(argv[i], "--stride") && i + 1 < argc)  stride = atoi(argv[++i]);
     else if (!strcmp(argv[i], "--topk") && i + 1 < argc)    top_k = atoi(argv[++i]);
+    else if (!strcmp(argv[i], "--native-scale") && i + 1 < argc) native_scale = atoi(argv[++i]);
+    else if (!strcmp(argv[i], "--offset-scale") && i + 1 < argc) offset_scale = atof(argv[++i]);
+    else if (!strcmp(argv[i], "--offset-bias") && i + 1 < argc) offset_bias = atof(argv[++i]);
     else if (!strcmp(argv[i], "--loops") && i + 1 < argc)   loops = atoi(argv[++i]);
     else if (!strcmp(argv[i], "--warmup") && i + 1 < argc)  warmup = atoi(argv[++i]);
     else if (!strcmp(argv[i], "--perf"))                    use_perf = 1;
@@ -1022,7 +1044,8 @@ int main(int argc, char** argv) {
   printf("=====================================================================\n");
   printf(" RK3588 NPU -- Trial-0474 heatmap detector\n");
   printf(" model : %s\n", model_path);
-  printf(" th=%.4f stride=%d topk=%d\n", thr, stride, top_k);
+  printf(" th=%.4f stride=%d topk=%d native_scale=%d offset_scale=%.4f offset_bias=%.4f\n", thr, stride, top_k,
+         native_scale, offset_scale, offset_bias);
   printf("=====================================================================\n");
 
   // --- load + init ----------------------------------------------------------
@@ -1361,7 +1384,8 @@ int main(int argc, char** argv) {
 
     // peak decode on the board
     double t_pk0 = now_ms();
-    extract_peaks(hm.data(), off.data(), c.hm_h, c.hm_w, stride, thr, top_k, &dets);
+    extract_peaks(hm.data(), off.data(), c.hm_h, c.hm_w, stride, thr, top_k, &dets, native_scale,
+                   offset_scale, offset_bias);
     double t_peaks = now_ms() - t_pk0;
 
     const char* base = strrchr(path.c_str(), '/');

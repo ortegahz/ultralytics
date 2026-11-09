@@ -75,6 +75,7 @@ def peak_grid_indices(
     conf_thresh: float = 0.20,
     top_k: int = 100,
     kernel_size: int = 3,
+    native_scale: int = 1,
 ) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
     """Re-derive the grid indices of the peaks that ``extract_peaks`` selects.
 
@@ -88,11 +89,15 @@ def peak_grid_indices(
         conf_thresh: peak confidence threshold (lower => higher recall).
         top_k: max number of detections per image.
         kernel_size: max pool kernel size.
+        native_scale: late_upsample 的上采样倍数 L（>1 时在原生网格上抽峰，
+            见 ``extract_peaks`` 的说明）。
 
     Returns:
         One ``(y_indices, x_indices, scores)`` triple per image; the arrays are int64 / int64 /
         float32 and are aligned one to one with ``extract_peaks``'s output.
     """
+    if native_scale and native_scale > 1:
+        heatmap = heatmap[:, :, ::native_scale, ::native_scale]
     pad = (kernel_size - 1) // 2
     hmax = F.max_pool2d(heatmap, kernel_size=kernel_size, stride=1, padding=pad)
     keep = (hmax == heatmap) & (heatmap >= conf_thresh)
@@ -158,6 +163,11 @@ def extract_peaks_with_area_sums(
     kernel_size: int = 3,
     component_thresh: float = DEFAULT_COMPONENT_THRESH,
     verify: bool = True,
+    native_scale: int = 1,
+    offset_scale: float = 1.0,
+    offset_bias: float = 0.0,
+    offset_scale_xy: tuple[float, float] | None = None,
+    offset_bias_xy: tuple[float, float] | None = None,
 ) -> list[dict[str, np.ndarray]]:
     """Extract the peaks of ``extract_peaks`` and attach their component attributes.
 
@@ -175,6 +185,9 @@ def extract_peaks_with_area_sums(
         component_thresh: binarisation level of the connected-component analysis.
         verify: check that the re-derived peak indices reproduce the reference scores exactly and
             raise if they do not (the guard against a silent misalignment of the two paths).
+        native_scale: late_upsample 的上采样倍数 L（>1 时在原生网格上抽峰并用 stride*L 解码，
+            见 :func:`manu.evaluation.heatmap_evaluate.extract_peaks`）。
+        offset_scale / offset_bias: offset 仿射校准（默认空操作，见 extract_peaks 的说明）。
 
     Returns:
         One dict per image with ``points`` (N, 2) float32, ``scores`` (N,) float32,
@@ -187,8 +200,19 @@ def extract_peaks_with_area_sums(
         conf_thresh=conf_thresh,
         top_k=top_k,
         kernel_size=kernel_size,
+        native_scale=native_scale,
+        offset_scale=offset_scale,
+        offset_bias=offset_bias,
+        offset_scale_xy=offset_scale_xy,
+        offset_bias_xy=offset_bias_xy,
     )
-    indices = peak_grid_indices(heatmap, conf_thresh=conf_thresh, top_k=top_k, kernel_size=kernel_size)
+    indices = peak_grid_indices(
+        heatmap,
+        conf_thresh=conf_thresh,
+        top_k=top_k,
+        kernel_size=kernel_size,
+        native_scale=native_scale,
+    )
 
     results = []
     for b, ref in enumerate(reference):

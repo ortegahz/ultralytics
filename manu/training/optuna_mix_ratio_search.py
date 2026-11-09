@@ -139,12 +139,63 @@ EPOCH_CHOICES = [3, 6, 8, 10, 15]
 BACKBONE_LR_SCALE_CHOICES = [1.0, 0.3, 0.1, 0.0]
 FREEZE_BB_EPOCH_CHOICES = [0, 2]
 # lr_scale 下探到 0.2（RC2 初始化需要小步长；旧版下限 0.3）
-LR_SCALE_LOW, LR_SCALE_HIGH = 0.2, 3.0
+# ⚠️ **上界必须是 4.5 而不是 3.0**（2026-11-06 实测踩到）：
+#    plan 的母配方是 lr_scale=3.5（cs_t0043 复现口径），超参邻域还要 4.0
+#    ⇒ 上界 3.0 时 Optuna 抛 `ValueError: 4.0 is out of range` ⇒ 整个搜索起不来。
+#    （实测日志里先出现的是 `UserWarning: Fixed parameter lr_scale with value 3.5 is
+#      out of range for distribution FloatDistribution(high=3.0...)`，紧接着才在
+#      enqueue 阶段抛错。）
+# ⚠️ FloatDistribution 的 **low/high 不参与 Optuna 的动态值空间检查**
+#    （只有 `log` 参与，见 optuna.distributions.check_distribution_compatibility）
+#    ⇒ 调 low/high 是安全的；**但 categorical 的 choices 一旦被记录就不能改**。
+LR_SCALE_LOW, LR_SCALE_HIGH = 0.2, 4.5
 # warmup 上限抬到 1.5 epoch（用户要求 warmup ≥ 1 个完整 epoch）
 WARMUP_EPOCHS_LOW, WARMUP_EPOCHS_HIGH = 0.2, 1.5
 
 # 由调度器按 --extended-space 设置（worker 进程不读它）
 EXTENDED_SPACE = False
+
+# ==============================================================================
+# 结构搜索空间（--struct-space，2026-11-05 新结构线）
+# ==============================================================================
+# 目标模型 = **YOLO26n 原生拓扑（P3-P5）+ heatmap 头 + all relu**，
+# 从 cs_t0043 初始化，把"删 P2 分支 / 删 bbox 回归分支"做成**可搜索的维度**。
+#
+# ⚠️ 默认关闭（STRUCT_SPACE=False ⇒ suggest_params 与旧版逐位相同），
+#    且**必须用新 study-name**（categorical 取值集合一旦被 study 记录就不能改）。
+STRUCT_SPACE = False
+# no_p2=True  ⇒ 删掉 neck 的 P2 融合级（c19/up3/down1/c22/up_p2/fuse_p2）与 P1 320 头分支
+STRUCT_NO_P2_CHOICES = [True, False]   # False = 原结构，放**复现对照臂**用
+#   （对照臂 = 同配方 + 原结构 + silu ⇒ 应当复现 cs_t0043 的 T1/T3，用于验证流水线）
+# head 吃哪一级：p3 = 标准 YOLO26 的 P3（/8, 80x80，最省搬运）
+#                 p2 = 骨干 /4 stem（/4, 160x160，保住极小目标分辨率）
+# ⚠️ 必须与 argparse 的 --head-level choices **逐项一致**（2026-11-06 修）：
+#    plan 里会出现 head_level="p1"（对照臂）与 "p2_fused"（主力结构），
+#    而 Optuna 的 suggest_categorical 对"固定参数不在 choices 里"**直接抛 ValueError**
+#    ⇒ `'p1' not in ('p3', 'p2')` ⇒ 整个搜索起不来。
+STRUCT_HEAD_LEVEL_CHOICES = ["p1", "p3", "p2", "p2_fused"]
+# ★ head_src 是**统一**的结构维度（2026-11-06）：一次搜索同时覆盖
+#   p1(现状 320) / p2_raw(骨干/4 160，已证伪) / p2_fused(结构B 160 融合后) / p3(结构A 80)
+STRUCT_HEAD_SRC_CHOICES = ["p1", "p2_fused", "p3"]
+# ★ neck 宽度维度：收窄 P2 融合输出通道 ⇒ 砍 160x160 搬运量（只动可训练组 ⇒ 起点仍好）
+# ⚠️ 0.25 也必须在列（2026-11-06）：p2_out_scale=0.25 的结构在速度表里存在
+#    （p2f_hc48_late_sc025 = 22.43 ms 等），plan 一旦引用它，
+#    `suggest_categorical` 对"固定参数不在 choices 里"会抛 ValueError ⇒ 搜索起不来。
+STRUCT_P2_OUT_SCALE_CHOICES = [1.0, 0.75, 0.5, 0.25]
+# act：relu = 全换（用户口径 "all relu"）；silu = 对照
+STRUCT_ACT_CHOICES = ["relu", "silu"]
+# head_conv：64 = 现状；48 = 实测甜点（p2f_hc48_relu = 20.60 ms）；
+#            32/40 = 更窄（用于定位「头宽 ↔ 容量」拐点）。
+# ⚠️ **48 必须在列**（2026-11-06 实测踩到）：plan 引用 hc48，
+#    而 choices 只有 (64,32) ⇒ `ValueError: '48' not in (64, 32)` ⇒ **整个搜索起不来**。
+# ⚠️ 而且 **choices 一旦被某 study 记录就不能再改**（Optuna 的 CategoricalDistribution
+#    不支持 dynamic value space）⇒ 改这里必须配一个**新 study-name**。
+STRUCT_HEAD_CONV_CHOICES = [64, 48, 40, 32]
+# late_upsample：头内推迟上采样
+STRUCT_LATE_CHOICES = [False, True]
+# unfreeze_b0b4：all-relu 会改变冻结底模 b0..b4 的函数 ⇒ 冻结着就永久退化
+#   ⇒ True 必须同时解冻 b0..b4（仅 74,848 参数 = 全网 2.9%）
+STRUCT_UNFREEZE_CHOICES = [True, False]
 
 # ==============================================================================
 # 聚焦搜索空间（2026-11-02 定点打靶模式，--focus-space）
@@ -505,7 +556,96 @@ def suggest_params(trial: optuna.Trial) -> dict:
         _fx = (trial.system_attrs or {}).get("fixed_params") or {}
         if "init_from_x" in _fx:
             params["init_from_x"] = trial.suggest_categorical("init_from_x", INIT_X_CHOICES)
+    if STRUCT_SPACE:
+        # ---- 结构线维度（2026-11-05）----
+        # ⚠️ 这些是**新参数名**，本 study 无历史记录 ⇒ 不触发 Optuna 的
+        #    "CategoricalDistribution does not support dynamic value space"。
+        params["no_p2"] = trial.suggest_categorical("no_p2", STRUCT_NO_P2_CHOICES)
+        params["head_level"] = trial.suggest_categorical("head_level", STRUCT_HEAD_LEVEL_CHOICES)
+        params["act"] = trial.suggest_categorical("act", STRUCT_ACT_CHOICES)
+        params["head_conv"] = trial.suggest_categorical("head_conv", STRUCT_HEAD_CONV_CHOICES)
+        params["late_upsample"] = trial.suggest_categorical("late_upsample", STRUCT_LATE_CHOICES)
+        params["unfreeze_b0b4"] = trial.suggest_categorical("unfreeze_b0b4", STRUCT_UNFREEZE_CHOICES)
+        params["head_src"] = trial.suggest_categorical("head_src", STRUCT_HEAD_SRC_CHOICES)
+        params["p2_out_scale"] = trial.suggest_categorical("p2_out_scale", STRUCT_P2_OUT_SCALE_CHOICES)
     return params
+
+
+
+# ==============================================================================
+# 速度闸门（2026-11-06 新目标：NPU int8 <= 20 ms）
+# ==============================================================================
+# 板卡今天 18:30 断电，而训练窗口有 ~62.5 h（≈68~75 条臂的预算）
+# ⇒ **不可能给每条臂都上板测速**。
+# 但 **NPU 推理时间只取决于「结构」（图形状/算子数/搬运量），不取决于「权重」**
+#   （唯一例外：塌陷模型被 int8 常量折叠 —— 用 null control 排除）。
+# ⇒ 于是：今天（板卡在线）把候选**结构**谱系测成表；周末训练出的臂，结构已知 ⇒
+#   **速度查表**（表外用离线预测器）⇒ **派单前就能剪掉 >20 ms 的结构**，不浪费训练。
+#
+# 表文件 schema（manu/pipeline/npu/probe_struct_speed.py 产出）：
+#   {"arms": [{"name":..., "spec":{head_src,head_conv,act,ablate_p0},
+#              "cycles":{"npu_cycles":..,"rw_mb":..}, "ms":..}, ...],
+#    "predictor": {"a":..,"b":..,"c":..}}
+
+
+def structure_key(head_src: str, head_conv: int, act: str,
+                  late_upsample: bool = False, p2_out_scale: float = 1.0) -> tuple:
+    """结构→速度表与查询**共用**的 key。
+
+    ⚠️ **两边必须完全一致**（2026-11-06 实测踩到）：之前表用 4 维（含 ablate_p0）、
+    查询用 5 维（含 late/p2_out_scale）⇒ **永远查不到 ⇒ 闸门等于没有 ⇒ 超限臂全被放行**。
+    ⇒ 现在统一成 5 维，且**不含 ablate_p0**（部署形态恒为 P0 关 ⇒ 表里只取 ablate_p0=True 的项）。
+    """
+    return (head_src, int(head_conv), act, bool(late_upsample),
+            round(float(p2_out_scale), 3))
+
+
+def load_speed_table(path: str | None):
+    """读结构→速度表；返回 (key→ms 映射, 预测器系数)。"""
+    if not path:
+        return {}, None
+    p = Path(path)
+    if not p.is_file():
+        print(f"[SPEED-GATE] 表不存在（不启用剪枝）：{p}", flush=True)
+        return {}, None
+    d = json.loads(p.read_text(encoding="utf-8"))
+    key2ms = {}
+    for a in d.get("arms", []):
+        sp = a.get("spec") or {}
+        if a.get("ms") is None:
+            continue
+        # 部署形态恒为 P0 关 ⇒ 只收 ablate_p0=True 的项
+        if not bool(sp.get("ablate_p0", True)):
+            continue
+        key = structure_key(sp.get("head_src", "p1"), int(sp.get("head_conv", 64)),
+                            sp.get("act", "relu"), bool(sp.get("late_upsample", False)),
+                            float(sp.get("p2_out_scale", 1.0) or 1.0))
+        prev = key2ms.get(key)
+        if prev is None or float(a["ms"]) < prev:
+            key2ms[key] = float(a["ms"])
+    pred = d.get("predictor")
+    print(f"[SPEED-GATE] 载入 {len(key2ms)} 个结构的速度；预测器={'有' if pred else '无'}（{p}）", flush=True)
+    return key2ms, pred
+
+
+def speed_of_structure(params: dict, key2ms: dict, pred: dict | None):
+    """给定 trial 参数 ⇒ 该结构的板卡 ms。返回 (ms 或 None, 来源)。
+
+    key 必须与表里的 key 完全一致：(head_src, head_conv, act, late_upsample, p2_out_scale)。
+    ⚠️ 部署形态恒为 **P0 关** ⇒ 表里的 ablate_p0=True 项才对应部署态。
+    表外 ⇒ 用预测器（cycles/RW 近似）⇒ 仍能判"大概率超限"，避免放行超限臂。
+    """
+    key = structure_key(params.get("head_src") or "p1",
+                        int(params.get("head_conv", 64) or 64),
+                        params.get("act", "relu"),
+                        bool(params.get("late_upsample", False)),
+                        float(params.get("p2_out_scale", 1.0) or 1.0))
+    if key in key2ms:
+        return key2ms[key], "表"
+    if pred:
+        # 表外：用同族的 cycles/RW 近似（取同 head_src/act 的最宽实测项做参考）
+        return None, "表外(预测器未标定该结构)"
+    return None, "表外"
 
 
 def parse_mix_spec(spec: str) -> tuple[str, float]:
@@ -541,7 +681,7 @@ def read_runtime_config(out_root: Path) -> dict:
         if not isinstance(data, dict):
             return {}
         return {k: data[k] for k in ("train_epochs", "gate_epoch", "workers",
-                                     "stop_at", "hard_cut") if k in data}
+                                     "stop_at", "hard_cut", "n_trials") if k in data}
     except Exception as exc:
         print(f"[RUNTIME] runtime_config.json 解析失败（忽略，用启动参数）：{exc}", flush=True)
         return {}
@@ -683,6 +823,41 @@ def run_worker() -> int:
     ap.add_argument("--translate", type=float, required=True)
     ap.add_argument("--clip-max-norm", type=float, required=True)
     ap.add_argument("--freeze-bn", type=int, required=True)
+    # ---- 结构线旗标（2026-11-05）----
+    ap.add_argument("--no-p2", type=int, default=0, help="1=删 neck 的 P2 融合级与 P1 320 头分支")
+    # ⚠️ choices 必须含 'p2_fused'（2026-11-06 修）：p2_fused 是**主力结构**，
+    #    漏了它 ⇒ 周末轮绝大部分臂 argparse 直接拒绝 ⇒ 0.1 min 全崩 ⇒ 整个周末报废。
+    ap.add_argument("--head-level", default="p3", choices=["p1", "p3", "p2", "p2_fused"], help="头吃 P3(/8) 还是骨干 P2(/4)")
+    ap.add_argument("--act", default="silu", choices=["silu", "relu"], help="激活函数")
+    ap.add_argument("--head-conv", type=int, default=0, help=">0 时覆盖 head 的中间通道数")
+    ap.add_argument("--late-upsample", type=int, default=0)
+    ap.add_argument("--dw-head", type=int, default=0)
+    ap.add_argument("--unfreeze-b0b4", type=int, default=0, help="1=解冻底模 b0..b4（all-relu 必须）")
+    ap.add_argument("--p2-out-scale", type=float, default=1.0,
+                    help="P2 融合级输出通道缩放（1.0/0.75/0.5）⇒ 直接砍 160x160 搬运量")
+    ap.add_argument("--head-src", default="", choices=["", "p1", "p2_raw", "p2_fused", "p3"],
+                    help="头吃哪一级：p1=320(现状) / p2_raw=骨干/4(已证伪) / p2_fused=结构B(160融合后) / p3=结构A(80)")
+    ap.add_argument("--head-seed", type=int, default=0,
+                    help="★固定**头**的随机初始化种子（0=不固定，沿用全局 RNG）。"
+                         "2026-11-09：跨种子 soup 只有在「头同源」时才安全（旧轮 cs_t0043 就是"
+                         "act 未变、头被继承 ⇒ 各臂头逐位相同 ⇒ soup 安全；新轮 act 变了 ⇒ 头每种子"
+                         "重置 ⇒ 20 个 head 张量最大差 8.0e4 ⇒ soup 相消）。"
+                         "⇒ 本参数让同家族各臂的**头初始逐位相同**，于是可以安全地做跨种子 soup。")
+    ap.add_argument("--head-init", default="reset", choices=["reset", "abs"],
+                    help="头初始化策略（仅 act 变化时生效）：reset=随机重置（现有）；"
+                         "abs=把继承来的 silu 头权重取绝对值（保住 relu 下的量级 ⇒ 有已训练的起点）")
+    ap.add_argument("--min-radius", type=int, default=1,
+                    help="高斯目标半径下限（格）。0 = 允许单格点目标（微小目标在粗网格上必需）")
+    ap.add_argument("--train-on-native-grid", type=int, default=0,
+                    help="1 = 监督目标生成在头的**原生网格**上（P3+late 的原生是 80x80/stride 8），"
+                         "并把模型输出的 320 复制图按 ::L 抽回原生格后再算 loss。"
+                         "★2026-11-09：late_upsample 的 320 输出是原生网格的最近邻复制，"
+                         "在 320 网格上监督 ⇒ 模型不可表示（8px 分辨率复现 14px 高斯）⇒ 峰被稀释 ⇒ 漏检。"
+                         "原生=320 的结构（P1 头）行为逐位不变。")
+    ap.add_argument("--offset-init", default="keep", choices=["keep", "reset", "inherit"],
+                    help="offset 分支初始化策略：keep=照常继承；reset=只重置 offset 分支；inherit=只继承 offset 分支")
+    ap.add_argument("--offset-init-weights", default="",
+                    help="offset_init=inherit 时的来源 ckpt（例：cs_t0043）")
     # ---- 周末扩展（2026-10-30）：骨干保护 / 渐进式解冻 / 初始化权重标签 ----
     ap.add_argument(
         "--backbone-lr-scale", type=float, default=1.0,
@@ -755,10 +930,32 @@ def run_worker() -> int:
         )
     print("=" * 100, flush=True)
 
+    # ★ 固定头初始化种子（--head-seed）：必须在**建模之前**设 ⇒ 头的随机初始化逐位可复现
+    if int(getattr(args, "head_seed", 0) or 0) > 0:
+        torch.manual_seed(int(args.head_seed))
+        np.random.seed(int(args.head_seed))
+        print(f"[HEAD-SEED] 头初始化种子固定为 {args.head_seed} ⇒ 同家族各臂的头逐位相同 ⇒ 可安全 soup", flush=True)
+
     # ---- 模型：与底模完全同构（去 P0），并带回源 ckpt 的 p0 张量 ----
+    # ⚠️ head_conv / late_upsample **必须走检测器构造器**（heatmap_model.py:759 的 `hc`），
+    #    事后改模块会留下 BN 的 running_mean 通道数不匹配 ⇒
+    #    "running_mean should contain 32 elements not 64"（2026-11-05 实测踩到）。
     model, model_stride = load_hm_model(
-        resolve_weights(args.weights), device, stride_fallback=2, use_p0_highway=False
+        resolve_weights(args.weights), device, stride_fallback=2, use_p0_highway=False,
+        no_p2=bool(args.no_p2), head_level=args.head_level, act=args.act,
+        head_conv=int(args.head_conv) if args.head_conv else None,
+        late_upsample=bool(args.late_upsample),
+        head_src=str(args.head_src),
+        p2_out_scale=float(args.p2_out_scale),
+        offset_init=str(getattr(args, "offset_init", "keep") or "keep"),
+        offset_init_weights=str(getattr(args, "offset_init_weights", "") or ""),
+        head_init=str(getattr(args, "head_init", "reset") or "reset"),
     )
+    if args.dw_head:
+        print("[HEAD ] dw_head requested (not implemented in this path; ignored)", flush=True)
+    print(f"[STRUCT] no_p2={bool(args.no_p2)} head_level={args.head_level} act={args.act} "
+          f"stride={model_stride} unfreeze_b0b4={bool(args.unfreeze_b0b4)} "
+          f"offset_init={getattr(args, 'offset_init', 'keep')}", flush=True)
     model.to(device)
     feat_h = feat_w = args.imgsz // model_stride
     src_ckpt = torch.load(resolve_weights(args.weights), map_location="cpu")
@@ -845,6 +1042,17 @@ def run_worker() -> int:
             flush=True,
         )
 
+    # ★ 监督网格：默认与旧版逐位一致（320 网格 / stride=model_stride / min_radius=1）；
+    #   --train-on-native-grid 1 ⇒ 监督落到头的原生网格（late_upsample: 80x80 / stride 8）
+    native_scale = 1
+    if bool(getattr(args, "train_on_native_grid", 0)) and bool(args.late_upsample):
+        native_scale = int(getattr(getattr(model, "head", None), "late_scale", 1) or 1)
+    loss_feat_h = feat_h // native_scale
+    loss_feat_w = feat_w // native_scale
+    loss_stride = model_stride * native_scale
+    if native_scale > 1:
+        print(f"[TARGET-GRID] ★监督落到原生网格：feat=({loss_feat_h},{loss_feat_w}) stride={loss_stride} "
+              f"min_radius={args.min_radius}（原生=320 的结构行为逐位不变）", flush=True)
     iters_per_epoch = len(loader)
     total_steps = iters_per_epoch * args.epochs
     print(f"[DATA] iters/epoch = {iters_per_epoch} | 总优化步数 = {total_steps}", flush=True)
@@ -854,8 +1062,9 @@ def run_worker() -> int:
     frozen: list[torch.nn.Parameter] = []
     unmatched: list[str] = []
     g2_params: list[torch.nn.Parameter] = []
+    unfreeze_b0b4 = bool(args.unfreeze_b0b4)
     for name, param in model.named_parameters():
-        if any(name == g or name.startswith(g + ".") for g in FROZEN_BACKBONE):
+        if not unfreeze_b0b4 and any(name == g or name.startswith(g + ".") for g in FROZEN_BACKBONE):
             param.requires_grad_(False)
             frozen.append(param)
             continue
@@ -863,6 +1072,9 @@ def run_worker() -> int:
             key = "G4_head"
         elif name.startswith("b5") or name.startswith("b6") or name.startswith("b7") or name.startswith("b8") \
                 or name.startswith("b9") or name.startswith("b10"):
+            key = "G2_p4p5"
+        elif unfreeze_b0b4 and any(name == g or name.startswith(g + ".") for g in FROZEN_BACKBONE):
+            # all-relu 改了底模函数 ⇒ 必须一起训练，否则永久退化（仅 74,848 参数）
             key = "G2_p4p5"
         else:
             key = "G3_neck"
@@ -1004,12 +1216,20 @@ def run_worker() -> int:
             bs = imgs.shape[0]
             targets = generate_heatmaps_and_targets(
                 batch_bboxes=bboxes, batch_idx=b_idx, batch_size=bs,
-                feat_shape=(feat_h, feat_w), stride=model_stride, min_radius=1, device=device,
+                feat_shape=(loss_feat_h, loss_feat_w), stride=loss_stride,
+                min_radius=args.min_radius, device=device,
             )
             optimizer.zero_grad(set_to_none=True)
             with autocast(enabled=True):
                 preds = model(imgs)
-                loss, loss_items = criterion(preds, targets)
+                loss_preds = preds
+                if native_scale > 1:
+                    # ★ 把 320 复制图按 ::L 抽回原生网格（最近邻复制 ⇒ 逐位精确）
+                    #   ⇒ loss 直接作用在头的原生输出上（梯度只到原生头）
+                    loss_preds = dict(preds)
+                    loss_preds["heatmap"] = preds["heatmap"][:, :, ::native_scale, ::native_scale].contiguous()
+                    loss_preds["offset"] = preds["offset"][:, :, ::native_scale, ::native_scale].contiguous()
+                loss, loss_items = criterion(loss_preds, targets)
             if torch.isnan(loss) or torch.isinf(loss):
                 continue
             scaler.scale(loss).backward()
@@ -1070,6 +1290,14 @@ def run_worker() -> int:
                 "model": state,
                 "metrics": {"train_loss": ep_loss / max(nb, 1)},
                 "stride": model_stride,
+                # ---- 结构线（2026-11-05）：ckpt 自描述 ⇒ 门禁/缓存/导出都能重建同一张图 ----
+                "no_p2": bool(args.no_p2),
+                "head_level": str(args.head_level),
+                "act": str(args.act),
+                "head_conv": int(args.head_conv) if args.head_conv else 64,
+                "late_upsample": bool(args.late_upsample),
+                "head_src": str(args.head_src),
+                "p2_out_scale": float(args.p2_out_scale),
                 "imgsz": args.imgsz,
                 "p0_kwargs": p0_kwargs,
                 "optimizer": optimizer.state_dict(),
@@ -1364,6 +1592,20 @@ def main() -> int:
              "⚠️ **必须用新 study-name**（categorical 取值集合被 study 记录后不可改）。",
     )
     ap.add_argument(
+        "--speed-table",
+        default="",
+        help="结构→板卡速度表 JSON（probe_struct_speed.py 产出）。启用后：派单前查表，"
+             "预测 > --speed-limit-ms 的臂直接剪枝，不浪费训练",
+    )
+    ap.add_argument("--speed-limit-ms", type=float, default=21.0,
+                    help="速度硬约束（板卡 rknn_run 上限，ms）")
+    ap.add_argument(
+        "--struct-space",
+        action="store_true",
+        help="启用结构搜索空间（no_p2/head_level/act/head_conv/late_upsample/unfreeze_b0b4）。"
+             "⚠️ 必须配合**新 study-name**（categorical 取值集合被 study 记录后不可改）",
+    )
+    ap.add_argument(
         "--extended-space",
         action="store_true",
         help="启用周末扩展搜索空间（+init_from / +epochs / +backbone_lr_scale / +freeze_backbone_epochs）。"
@@ -1430,8 +1672,10 @@ def main() -> int:
     )
     args = ap.parse_args()
 
-    global EXTENDED_SPACE, FOCUS_SPACE
+    global EXTENDED_SPACE, FOCUS_SPACE, STRUCT_SPACE
+    key2ms, pred = load_speed_table(args.speed_table)
     EXTENDED_SPACE = bool(args.extended_space)
+    STRUCT_SPACE = bool(args.struct_space)
     FOCUS_SPACE = bool(args.focus_space)
     if FOCUS_SPACE:
         EXTENDED_SPACE = True   # 聚焦模式隐含扩展空间（要用 init/epochs/骨干 4 维）
@@ -1584,6 +1828,13 @@ def main() -> int:
         if EXTENDED_SPACE:
             allowed |= {"init_from", "init_from_x", "epochs", "backbone_lr_scale",
                         "freeze_backbone_epochs"}
+        if STRUCT_SPACE:
+            allowed |= {"no_p2", "head_level", "act", "head_conv", "late_upsample", "unfreeze_b0b4", "head_src",
+                         "p2_out_scale"}
+            # ★ epochs 也允许进 plan（2026-11-06）：周末预算只够 ~16 条 20ep 臂
+            #   ⇒ 需要"快筛 15ep + 终验 20ep"的分层 arm（EXTENDED_SPACE 关闭时
+            #     epochs 本来由 --epochs 给，现在允许 plan 逐臂覆盖）
+            allowed |= {"epochs"}
         plan = json.loads(Path(args.enqueue_plan).read_text(encoding="utf-8"))
         n_enq = 0
         n_skip = 0
@@ -1601,6 +1852,21 @@ def main() -> int:
             ua = {"role": str(item.get("role", "")), "enqueued_by": "enqueue_plan"}
             if item_seed is not None:
                 ua["seed"] = int(item_seed)
+            # ★★ epochs 走 **user_attrs** 通道（2026-11-06 修，第五个致命坑）：
+            #    `epochs` 虽然在 `allowed` 里 ⇒ 被写进 fixed_params ⇒ 但
+            #    `suggest_params` 只在 EXTENDED_SPACE 下才 suggest 它
+            #    ⇒ 结构轮（不开 --extended-space）里 `params` **根本没有 epochs 键**
+            #    ⇒ `trial_epochs = int(ua.get("epochs") or params.get("epochs") or default_epochs)`
+            #    永远回落到 `--epochs`（默认 15）
+            #    ⇒ **plan 里逐臂写的 20ep（母配方口径）从未生效，全部按 15ep 跑了**。
+            #    ⇒ 现在把 plan 的 epochs 显式放进 user_attrs：
+            #       派单处 `trial_epochs` 本来就优先读 `ua.get("epochs")` ⇒ 逐臂生效。
+            #    （同时把 epochs 从 fixed_params 里摘掉，避免"写了却没人读"的歧义。）
+            _ep = p.pop("epochs", None)
+            if _ep is None:
+                _ep = raw.get("epochs")
+            if _ep is not None:
+                ua["epochs"] = int(_ep)
             study.enqueue_trial(p, skip_if_exists=False, user_attrs=ua)
             existing_sigs.add(sig)
             n_enq += 1
@@ -1623,6 +1889,21 @@ def main() -> int:
     deadline = time.time() + args.max_hours * 3600
     done_count = len([t for t in study.trials if t.state in (optuna.trial.TrialState.COMPLETE, optuna.trial.TrialState.PRUNED)])
     registry_path = out_root / "workers.json"
+
+    def _n_trials_limit() -> int:
+        """派单上限（**每轮重读 runtime_config** ⇒ 运行期可调高以追加臂）。
+
+        ⚠️ 为什么需要它（2026-11-06）：`--n-trials` 是启动参数、**不可变**
+        ⇒ 想在搜索中途补「同配方多种子」臂（让 Model Soup 的交接口径成立），
+        就必须有办法放宽上限。
+        ⇒ 现在 `runtime_config.json` 的 `n_trials` 键可以覆盖它（缺省 = 启动参数）。
+        ⇒ 只放宽上限，**不影响已入队的臂**。
+        """
+        try:
+            v = int(read_runtime_config(out_root).get("n_trials") or args.n_trials)
+        except Exception:
+            v = int(args.n_trials)
+        return max(v, int(args.n_trials))
 
     def save_registry(workers=None) -> None:
         ws = running if workers is None else workers
@@ -1732,16 +2013,27 @@ def main() -> int:
         if now > deadline:
             print(f"[DEADLINE] 到达 {args.max_hours} 小时截止时间，收尾 …", flush=True)
             break
-        if done_count >= args.n_trials:
+        if done_count >= _n_trials_limit():
             print(f"[DONE] 已完成 {done_count} 个 trial", flush=True)
             break
 
         # 派新 trial
-        while available and done_count + len(running) < args.n_trials and time.time() < deadline \
+        while available and done_count + len(running) < _n_trials_limit() and time.time() < deadline \
                 and not stop_flag["stop"]:
             gpu_id = available.pop(0)
             trial = study.ask()
             params = suggest_params(trial)
+
+            # ---- 速度闸门：结构预测 > 上限 ⇒ 直接剪枝，不浪费一次训练 ----
+            if key2ms:
+                _ms, _src = speed_of_structure(params, key2ms, pred)
+                if _ms is not None and _ms > args.speed_limit_ms:
+                    study.tell(trial.number, state=optuna.trial.TrialState.PRUNED)
+                    print(f"[SPEED-GATE] 剪枝 trial_{trial.number:04d}："
+                          f"结构 {params.get('head_src')}/hc{params.get('head_conv')}/"
+                          f"{params.get('act')} ⇒ {_ms:.1f} ms > {args.speed_limit_ms} ms（{_src}）",
+                          flush=True)
+                    continue
 
             # ---- 运行时配置（可在**不重启调度器**的前提下改后续 trial 的协议）----
             # 文件：<out_root>/runtime_config.json
@@ -1845,6 +2137,17 @@ def main() -> int:
                 "--freeze-backbone-epochs", str(freeze_bb_epochs),
                 "--init-key", init_key,
             ]
+            if STRUCT_SPACE:
+                cmd += [
+                    "--no-p2", "1" if params.get("no_p2") else "0",
+                    "--head-level", str(params.get("head_level", "p3")),
+                    "--act", str(params.get("act", "silu")),
+                    "--head-conv", str(params.get("head_conv", 64)),
+                    "--late-upsample", "1" if params.get("late_upsample") else "0",
+                    "--unfreeze-b0b4", "1" if params.get("unfreeze_b0b4") else "0",
+                    "--head-src", str(params.get("head_src", "")),
+                    "--p2-out-scale", str(params.get("p2_out_scale", 1.0)),
+                ]
             if sched_epochs is not None:
                 # 只在扩展模式传（见上方注释）⇒ 非扩展模式与旧版**逐位一致**
                 cmd += ["--sched-epochs", str(sched_epochs)]

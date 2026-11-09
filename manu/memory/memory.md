@@ -11090,5 +11090,174 @@ T1 0.885997（GMC 门禁）/+ 0.886899（no-GMC）｜T2 0.997531（FP 10）｜T3
 ### 101.6 本轮"结论—证据"一句话版（可直接用于汇报）
 > **T1 塌陷是评估口径 bug（`late_upsample` 复制网格抽峰 ⇒ 每目标 L² 个假阳），已修并用冻结基线逐位不变验证；**
 > **修复后 13.131 ms 的 RC-13ms（trial_0031）T1 = 0.885997（GMC）/ 0.886899（no-GMC）；**
-> **残余差距经 13 条路线穷尽实测 + 距离分布诊断，判定为「切掉 320 分辨率残差路径（P0，代价 +17.13 ms）的结构性定价」，不是权重、不是解码、不是抖动；**
+> **残余差距经 13 条路线穷尽实测 + 距离分布诊断，判定为「切掉 320 分辨率残差路径（P0，代价 +17.13 ms）」的结构性定价，不是权重、不是解码、不是抖动；**
 > **换取的是 T3 +5.06 pp、实战虚警 −77%、NPU 7.64× 提速（13.131 ms，整机 45~50 FPS）。**
+
+## 102. ★★★★★ 2026-11-09 16:10 — ★★★ **交付件「13.131 ms」与「T1 0.886」来自两张不同的图**（act=silu vs act=relu）：交付口径必须分案
+
+### 102.1 问题（复核 `seed_arms.json` / ckpt 自描述时发现，**此前所有结论都隐含错了这个前提**）
+| 事实 | 证据 |
+|---|---|
+| **13.131 ms 是「全 relu 图」的板卡测速** | `struct_speed_table.json` 的 `arms[37] name=p3_hc64_relu_late, spec.act=relu, ms_source=measured`；测速用 **D1 臂 = trial_0000（ckpt act=relu）** epoch1 真权重 ⇒ **训练/推理数值一致**，测速有效 |
+| **交付权重 trial_0031 是 `act=silu` 训练的** | `torch.load(.../trial_0031/weights/epoch20.pt)` 自描述：`act='silu', head_level=p3, head_conv=64, late_upsample=True, no_p2=True, p2_out_scale=1.0` |
+| **导出默认沿用 ckpt 的 act = silu** | `hm_export_onnx.py::build_model(act=_ck_act)`；`--act` 的 help 明写「**relu 是 TIMING PROBE ONLY（changes numerics）**」 |
+| **relu 探针在同图上的速度优势 ≈ 1.5~1.66×** | 同图对照：`p2f_hc64_silu 32.005` vs `p2f_hc64_relu 21.277`（1.50×）；`hm_export_onnx.py` 注释里的板端实测 23.814→14.330（1.66×） |
+| ⇒ **推算** | p3/hc64/late 的 **silu 图 ≈ 13.131 × 1.50~1.66 ≈ 19.7~21.8 ms** ⇒ **可能压在甚至越过 20 ms 红线，但板卡断电无法实测** |
+
+⇒ ⇒ ⇒ **结论：RC-13ms 当前的「13.131 ms」与「T1 0.885997」不是同一张图的性能，不能并列陈述。**
+  * 若按导出默认走 **silu 图** ⇒ T1 0.886 ✔，但速度是 **silu 速度（未实测，估 19.7~21.8 ms）**，13.131 ms 不成立；
+  * 若走 **relu 图（13.131 ms 有效）** ⇒ 必须用 **relu 训练的权重**（否则数值错配），而 relu 家族的 T1 明显更低（见 §102.2）。
+
+### 102.2 ★ 人群级证据：act 值 **+2.3 pp T1**（不是种子运气）
+把 `npu20ms_seed2/trials/` 里 **72 个旧臂的 20 轮权重翻出来重筛**（当年被抽峰 bug 打成 ~0.1 而"作废"，权重完好），
+先测 **relu 原配方**（p3/hc64/relu/late/uf0/lr3.5/320 网格监督，= 交付主线 F_MAIN 同配方）的 **12 个种子**：
+
+| 统计量 | 值 |
+|---|---|
+| 样本 | SF05/06/08/10/12/14/16/18/20/22/24/26（**n=12**，no-GMC 同口径） |
+| T1 范围 | **0.861421 ~ 0.866581** |
+| **均值 / 标准差** | **0.864147 / 0.001594** |
+| **trial_0031（act=silu，同结构同流程）** | **0.886899** ⇒ **比 relu 人群均值高 +2.28 pp（≈ 14σ）** |
+
+⇒ **act=silu 训练在这个结构上值 ≈ +2.3 pp T1**；种子波动只有 ±0.16 pp ⇒ trial_0031 的领先**不是**种子运气。
+⇒ **同时印证 §88**：把监督搬到原生网格（native-grid r0）+ 解冻 b0..b4，可把 relu 家族从 **0.8641 抬到 0.8807（臂 9031）**，
+  仍差 silu 臂 0.6 pp ⇒ **「all relu」这条用户硬要求本身就要付 ~1.6~2.3 pp T1**。
+
+### 102.3 用户硬要求核对：交付主线本就是 relu
+`HANDOVER_npu20ms_20261106.md`：用户原话「**基本退化成 yolo26n 原始版本，只改成 heatmap、使用 all relu**、在 cs_t0043 上微调」；
+`F_MAIN = p3/hc64/relu/late/uf0/lr3.5（★交付主线，all relu）`，**D2 = p3/hc64/silu/late/uf0 是「对照＝老轮结构」臂**。
+⇒ **trial_0031 是 silu 对照臂** ⇒ 把它直接当「RC-13ms 交付件」**违背了 all relu 口径**（此前未核对，属流程漏洞）。
+⇒ **两个可交付案（必须由用户裁决，见 §102.5）**：
+
+| 案 | 图 | 权重 | T1（no-GMC） | NPU 速度 | 状态 |
+|:--|:--|:--|--:|--:|:--|
+| **A（当前 RC-13ms）** | silu（导出默认） | trial_0031 | **0.886899** | **未实测，估 19.7~21.8 ms** | ⚠️ 13.131 ms 不成立；违背 all relu |
+| **B（13.131 ms 有效）** | all relu | 最佳 relu 臂（9031=0.880692，种子扫描待定） | **≈0.880~0.883** | **13.131 ms（已实测）** | ✅ 速度与 all relu 都成立，T1 需接受 ~−2.1 pp vs RC2 |
+| **C（数值错配，仅作参照）** | all relu | trial_0031（silu 权重） | **实测中**（`--act-override relu`） | 13.131 ms | ⇒ 数值错配代价，实验待回 |
+
+### 102.4 本轮新增的实验与代码
+* **代码**：`manu/inference/cache_trial0474_inferences.py` 新增 **`--act-override {silu,relu}`**（默认 `""` ⇒ **完全空操作**，不改变任何现有行为）；
+  `relu` 分支复用 `manu.models.heatmap_model.swap_act_to_relu(model, "all")`，与 `hm_export_onnx.py --act relu` 的探针变换**逐算子一致**
+  ⇒ 用途：在 host 侧复现「板卡 relu 图」的数值。已同步服务器（md5 `5176337657593f2de101892ad4339213`）。
+* **实验①（人群）**：relu 原配方 12 个种子重筛（上面 §102.2）⇒ 日志 `/mnt/data/siping/runs/npu20ms/t1_screen_seedfarm.log`（快照 `..._RELLOG_snapshot.log`）。
+* **实验②（错配代价）**：`act_override_probe.sh` → `--act-override relu` 跑 trial_0031 ⇒ **排队中**（等 GPU1）。
+* **实验③（relu 上探）**：`h1_seed_sweep.sh` → H1 配方（原生网格 r0 + 解冻 + 8ep，从 trial_0031 起步，seeds 7201/7202/7203）
+  在 **GPU 0/2/3** 并行训练 ⇒ 目标：**relu 家族能否顶到 0.8869**（= 拿到「13.131 ms + 不牺牲 T1」的解）。
+* **实验④（队列）**：`l2b_watch.sh` → 9072 run B 的 epoch24 终值筛查（run B 已到 epoch22）。
+
+### 102.5 ⚠️ 待用户裁决 / 待板卡
+1. **交付案 A vs B**：A 保 T1（0.8869）但速度未实测且违背 all relu；B 速度 13.131 ms 实测成立、all relu 合规，但 T1 ≈ 0.880~0.883。
+2. **板卡侧（仍断电）**：① silu 版 p3/hc64/late 的真实 `rknn_run` 耗时（决定 A 是否越 20 ms）；② all-relu 图与 silu 权重的数值差（C 案）。
+3. **rc 命名**：`RC-13ms` 当前绑定的是 silu 臂 ⇒ 若最终选 B，需另起名（例如 `RC-13ms-relu`）并把 `RC-13ms` 归还给真正的 13.131 ms 图。
+
+## 103. ★★★★★ 2026-11-09 16:20 — ★★★ **三个决定性实测：C 案（silu 权重跑 relu 图）= 彻底死模型**；L2 路线关闭；老轮 F_MAIN soup = 死模型
+
+### 103.1 ★★★ 决定性实验：silu 权重换成 relu 图 ⇒ **不是掉点，是 0 检出**
+用本轮新增的 `cache_trial0474_inferences.py --act-override relu`（与 `hm_export_onnx.py --act relu` 的探针变换逐算子一致）
+对 **trial_0031（silu 训练）** 做 host 侧推理：
+
+```
+ACTRELU [PEAK] trial_0031_RELU_GRAPH: th=0.05  F1=0.000000  P=0.00%  R=0.00%  TP=0  FP=0
+ACTRELU [DELTA] 跨 15 档均值 = -0.827122   区间 [-0.900897, -0.540448]   负档 15/15
+```
+
+⇒ **彻底排除 C 案**（把 silu 权重塞进 relu 图）：**relu 把 silu 训练出的负激活全部截断 ⇒ 特征塌 ⇒ 热图全 0 ⇒ 一个都检不出**。
+⇒ **同时闭环解释了 §82 的「死模型」根因**：§82 的死模型 = 「silu 早期层在 relu 下被冻结」；而 `--act relu` 推理等价于「用 relu 跑 silu 权重」= 同一机理 ⇒ **两件事是同一个病**。
+⇒ **推论（硬约束）**：**all-relu 图只能配 relu 训练的权重；silu 图只能配 silu 权重。两者不可互换，且互换的后果不是精度损失而是模型死亡。**
+⇒ ⇒ 所以 §102 的三个案收敛为两个：**A（silu 图 + silu 权重，速度未实测）** 与 **B（all-relu 图 + relu 权重，13.131 ms 实测有效）**。
+
+### 103.2 L2(9072) 24 轮终值 = **0.875126** ⇒ 路线关闭
+* run A 的 epoch24（mtime 14:44）被 15:45 的自动筛查命中 ⇒ **0.873457**；
+* run B 重训到 epoch24（16:11 落盘）⇒ **0.875126**（P 94.62 / R 81.39 / TP 20439 / FP 1161）。
+* ⇒ **两轮终值都低于 trial_0031 的 0.886899**（−1.17 ~ −1.38 pp）⇒ **L2（24ep + w3.0）路线确认关闭**，§100 定板不动。
+
+### 103.3 老轮 F_MAIN 家族 soup（n=21）= **死模型**，且**不是权重平均的问题**
+老轮已建好的 `soups/soup_p3_hc64_relu_late_sc100.pt`（成员 = trial_0036~0074 共 21 个 relu F_MAIN 臂，act=relu ⇒ **正是 13.131 ms 那张图**），
+用修好的口径重筛 ⇒ **F1 = 0.000108、FP = 2,905,444、TP = 158（P 0.01%）⇒ 死模型**（当年因抽峰 bug 评出来也是 ~0，等于从未被有效评估）。
+排查结论：
+1. **soup 本身没坏**：键集与成员完全一致（403 = 403）、元数据逐字段一致、`max|Δ|` 与成员仅 **2.495**、无非有限张量；
+2. **成员之间 head 高度一致**（trial_0036~0074 彼此 `max|Δ| = 1.37~2.59`）⇒ 不是发散抵消；
+3. ⇒ **推论：这 21 个成员本身多半就是死臂**（从未被单独评测过）⇒ 死臂平均还是死臂。
+⇒ **已处置**：用**已验证存活**的 12 个 relu 臂（SF05~SF26，T1 0.8614~0.8666）**重建 soup**（`build_alive_soup.py`，
+   剔除 head 离群臂 trial_0005 / trial_0006）⇒ `soups/soup_p3_hc64_relu_late_ALIVE.pt`（10 成员）⇒ 正在重筛。
+
+### 103.4 ⚠️ 陷阱修正：`gate/9031_official/` 这个目录**装的是 trial_0031 的门禁**
+`/mnt/data/siping/runs/npu20ms_offcal/gate/9031_official/gate_report.json` 里 `weights` 字段 =
+`/mnt/data/siping/runs/npu20ms_seed2/trials/trial_0031/weights/epoch20.pt`
+⇒ 该目录名里的 "9031" 是**臂号**（offcal 波次里 `run_arm 9031 ... $T31` = 用 trial_0031 权重做 8ep 原生网格微调），
+   但**目录里存的官方门禁跑的是 trial_0031 本体**（T1 0.885997 / T2 0.997531 / T3 0.948330）。
+⇒ ⇒ **真正的 all-relu 臂 9031（权重 `trials/trial_9031/weights/epoch8.pt`，no-GMC T1 0.880692）至今没有官方三轨门禁** ⇒ 选 B 案时必须补跑。
+
+### 103.5 ★ soup 路线**彻底关闭**（三种规模都验过，含机理）
+| 被筛对象 | 成员 | 结果 | 判定 |
+|---|---:|---|---|
+| 老轮 `soup_p3_hc64_relu_late_sc100.pt` | 21（trial_0036~0074） | **F1 0.000108 / FP 290 万** | 死模型 |
+| 新建 `soup_p3_hc64_relu_late_ALIVE.pt`（只用已验证存活臂） | 10（trial_0008~0026，剔 0005/0006） | **F1 0.000053 / FP 294 万** | 死模型 |
+| 单成员抽查 | trial_0036 / trial_0050 | **0.866479 / 0.865559（活）** | ⇒ 成员没问题，**是平均这一步坏事** |
+
+**排除的伪因**：键集一致（403=403）、形状一致、元数据一致、`max|Δ|` 与成员仅 2.495、无非有限张量 ⇒ **不是文件损坏**。
+**真因（同族臂处在不同损失盆地）**：act 变了 ⇒ 头被重置 ⇒ 各臂虽都活、分数也接近（0.861~0.867），但**不共享盆地** ⇒ 权重平均在 10 臂量级上累积破坏 ⇒
+前向诊断（随机输入）：arm8/arm10 的 heatmap `max≈0.0000 / mean≈1e-5`（对噪声无响应，正常）；**soup2 轻微异常（max 0.0039）；soup10 直接饱和（mean 0.0707、frac>0.05 = 1.0）** ⇒ 损伤随臂数累积。
+⇒ ⇒ **结论：跨臂 soup 对本家族无效**（与 §89 的 S2 崩盘同机理，只是本次 n 更大、证据更硬）。
+⇒ ⇒ **可用的只有单臂**；all-relu 家族当前最优 = **9031（0.880692）** 与 **9041（0.880410）**。
+
+### 103.6 ★★ 板卡一通电必做清单（**唯一还缺的硬数据**，15 分钟可做完）
+目标：把「silu 图 vs all-relu 图」的板端时间差**实测**出来，并同时补上板卡侧一致性复测。
+```bash
+# ① 导出两张图（同一权重，只差 act）
+python manu/pipeline/npu/hm_export_onnx.py --ckpt <trial_0031 或 relu 臂>/weights/epoch20.pt \
+  --out-root /mnt/data/siping/runs/npu20ms/board_v2/silu --act silu      # 数值正确（=host 口径）
+python manu/pipeline/npu/hm_export_onnx.py --ckpt <同上> \
+  --out-root /mnt/data/siping/runs/npu20ms/board_v2/relu --act relu      # 13.131 ms 那一类（注意：仅 relu 权重可用）
+# ② 板端测速（沿用 _chain_test/measure_board.sh 的 health check + null control + determinism）
+bash /mnt/data/siping/runs/npu20ms/_chain_test/measure_board.sh   # 改指向两张新 rknn
+# ③ host↔NPU 逐位一致（交付路径必须带 --native-scale 4）
+python manu/pipeline/npu/hm_compare_npu_cpu.py ... --native-scale 4
+```
+判定标准：
+* **silu 图 ≤ 20 ms** ⇒ **A 案（trial_0031, T1 0.8869）直接成立**，只需在文档里把「13.131 ms」改成实测值（并注明 all-relu 更快但不可用）；
+* **silu 图 > 20 ms** ⇒ A 案出局 ⇒ **交付 B 案（all-relu 臂，13.131 ms，T1 ≈ 0.881）**；
+* **任何情况下都禁止把「silu 权重 + relu 图」上板**（host 侧已实测：F1 = 0.000000，见 §103.1）。
+
+### 103.7 ⚠️ 重要修正：offcal 波次的 all-relu 优选臂**训练被中途掐断**，此前是拿半成品权重评的分
+| 臂 | 配方 | 实际可用的权重 | 训练是否跑完 | 筛查用的文件 | no-GMC T1 |
+|:--|:--|:--|:--|:--|--:|
+| 9031 | H1（原生网格 r0 + 解冻 b0..b4，8ep 调度） | epoch1..**6** | ❌ 停在 **Ep07 1600/1779** | **epoch4.pt** | 0.880692 |
+| 9041 | 同上，12ep | epoch1..7 | ❌ | **epoch7.pt** | 0.880410 |
+| 9043 | 同上，12ep | epoch1..6 | ❌ | **epoch4.pt** | 0.876900 |
+
+⇒ ⇒ **§99/§101.2 表里这些臂标「8ep / 12ep」是不准的**（实际是 epoch4~7 的半成品）⇒
+**「原生网格监督 + 解冻」这条配方的真实上限从未被测到**（被掐断时点被当成终值记录了下来）。
+⇒ ⇒ 本轮补跑的 **H1 三臂（9201/9202/9203，完整 8 轮，seeds 7201/7202/7203）** 才是这条配方的干净读数；
+   且脚本已串好：三臂训完 → 逐臂快筛 → **对最优臂自动跑官方三轨门禁**（`h1_finish_and_gate.sh`）。
+
+## 104. ★★ 2026-11-09 16:45 — 工程卫生：`.gitignore` 补漏 + 27 个构建/备份文件退出版本控制
+
+### 104.1 盘点结论（先查后改，避免误伤）
+* **本来就已经忽略的**（无需动）：`.idea`（第 121 行）、`*.onnx`（162）、`*.pt`/`*.rknn`（159/177）、`runs/`（152）、
+  `__pycache__/`（2）、`.pytest_cache/`（56）、`.mypy_cache/`（143）、`.vscode/`（133）。
+* **真正漏网的只有 4 类**（已补进 `.gitignore`，第 215~245 行，带中文理由注释）：
+  | 规则 | 对象 | 为什么不入库 |
+  |:--|:--|:--|
+  | `.ruff_cache/` | lint 缓存 | 每次跑都变 |
+  | `*.iml` | PyCharm 模块文件 | PyCharm 本地产物（`.idea` 已被忽略，兜底根目录散落） |
+  | `.codex/` `.minimax/` | Agent 运行时目录（角色配置、session 状态） | 本机状态，原 `.codex/` 只在 `.git/info/exclude`，现提到 `.gitignore` 随仓库分发 |
+  | `manu/pipeline/npu/out/` `/.build-include/` `/.demo-build-mobilenet/` | 板端交叉编译产物 + 构建 staging 目录 | `build_*.sh` 里 `STAGE="$HERE/.build-include"` 自动重建 |
+  | `*.bak` `*.orig` `*.rej` | 编辑器/工具备份 | 无语义 |
+  | `manu/pipeline/npu/board/scratch/*.txt` `*.json` | scratch 下的生成物（482 KB 的 `canon21_feature_md5.txt`） | 脚本诊断产物；同目录的 `.py` 诊断脚本**保持跟踪** |
+
+### 104.2 已被跟踪的垃圾：**27 个文件 `git rm --cached`**（工作树文件原样保留，md5 不变，未暂存删除数 = 0）
+* `manu/pipeline/npu/.build-include/` 下 **25 个**第三方头文件（OpenCL CL 头、rknn_api.h、stb_image*.h，共 ~500 KB）
+  —— 它们是**从板子拷进来的 staging 副本**（`build_rga_probe_arm64.sh` 注释原文：「headers are staged from the board into .build-include/rga」），
+  且仓库自己的 `.git/info/exclude` 早已声明该目录「一律出版本控制」（历史上只退出了 28 个，这批是漏网）；
+* `lookahead/server_overnight/docs/_subagent_rollout_sample.jsonl.bak`、`manu/tracking/lookahead/.../...jsonl.bak`（各 372 KB，备份件）；
+* `manu/pipeline/npu/board/scratch/canon21_feature_md5.txt`（482 KB 生成物）。
+⇒ **审计结论**：跟踪区里 **没有**任何权重/模型文件（`*.pt/*.onnx/*.rknn` 零命中），最大跟踪文件是 5.3 MB 的 PPTX 交付素材（合理）。
+
+### 104.3 「progress 文件要不要跟踪」的评估结论
+仓库里**不存在** `progress.make`；同义文件是 `runs/**/progress.txt`（lookahead 流水线的运行进度，共 20+ 个）。
+**结论：不跟踪**——它们是 `runs/` 下的运行期进度日志（已被 `runs/` 整目录忽略），每次跑都会变；
+需要长期留存的是**结论**，已经在 `manu/memory/`（含 `memory.md` 与各专题 md）与 `manu/memory/DELIVERY_13ms_20261109.md` 里。
+唯一需要跟踪的"进度"载体 = `manu/memory/*.md`（本轮新增 6 个未跟踪的 memory/交付文档，均属**应当入库**的内容）。
+⇒ **`git status` 现状**：58 个未跟踪（28 个 `manu/training` + 22 个 `manu/pipeline` + 6 个 `manu/memory` + 2 个 `manu/evaluation` 的**源码与文档**，应入库）、29 个已修改、27 个已退出跟踪。
+

@@ -60,12 +60,81 @@ def resolve_weights(value: str) -> Path:
     return path
 
 
-def load_hm_model(weights: Path, device: torch.device, stride_fallback: int = 2, use_p0_highway: bool = True):
+def load_hm_model(weights: Path, device: torch.device, stride_fallback: int = 2, use_p0_highway: bool = True,
+                  no_p2: bool = False, head_level: str = "p3", act: str = "silu",
+                  head_conv: int | None = None, late_upsample: bool | None = None, head_src: str = "",
+                  p2_out_scale: float = 1.0, offset_init: str = "keep", offset_init_weights: str = "",
+                  head_init: str = "reset"):
+    """offset_init（2026-11-09 新增，针对「offset 头塌缩成常数 0.5」的定向修复）：
+        keep    —— 保持默认（用 init ckpt 的 offset 权重）
+        reset   —— **只**把 offset 分支留成随机初始化（其余权重照常继承）
+                    ⇒ 用于排除「塌缩是初始化带来的」，让高 offset 权重从随机头开始学
+        inherit —— 从 offset_init_weights 指定的其他 ckpt **只**继承 offset 分支（形状兼容才继承）
+                    ⇒ 用于「借用 cs_t0043 已收敛的 offset 几何先验」
+        head_init（**头**的初始化策略，仅在 act 变化（silu→relu）时生效）：
+            reset —— 现有行为：头完全随机初始化（实测：20 ep 里只有 5 ep 有效，head 学不透 ⇒
+                     种子臂的 T1 只到 0.87~0.89）
+            abs   —— ★新：把**继承来的 silu 头权重取绝对值**后再喂 relu
+                     （relu(x)=max(0,x) 会让负权重通道死亡；取绝对值可保住「正侧幅度」，
+                      等价于把 silu 的双侧响应压成单侧但保留量级）⇒ 相当于给新头一个
+                      **已训练过的起点**，而不是随机猜。
+    """
     ckpt = torch.load(weights, map_location="cpu")
     state_dict = ckpt["model"] if "model" in ckpt else ckpt.get("state_dict", ckpt)
     if hasattr(state_dict, "state_dict"):
         state_dict = state_dict.state_dict()
     stride = int(ckpt.get("stride", stride_fallback))
+    # ---- 结构线（2026-11-05）：ckpt 自描述 ----
+    # 显式传入的值优先（调度器按 search space 给），否则用 ckpt 里的记录。
+    _ck_no_p2 = bool(ckpt.get("no_p2", False))
+    _ck_head_level = str(ckpt.get("head_level", "p3"))
+    _ck_act = str(ckpt.get("act", "silu"))
+    _ck_head_src = str(ckpt.get("head_src", "") or "")
+    _ck_p2s = float(ckpt.get("p2_out_scale", 1.0) or 1.0)
+    # ★ head_conv / late_upsample 也要自描述（2026-11-06 修静默丢权重 bug）：
+    #   以前只能靠调用方显式传 ⇒ 漏传就重建出**另一张图**（hc 回落 64、late 回落 False）
+    #   ⇒ 头权重形状对不上又被静默跳过 ⇒ 随机头推理 ⇒ 热图全 0 ⇒ 被误判成"死模型"。
+    _ck_head_conv = ckpt.get("head_conv", None)
+    _ck_head_conv = int(_ck_head_conv) if _ck_head_conv is not None else None
+    _ck_late = bool(ckpt.get("late_upsample", False))
+    # 显式传入优先（调度器按搜索空间给），否则用 ckpt 里的记录
+    if not head_src:
+        head_src = _ck_head_src
+    if no_p2 is False and _ck_no_p2:
+        no_p2 = True
+    if head_level == "p3" and _ck_head_level != "p3":
+        head_level = _ck_head_level
+    if act == "silu" and _ck_act != "silu":
+        act = _ck_act
+    # ★★ 2026-11-06 18:25：**act 变了（silu→relu）⇒ 重置「头」的权重**（保持随机初始化）。
+    #   实测证据（20 epoch 完整轨迹的最终 hm）：
+    #     · p3/hc64/**relu**/late（**继承 silu 权重**）⇒ hm 卡在 **0.68~0.80**（差 4~5 倍）
+    #     · p2f/hc32/**relu**/late（头形状变了 ⇒ **头重新初始化**）⇒ hm **0.20~0.44**
+    #     · 老轮 p3/hc64/**silu**/late（继承 silu 权重）⇒ hm **0.1643**（基准）
+    #   ⇒ **relu 本身没问题；问题是「用 silu 训好的头去喂 relu」⇒ 负权重通道在 relu 下大量死亡**
+    #   ⇒ 头必须重来（随机初始化），骨干/颈仍可继承（实证：骨干继承 relu 下照常收敛）。
+    _act_changed = str(act).lower() != str(_ck_act).lower()
+    _head_init = str(head_init or "reset").lower()
+    _reset_head = _act_changed and _head_init != "abs"
+    # ★ offset 分支的定向初始化（2026-11-09）：offset_init ∈ {keep, reset, inherit}
+    _offset_mode = str(offset_init or "keep").lower()
+    _offset_reset = _offset_mode == "reset"
+    # ★ head_conv / late_upsample：None = 调用方**未指定** ⇒ 用 ckpt 自描述；显式传值 = 调用方要这个结构。
+    # ⚠️ late_upsample 用 None 当"未指定"哨兵（不能用 False）：False 分不清"没传"和"显式要 False"，
+    #   而搜索 worker（optuna_mix_ratio_search.py:903）**确实**显式传搜索空间的 False ⇒ 若让 ckpt
+    #   一律优先，init ckpt 带 late=True 的 trial 会被静默改成 True 结构 ⇒ 训出来的结构 ≠ 登记的结构。
+    if head_conv is None:
+        head_conv = _ck_head_conv
+    if late_upsample is None:
+        late_upsample = _ck_late
+    else:
+        late_upsample = bool(late_upsample)
+    p2_out_scale = float(p2_out_scale) if p2_out_scale else _ck_p2s
+    # "换结构"判定：重建结构 ≠ ckpt 自描述 ⇒ 调用方要的是别的结构（训练侧换结构初始化合法）
+    _override = (
+        (head_conv, bool(late_upsample), head_src, no_p2, head_level, act, round(p2_out_scale, 6))
+        != (_ck_head_conv, _ck_late, _ck_head_src, _ck_no_p2, _ck_head_level, _ck_act, round(_ck_p2s, 6))
+    )
     p0_kwargs = ckpt.get(
         "p0_kwargs",
         {
@@ -84,17 +153,87 @@ def load_hm_model(weights: Path, device: torch.device, stride_fallback: int = 2,
         temporal_mode="standard",
         use_p0_highway=use_p0_highway,
         p0_highway_kwargs=p0_kwargs,
+        no_p2=no_p2,
+        head_level=head_level,
+        act=act,
+        head_conv=head_conv,
+        late_upsample=late_upsample,
+        head_src=head_src,
+        p2_out_scale=p2_out_scale,
     )
     own_state = model.state_dict()
     matched = 0
+    merged_count = 0
+    reset_head = 0
+    reset_offset = 0
+    abs_head = 0
     dropped_p0 = 0
+    # ★ 分开统计两种"没加载上"：missing = 模型里**没有这个 key**（历史键，多半无害）；
+    #   mismatch = 模型里**有**但形状不一致 ⇒ 重建的结构不是 ckpt 的结构 ⇒ 致命。
+    mismatch: list[tuple[str, tuple, tuple]] = []
+    missing = 0
     for key, value in state_dict.items():
         clean_key = key.replace("module.", "").replace("model.model.", "").replace("model.", "")
-        if clean_key in own_state and own_state[clean_key].shape == value.shape:
+        if clean_key not in own_state:
+            if clean_key.startswith("p0_highway"):
+                dropped_p0 += 1
+            else:
+                missing += 1
+            continue
+        if own_state[clean_key].shape == value.shape:
+            if _reset_head and (clean_key.startswith("head.") or clean_key.startswith("head_in.")):
+                if _head_init == "abs":
+                    # ★ head_init=abs：继承来的 silu 头权重**取绝对值**后再喂 relu
+                    #   （负权重通道在 relu 下会死；取绝对值保住量级 ⇒ 头有一个已训练的起点）
+                    if value.is_floating_point() and value.dim() >= 2:
+                        own_state[clean_key].copy_(value.abs())
+                        matched += 1
+                        abs_head += 1
+                    else:
+                        # BN 的 running_mean/var 等非权重张量：直接继承
+                        own_state[clean_key].copy_(value)
+                        matched += 1
+                        abs_head += 1
+                    continue
+                # ★ act 变了 ⇒ 头保持随机初始化（否则 relu 下大量神经元死亡 ⇒ 学不动）
+                reset_head += 1
+                continue
+            if _offset_reset and ".offset." in clean_key:
+                # ★ offset_init=reset ⇒ 只重置 offset 分支（其余照常继承）
+                reset_offset += 1
+                continue
             own_state[clean_key].copy_(value)
             matched += 1
         elif clean_key.startswith("p0_highway"):
             dropped_p0 += 1
+        elif _override:
+            # ★★ 2026-11-06：训练侧**换结构**（head_conv 64→32 / head_src p1|p3→p2_fused）
+            #   ⇒ 头的 conv 形状变了 ⇒ 原本整块丢弃 ⇒ 新头从零学 ⇒ 20 ep 学不动（死模型）。
+            #   ⇒ 这里按**通道合并**继承：输出通道等距挑选、输入通道分组取均值
+            #   ⇒ 新头至少拿到「训练过的滤波器」⇒ 首 epoch loss 从 127 降到 ~10 量级。
+            _merged = _merge_channels(value, own_state[clean_key].shape)
+            if _merged is not None:
+                own_state[clean_key].copy_(_merged)
+                matched += 1
+                merged_count += 1
+            else:
+                mismatch.append((clean_key, tuple(value.shape), tuple(own_state[clean_key].shape)))
+        else:
+            mismatch.append((clean_key, tuple(value.shape), tuple(own_state[clean_key].shape)))
+
+    # STRUCT GATE：结构对不上就崩，绝不静默用随机头（宁可响亮地崩，也不要"热图全 0 = 死模型"的假结论）。
+    # 例外：调用方**显式换了结构**（训练侧从旧 ckpt 起训新结构是设计内的）⇒ 只警告不崩。
+    if mismatch:
+        sample = "; ".join(f"{k} ckpt={a} model={b}" for k, a, b in mismatch[:5])
+        if not _override:
+            raise RuntimeError(
+                f"[STRUCT GATE] {len(mismatch)} 个非 P0 张量形状不匹配 ⇒ 拒绝加载（否则随机头 ⇒ 热图全 0 ⇒ "
+                f"被误判成死模型）| ckpt={weights} | head_conv ckpt={_ck_head_conv} "
+                f"used={head_conv if head_conv is not None else 64} | late_upsample ckpt={_ck_late} "
+                f"used={bool(late_upsample)} | 示例: {sample}"
+            )
+        print(f"[STRUCT GATE] 警告：{len(mismatch)} 个非 P0 张量形状不匹配（调用方显式换了结构，按设计跳过）"
+              f" | ckpt={weights} | 示例: {sample}", flush=True)
 
     # ABLATION GATE: use_p0_highway=False is only meaningful if the model really has no P0 stream AND
     # every p0_highway tensor was actually dropped. Silently "succeeding" with a P0 model would make
@@ -107,9 +246,108 @@ def load_hm_model(weights: Path, device: torch.device, stride_fallback: int = 2,
             raise RuntimeError("[ABLATE-P0 GATE] 0 p0_highway.* tensors were dropped -- nothing was ablated")
         print(f"[ABLATE-P0 GATE] PASS: p0_highway=None, {dropped_p0} p0 tensors dropped")
 
+    # ★★ offset_init=inherit：从另一个 ckpt **只**继承 offset 分支（形状兼容才继承）
+    #   动机（2026-11-09）：P3/hc64/relu/late 臂的 offset 头塌缩成常数 ≈0.5
+    #   （实测输出 std 仅 0.066、与真值回归斜率仅 0.129）⇒ 亚像素信息被压扁，
+    #   解码后 σ=2.32px = 8px 格距的量化下限 ⇒ T1 掉 2.4 pp。
+    #   cs_t0043 的 offset 头是收敛完备的（σ≈1.1px）⇒ 可作为「几何先验」来源。
+    inherited_offset = 0
+    if _offset_mode == "inherit":
+        if not offset_init_weights:
+            raise ValueError("[OFFSET-INIT] offset_init=inherit 需要 --offset-init-weights")
+        _oc = torch.load(resolve_weights(offset_init_weights), map_location="cpu")
+        _os = _oc["model"] if "model" in _oc else _oc.get("state_dict", _oc)
+        if hasattr(_os, "state_dict"):
+            _os = _os.state_dict()
+        for _k, _v in _os.items():
+            _ck = _k.replace("module.", "").replace("model.model.", "").replace("model.", "")
+            if ".offset." not in _ck or _ck not in own_state:
+                continue
+            if own_state[_ck].shape != _v.shape:
+                print(f"[OFFSET-INIT] 形状不兼容，跳过 {tuple(_v.shape)} vs {tuple(own_state[_ck].shape)}: {_ck}")
+                continue
+            own_state[_ck].copy_(_v)
+            inherited_offset += 1
+        print(f"[OFFSET-INIT] inherit: 从 {offset_init_weights} 继承 {inherited_offset} 个 offset 张量")
+
     model.to(device).eval()
-    print(f"[INFO] HM weights loaded: {matched} tensors from {weights} | use_p0_highway={use_p0_highway}")
-    return model, stride
+    print(f"[INFO] HM weights loaded: {matched} tensors from {weights} | use_p0_highway={use_p0_highway} "
+          f"| no_p2={no_p2} head_level={head_level} act={act} "
+          f"| head_conv={head_conv if head_conv is not None else 64} late_upsample={bool(late_upsample)} "
+          f"| missing_keys={missing} | stride={model.stride}"
+          + (f" | ★通道合并继承={merged_count} 个张量" if merged_count else "")
+          + (f" | ★act变化⇒重置头={reset_head} 个张量" if reset_head else "")
+          + (f" | ★head_init={_head_init}" + (f"(abs继承{abs_head}个)" if abs_head else ""))
+          + (f" | ★offset_init={_offset_mode}"
+             + (f" 重置{reset_offset}个" if reset_offset else "")
+             + (f" 继承{inherited_offset}个" if inherited_offset else "")))
+    # no_p2 时输出 stride 由 head 吃哪一级决定（P3=>8 / P2=>4），与 ckpt 里的 stride 无关
+    return model, model.stride
+
+
+def _pick_channels(idx_src: int, idx_dst: int) -> list[int]:
+    """在 src 的 idx_src 个通道里，等距挑出 idx_dst 个（覆盖全部范围，不只取头部）。"""
+    if idx_src == idx_dst:
+        return list(range(idx_src))
+    if idx_dst >= idx_src:
+        return list(range(idx_src)) + [idx_src - 1] * (idx_dst - idx_src)
+    step = idx_src / idx_dst
+    return [min(idx_src - 1, int(round(i * step + step / 2))) for i in range(idx_dst)]
+
+
+def merge_channels(src: torch.Tensor, dst_shape: torch.Size):
+    """把「训练好的」src 张量按通道合并/裁剪成 dst_shape ⇒ **换宽度的新头也能继承知识**。
+
+    为什么需要（2026-11-06 实测）
+    --------------------------
+    `head_conv` 从 64 砍到 32（或 `head_src` 换到 p2_fused）⇒ 头的 conv 权重**形状变了**
+    ⇒ cs_t0043 的头权重被整块丢弃 ⇒ 新头**从零学** ⇒ 20 epoch 学不动
+    （实测首 epoch loss 127、最终 1.07、T1 F1 0.25 ⇒ 死模型）。
+    ⇒ 这里把源张量按通道**合并**（输入通道取组均值）/ **重采样**（输出通道等距挑选），
+    至少让新头拿到「训练过的滤波器」而不是纯随机。
+
+    规则（保守 ⇒ 只在通道维不同时才动手，空间维不同一律放弃）：
+    * 1-D（BN weight/bias/running_mean/var）：等距索引取 ⇒ 与 conv 的输出通道选择**一致**；
+    * N-D conv 权重 [O, I, kh, kw]：输出通道等距挑选；输入通道**分组取均值**（保留响应幅度）；
+    * 其它：None（调用方按形状不匹配处理）。
+
+    ⚠️ 这是**近似迁移**，不是数学等价的重参数化 ⇒ 迁移后必须**重训**（本项目就是 20 ep 全参微调）。
+    """
+    if src.shape == dst_shape:
+        return src
+    if src.dim() != len(dst_shape):
+        return None
+    if src.dim() == 1:
+        if int(src.shape[0]) < int(dst_shape[0]):
+            return None
+        idx = _pick_channels(int(src.shape[0]), int(dst_shape[0]))
+        return src[torch.tensor(idx, dtype=torch.long)]
+    for d in range(2, len(dst_shape)):
+        if int(src.shape[d]) != int(dst_shape[d]):
+            return None
+    o_src, i_src = int(src.shape[0]), int(src.shape[1])
+    o_dst, i_dst = int(dst_shape[0]), int(dst_shape[1])
+    if o_dst > o_src or i_dst > i_src:
+        return None
+    out_idx = _pick_channels(o_src, o_dst)
+    src_o = src[torch.tensor(out_idx, dtype=torch.long)]
+    if i_dst == i_src:
+        return src_o
+    groups = i_src / i_dst                      # 输入通道分组取均值（保留响应幅度）
+    parts = []
+    for j in range(i_dst):
+        lo = int(round(j * groups))
+        hi = max(lo + 1, int(round((j + 1) * groups)))
+        parts.append(src_o[:, lo:hi].mean(dim=1, keepdim=True))
+    return torch.cat(parts, dim=1)
+
+
+def _merge_channels(src: torch.Tensor, dst_shape: torch.Size):
+    """``merge_channels`` 的容错包装（异常 ⇒ None）。"""
+    try:
+        return merge_channels(src, dst_shape)
+    except Exception:  # pragma: no cover
+        return None
 
 
 def letterbox_params(width: int, height: int, size: int) -> tuple[float, int, int, int, int]:

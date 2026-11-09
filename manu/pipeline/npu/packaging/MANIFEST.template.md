@@ -32,6 +32,12 @@
 ├── include/    rknn_api.h, stb_image.h, stb_image_resize.h, stb_image_write.h,
 │               rga/×18, CL/×20
 ├── runtime/kernels/    warp_median_fused.cl, sortnet_generated.inc, gmc_feature_gpu.cl
+├── third_party/        ← **第三方依赖（随包）**
+│   ├── README.md              ← 是什么 / 编译期怎么用 / 运行时怎么装到板卡
+│   ├── MANIFEST.md            ← 逐文件 md5（见 §A）
+│   ├── opencv/                ← 交叉编译版 OpenCV：include/opencv4/opencv2/** + lib/*.a
+│   ├── boardlibs/             ← 板卡 libOpenCL.so
+│   └── rknnrt/                ← 板卡 librknnrt.so / librga.so
 ├── out/        mosaic_pipeline.o, libmosaic_pipeline.a,
 │               mosaic_api_test, mosaic_client_example,
 │               mosaic_contract_test, rknn_mosaic_e2e
@@ -44,11 +50,14 @@
 ```
 
 * `mosaic_sdk/` 是 `build/` 的**整树镜像**：源＝包目录下的每个普通文件，
-  目标＝**同名相对路径**（`src/`、`include/`、`runtime/kernels/`、`out/` 整树照搬）。
+  目标＝**同名相对路径**（`src/`、`include/`、`runtime/kernels/`、`third_party/`、
+  `out/` 整树照搬）。
 * 顶层那 5 个**兼容别名是符号链接**（不是副本），分别指向 `out/` 与 `src/npu/`，
   为的是**旧的平铺命令**（`./mosaic_api_test --kernel-dir ./kernels`）继续可用。
 * `out/` 的 6 个产物在交付包里**已预编译**（RK3588 / aarch64），嵌入式组
   **不必**先编译即可直接跑；确实要重编时在交付目录原地编（见 §B、§F）。
+* **`third_party/` 是编译期硬依赖**（以前只存在于开发机的绝对路径里 ⇒ 包根本编不出来）。
+  现在随包 ⇒ 交付目录**真的**能原地重编。逐文件 md5 见 `third_party/MANIFEST.md`。
 
 <!-- MD5_TABLE:BEGIN -->
 （本段由 `make_build_dir.sh` 自动生成，勿手改）
@@ -58,10 +67,17 @@
 
 * `src/**`、`include/**`、`runtime/kernels/**` 的 md5 是**固定基线**——可用来核对
   交付是否被改动。
+* `third_party/**` 的 md5 在 **`third_party/MANIFEST.md`** 里逐条登记
+  （顶层清单只登记 `third_party/README.md` 与 `third_party/MANIFEST.md` 两份说明文件）。
 * `out/` 段**刻意不列 md5**：`ar` 会把成员时间戳写进归档索引，
   `libmosaic_pipeline.a` 的 md5 **每次构建都变**，列进来只会误导人。
   需要核对产物时手动 `md5sum out/*`：`mosaic_pipeline.o` 与两个可执行文件的
   md5 是稳定的，`.a` 的不是。
+* 🔴 **但产物 md5 与「包根的绝对路径」绑定**：编译时 `__FILE__` 把路径烤进二进制
+  ⇒ **集成方在自己的目录重编，md5 会与 README 顶部那张表不同**（**行为完全一样**，
+  已实测：换路径编出来的 `mosaic_client_example` 在板卡上 6 帧 12 检出、检测框
+  逐字段一致）。想要**跨机器一致**的 md5，用**相对路径**编（README「md5 的三个
+  已知『假差异』」第 3 条给了完整命令，已实测两个不同目录编出来逐字节相同）。
 * `MANIFEST.md` 自身的 md5 无法自含（自引用），请单独用 `md5sum MANIFEST.md` 核对。
 
 ---
@@ -89,13 +105,18 @@
 | **kernel 资产** | `runtime/kernels/warp_median_fused.cl` | **运行时必需** |
 | **kernel 资产** | `runtime/kernels/sortnet_generated.inc` | **运行时必需** |
 | kernel 资产 | `runtime/kernels/gmc_feature_gpu.cl` | 可选（仅探针用，库不加载） |
+| **第三方依赖** | `third_party/opencv/` | 交叉编译版 OpenCV：**头 + 静态库**（编译期硬依赖） |
+| **第三方依赖** | `third_party/boardlibs/` | 板卡 `libOpenCL.so`（编译期 + 运行时） |
+| **第三方依赖** | `third_party/rknnrt/` | 板卡 `librknnrt.so` / `librga.so`（编译期 + 运行时） |
+| 依赖说明 | `third_party/README.md` / `third_party/MANIFEST.md` | 这些依赖是什么 / 怎么用 / 逐文件 md5 |
 | 构建脚本 | `build_lib.sh` / `build_demo.sh` | 交叉编译库 / 测试程序 |
 | 一键脚本 | `copy_to_nfs.sh` | 编译 + 整树拷贝到 NFS + md5 回验 +（可选）板卡验证 |
 | 文档 | `README.md` / `MANIFEST.md` | 使用说明 / 本清单 |
 
 **交付包是自包含的**：源码（`src/**`）、第三方头（`include/**`）、kernel 资产
-（`runtime/kernels/**`）、构建脚本（`build_lib.sh` / `build_demo.sh`）全都在包里，
-集成方**可以在交付目录原地重编**——构建脚本用相对路径，不依赖仓库里的其它文件：
+（`runtime/kernels/**`）、**第三方依赖（`third_party/**`）**、构建脚本
+（`build_lib.sh` / `build_demo.sh`）全都在包里，集成方**可以在交付目录原地重编**
+——构建脚本用**包内相对路径**，不依赖仓库里的其它文件：
 
 ```bash
 cd <交付目录>            # 例如 /mnt/manu/mosaic_sdk
@@ -104,15 +125,27 @@ bash build_demo.sh       # → out/mosaic_api_test, out/mosaic_client_example,
 #                            out/mosaic_contract_test, out/rknn_mosaic_e2e
 ```
 
+> ✅ **三个第三方依赖已经随包了**（`third_party/`）：交叉编译版 OpenCV（头 + 静态库）、
+> 板卡 `libOpenCL.so`、板卡 `librknnrt.so`/`librga.so`。
+> ⇒ `build_lib.sh` / `build_demo.sh` 的 `OPENCV_INSTALL` / `BOARD_LIBS` / `RT_LIB_DIR`
+> **默认值现在指向包内的 `third_party/`**，**不需要覆盖**。
+> （这三条以前只存在于作者机器的绝对路径里 ⇒ 交付包根本编不出来，
+> README 里「原地重编」那句话当时是假的；本轮已修。）
+>
+> ⚠️ **唯一还要集成方提供的是交叉编译器**（编译器没法随包发）：
+>
+> ```bash
+> export RK3588_TOOLCHAIN=/path/to/toolchain-root   # 可用 ':' 分隔多个候选，按顺序取第一个能用的
+> export CROSS_CXX=/path/to/aarch64-linux-gnu-g++   # 可选：直接指定编译器
+> export CROSS_AR=/path/to/aarch64-linux-gnu-ar     # 可选：直接指定 ar
+> ```
+>
+> 要换成他们自己板子 BSP 的版本，用 `OPENCV_INSTALL` / `BOARD_LIBS` / `RT_LIB_DIR`
+> 三个环境变量覆盖即可（README 里也有一份同样的说明）。
+
 **源码与头文件不含任何板卡私有路径**——`src/**`、`include/**`、
 `runtime/kernels/**` 里只有相对 include 与公开 API 声明，换一块 RK3588 板子，
-只要 BSP 里有同版本的交叉工具链与 OpenCV 安装，照样能编译。
-
-> ⚠️ **但构建脚本的默认路径是作者机器的**：`build_lib.sh` / `build_demo.sh` /
-> `copy_to_nfs.sh` 里 `RK3588_TOOLCHAIN` / `OPENCV_INSTALL` / `BOARD_LIBS` /
-> `RT_LIB_DIR` 四个环境变量的**默认值指向我们这台开发机**的交叉工具链、
-> OpenCV 安装树与板卡库目录。集成方**必须**用这四个环境变量覆盖成他们自己
-> 板子 BSP 的路径（README 里也有一份同样的说明），否则脚本会去找不存在的目录。
+只要 BSP 里有同版本的交叉工具链，照样能编译（OpenCV 已随包，不用另外装）。
 
 > ⚠️ **kernel 目录的相对布局不能改**：源码用相对 include
 > （`mosaic_pipeline.cpp` → `../cpp/gmc_stream_ocl.cpp` → `../opencl/host/ocl_host.h`），
@@ -137,23 +170,32 @@ const std::string isrc = ocl::read_file(kernel_dir + "/sortnet_generated.inc");
 
 ---
 
-## C. 板卡相关的部分（必须由集成方按自己板子提供）
+## C. 板卡相关的部分（大部分已随包；模型与帧数据仍由集成方自备）
 
-**下面「我们这边用的」那一列只是我们验证过的版本 + md5，供对照；
-这些文件不在交付包内，也不得直接当作依赖包塞给对方。**
+**下面「我们这边用的」那一列是我们验证过的版本 + md5，供对照。**
+
+> ⚠️ **本轮策略变更（2026-11-06）**：以前这三个运行时库**不在交付包内**
+> （「不得直接当作依赖包塞给对方」），结果交付包**根本编不出来** ——
+> 构建脚本只能指着作者机器上的绝对路径。现在它们**已经打进 `third_party/`**
+> （与板卡 BSP 上的那份**逐字节一致**，见下表 md5）⇒
+> **交付目录真正自包含、真的能原地重编**。
+> 「要不要把它们装到你们板子上」仍然是集成方自己的决定（见「集成方要做什么」列）。
 
 | 项 | 我们这边用的（仅供对照） | 集成方要做什么 |
 |:--|:--|:--|
-| `librknnrt.so` | RKNN Runtime **2.3.0**（`c949ad889d@2024-11-07`），`{{RT_LIB_DIR}}/librknnrt.so`，7,259,064 B，md5 `56e425dcc7b59ab0e1aec685b178b99f`，SONAME `librknnrt.so` | 用**他们自己板子 BSP** 的同版本 runtime（2.3.0）。版本必须匹配 `include/rknn_api.h` |
-| `librga.so.2` | `{{RT_LIB_DIR}}/librga.so.2.1.0`，192,712 B，md5 `7136ae5469eb217f068ef3efc6f26d53`，SONAME `librga.so.2`，`rga_api version 1.10.0_[9]` | 同上，取他们 BSP 的 librga。其 API 头 `include/rga/*` 已随包交付 |
-| `libOpenCL.so.1` | `{{BOARD_LIBS}}/libOpenCL.so.1.0.0`，34,808 B，md5 `e9036376b6f8f59e30522eb43fe410cd`，SONAME `libOpenCL.so.1`（OpenCL 1.0–2.0） | 同上，取他们板子的 OpenCL 驱动库 |
+| `librknnrt.so` | RKNN Runtime **2.3.0**（`c949ad889d@2024-11-07`），`{{RT_LIB_DIR}}/librknnrt.so`，7,259,064 B，md5 `56e425dcc7b59ab0e1aec685b178b99f`，SONAME `librknnrt.so` | **包内已带一份**（`third_party/rknnrt/librknnrt.so`，**同一 md5**）⇒ 编译期链接直接用它即可。运行时若你们板子 BSP 里有同版本 runtime（2.3.0，**版本必须匹配 `include/rknn_api.h`**），用 BSP 的那份；若没有，就把包内这份装到板卡（注意 NFS soft 挂载的坑，见 `third_party/README.md`） |
+| `librga.so.2` | `{{RT_LIB_DIR}}/librga.so.2.1.0`，192,712 B，md5 `7136ae5469eb217f068ef3efc6f26d53`，SONAME `librga.so.2`，`rga_api version 1.10.0_[9]` | **包内已带一份**（`third_party/rknnrt/librga.so.2`，**同一 md5**）；也可取他们 BSP 的 librga。其 API 头 `include/rga/*` 已随包交付 |
+| `libOpenCL.so.1` | `{{BOARD_LIBS}}/libOpenCL.so.1.0.0`，34,808 B，md5 `e9036376b6f8f59e30522eb43fe410cd`，SONAME `libOpenCL.so.1`（OpenCL 1.0–2.0） | **包内已带一份**（`third_party/boardlibs/libOpenCL.so.1`，**同一 md5**）；也可取他们板子的 OpenCL 驱动库 |
 | 模型 `.rknn` | `{{NFS_ROOT}}/ptq/models/p0_off_A_none.rknn`，6,326,305 B，md5 `1a3faf2f9459cad8a389ffa81810234c` | 可直接用我们这份，也可换他们自己的模型。**换模型的形状约束见下表**（板卡实测） |
 | 帧数据 | `VIDEO00007_19700101_001324`（640×512 BMP，命名 `frame_%06d.bmp`，共 11,810 帧），本板路径 `/mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324` | 他们自己的相机流（同样须是 640×512 灰度、单通道） |
 
-> **交叉编译器与 OpenCV** 也属于对方环境：需要 aarch64 交叉工具链
-> （gcc-buildroot 9.3.0）+ 交叉编译的 OpenCV 4.10.0 安装树。构建脚本里用
-> `RK3588_TOOLCHAIN` / `OPENCV_INSTALL` / `BOARD_LIBS` / `RT_LIB_DIR` 四个环境变量
-> 覆盖即可，不用改脚本。
+> **交叉编译器**仍属于对方环境：需要 aarch64 交叉工具链（我们用的是
+> gcc-buildroot 9.3.0）。构建脚本里用 `RK3588_TOOLCHAIN`（可用 `:` 分隔多个候选）
+> 或 `CROSS_CXX` 覆盖即可，不用改脚本。
+>
+> **OpenCV 不再属于对方环境**：交叉编译版 OpenCV 4.10.0 的头 + 静态库
+> **已随包**（`third_party/opencv/`）⇒ `OPENCV_INSTALL` 默认值已指向包内，
+> 不用覆盖。（要换版本再用 `OPENCV_INSTALL` 覆盖。）
 
 ### 换模型时的形状约束（板卡实测，非推测）
 
