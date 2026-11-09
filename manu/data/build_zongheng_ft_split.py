@@ -55,6 +55,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from manu.data.extract_video_frames import safe_name  # noqa: E402
+
 # A sequence is a stable positive candidate when the detector fires on at least this share of its
 # frames; below it the sequence is intermittent. Both thresholds are stated here so the partition is
 # reproducible from the script alone.
@@ -170,6 +172,11 @@ def build_manifest(sequences: dict[str, dict], args: argparse.Namespace) -> dict
             # The template's per-sequence metric field. This domain has no GT yet, so it stays null
             # until the annotation pass fills it in -- same field name, no new name invented.
             "single_frame_f1": None,
+            # The rendered review file for this sequence. It is not always <sequence>_osd.mp4: the
+            # renderer names outputs with safe_name(), which folds non-ASCII characters to '_',
+            # while the annotator's own seq_id keeps them. One sequence in this domain has a Chinese
+            # name, so the reviewer is given the exact file name instead of a guess.
+            "osd_file": f"{safe_name(Path(name))}_osd.mp4",
             "detection_coverage": round(bucket["coverage"], 4),
             "frames": bucket["frames"],
             "frames_with_detection": bucket["det_frames"],
@@ -372,7 +379,8 @@ def write_review_sheet(path: Path, manifest: dict) -> None:
     lines = [
         "# pass",
         "# 人工复核底稿 —— 纵横AI数据采集（RC2 单帧多尺度，中心点 OSD）",
-        "# 复核对象：/mnt/data/siping/datasets/manu/纵横AI数据采集_osd_rc2_20261109/<SEQ>_osd.mp4",
+        "# 复核对象（OSD 视频在 OSD_DIR 下）：",
+        "#   /mnt/data/siping/datasets/manu/纵横AI数据采集_osd_rc2_20261109/<下面给的 OSD 文件名>",
         "# 填法：[pass] / [ignore] <SEQ>_F1-<val>.mp4 - <原因>；不填 = 还没看",
         "# 判定依据：模型检出的中心点是否落在真实目标上（漏检 / 虚警 / 位置偏移）",
         "",
@@ -382,6 +390,7 @@ def write_review_sheet(path: Path, manifest: dict) -> None:
             lines.append(
                 f"[ ] {entry['sequence']}_F1-TBD.mp4 - 覆盖 {entry['detection_coverage']:.1%}"
                 f"（{entry['frames_with_detection']}/{entry['frames']} 帧），平均分 {entry['mean_score']:.3f}"
+                f" | OSD 文件：{entry['osd_file']}"
             )
     lines += ["", "# unpass", ""]
     for entry in groups["ignore"]["sequences"]:
