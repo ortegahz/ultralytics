@@ -395,3 +395,21 @@ python manu/evaluation/eval_multiscale_cache_th.py \
   --cache-root runs/optuna_mix_ratio/trials/trial_0080/lq_eval_fpv8/ms_cache \
   --labels-root "/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010" \
   --tag all --match-mode inbox --merge-radius 768 --th-min 0.30 --th-max 0.55 --th-step 0.02
+
+# ============================================================================
+# 纵横AI数据采集：RC2 + 龙泉山时空轨迹后处理档（2026-11-10 新增）
+# 详见主档 memory.md §91.10 / §91.11 与 manu/docs/dataset/zongheng.md
+# ============================================================================
+
+# 全量渲染（4 卡分片，detached；产物进独立目录，与前两档互不覆盖）
+bash manu/videos/launch_rc2_tracked_osd_batch.sh
+
+# 渲染 + 收尾一次性跑（服务器端自动：划分 + 复核底稿 + 预标注 + 核验）
+bash manu/videos/run_rc2_tracked_osd_batch.sh
+
+# 单条冒烟（含逐阶段轨迹诊断）
+bash manu/videos/run_rc2_tracked_osd_smoke2.sh
+
+# 诊断：是哪一道闸把轨迹剪掉了（逐阶段计数）
+python manu/evaluation/diag_zongheng_track_stages.py <ms_cache>/<SEQ>.pkl
+python manu/evaluation/diag_zongheng_track_gate.py <ms_cache>/
