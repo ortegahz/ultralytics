@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "created": "2026-11-09",
+  "created": "2026-11-10",
   "author": "manu",
   "purpose": "纵横AI数据采集域的序列划分（58 条 mp4，无 GT）：按 RC2 单帧多尺度检测的实际覆盖把序列分成 val / train / ignore 三桶，供人工复核、后续标注与训练使用",
   "rationale": "本域**没有 GT**，因此划分**不是质量判定**，只记录「模型看到了什么」：检测覆盖率高 ⇒ 稳定正样本候选（val/黄金池）；覆盖断续 ⇒ 正负切片养料（train）；几乎不响应 ⇒ 本域无法区分空场景与漏检，先隔离（ignore）。最终取舍由人工复核底稿 manu/docs/dataset/zongheng-tk.md 拍板，标注完成后回填真实指标（沿用龙泉山的 single_frame_f1 字段名，不另起字段）。",
@@ -852,16 +852,16 @@
     },
     "operating_point": {
       "threshold": 0.44,
-      "merge_radius_px": 768,
+      "merge_radius_px": 768.0,
       "region_threshold": 0.06,
       "scales": [
         "640",
         "160",
         "80"
       ],
-      "source": "manu/evaluation/eval_multiscale_cache_th.py 在真实龙泉山 RC2 缓存 (runs/optuna_mix_ratio/trials/trial_0080/lq_eval_fpv8/ms_cache) 上实测：merge_radius=768px / th=0.44 ⇒ F1 94.069%、Recall 90.74%、Precision 97.65%、FAR 0.0176/帧；半径 128⇒93.923%、64⇒93.857% 均更差",
+      "source": "manu/evaluation/probe_rc2_threshold_table.py 在真实龙泉山 RC2 缓存 (runs/optuna_mix_ratio/trials/trial_0080/lq_eval_fpv8/ms_cache) 上实测（merge_radius=768px）：th=0.44 ⇒ F1 94.07%/FAR 0.0176；th=0.20 ⇒ Recall 93.91%/F1 91.98%/FAR 0.0830（虚警 4.7 倍）。半径 128⇒F1 93.92%、64⇒93.86%，均不如 768。",
       "tracking": false,
-      "note": "本域只用单帧检测（无 track），与用户要求一致"
+      "note": "本域只用单帧检测（无 track），与用户要求一致。"
     },
     "golden_pool_single_frame": {
       "gt": 0,

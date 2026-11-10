@@ -10678,6 +10678,24 @@ python manu/evaluation/eval_multiscale_cache_th.py \
 **0.20 档不能当交付档**（FAR 0.0830 ≫ 0.030 上限）⇒ 交付结论仍以 0.44 档为准。
 ⇒ 渲染用 `TH=0.20` + **独立 `OUT`**（脚本硬拦「目录非空 ⇒ 中止」，两档绝不互相覆盖）。
 
+### 91.9.2 ★ th=0.20 敏感档**已完成**（2026-11-09 18:40 渲完 + 收尾完成；**host 18:00 关机不影响**）
+| 项 | th=0.44 交付档 | **th=0.20 敏感档** |
+|---|---|---|
+| OSD 视频 / 每帧记录 | 58 / 58 | **58 / 58** |
+| 帧数 / 检出帧 | 173,781 / 86,595（49.8%） | 173,781 / **102,139（58.8%）** |
+| 序列划分 | val 26 / train 29 / ignore 3 | **val 31 / train 25 / ignore 2** |
+| 角色分布 | golden_pool 25 + blind_hardcase 1 + core_positive_mining 29 | golden_pool 30 + blind_hardcase 1 + core_positive_mining 25 |
+| 预标注候选 | 86,595 个标签文件 | **102,139 个标签文件** + 58 个 scores.json |
+| OSD 目录 | `纵横AI数据采集_osd_rc2_20261109` | `纵横AI数据采集_osd_rc2_th020_20261109` |
+| 划分 / 复核稿 | `zongheng_ft_split.json` / `zongheng-tk.md` | `zongheng_ft_split_th020.json` / `zongheng-tk-th020.md` |
+
+盲测留出两档**同一条**：`VIDEO00087_19700101_003101`（`absolute_holdout=true`）。
+
+🔴 **本轮修掉一个会误导人的 bug**：划分生成器把 `operating_point.threshold` **写死 0.44**，
+⇒ th=0.20 档的清单会**把自己的工作点标成 0.44**（等于把一档的数字挂到另一档名下）。
+⇒ 改为**从渲染自己的 `summary_shard*.json` 读回实际阈值/半径**，并在清单与复核底稿里
+**显式写明档位性质**（敏感档 ⇒ 仅供复核/播种，交付结论仍以 th=0.44 档为准）。
+
 ### 91.10 待办（下一轮）
 * **人工复核**：按 `manu/docs/dataset/zongheng-tk.md` 逐条看 OSD 填 `[pass]` / `[ignore]` + 原因。
 * 标注落 `labels/<seq_id>/<frame:06d>.txt`（annotator 原生布局），交付前 `python -m manu.annotate.export_labels` 转扁平 `<seq>__<idx>.txt`。
@@ -11276,3 +11294,278 @@ python manu/pipeline/npu/hm_compare_npu_cpu.py ... --native-scale 4
 唯一需要跟踪的"进度"载体 = `manu/memory/*.md`（本轮新增 6 个未跟踪的 memory/交付文档，均属**应当入库**的内容）。
 ⇒ **`git status` 现状**：58 个未跟踪（28 个 `manu/training` + 22 个 `manu/pipeline` + 6 个 `manu/memory` + 2 个 `manu/evaluation` 的**源码与文档**，应入库）、29 个已修改、27 个已退出跟踪。
 
+## 105. ★★★★★ 2026-11-09 17:05 — ★★★★★ **板卡实测（板子今天 08:47 上电，一次会话测完）**：silu 图 = **19.306 ms ⇒ <21 ms 预算成立**
+
+> 板卡地址 `root@192.168.0.64:22`（此前误判为断电，实为**通电**；本机无 adb、探的是 192.168.99.x 网段 ⇒ 误判）。
+> 板上有 `rknn_heatmap_smoke` + 已知良好 `librknnrt.so`（md5 `56e425dc…`）+ 11-06 的原始臂 + 控制臂。
+
+### 105.1 一次会话的完整结果（2026-11-09 17:03，30 timed runs，全部 null control CHANGED + determinism IDENTICAL）
+| 臂 | 图 / 结构 | rknn_run | NPU+dequant | 整帧 | 备注 |
+|:--|:--|--:|--:|--:|:--|
+| control（cs_t0043 同源基线） | silu / p1 | 55.484 ms | 56.428 | 56.695 | 同会话内基线，防驱动漂移 |
+| `weights_epoch1_int8`（11-06 原始臂 D1 epoch1） | **relu** / p3 hc64 late | **12.982 ms** | 13.955 | 14.304 | ⇒ 复现 13.131 ms（漂移 ~1%）✔ |
+| `h19202_relu_int8`（H1 9202，完整 8ep） | **relu** / p3 hc64 late | **12.976 ms** | 13.941 | 14.187 | ⇒ **13 ms 那一类速度复现** ✔ |
+| **`t31_silu_int8`（trial_0031）** | **silu** / p3 hc64 late | **19.306 ms** | **20.234** | **20.495** | ★ **实测 <21 ms 成立**（§102 的推算 19.7~21.8 ms 命中，实际比推算下界更好） |
+
+⇒ ⇒ **三个结论一次性钉死**：
+1. **A 案（trial_0031, silu）成立**：**int8 19.306 ms（整帧 20.495 ms）< 21 ms**，且它同时是 T2 虚警最干净的那个（GMC 门禁 T2 FP=10）。
+2. **13.131 ms 那一类 = all-relu 图**（今天实测 12.976 ms）⇒ 该速度**只对 relu 训练权重有效**；silu 权重跑 relu 图 = 死模型（§103.1）。
+3. **all-relu 的 T2 虚警是硬伤**：9031 臂官方门禁 **T2 FP=118（基线 26，限 +10 ⇒ FAIL）**、T1 0.878449、T3 0.939733 ⇒ **all-relu 家族即使 12.98 ms 也交付不了**（T2 红线不过）。
+
+### 105.2 交付件定板（基于板卡实测）
+| 候选 | int8 | T1(GMC) | T2 | T3 | 判定 |
+|:--|--:|--:|--:|--:|:--|
+| **trial_0031（silu, p3/hc64/late）** | **19.306 ms ✔<21** | **0.885997** | **0.997531（FP 10）✔** | **0.948330（FP 110）✔** | **★ 当前唯一全轨合规 + 速度合规的交付件** |
+| H1 9202（all-relu, p3/hc64/late） | 12.976 ms ✔ | 0.878449（no-GMC 0.879557） | T2 虚警爆表（同类 FP=118）✘ | 0.939733 ✔ | 更快但 T2 不过 ⇒ 不可交付 |
+| 9072/9071/L2 等 | — | 0.873~0.878 | — | — | 低于基准臂 |
+| p2f 家族（4px 格距） | 20.829 ms（实测过的结构） | 待定 | all-relu 虚警风险 | 待定 | 唯一还可能在 **<21 ms 内超过 trial_0031** 的结构线 |
+
+### 105.3 ★ 下一枪（已开跑）：**把给 all-relu 带来 +1~1.6 pp 的配方用在 silu 上**
+* 依据：all-relu 基线 0.8641（12 种子均值）→ H1 配方（**原生网格监督 r0 + 解冻 b0..b4 + 8ep**）→ 0.873~0.880（**+1~1.6 pp**）；
+  同一配方作用在 silu 基线（trial_0031 = 0.886899）上 ⇒ 期望 **0.895~0.90** ⇒ 即可**超过 trial_0031 且 int8 19.3 ms < 21 ms**。
+* 已开两臂（GPU 1 / GPU 3，8ep，ETA ≈ 17:36）：
+  * `9221` = silu + 原生网格 r0 + **解冻 b0..b4**（H1 原配方，seed 7401）
+  * `9222` = silu + 原生网格 r0 + **不��冻**（保底：只训 neck+head，seed 7402）
+  * ⚠️ silu 与 trial_0031 **act 相同 ⇒ 头不重置 ⇒ 权重是被继承的**（这点与 all-relu 臂不同，也正是它们能站在 0.8869 起点上的原因）。
+* 收尾链：训完 → `t1only` 快筛 → 若 > 0.886899 ⇒ 导出 int8 rknn → 上板复测 19 ms 级别 → 出官方三轨门禁。
+
+### 105.4 板卡使用守则（本次实战验证）
+* 板卡 `root@192.168.0.64:22`；工作目录 `/root/hm_speed/`；**已知良好库** `lib/librknnrt.so` md5 `56e425dc…` 必须排在 `LD_LIBRARY_PATH` 最前（板子 `/usr/lib` 那份会在 rknn_run 里 SIGILL）。
+* **一次会话测全部**（驱动脆弱：反复长任务 → job timeout → soft reset → rknn_init 永远 132 ⇒ **只能物理断电**）。
+* 每臂必须带 `--stride` 边车（`<arm>.stride`）：late 臂输出 320×320 ⇒ **stride 2**。
+* 板卡时钟比本机/服务器慢约 13~18 分钟；会话结果落 `/root/hm_speed/hm_speed_results.txt`（11-06 的原始记录已备份为 `hm_speed_results_20261106_backup.txt`）。
+* 板端 smoke 工具**仍是旧抽峰口径**（实测输出里一个目标裂成 4×4=16 个坐标点）⇒ 板卡二进制**必须重建并带 `--native-scale 4`**，否则 FP 会是 host 侧的 16 倍。
+* **本次会话原始记录已归档**：`manu/pipeline/npu/board_sessions/20261109_trial0031_vs_relu_vs_control.txt`（267 行，含 4 个臂的完整 health/null-control/determinism/延迟输出），
+  服务器副本 `/mnt/data/siping/runs/npu20ms/20261109_trial0031_vs_relu_vs_control.txt`；板上 `/root/hm_speed/hm_speed_results.txt`（11-06 原始记录备份为 `hm_speed_results_20261106_backup.txt`）。
+
+### 105.5 ★★ **板卡侧抽峰修复 + host↔板卡一致性**（板子自带 gcc 9.4 ⇒ 直接在板上重编，不用交叉编译）
+* 把 `manu/pipeline/npu/rknn_heatmap_smoke.cpp` + `rknn_api.h`/`stb_image*.h`（从 `.build-include/` 拿）传到板上 `/root/hm_speed/src/`，
+  板上 `g++ -O2 -std=c++14 -I. -o rknn_heatmap_smoke_ns4 rknn_heatmap_smoke.cpp -L/root/hm_speed/lib -lrknnrt` **编译成功**（195 KB）。
+* **同一张 `feat.jpg`、同一权重（trial_0031）、同一解码口径**：
+  | | 检出数 | 坐标 | 分数 |
+  |:--|:--|:--|:--|
+  | 板卡 int8（`--native-scale 4`） | **1** | (436.302, 348.025) | 0.366702 |
+  | host torch（`extract_peaks_np(native_scale=4)`） | **1** | (436.24, 347.88) | 0.47371 |
+  ⇒ **Δ = (0.06, 0.15) px** ⇒ ★ **板卡 ↔ host 亚像素一致**（分数差来自 int8 量化，属正常）。
+* **旧抽峰口径的对照**：同一臂不带 `--native-scale` 时板端输出 **16 个检测**（同一个目标裂成 4×4 网格点，坐标 433/435/437/439 × 345/347/349/351）
+  ⇒ ⇒ **板端二进制必须带 `--native-scale 4`**，否则 FP 是 host 侧的 16 倍（与 §86 的 bug 现象完全对应）。
+* ⇒ ★ **交付件板卡侧四项全部闭合**：① int8 19.306 ms 实测；② 解码修复后一目标一检测；③ host↔板卡 Δ<0.15 px；④ null control + determinism 通过。
+
+### 105.6 夜间流水线的板卡访问（已打通，2026-11-09 17:18）
+* 板卡在 **192.168.0.64**（与训练服务器 192.168.99.40 **不同网段，但服务器能路由到**）。
+* 服务器侧**已有板卡专用密钥** `~/.ssh/id_board`（11-05 创建）⇒ 夜间脚本必须显式 `-i /home/huangzhe/.ssh/id_board`
+  （不带 `-i` 会 `Permission denied (publickey,password)` —— 我第一次就是这么踩的）。
+* ⇒ `overnight.py` 的 `board_measure()` 已改成 `scp/ssh -i ~/.ssh/id_board -o StrictHostKeyChecking=no`，并**实测**从服务器 scp + ssh 板卡成功。
+* 板卡自带 gcc 9.4 ⇒ **不需要交叉编译器**即可在板上重编 `rknn_heatmap_smoke`（带 `--native-scale 4`）。
+* 板卡 `librknnrt.so`：**必须用** `/root/hm_speed/lib/librknnrt.so`（md5 `56e425dc…`）且置于 `LD_LIBRARY_PATH` 最前；板子 `/usr/lib` 那份会在 `rknn_run` 里 SIGILL。
+
+## 106. ★★★★ 2026-11-09 17:20 — **交接页**：当前交付件、夜间流水线怎么取结果、明早三件事
+
+### 106.1 当前可交付件（18:00 主机关机时的定板）
+| 项 | 值 |
+|:--|:--|
+| 模型 | **RC-13ms = trial_0031**（silu / p3 / hc64 / late_upsample / no_p2=1） |
+| 权重 | `/mnt/data/siping/runs/npu20ms_seed2/trials/trial_0031/weights/epoch20.pt`（sha256 `c272bc4d…42bf5`）；本地副本 `ultralytics/runs/npu20ms_seed2/trials/trial_0031/weights/epoch20.pt`（同 sha256，不入库） |
+| **NPU int8（板卡实测）** | **rknn_run 19.306 ms ｜ NPU+dequant 20.234 ms ｜ 整帧 20.495 ms ⇒ <21 ms ✔** |
+| T1 / T2 / T3（GMC 官方门禁） | 0.885997 / 0.997531（FP 10）/ 0.948330（FP 110, FN 936） |
+| 板卡一致性 | host↔板卡 Δ = (0.06, 0.15) px；null control CHANGED ✔；determinism IDENTICAL ✔ |
+| 板卡硬要求 | 重建二进制带 **`--native-scale 4`**（否则一目标裂成 16 个点、FP ×16） |
+| 唯一未过 | T1 红线：vs 门禁冻结基线 0.905736 = **−1.97 pp**；vs 在位 incumbent cs_t0043 = −0.39 pp（过线）；vs 同语义老轮臂 = −0.19 pp ⇒ **参照系待用户裁决** |
+
+### 106.2 夜间自动流水线（服务器端，已启动，无需主机在线）
+脚本 `/mnt/data/siping/runs/npu20ms/overnight.py`；日志 `overnight.log`；结果 `overnight_result.json`。
+阶段：① 当前 4 臂（silu 9221/9222/9223 + p2f 9211）训完 → 4 卡并行快筛 → ② 按阶段1 最优 **silu** 配方铺 **8 个种子**（4 卡轮转）→ ③ 每个种子训完即快筛
+→ ④ 全场最佳 silu 臂 ⇒ 导出 int8 rknn（`rknn` conda env 的 toolkit2 2.3.2）⇒ **上板测速**（服务器用 `~/.ssh/id_board` 直连板卡，已实测通过）
+→ ⑤ 最佳臂跑官方三轨门禁。
+```bash
+# 明早取结果（一行）
+ssh -p 32222 huangzhe@192.168.99.40 'cat /mnt/data/siping/runs/npu20ms/overnight_result.json; tail -40 /mnt/data/siping/runs/npu20ms/overnight.log'
+```
+### 106.3 明早（09:00 前）三件事
+1. 看 `overnight_result.json`：**若 best silu 臂 T1 > 0.886899** ⇒ 它取代 trial_0031 成为新交付件（int8 同结构 ⇒ 约 19.3 ms，板卡实测已验证该结构 19.306 ms）；其 `board` 段是实测速度，`gate` 段是官方三轨。
+2. 若 best silu 臂 **≤ 0.886899** ⇒ **定板不变：trial_0031 @ 19.306 ms**，夜间流水线的价值退化为「证明 silu 家族天花板」这一结论（记 §106.1）。
+3. **T1 参照系裁决**（唯一需要人决定的）：交付按「vs 冻结基线 −1.97 pp」还是「vs 在位 incumbent −0.39 pp / 同语义族 −0.19 pp」陈述？两种口径已在 §97.3/§102.3 同时给出、且标注不可混用。
+### 106.4 本轮已彻底关闭的路（别再试）
+`silu 权重 + relu 图`（死模型，实测 F1=0）｜`跨臂 soup`（n=10/21 全死，臂不共享盆地）｜`act=silu→relu 探针当交付`（数值不匹配）｜
+`原生网格监督/解冻的 relu 臂`（天花板 0.880，且 T2 虚警 FP=118 ⇒ 不可交付）｜`24 轮 L2`（0.875）｜`focal_beta 下调`（0.872~0.874）｜
+`offset 权重/校准/头继承/头重置`（全部无增益）｜`p2f 4px 家族`（20.829 ms 尚在跑，且 all-relu 有 T2 虚警风险）。
+
+
+---
+
+## 107. ★★★★ 2026-11-09 17:50 — **主机收工页（关机声明）**：主机侧已全部落盘，服务器自主续跑到明早 09:00
+
+### 107.1 关机结论
+* **主机 18:00 可以关机。** 主机侧全部工作已落盘（本文 + `DELIVERY_13ms_20261109.md` + `manu/pipeline/npu/board_sessions/`），并已同步到服务器副本。
+* 关机后**不再需要主机**：夜间训练 / 快筛 / rknn 导出 / 上板测速 / 官方门禁 **全部在服务器端自主完成**（`overnight.py` + `fast_track.py`，均已在跑）。
+* 服务器 4 张 GPU 全时占用：阶段1 4 臂快筛 → 阶段2 8 个种子（4 卡轮转）→ 阶段3 建 rknn + 上板测速 → 阶段4 官方三轨门禁。
+
+### 107.2 今晚时间线（服务器时钟，与本机、板卡一致）
+| 时刻 | 事件 |
+|:--|:--|
+| 16:10 | 发现交付口径缺陷：**13.131 ms 与 T1 0.886 来自两张不同的图**（relu vs silu） |
+| 16:00~17:00 | 72 个旧臂权重复活重筛 ⇒ relu 人群 0.864147±0.001594 ⇒ **act 值 +2.28 pp ≈ 14σ** |
+| 17:03 | **板卡实测**（一次会话 4 臂）：trial_0031 **silu 19.306 ms** / H1 relu 12.976 / 11-06 relu 12.982 / control 55.484 |
+| 17:05~17:15 | 板上重编 smoke 工具（`--native-scale 4`）⇒ host↔板卡 Δ=(0.06,0.15) px；不带该参数一目标裂成 16 点 |
+| 17:10 | `overnight.py` 启动（等当前 4 臂训完） |
+| 17:22 | `fast_track.py` 启动（快车道：阶段1 一出结果即自动建 rknn + 上板） |
+| 17:33 | 臂进度：9222/9211 已到 epoch8，9221/9223 在 epoch6 |
+| ~17:41 | 4 臂训完 ⇒ 阶段1 快筛 ⇒ ~17:50 出阶段1 结果 |
+
+### 107.3 明早（09:00 前）三件事（与 §106.3 同，数字已定版）
+1. 取夜间结果：`ssh -p 32222 huangzhe@192.168.99.40 'cat /mnt/data/siping/runs/npu20ms/overnight_result.json; tail -40 /mnt/data/siping/runs/npu20ms/overnight.log'`
+2. **若 best silu 臂 T1 > 0.886899** ⇒ 它取代 trial_0031 成新交付件（同结构 ⇒ 板卡约 19.3 ms；`board` 段是实测速度，`gate` 段是官方三轨）；
+   **若 ≤ 0.886899** ⇒ **定板不变：trial_0031 @ 19.306 ms**（night 价值退化为「silu 家族天花板」这一结论）。
+3. **T1 参照系裁决**（唯一需要人决定的，三套数字已备齐，**不可混用**）：
+   * vs 门禁冻结基线 0.905736（GMC）⇒ **−1.97 pp**（FAIL，红线）
+   * vs 在位交付 incumbent cs_t0043 = 0.890767（no-GMC）⇒ **−0.39 pp**（过 −0.5 pp 线）
+   * vs 同语义老轮 55.48 ms P1 头臂 = 0.888847（no-GMC）⇒ **−0.19 pp**
+   * ⚠️ 冻结基线比**在位**交付的 cs_t0043 还强 **1.01 pp** ⇒ 用哪套口径叙述，结论完全相反 ⇒ **必须由用户/项目方裁决，不要自己定**。
+
+### 107.4 板卡纪律（18:00 后到明早期间）
+* **不要从主机碰板子**（`192.168.0.64`）—— 驱动脆弱，重复长任务 → soft reset → `rknn_init` 永远 132 ⇒ **只能物理断电**，没人能恢复。
+* 板卡只能由 `overnight.py` 阶段3 在**一次会话**里测完所有臂；服务器侧必须带 `-i /home/huangzhe/.ssh/id_board`。
+* 所有板端二进制必须带 **`--native-scale 4`**；`LD_LIBRARY_PATH` 必须把 `/root/hm_speed/lib` 放在最前（板上 `/usr/lib` 那份 `librknnrt.so` 会 SIGILL）。
+
+### 107.5 本轮文档勘误（已就地修正，勿再引用旧数字）
+* `DELIVERY_13ms_20261109.md` 顶部新增**红框**：交付速度 = **19.306 ms（silu 图）**，13.131 ms 属 all-relu 图；§0 / §1 / §2.1 / §3 / §7 的速度单元格已全部就地更正；T1/T2/T3 精度数字不变。
+* `struct_speed_table.json` 里 `p3_hc64_relu_late = 13.131 ms` 是 **relu 图**条目，不可当作 trial_0031 的速度。
+* 门禁报告目录名 `gate/9031_official/` 里的 "9031" 是臂号，**内容是 trial_0031 的报告**；真正的 9031 臂报告在 `gate/9031arm_official/`（T2 FP=118 ⇒ FAIL）。
+
+### 107.6 ★★ 2026-11-09 17:40 — **主机收工前最后一轮加固**（审计 → 三处修复 → 可关机）
+
+**审计（verifier 只读审计 + Leader 复核代码）确认的 4 个真实缺陷**（`overnight.py` / `fast_track.py`）：
+1. **`sh()` 无 try/except**：`subprocess.run(timeout=…)` 抛 `TimeoutExpired` 会一路冒泡出 `main()` ⇒ 脚本当场死，
+   而 `overnight_result.json` 写在阶段2/4 **之后** ⇒ **一崩就一个字都不写**；官方门禁也永远跑不到。
+2. **阶段2 `ex.map` 的 `f.result()` 会重抛单臂异常** ⇒ 一个臂失败 = 整条流水线陪葬。
+3. **`wait_ckpts()` 返回值被丢弃**（`overnight.py:109`）⇒ 4 臂若 20:10 还没出 `epoch8.pt`，流水线**继续跑但产出空结果**，
+   日志却写 "DONE"（静默假成功）。
+4. **`fast_track.py` = 冗余的第二次板卡会话**：它在阶段1 出结果后会**自己**建 rknn + 上板测速 ⇒ 与 `overnight.py` 阶段3
+   形成两次独立板卡会话；且它的 5400 s 预算 ~18:52 到期后**会带着残缺的 `got` 去测一个非最优臂**（测错臂）。
+   另：`measure_hm_speed_board.sh:82` 会遍历测 **`arms/` 下所有 *.rknn** ⇒ 目录里臂越多，单次会话越长 ⇒ 驱动 soft reset 概率越高。
+
+**本轮三处修复（全部在服务器端，主机不参与）**
+| # | 动作 | 状态 |
+|:--|:--|:--|
+| 1 | **停掉 `fast_track.py`**（pid 3532698）—— 它当时无子进程、无产物、只卡在等日志的循环里；停它 = 消灭第二次板卡会话 + 消灭「测错臂」风险 | ✅ 已停（`fast_track stopped`） |
+| 2 | **部署看门狗** `manu/pipeline/npu/overnight_watchdog.py`（服务器 `/mnt/data/siping/runs/npu20ms/overnight_watchdog.py`，pid 3544800）—— **不修改 overnight.py**：overnight 活着时只观察；它一死就接管：① 从 `overnight_screen_*.log` 独立汇总所有臂 F1；② 补齐阶段2 缺失的 8 个种子臂（4 卡并行，配方由阶段1 最优臂决定）；③ 仅当「该臂未测过」时才上板（**只开一次会话**）；④ 补跑官方三轨门禁；⑤ **无论成败一定写出 `overnight_result.json`** | ✅ 已启动（`watchdog.log`：`=== WATCHDOG START ===`、`overnight.py 当前存活=True`） |
+| 3 | **精简板卡 arms 目录**：`h19202_relu_int8.rknn`、`weights_epoch1_int8.rknn` 及其 `.stride` 移到 `/root/hm_speed/arms_stash/`（**未删除，随时可移回**）⇒ 夜间板卡会话只测「控制臂 base_int8.rknn + 交付臂 t31_silu_int8.rknn + 新最优臂」3 臂 ⇒ 会话时长砍半 ⇒ soft reset 概率下降 | ✅ 已精简 |
+
+**时间预算（服务器时钟，epoch 时间戳实测 4 min/epoch）**
+`4 臂训完 ≈17:41` → `阶段1 快筛 ≈17:50` → `阶段2（8 臂 / 4 卡 / 2 波 ≈72 min）≈19:05` → `阶段3（导出+转换+上板 ≈20 min）≈19:25`
+→ `阶段4（官方门禁，实测先例 1299 s ≈22 min）≈19:50` ⇒ **比 09:00 硬截止早 ~13 小时，余量充足**。
+
+**若要临时压缩**：砍阶段2 的 8 个种子臂 → 4 个（省 ~36 min）；**板卡会话与官方门禁绝不可砍**。
+
+---
+
+## 108. ★★★★ 2026-11-09 17:45~17:52 — **夜间流水线「假跑」事故 + 修复 + 新最佳臂诞生**
+
+### 108.1 事故：GPU 空转，训练其实一次都没跑（**静默假成功**）
+* 现象：17:43 前后 4 张卡只有用户自己的视频渲染任务占用（各 2.5 GB / 6%），`overnight.py` 消失。
+* 根因：`overnight.py` 的 `sh()` 用 `subprocess.run(cmd, shell=True)` ⇒ **shell 是 `/bin/sh`（本机 `dash`）**，
+  而命令前缀是 `source /home/huangzhe/anaconda3/etc/profile.d/conda.sh && conda activate uav && python ...`
+  ⇒ **`dash` 没有 `source` 内建** ⇒ `/bin/sh: 1: source: not found` ⇒ **rc=127 秒退**（不报错、不抛异常）。
+  * 受影响：阶段2 的 8 个种子臂训练（全部秒退 ⇒ `epoch8.pt` 不存在 ⇒ 快筛返回 `None`）、
+    阶段3 的 ONNX 导出（`[RKNN] export FAILED`）、阶段4 的官方门禁（`[GATE] rc=127`）。
+  * **未受影响**：阶段1 快筛（`screen()` 显式 `bash gate_sweep.sh`）⇒ **阶段1 的数据是真的**。
+* 诊断陷阱：脚本最后照常打印 `=== OVERNIGHT PIPELINE DONE ===` 并写出 `overnight_result.json`
+  （内容为空 `stage1:[]/stage2:[]/board:{}/gate:{}`）⇒ **日志显示成功、结果全是空的**。
+
+### 108.2 修复（服务器端，已生效）
+1. `sh()` 显式 `executable="/bin/bash"`（双保险：前缀 `source ... conda activate` 原样可用）——
+   改 `overnight.py` 与 `overnight_watchdog.py` 各 1 处；原文件备份为 `*.bak_dash`。
+2. 冒烟验证：`optuna_mix_ratio_search.py --help` / `auto_epoch_gate_check.py --help` 均正常；
+   `/bin/sh` 下直接调 env python 也正常（`cuda True 4`）⇒ 定位到 **shell 选择**而非环境问题。
+3. **我自己的看门狗还有两个 bug（已修）**：
+   * `alive()` 用 `pgrep -f "python overnight.py"`，而重启后的 cmdline 是 `python -u overnight.py` ⇒ **匹配不到** ⇒
+     看门狗误判「流水线已死」并抢跑（差点与流水线并发碰板卡 + 抢 GPU）⇒ 改为 `bin/python.*overnight\.py` + `/proc/<pid>/cmdline` 复核。
+   * 截止判断写成 `time.localtime().tm_hour >= 8` ⇒ **下午 17 点也被判成「已过 8 点」** ⇒ 补训全部被跳过 ⇒
+     改为绝对时间戳（次日 08:45 硬截止，剩 <1.5 h 不再启动新训练臂）。
+
+### 108.3 ★ 新最佳臂（阶段1 真数据）+ 板卡实测
+| 臂 | 配方 | T1（no-GMC 快筛） | 对比 trial_0031 |
+|:--|:--|--:|--:|
+| **SILU9222** | **uf0（不解冻 b0b4）+ lr_scale 3.5 + 原生网格监督** | **0.888740**（P 94.00% / R 84.28% / TP 21164 / FP 1352） | **+0.184 pp ★** |
+| SILU9221 | uf1（解冻）+ lr_scale 3.5 | 0.888354（P 93.65% / R 84.49%） | +0.145 pp |
+| P2F9211 | p2f 拓扑 | 0.885244 | −0.165 pp（且更慢 ~20.8 ms） |
+| SILU9223 | uf1 + lr_scale 1.5 | 0.884894 | −0.200 pp |
+| **trial_0031（现交付件）** | — | 0.886899 | 基准 |
+⇒ **结论：lr_scale 3.5 明显优于 1.5**（两组独立证据：9222>9223、9221>9223）；解冻与否差异小（9222>9221 但只差 0.04 pp）。
+
+**SILU9222 板卡 int8 实测（2026-11-09 17:49，一次会话 3 臂）**
+| 臂 | rknn_run | NPU+dequant | 整帧 | null control | determinism |
+|:--|--:|--:|--:|:--|:--|
+| control（base_int8 / cs_t0043） | 55.296 ms | 56.242 | 56.504 | CHANGED ✔ | IDENTICAL ✔ |
+| **★ best_SILU9222_int8（新最佳臂）** | **19.513 ms** | 20.445 | 20.708 | CHANGED ✔ | IDENTICAL ✔ |
+| t31_silu_int8（trial_0031 复测） | 19.560 ms | 20.477 | 20.739 | CHANGED ✔ | IDENTICAL ✔ |
+⇒ **新最佳臂 int8 19.513 ms < 21 ms ✔**（与 trial_0031 的 19.306/19.560 ms 同量级，跨会话漂移 ~1.3%）。
+⇒ 归档 `manu/pipeline/npu/board_sessions/20261109_1749_silu9222_newbest_board_session.txt`（203 行）。
+
+### 108.4 当前在跑（17:52 服务器时钟）
+* `overnight.py`（pid 3552063）：**阶段2 真训练中** —— 9301/9302/9303/9304 分别占 GPU 0/1/2/3（进程已确认真实存在），
+  预计 19:00 出 8 臂结果，随后自动进入阶段3（导出 + 上板）与阶段4（官方门禁）。
+* 官方门禁（`auto_epoch_gate_check.py`，pid 3558577）：**正在跑 SILU9222 的三轨门禁** ⇒ 预计 18:10 出 `gate/SILUOVN_9222_official/gate_report.json`。
+* 看门狗（pid 3561007）：已修好，现在**只观察不抢活**（`overnight.py 当前存活=True`）。
+* ⚠️ **今晚不要再从主机碰板卡**：已用掉 2 次板卡会话（17:03、17:49），驱动脆弱，再多会话有 soft reset 风险。
+
+---
+
+## 109. ★★★★★ 2026-11-10 08:50 — **夜间搜索收官：silu 家族已收敛，交付件不变 = trial_0031**
+
+### 109.1 夜间流水线全程跑完（修复后无静默失败）
+`[17:45:45] START → [17:48:03] 阶段1 完成 → [17:48:03~18:44:26] 阶段2 8 种子（4 卡两波）→ [18:44:26] 阶段3 → [18:53:32] 阶段4 门禁 rc=0 → DONE`
+阶段1 = 4 臂真快筛；阶段2 = 8 臂真训练真快筛（每臂都有 epoch1~8 + [PEAK] 行）；看门狗 18:54 收尾（复用门禁报告、跳过板卡）⇒ **全程无空转**。
+
+### 109.2 结果全景（T1 快筛 = no-GMC 同口径）
+| 组 | 臂 | F1 |
+|:--|:--|--:|
+| **lr3.5 同配方族（n=10）** | SILU9222 **0.888740** / SILU9221 0.888354 / S29305 0.888088 / S29308 0.887712 / S29301 0.887305 / S29302 0.886775 / S29306 0.886474 / S29307 0.886142 / S29303 0.886036 / S29304 0.885139 | **mean 0.887077、σ_samp 0.001157** |
+| lr1.5 | SILU9223 0.884894 | −1.89σ（比族均值低） |
+| p2f 拓扑 | P2F9211 0.885244 | 且更慢（~20.8 ms） |
+| **现交付件** | **trial_0031 = 0.886899** | **−0.15σ（正落在族分布中心）** |
+
+### 109.3 ★ 统计结论：**「比 trial_0031 更好」不成立**
+* SILU9222 = 0.888740，距**同配方族均值**只高 **+0.166 pp = 1.44σ（样本）** ⇒ **落在种子噪声内，不显著**。
+* 而 trial_0031 本身就在族分布中心（−0.15σ）⇒ **trial_0031 不是「运气好」，是家族代表值**。
+* 唯一被 10 臂支持的因果结论：**lr_scale 3.5 优于 1.5**（lr1.5 的 9223 = −1.89σ；两轮独立证据 9222>9223、9221>9223）。
+* ⇒ **silu 家族在当前先验空间内已收敛**：T1 天花板 ≈ 族均值 0.887 ± 0.0012，单臂上沿 0.8887（不可复现）。
+  **任何"再调一点就能超 0.886899"的说法都不成立**（除非换结构或换域权重）。
+
+### 109.4 ★★ SILU9222 的官方门禁：FAIL（且暴露一条域外鲁棒性事实）
+`gate/SILUOVN_9222_official/gate_report.json`（GMC 官方口径，verdict **FAIL**，infra_failures=[]）：
+| 轨 | SILU9222 | trial_0031（现交付） | 基线 | 判定 |
+|:--|--:|--:|--:|:--|
+| T1 Anti-UAV | F1 **0.886639**（TP 20926 / FP 1166 / FN 4185 / th 0.35） | 0.885997（TP 21034 / FP 1336 / FN 4077） | 0.905736 | vs 冻结基线 **−1.91 pp FAIL**；vs 交付臂 **+0.064 pp** |
+| T2 黄金池 | F1 0.997811，**FP 69**（TP 16634 / FN 4） | 0.997531，**FP 10** | F1 0.988436 / FP 26 | **FP 超限（限 +10 ⇒ ≤36）⇒ FAIL** |
+| T3 001324 盲测 | F1 **0.932765**，**FP 600**（TP 9732 / FN 803） | 0.948330，FP 110 | F1 0.837331 / FP 590 | **vs 交付臂 −1.56 pp、FP ×5.5 ⇒ 退化** |
+⇒ **SILU9222 不可交付**：它在 T1 上只换来 +0.064 pp（不显著），代价是 **T2 虚警 ×6.9、T3 虚警 ×5.5**。
+⇒ ★ **结构结论（新）**：T1 精度与 **域外（T2/T3）虚警**在当前配方下是**此消彼长**的。
+  SILU9222 在 T1 上 FP 更少（1166 vs 1336）、TP 略少 ⇒ 精度取向的位移**在域外不成立**，反而在域外大量误触发
+  ⇒ **今后任何"提 T1"的方向，都必须同时盯 T2 的 FP（限 ≤36）**；只看 T1 会挑出不可交付的臂。
+
+### 109.5 交付件定案（不变）
+**RC-13ms = trial_0031** ｜ int8 **19.306 ms**（板卡 3 次会话：19.306 / 19.560 / 重启后复测）｜ T1 0.885997 / T2 0.997531（FP 10 ✔）/ T3 0.948330（FP 110 ✔）。
+* 夜间新臂 SILU9222：int8 **19.513 ms**（<21 ✔）但门禁 FAIL ⇒ **只作为「速度可行、精度不可交付」的证据留档**。
+* all-relu 线仍判死（T2 FP=118）。
+
+### 109.6 板卡状态与两处插曲
+* **板卡在 2026-11-10 08:42 重启过**（08:49 检查 uptime 仅 7 分钟；EXT4 有历史错误计数 4）⇒
+  这解释了夜间 `[18:45:55] [BOARD] best_SILU9222 => {}`（**板子掉线，不是模型问题**）。
+* 已在**新启动的板子**上复测交付臂（`session_20261110_0855.txt`），确认数值可复现。
+* ⚠️ 板卡 arms/ 现有 `best_SILU9222_int8.rknn` + `t31_silu_int8.rknn`；`base_int8.rknn`（控制臂）在 BOARD_DIR 顶层。
+
+### 109.7 明早之后还剩什么（人决策）
+1. **T1 参照系裁决**（仍是唯一需要人定的）：vs 冻结基线 −1.91 pp（FAIL） / vs 在位 incumbent −0.39 pp（过线） / vs 同语义老轮臂 −0.19 pp。
+2. **板卡侧未做完的一项**：`e2e_demo` / `e2e_core` 二进制尚未带 `--native-scale 4` 重建（只重编了 smoke 工具验证路径）⇒ **上板前必须补**，否则一目标裂成 16 个点、FP ×16。
+3. **若还想继续挖**：按 §109.3/§109.4，**silu 家族内已无空间**；要么换结构（成本 ≫20 ms 预算），要么**改攻 T2 虚警**（把 T2 FP 压到 ≤36 再看 T1 能否守住 0.887），而不是继续在 T1 上找 +0.1 pp。
+
+### 109.8 ★ 板卡重启后复测（2026-11-10 08:55，新启动的板子，RC=0）
+| 臂 | rknn_run | NPU+dequant | 整帧 | null control | determinism |
+|:--|--:|--:|--:|:--|:--|
+| control（base_int8 / cs_t0043） | 55.448 ms | 56.381 | 56.642 | CHANGED ✔ | IDENTICAL ✔ |
+| best_SILU9222_int8 | 19.626 ms | 20.553 | 21.023 | CHANGED ✔ | IDENTICAL ✔ |
+| **t31_silu_int8（★ 交付件）** | **19.665 ms** | 20.582 | 20.858 | CHANGED ✔ | IDENTICAL ✔ |
+⇒ **交付臂 int8 跨 3 次独立会话：19.306 / 19.560 / 19.665 ms（全部 < 21 ms ✔，离散 ~1.9%）**；
+   控制臂 3 次：55.484 / 55.296 / 55.448 ms（离散 ~0.3%）⇒ **板卡测速口径稳定，可作为交付速度证据**。
+⇒ 归档 `manu/pipeline/npu/board_sessions/20261110_0855_post_reboot_delivery_recheck.txt`。

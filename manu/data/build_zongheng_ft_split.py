@@ -157,7 +157,12 @@ def classify(bucket: dict, stable: float, any_coverage: float) -> tuple[str, str
     )
 
 
-def build_manifest(sequences: dict[str, dict], args: argparse.Namespace) -> dict:
+def build_manifest(
+    sequences: dict[str, dict],
+    args: argparse.Namespace,
+    threshold: float = 0.44,
+    merge_radius: float = 768.0,
+) -> dict:
     groups: dict[str, list[dict]] = {"val": [], "train": [], "ignore": []}
     for name in sorted(sequences):
         bucket = sequences[name]
@@ -285,18 +290,27 @@ def build_manifest(sequences: dict[str, dict], args: argparse.Namespace) -> dict
                 "note": "RC2 门禁与龙泉山缓存均以 --ablate-p0 加载；本域 OSD 沿用同一加载配置",
             },
             "operating_point": {
-                "threshold": 0.44,
-                "merge_radius_px": 768,
+                "threshold": threshold,
+                "merge_radius_px": merge_radius,
                 "region_threshold": 0.06,
                 "scales": ["640", "160", "80"],
                 "source": (
-                    "manu/evaluation/eval_multiscale_cache_th.py 在真实龙泉山 RC2 缓存 "
-                    "(runs/optuna_mix_ratio/trials/trial_0080/lq_eval_fpv8/ms_cache) 上实测："
-                    "merge_radius=768px / th=0.44 ⇒ F1 94.069%、Recall 90.74%、Precision 97.65%、"
-                    "FAR 0.0176/帧；半径 128⇒93.923%、64⇒93.857% 均更差"
+                    "manu/evaluation/probe_rc2_threshold_table.py 在真实龙泉山 RC2 缓存 "
+                    "(runs/optuna_mix_ratio/trials/trial_0080/lq_eval_fpv8/ms_cache) 上实测"
+                    "（merge_radius=768px）：th=0.44 ⇒ F1 94.07%/FAR 0.0176；"
+                    "th=0.20 ⇒ Recall 93.91%/F1 91.98%/FAR 0.0830（虚警 4.7 倍）。"
+                    "半径 128⇒F1 93.92%、64⇒93.86%，均不如 768。"
                 ),
                 "tracking": False,
-                "note": "本域只用单帧检测（无 track），与用户要求一致",
+                "note": (
+                    "本域只用单帧检测（无 track），与用户要求一致。"
+                    + (
+                        ""
+                        if abs(threshold - 0.44) < 1e-9
+                        else f" ⚠️ 本档是 th={threshold} 的**敏感档**（召回优先、虚警更多），"
+                        f"不是交付档（th=0.44）⇒ 交付结论仍以 th=0.44 档为准。"
+                    )
+                ),
             },
             "golden_pool_single_frame": {
                 "gt": 0,
@@ -376,11 +390,17 @@ def build_manifest(sequences: dict[str, dict], args: argparse.Namespace) -> dict
 def write_review_sheet(path: Path, manifest: dict) -> None:
     """Write the human review sheet in the 龙泉山 format: '# pass' / '# unpass' + one line per sequence."""
     groups = manifest["groups"]
+    point = manifest["baseline_reference"]["operating_point"]
+    threshold = point.get("threshold")
+    tier = "交付档（th=0.44，F1 最优、虚警最少）" if abs(float(threshold) - 0.44) < 1e-9 else (
+        f"敏感档（th={threshold}，召回优先、虚警更多）—— **仅供人工复核/标注播种，交付结论仍以 th=0.44 档为准**"
+    )
     lines = [
         "# pass",
         "# 人工复核底稿 —— 纵横AI数据采集（RC2 单帧多尺度，中心点 OSD）",
+        f"# 工作点档位：{tier}",
         "# 复核对象（OSD 视频在 OSD_DIR 下）：",
-        "#   /mnt/data/siping/datasets/manu/纵横AI数据采集_osd_rc2_20261109/<下面给的 OSD 文件名>",
+        "#   /mnt/data/siping/datasets/manu/纵横AI数据采集_osd_rc2_<档位>/<下面给的 OSD 文件名>",
         "# 填法：[pass] / [ignore] <SEQ>_F1-<val>.mp4 - <原因>；不填 = 还没看",
         "# 判定依据：模型检出的中心点是否落在真实目标上（漏检 / 虚警 / 位置偏移）",
         "",
@@ -411,7 +431,18 @@ def main() -> None:
     if not sequences:
         raise SystemExit("no frames were read -- check --frames-dir / --frames-jsonl")
 
-    manifest = build_manifest(sequences, args)
+    # The operating point is read back from the render's own summary rather than hardcoded:
+    # there are two working points (th=0.44 delivery / th=0.20 sensitive) and a manifest that
+    # misreports its threshold would silently attribute one tier's numbers to the other.
+    threshold, merge_radius = 0.44, 768.0
+    for summary_path in sorted(Path(args.frames_dir).parent.glob("summary_shard*.json")) if args.frames_dir else []:
+        config = json.loads(summary_path.read_text(encoding="utf-8")).get("config", {})
+        threshold = float(config.get("threshold", threshold))
+        merge_radius = float(config.get("merge_radius", merge_radius))
+        break
+    print(f"[INFO] operating point from render summary: th={threshold} r={merge_radius}px")
+
+    manifest = build_manifest(sequences, args, threshold=threshold, merge_radius=merge_radius)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")

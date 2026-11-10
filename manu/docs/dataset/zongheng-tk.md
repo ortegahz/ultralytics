@@ -1,7 +1,8 @@
 # pass
 # 人工复核底稿 —— 纵横AI数据采集（RC2 单帧多尺度，中心点 OSD）
+# 工作点档位：交付档（th=0.44，F1 最优、虚警最少）
 # 复核对象（OSD 视频在 OSD_DIR 下）：
-#   /mnt/data/siping/datasets/manu/纵横AI数据采集_osd_rc2_20261109/<下面给的 OSD 文件名>
+#   /mnt/data/siping/datasets/manu/纵横AI数据采集_osd_rc2_<档位>/<下面给的 OSD 文件名>
 # 填法：[pass] / [ignore] <SEQ>_F1-<val>.mp4 - <原因>；不填 = 还没看
 # 判定依据：模型检出的中心点是否落在真实目标上（漏检 / 虚警 / 位置偏移）
 
