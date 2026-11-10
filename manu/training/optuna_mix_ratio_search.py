@@ -843,9 +843,11 @@ def run_worker() -> int:
                          "act 未变、头被继承 ⇒ 各臂头逐位相同 ⇒ soup 安全；新轮 act 变了 ⇒ 头每种子"
                          "重置 ⇒ 20 个 head 张量最大差 8.0e4 ⇒ soup 相消）。"
                          "⇒ 本参数让同家族各臂的**头初始逐位相同**，于是可以安全地做跨种子 soup。")
-    ap.add_argument("--head-init", default="reset", choices=["reset", "abs"],
+    ap.add_argument("--head-init", default="reset", choices=["reset", "abs", "merge", "merge_abs"],
                     help="头初始化策略（仅 act 变化时生效）：reset=随机重置（现有）；"
-                         "abs=把继承来的 silu 头权重取绝对值（保住 relu 下的量级 ⇒ 有已训练的起点）")
+                         "abs=把继承来的 silu 头权重取绝对值（保住 relu 下的量级 ⇒ 有已训练的起点）；"
+                         "merge_abs=★路线二用：**换宽度/换 head_src** 时先按通道合并继承（保住已学滤波器）"
+                         "再取绝对值 ⇒ P1→P2 + 通道瘦身的 relu 线不再把头打回原形")
     ap.add_argument("--min-radius", type=int, default=1,
                     help="高斯目标半径下限（格）。0 = 允许单格点目标（微小目标在粗网格上必需）")
     ap.add_argument("--train-on-native-grid", type=int, default=0,
@@ -1003,9 +1005,17 @@ def run_worker() -> int:
     # 受影响的**只有上报字段**（日志混样列 / measured_ratio / weights 元数据），
     # **不影响**训练、权重、门禁三轨指标与 U 判定。
     #
-    # 修法：从 --longquan-data 推导 LQ 数据集根目录（绝对路径 + 目录名两个标记，
-    # 兼容 im_file 是相对路径的情况）；GMC 场景下目录名与旧硬编码**逐位等价** ⇒ 旧行为不变。
-    _lq_root = Path(args.longquan_data).resolve().parent
+    # ★ 历史 bug #2（2026-11-10 抓到）：修复时用了 `Path(args.longquan_data).resolve().**parent**`
+    #   ⇒ 标记变成 "/mnt/data/siping/datasets/manu" 与 "manu"，
+    #   而 **UAV 数据集也在同一个 datasets/manu 下** ⇒ 两个数据集的路径都命中标记
+    #   ⇒ n_lq_batch 恒等于 batch_size ⇒ 日志恒为 "mix LQ/UAV 32/0"、
+    #     measured_ratio = 0（与历史 bug #1 的 0/32 方向相反，症状不同、根因同源）。
+    #   ⇒ **仍不影响采样**（采样只看样本数权重），但上报字段全错 ⇒ 混样口径无法自证。
+    #
+    # 修法：用 **数据集目录本身**（不是它的父目录）做标记。
+    #   no-GMC: "longquanshan_ft_gmc_median_nogmc" ／ UAV: "uav_gmc_median_nogmc" ⇒ 互不包含。
+    #   GMC 场景下目录名与旧硬编码逐位等价 ⇒ 旧行为不变。
+    _lq_root = Path(args.longquan_data).resolve()
     _LQ_MARKERS = (str(_lq_root), _lq_root.name)
 
     def _is_lq_file(f) -> bool:

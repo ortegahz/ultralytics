@@ -1,0 +1,221 @@
+{
+  "budget_ms": 30.0,
+  "nano_min": 0.6666,
+  "recall_eps": 5e-05,
+  "semantics": "nogmc",
+  "tols": [
+    4.0,
+    8.0
+  ],
+  "img_w": 640,
+  "img_h": 512,
+  "baseline": {
+    "cache": "/mnt/data/siping/runs/nogmc_ref_weekend/uav_cache_base.pkl",
+    "resolved_cache": "/mnt/data/siping/runs/nogmc_ref_weekend/uav_cache_base.pkl",
+    "source": "cache_eval",
+    "nano": 0.6977788279773157,
+    "micro": 0.8111483399329881,
+    "f1": 0.9013117722611753
+  },
+  "rows": [
+    {
+      "name": "delivery_t0031",
+      "cache": "/mnt/data/siping/runs/npu20ms/tiny_ref/trial_0031.pkl",
+      "board_ms": 19.705,
+      "speed_verdict": "SPEED_PASS",
+      "recall_verdict": "RECALL_PASS",
+      "verdict": "PASS",
+      "nano": 0.6665879017013232,
+      "micro": 0.837039293329272,
+      "regular": 0.9444827586206896,
+      "small": 0.8653780942692438,
+      "f1": 0.8871220184060602,
+      "fp": 1553,
+      "fn": 3856,
+      "th": 0.13,
+      "nano_tol4": 0.6032608695652174,
+      "micro_tol4": 0.7937861711848919,
+      "frames": 31613,
+      "total_gt": 25111,
+      "deltas": {
+        "base_frozen": {
+          "nano_pp": -3.12,
+          "micro_pp": 2.59,
+          "f1_pp": -1.42
+        },
+        "RC2": {
+          "nano_pp": -0.12,
+          "micro_pp": 1.31,
+          "f1_pp": -0.6
+        },
+        "delivery": {
+          "nano_pp": 0.0,
+          "micro_pp": 0.0,
+          "f1_pp": 0.0
+        }
+      },
+      "ms_per_nano_pp": 0.29561,
+      "micro_vs_baseline": 0.025891,
+      "micro_ge_baseline": true,
+      "recall_margin_pp": -0.0012
+    },
+    {
+      "name": "r2_9652_ep10",
+      "cache": "/mnt/data/siping/runs/npu20ms/tiny_ref/w1_t9652_ep10.pkl",
+      "board_ms": 13.045,
+      "speed_verdict": "SPEED_PASS",
+      "recall_verdict": "RECALL_FAIL",
+      "verdict": "FAIL",
+      "nano": 0.6304347826086957,
+      "micro": 0.8215047212915016,
+      "regular": 0.9274137931034483,
+      "small": 0.8404543913190912,
+      "f1": 0.8694810387642578,
+      "fp": 1749,
+      "fn": 4453,
+      "th": 0.35,
+      "nano_tol4": 0.6077504725897921,
+      "micro_tol4": 0.8090161437709412,
+      "frames": 31613,
+      "total_gt": 25111,
+      "deltas": {
+        "base_frozen": {
+          "nano_pp": -6.73,
+          "micro_pp": 1.04,
+          "f1_pp": -3.18
+        },
+        "RC2": {
+          "nano_pp": -3.73,
+          "micro_pp": -0.24,
+          "f1_pp": -2.36
+        },
+        "delivery": {
+          "nano_pp": -3.62,
+          "micro_pp": -1.55,
+          "f1_pp": -1.76
+        }
+      },
+      "ms_per_nano_pp": 0.206921,
+      "micro_vs_baseline": 0.010356,
+      "micro_ge_baseline": true,
+      "recall_margin_pp": -3.6165
+    },
+    {
+      "name": "r2_9647_ep10",
+      "cache": "/mnt/data/siping/runs/npu20ms/tiny_ref/w1_t9647_ep10.pkl",
+      "board_ms": 22.677,
+      "speed_verdict": "SPEED_PASS",
+      "recall_verdict": "RECALL_FAIL",
+      "verdict": "FAIL",
+      "nano": 0.6493383742911153,
+      "micro": 0.8169357295156868,
+      "regular": 0.9360344827586207,
+      "small": 0.8637673787724652,
+      "f1": 0.8858399444456135,
+      "fp": 1362,
+      "fn": 4063,
+      "th": 0.3,
+      "nano_tol4": 0.6486294896030246,
+      "micro_tol4": 0.813585135546756,
+      "frames": 31613,
+      "total_gt": 25111,
+      "deltas": {
+        "base_frozen": {
+          "nano_pp": -4.84,
+          "micro_pp": 0.58,
+          "f1_pp": -1.55
+        },
+        "RC2": {
+          "nano_pp": -1.84,
+          "micro_pp": -0.7,
+          "f1_pp": -0.73
+        },
+        "delivery": {
+          "nano_pp": -1.72,
+          "micro_pp": -2.01,
+          "f1_pp": -0.13
+        }
+      },
+      "ms_per_nano_pp": 0.349232,
+      "micro_vs_baseline": 0.005787,
+      "micro_ge_baseline": true,
+      "recall_margin_pp": -1.7262
+    }
+  ],
+  "refs": {
+    "base_frozen": {
+      "label": "base_frozen",
+      "cache": "/mnt/data/siping/runs/nogmc_ref_weekend/uav_cache_base.pkl",
+      "resolved_cache": "/mnt/data/siping/runs/nogmc_ref_weekend/uav_cache_base.pkl",
+      "source": "cache_eval",
+      "desc": "冻结基线（P1 320 头，板卡 55.48 ms）",
+      "nano": 0.6977788279773157,
+      "micro": 0.8111483399329881,
+      "small": 0.8656324177687351,
+      "regular": 0.9613793103448276,
+      "f1": 0.9013117722611753,
+      "precision": 0.95625949423644,
+      "recall": 0.8523356298036717,
+      "fp": 979,
+      "fn": 3708,
+      "th": 0.27,
+      "nano_tol4": 0.6965973534971645,
+      "micro_tol4": 0.8090161437709412,
+      "frames": 31613,
+      "total_gt": 25111
+    },
+    "RC2": {
+      "label": "RC2",
+      "cache": "/mnt/data/siping/runs/npu20ms/tiny_ref/rc2_trial0080.pkl",
+      "resolved_cache": "/mnt/data/siping/runs/npu20ms/tiny_ref/rc2_trial0080.pkl",
+      "source": "cache_eval",
+      "desc": "RC2 = trial_0080（板卡 100 ms）",
+      "nano": 0.6677693761814745,
+      "micro": 0.8239415169052696,
+      "small": 0.8596134282807731,
+      "regular": 0.9503448275862069,
+      "f1": 0.8931191500126486,
+      "precision": 0.9488465845464725,
+      "recall": 0.8435745290908366,
+      "fp": 1142,
+      "fn": 3928,
+      "th": 0.3,
+      "nano_tol4": 0.6668241965973535,
+      "micro_tol4": 0.8215047212915016,
+      "frames": 31613,
+      "total_gt": 25111
+    },
+    "delivery": {
+      "label": "delivery",
+      "cache": "/mnt/data/siping/runs/npu20ms/tiny_ref/trial_0031.pkl",
+      "resolved_cache": "/mnt/data/siping/runs/npu20ms/tiny_ref/trial_0031.pkl",
+      "source": "cache_eval",
+      "desc": "在位交付件 trial_0031（板卡 19.306 ms）",
+      "nano": 0.6665879017013232,
+      "micro": 0.837039293329272,
+      "small": 0.8653780942692438,
+      "regular": 0.9444827586206896,
+      "f1": 0.8871220184060602,
+      "precision": 0.9319098561908102,
+      "recall": 0.8464417984150372,
+      "fp": 1553,
+      "fn": 3856,
+      "th": 0.13,
+      "nano_tol4": 0.6032608695652174,
+      "micro_tol4": 0.7937861711848919,
+      "frames": 31613,
+      "total_gt": 25111
+    }
+  },
+  "summary": {
+    "pass": [
+      "delivery_t0031"
+    ],
+    "fail": [
+      "r2_9652_ep10",
+      "r2_9647_ep10"
+    ],
+    "pass_with_gap": [],
+    "error": []
+  }
+}

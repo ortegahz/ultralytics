@@ -115,7 +115,19 @@ def load_hm_model(weights: Path, device: torch.device, stride_fallback: int = 2,
     #   ⇒ 头必须重来（随机初始化），骨干/颈仍可继承（实证：骨干继承 relu 下照常收敛）。
     _act_changed = str(act).lower() != str(_ck_act).lower()
     _head_init = str(head_init or "reset").lower()
-    _reset_head = _act_changed and _head_init != "abs"
+    # ★★ 2026-11-10（路线二：P1/P2 + 通道瘦身 + relu）：
+    #   head_init 新增 "merge_abs" —— **形状不一致**的头张量走 merge_channels（保住已学滤波器）
+    #   之后**再取绝对值**；形状一致的仍按 "abs" 处理。
+    #   动机：merge 出来的权重是 **silu 训的**（含负权重）⇒ 直接喂 relu 会让一半通道死亡
+    #   （这正是 2026-11-06 记录的现象：silu 头喂 relu ⇒ hm 卡在 0.68~0.80）。
+    #   取绝对值保住量级，让新头有一个"活着"的起点；随后必须**充分重训**（50~100 ep）。
+    #   注意 "abs" 只处理形状一致的张量，"merge_abs" 才覆盖形状不一致（换宽度/换 head_src）的情形。
+    # ★★ 2026-11-10：新增 "merge" —— 换结构时按通道合并继承，**但不取绝对值**
+    #   （abs 会抹掉滤波器的符号结构 ⇒ 合并后激活量级爆炸 ⇒ 实测首 epoch loss 8.5e4 vs 健康臂 ~20
+    #   ⇒ 三个模式 reset / merge / merge_abs 用短程对照实验决定，见 memory §11x）
+    _abs_head_mode = _head_init in ("abs", "merge_abs")
+    _merge_head_mode = _head_init in ("merge", "merge_abs")
+    _reset_head = _act_changed and not _abs_head_mode
     # ★ offset 分支的定向初始化（2026-11-09）：offset_init ∈ {keep, reset, inherit}
     _offset_mode = str(offset_init or "keep").lower()
     _offset_reset = _offset_mode == "reset"
@@ -182,7 +194,7 @@ def load_hm_model(weights: Path, device: torch.device, stride_fallback: int = 2,
             continue
         if own_state[clean_key].shape == value.shape:
             if _reset_head and (clean_key.startswith("head.") or clean_key.startswith("head_in.")):
-                if _head_init == "abs":
+                if _abs_head_mode:
                     # ★ head_init=abs：继承来的 silu 头权重**取绝对值**后再喂 relu
                     #   （负权重通道在 relu 下会死；取绝对值保住量级 ⇒ 头有一个已训练的起点）
                     if value.is_floating_point() and value.dim() >= 2:
@@ -196,6 +208,13 @@ def load_hm_model(weights: Path, device: torch.device, stride_fallback: int = 2,
                         abs_head += 1
                     continue
                 # ★ act 变了 ⇒ 头保持随机初始化（否则 relu 下大量神经元死亡 ⇒ 学不动）
+                #   ⚠️ 但 head_init=merge / merge_abs 模式下**形状一致的头张量原样继承**
+                #   （合并=恒等拷贝），避免无谓地把已训好的头丢掉。
+                if _merge_head_mode:
+                    own_state[clean_key].copy_(value)
+                    matched += 1
+                    merged_count += 1
+                    continue
                 reset_head += 1
                 continue
             if _offset_reset and ".offset." in clean_key:
@@ -213,6 +232,12 @@ def load_hm_model(weights: Path, device: torch.device, stride_fallback: int = 2,
             #   ⇒ 新头至少拿到「训练过的滤波器」⇒ 首 epoch loss 从 127 降到 ~10 量级。
             _merged = _merge_channels(value, own_state[clean_key].shape)
             if _merged is not None:
+                # ★★ head_init=merge_abs：形状不一致（换宽度/换 head_src）时，合并结果取绝对值
+                #   ⇒ silu 训出的负权重不会在 relu 下整批死亡（路线二 relu 线必需）。
+                if (_head_init == "merge_abs" and _act_changed
+                        and (clean_key.startswith("head.") or clean_key.startswith("head_in."))
+                        and _merged.is_floating_point() and _merged.dim() >= 2):
+                    _merged = _merged.abs()
                 own_state[clean_key].copy_(_merged)
                 matched += 1
                 merged_count += 1

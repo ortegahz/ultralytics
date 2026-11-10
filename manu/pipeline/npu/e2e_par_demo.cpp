@@ -195,6 +195,11 @@ int main(int argc, char** argv) {
     std::string det_out_override, hm_dir_override;
     float th = 0.25f;
     int stride = 2, top_k = 100, anchor_step = 10, limit = 0, dump_heatmap = 1;
+    // late_upsample 原生网格复制倍数 L（P3=4）。L>1 时热图是原生网格的最近邻复制，
+    // 峰必须在原生网格上抽、且用 stride*L 解码，否则同一目标裂成 L^2 个候选（假阳洪泛）。
+    // 串行版 e2e_demo 早已支持，本版此前漏传 => 一律保持默认 1，必须由命令行显式给出。
+    int native_scale = 1;
+    double offset_scale = 1.0, offset_bias = 0.0;
     long warmup_frames = WARMUP_FRAMES;
     uint32_t chain_hash = 0;
     e2ecore::InferTiming npu_stages{};
@@ -223,6 +228,9 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(a, "--hm-dir"))   hm_dir_override = need(argc, argv, i, "--hm-dir");
         else if (!std::strcmp(a, "--th"))       th = (float)std::atof(need(argc, argv, i, "--th"));
         else if (!std::strcmp(a, "--stride"))   stride = std::atoi(need(argc, argv, i, "--stride"));
+        else if (!std::strcmp(a, "--native-scale")) native_scale = std::atoi(need(argc, argv, i, "--native-scale"));
+        else if (!std::strcmp(a, "--offset-scale")) offset_scale = std::atof(need(argc, argv, i, "--offset-scale"));
+        else if (!std::strcmp(a, "--offset-bias"))  offset_bias = std::atof(need(argc, argv, i, "--offset-bias"));
         else if (!std::strcmp(a, "--topk"))     top_k = std::atoi(need(argc, argv, i, "--topk"));
         else if (!std::strcmp(a, "--anchor-step")) anchor_step = std::atoi(need(argc, argv, i, "--anchor-step"));
         else if (!std::strcmp(a, "--limit"))    limit = std::atoi(need(argc, argv, i, "--limit"));

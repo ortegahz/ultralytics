@@ -1,0 +1,253 @@
+==================== heatmap model speed session on RK3588 ====================
+date            : Tue Nov 10 14:12:29 CST 2026
+board dir       : /root/hm_speed
+control model   : /root/hm_speed/base_int8.rknn
+librknnrt in use  : /root/hm_speed/lib/librknnrt.so  md5=56e425dcc7b59ab0e1aec685b178b99f
+board /usr/lib    : /usr/lib/librknnrt.so     md5=56e425dcc7b59ab0e1aec685b178b99f
+====================================================================================
+
+########## health check OK  tag=initial ##########
+[1] clock sanity: now_ms=19838653.353, after 50ms usleep=19838703.535, delta=50.183 ms [ok]
+    rknn_run     avg  55.486 ms  (98.3%)
+    NPU+dequant  avg  56.447 ms  -> 17.7 fps
+
+===== rknn_heatmap_smoke :: control_base_cs_t0043 =====
+cmd: ./rknn_heatmap_smoke /root/hm_speed/base_int8.rknn /root/hm_speed/feat.jpg --loops 30 --warmup 10  --tag control_base_cs_t0043
+=====================================================================
+ RK3588 NPU -- Trial-0474 heatmap detector
+ model : /root/hm_speed/base_int8.rknn
+ th=0.2500 stride=2 topk=100
+=====================================================================
+
+[1] model: 3792328 bytes, fnv1a32=a39a055f
+[1] clock sanity: now_ms=19844326.886, after 50ms usleep=19844377.017, delta=50.132 ms [ok]
+[2] rknn_init ok
+    runtime api=2.3.0 (c949ad889d@2024-11-07T11:35:33) driver=0.9.8
+    n_input=1 n_output=2
+    input dims=[1,640,640,3] fmt=NHWC type=INT8
+    out[0] dims=[1,1,320,320] fmt=NCHW type=INT8 zp=-128 scale=0.00362575
+    out[1] dims=[1,2,320,320] fmt=NCHW type=INT8 zp=-48 scale=0.01221105
+    heatmap 320x320, offset 320x320, implied stride 2
+  letterbox 640x512 -> 640x640 (r=1.000000, pad l=0 t=64 r=0 b=64)
+[4] preprocess: 640x512 -> 640x640 uint8 NHWC in 0.43 ms, fnv1a32=b445bb37 (min=0 max=251)
+[5] null control (inverted input): heatmap 44ba1ddb -> 6e9f6f2e CHANGED, offset 06169828 -> 3cab1d67 CHANGED
+[5] determinism: run#1=44ba1ddb run#2=44ba1ddb -> IDENTICAL
+
+--- feat.jpg  (src 640x512, hm max=0.804916, th=0.2500) ---
+    detections: 1
+      [ 0] centre_x= 435.026 centre_y= 347.368  score=0.804916
+
+[7] latency over 30 timed runs (full per-frame cost)
+    --- NPU stage ---
+    inputs_set   avg   0.251 ms
+    rknn_run     avg  55.489 ms  (98.3%)
+    outputs_get  avg   0.702 ms  (1.2%)   [1.2 MB of float32 tensors]
+    dequant      avg   0.000 ms  (0.0%)
+    --- host stage ---
+    stbi_load    avg   0.183 ms  (file read + BMP decode)
+    letterbox    avg   0.014 ms
+    minmax scan  avg   0.044 ms  (640*640*3 bytes)
+    extract_peaks avg   0.019 ms
+    det write    avg   0.000 ms  (incl. per-frame flush)
+    ---
+    NPU+dequant  avg  56.442 ms  -> 17.7 fps
+    + host       avg  56.703 ms  -> 17.6 fps   <-- real per-frame cost
+    host share       0.5% of the per-frame total
+=====================================================================
+--- exit=0 ---
+@@SUMMARY@@ control_base_cs_t0043|rknn_run_avg_ms|55.489
+@@SUMMARY@@ control_base_cs_t0043|npu_dequant_avg_ms|56.442
+@@SUMMARY@@ control_base_cs_t0043|full_frame_avg_ms|56.703
+
+########## health check OK  tag=before-9647_ep10_int8.rknn ##########
+[1] clock sanity: now_ms=19852018.831, after 50ms usleep=19852068.970, delta=50.139 ms [ok]
+    rknn_run     avg  55.549 ms  (98.3%)
+    NPU+dequant  avg  56.498 ms  -> 17.7 fps
+
+===== rknn_heatmap_smoke :: arm_9647_ep10_int8 =====
+cmd: ./rknn_heatmap_smoke /root/hm_speed/arms/9647_ep10_int8.rknn /root/hm_speed/feat.jpg --loops 30 --warmup 10 --stride 2 --tag arm_9647_ep10_int8
+=====================================================================
+ RK3588 NPU -- Trial-0474 heatmap detector
+ model : /root/hm_speed/arms/9647_ep10_int8.rknn
+ th=0.2500 stride=2 topk=100
+=====================================================================
+
+[1] model: 3267336 bytes, fnv1a32=b079f2c0
+[1] clock sanity: now_ms=19852669.879, after 50ms usleep=19852720.013, delta=50.134 ms [ok]
+[2] rknn_init ok
+    runtime api=2.3.0 (c949ad889d@2024-11-07T11:35:33) driver=0.9.8
+    n_input=1 n_output=2
+    input dims=[1,640,640,3] fmt=NHWC type=INT8
+    out[0] dims=[1,1,320,320] fmt=NCHW type=INT8 zp=-128 scale=0.00348285
+    out[1] dims=[1,2,320,320] fmt=NCHW type=INT8 zp=-93 scale=0.00462100
+    heatmap 320x320, offset 320x320, implied stride 2
+  letterbox 640x512 -> 640x640 (r=1.000000, pad l=0 t=64 r=0 b=64)
+[4] preprocess: 640x512 -> 640x640 uint8 NHWC in 0.43 ms, fnv1a32=b445bb37 (min=0 max=251)
+[5] null control (inverted input): heatmap 363eb985 -> ff93d661 CHANGED, offset 6fea7719 -> 81938aa9 CHANGED
+[5] determinism: run#1=363eb985 run#2=363eb985 -> IDENTICAL
+
+--- feat.jpg  (src 640x512, hm max=0.787123, th=0.2500) ---
+    detections: 9
+      [ 0] centre_x= 433.774 centre_y= 345.349  score=0.752295
+      [ 1] centre_x= 436.286 centre_y= 345.349  score=0.787123
+      [ 2] centre_x= 438.286 centre_y= 345.349  score=0.787123
+      [ 3] centre_x= 433.774 centre_y= 347.349  score=0.752295
+      [ 4] centre_x= 436.286 centre_y= 347.349  score=0.787123
+      [ 5] centre_x= 438.286 centre_y= 347.349  score=0.787123
+      [ 6] centre_x= 433.710 centre_y= 350.139  score=0.410976
+      [ 7] centre_x= 436.286 centre_y= 350.139  score=0.421424
+      [ 8] centre_x= 438.286 centre_y= 350.139  score=0.421424
+
+[7] latency over 30 timed runs (full per-frame cost)
+    --- NPU stage ---
+    inputs_set   avg   0.280 ms
+    rknn_run     avg  22.663 ms  (95.9%)
+    outputs_get  avg   0.687 ms  (2.9%)   [1.2 MB of float32 tensors]
+    dequant      avg   0.000 ms  (0.0%)
+    --- host stage ---
+    stbi_load    avg   0.182 ms  (file read + BMP decode)
+    letterbox    avg   0.014 ms
+    minmax scan  avg   0.044 ms  (640*640*3 bytes)
+    extract_peaks avg   0.021 ms
+    det write    avg   0.000 ms  (incl. per-frame flush)
+    ---
+    NPU+dequant  avg  23.630 ms  -> 42.3 fps
+    + host       avg  23.891 ms  -> 41.9 fps   <-- real per-frame cost
+    host share       1.1% of the per-frame total
+=====================================================================
+--- exit=0 ---
+@@SUMMARY@@ arm_9647_ep10_int8|rknn_run_avg_ms|22.663
+@@SUMMARY@@ arm_9647_ep10_int8|npu_dequant_avg_ms|23.630
+@@SUMMARY@@ arm_9647_ep10_int8|full_frame_avg_ms|23.891
+
+########## health check OK  tag=before-9653_ep10_int8.rknn ##########
+[1] clock sanity: now_ms=19858932.732, after 50ms usleep=19858982.865, delta=50.133 ms [ok]
+    rknn_run     avg  55.664 ms  (98.4%)
+    NPU+dequant  avg  56.592 ms  -> 17.7 fps
+
+===== rknn_heatmap_smoke :: arm_9653_ep10_int8 =====
+cmd: ./rknn_heatmap_smoke /root/hm_speed/arms/9653_ep10_int8.rknn /root/hm_speed/feat.jpg --loops 30 --warmup 10 --stride 2 --tag arm_9653_ep10_int8
+=====================================================================
+ RK3588 NPU -- Trial-0474 heatmap detector
+ model : /root/hm_speed/arms/9653_ep10_int8.rknn
+ th=0.2500 stride=2 topk=100
+=====================================================================
+
+[1] model: 3422344 bytes, fnv1a32=b7528614
+[1] clock sanity: now_ms=19859592.649, after 50ms usleep=19859642.793, delta=50.144 ms [ok]
+[2] rknn_init ok
+    runtime api=2.3.0 (c949ad889d@2024-11-07T11:35:33) driver=0.9.8
+    n_input=1 n_output=2
+    input dims=[1,640,640,3] fmt=NHWC type=INT8
+    out[0] dims=[1,1,320,320] fmt=NCHW type=INT8 zp=-128 scale=0.00346149
+    out[1] dims=[1,2,320,320] fmt=NCHW type=INT8 zp=-103 scale=0.01579081
+    heatmap 320x320, offset 320x320, implied stride 2
+  letterbox 640x512 -> 640x640 (r=1.000000, pad l=0 t=64 r=0 b=64)
+[4] preprocess: 640x512 -> 640x640 uint8 NHWC in 0.43 ms, fnv1a32=b445bb37 (min=0 max=251)
+[5] null control (inverted input): heatmap 301e2981 -> 43a00cb5 CHANGED, offset e5735fb1 -> 9f5424b5 CHANGED
+[5] determinism: run#1=301e2981 run#2=301e2981 -> IDENTICAL
+
+--- feat.jpg  (src 640x512, hm max=0.737298, th=0.2500) ---
+    detections: 9
+      [ 0] centre_x= 433.832 centre_y= 345.516  score=0.716529
+      [ 1] centre_x= 436.253 centre_y= 345.421  score=0.737298
+      [ 2] centre_x= 438.253 centre_y= 345.421  score=0.737298
+      [ 3] centre_x= 433.832 centre_y= 347.516  score=0.716529
+      [ 4] centre_x= 436.253 centre_y= 347.421  score=0.737298
+      [ 5] centre_x= 438.253 centre_y= 347.421  score=0.737298
+      [ 6] centre_x= 433.737 centre_y= 350.095  score=0.446532
+      [ 7] centre_x= 435.737 centre_y= 350.095  score=0.446532
+      [ 8] centre_x= 438.253 centre_y= 350.095  score=0.429225
+
+[7] latency over 30 timed runs (full per-frame cost)
+    --- NPU stage ---
+    inputs_set   avg   0.282 ms
+    rknn_run     avg  25.425 ms  (96.3%)
+    outputs_get  avg   0.694 ms  (2.6%)   [1.2 MB of float32 tensors]
+    dequant      avg   0.000 ms  (0.0%)
+    --- host stage ---
+    stbi_load    avg   0.182 ms  (file read + BMP decode)
+    letterbox    avg   0.014 ms
+    minmax scan  avg   0.045 ms  (640*640*3 bytes)
+    extract_peaks avg   0.019 ms
+    det write    avg   0.000 ms  (incl. per-frame flush)
+    ---
+    NPU+dequant  avg  26.401 ms  -> 37.9 fps
+    + host       avg  26.662 ms  -> 37.5 fps   <-- real per-frame cost
+    host share       1.0% of the per-frame total
+=====================================================================
+--- exit=0 ---
+@@SUMMARY@@ arm_9653_ep10_int8|rknn_run_avg_ms|25.425
+@@SUMMARY@@ arm_9653_ep10_int8|npu_dequant_avg_ms|26.401
+@@SUMMARY@@ arm_9653_ep10_int8|full_frame_avg_ms|26.662
+
+########## health check OK  tag=before-t31_silu_int8.rknn ##########
+[1] clock sanity: now_ms=19865977.139, after 50ms usleep=19866027.267, delta=50.128 ms [ok]
+    rknn_run     avg  55.859 ms  (98.3%)
+    NPU+dequant  avg  56.812 ms  -> 17.6 fps
+
+===== rknn_heatmap_smoke :: arm_t31_silu_int8 =====
+cmd: ./rknn_heatmap_smoke /root/hm_speed/arms/t31_silu_int8.rknn /root/hm_speed/feat.jpg --loops 30 --warmup 10 --stride 2 --tag arm_t31_silu_int8
+=====================================================================
+ RK3588 NPU -- Trial-0474 heatmap detector
+ model : /root/hm_speed/arms/t31_silu_int8.rknn
+ th=0.2500 stride=2 topk=100
+=====================================================================
+
+[1] model: 2956040 bytes, fnv1a32=aaf47f71
+[1] clock sanity: now_ms=19866632.493, after 50ms usleep=19866682.624, delta=50.132 ms [ok]
+[2] rknn_init ok
+    runtime api=2.3.0 (c949ad889d@2024-11-07T11:35:33) driver=0.9.8
+    n_input=1 n_output=2
+    input dims=[1,640,640,3] fmt=NHWC type=INT8
+    out[0] dims=[1,1,320,320] fmt=NCHW type=INT8 zp=-128 scale=0.00143805
+    out[1] dims=[1,2,320,320] fmt=NCHW type=INT8 zp=-117 scale=0.00867398
+    heatmap 320x320, offset 320x320, implied stride 2
+  letterbox 640x512 -> 640x640 (r=1.000000, pad l=0 t=64 r=0 b=64)
+[4] preprocess: 640x512 -> 640x640 uint8 NHWC in 0.45 ms, fnv1a32=b445bb37 (min=0 max=251)
+[5] null control (inverted input): heatmap cd0c7e75 -> 2c755dc5 CHANGED, offset a7b5ef65 -> 33cc8795 CHANGED
+[5] determinism: run#1=cd0c7e75 run#2=cd0c7e75 -> IDENTICAL
+
+--- feat.jpg  (src 640x512, hm max=0.366702, th=0.2500) ---
+    detections: 16
+      [ 0] centre_x= 433.076 centre_y= 345.006  score=0.366702
+      [ 1] centre_x= 435.076 centre_y= 345.006  score=0.366702
+      [ 2] centre_x= 437.076 centre_y= 345.006  score=0.366702
+      [ 3] centre_x= 439.076 centre_y= 345.006  score=0.366702
+      [ 4] centre_x= 433.076 centre_y= 347.006  score=0.366702
+      [ 5] centre_x= 435.076 centre_y= 347.006  score=0.366702
+      [ 6] centre_x= 437.076 centre_y= 347.006  score=0.366702
+      [ 7] centre_x= 439.076 centre_y= 347.006  score=0.366702
+      [ 8] centre_x= 433.076 centre_y= 349.006  score=0.366702
+      [ 9] centre_x= 435.076 centre_y= 349.006  score=0.366702
+      [10] centre_x= 437.076 centre_y= 349.006  score=0.366702
+      [11] centre_x= 439.076 centre_y= 349.006  score=0.366702
+      [12] centre_x= 433.076 centre_y= 351.006  score=0.366702
+      [13] centre_x= 435.076 centre_y= 351.006  score=0.366702
+      [14] centre_x= 437.076 centre_y= 351.006  score=0.366702
+      [15] centre_x= 439.076 centre_y= 351.006  score=0.366702
+
+[7] latency over 30 timed runs (full per-frame cost)
+    --- NPU stage ---
+    inputs_set   avg   0.244 ms
+    rknn_run     avg  19.629 ms  (95.5%)
+    outputs_get  avg   0.687 ms  (3.3%)   [1.2 MB of float32 tensors]
+    dequant      avg   0.000 ms  (0.0%)
+    --- host stage ---
+    stbi_load    avg   0.183 ms  (file read + BMP decode)
+    letterbox    avg   0.015 ms
+    minmax scan  avg   0.044 ms  (640*640*3 bytes)
+    extract_peaks avg   0.019 ms
+    det write    avg   0.000 ms  (incl. per-frame flush)
+    ---
+    NPU+dequant  avg  20.560 ms  -> 48.6 fps
+    + host       avg  20.822 ms  -> 48.0 fps   <-- real per-frame cost
+    host share       1.3% of the per-frame total
+=====================================================================
+--- exit=0 ---
+@@SUMMARY@@ arm_t31_silu_int8|rknn_run_avg_ms|19.629
+@@SUMMARY@@ arm_t31_silu_int8|npu_dequant_avg_ms|20.560
+@@SUMMARY@@ arm_t31_silu_int8|full_frame_avg_ms|20.822
+
+==================== session complete ====================
+results: /root/hm_speed/hm_speed_results.txt

@@ -213,6 +213,11 @@ int main(int argc, char** argv) {
     std::string det_out_override;
     float th = 0.25f;
     int stride = 2, top_k = 100, anchor_step = 10, limit = 0;
+    // late_upsample 原生网格复制倍数 L（P3=4）。L>1 时热图是原生网格的最近邻复制，
+    // 峰必须在原生网格上抽、且用 stride*L 解码，否则同一目标裂成 L^2 个候选（假阳洪泛）。
+    // 串行版 e2e_demo 早已支持，本版此前漏传 => 一律保持默认 1，必须由命令行显式给出。
+    int native_scale = 1;
+    double offset_scale = 1.0, offset_bias = 0.0;
     int npu_workers = 2;
     int no_det = 0;
     int want_hash = 1;
@@ -242,6 +247,9 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(a, "--fused"))    fused = need(argc, argv, i, a);
         else if (!std::strcmp(a, "--th"))       th = (float)std::atof(need(argc, argv, i, a));
         else if (!std::strcmp(a, "--stride"))   stride = std::atoi(need(argc, argv, i, a));
+        else if (!std::strcmp(a, "--native-scale")) native_scale = std::atoi(need(argc, argv, i, a));
+        else if (!std::strcmp(a, "--offset-scale")) offset_scale = std::atof(need(argc, argv, i, a));
+        else if (!std::strcmp(a, "--offset-bias"))  offset_bias = std::atof(need(argc, argv, i, a));
         else if (!std::strcmp(a, "--topk"))     top_k = std::atoi(need(argc, argv, i, a));
         else if (!std::strcmp(a, "--anchor-step")) anchor_step = std::atoi(need(argc, argv, i, a));
         else if (!std::strcmp(a, "--limit"))    limit = std::atoi(need(argc, argv, i, a));
@@ -315,6 +323,9 @@ int main(int argc, char** argv) {
         ips[k].th = th;
         ips[k].stride = stride;
         ips[k].top_k = top_k;
+        ips[k].native_scale = native_scale;
+        ips[k].offset_scale = offset_scale;
+        ips[k].offset_bias = offset_bias;
         ips[k].tag = sequence;
         ips[k].use_io_mem = (io_mem != 0);
         if (!no_det) {
