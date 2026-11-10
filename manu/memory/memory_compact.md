@@ -142,6 +142,47 @@ val3（11,810 帧）**F1 0.891676**（基准 A 0.897694，**ΔF1 −0.006018 / �
 - ⚠️ **「交付基线」≠「判门禁 frozen_baseline（trial_0474）」≠「RC2（带 GMC 擂主）」** ⇒ 见 rules.md 铁律〇之四。
 - 详情见 **§3.27** / 专题档 `manu/memory/nogmc_t3_20261103.md` **§3.9.12** / 主档 `manu/memory/memory.md` **§37**
 
+### 2.4 ⭐⭐⭐⭐ **当前交付件 = `trial_0031`（2026-11-10 14:57 定案）+ NanoBench 小目标召回口径**
+
+| 维度 | `trial_0031` |
+|:--|:--|
+| 结构 / 配方 | P3 / hc64 / silu / late_upsample(4×) / no_p2 / head_src=p3；init=`cs_t0043.pt`；**20 ep 但 sched-epochs 仅 5**（后 15 轮地板 LR）；warmup 1.5；lr_scale 3.5；mix w2.0；focal 2.75；ow 0.4；wd 2.69e-4；mosaic .15/scale .10/translate .05；clip 5.65；**train-on-native-grid 0 / min-radius 1** |
+| 交付权重 | `/mnt/data/siping/runs/npu20ms_seed2/trials/trial_0031/weights/epoch20.pt`（sha256 `c272bc4d…342bf5`） |
+| **板卡 int8** | **19.629 ms**（会话 19.705 / 19.629 互证）⇒ ≤20 ms 红线内 |
+| 官方三轨（GMC） | T1 **0.885997**（FP 1336）｜T2 **0.997531（FP 10）**｜T3 **0.948330**（FP 110） |
+| **NanoBench（no-GMC 8px）** | F1 **0.887122** ｜ nano **0.6666** ｜ micro 0.8370 ｜ small 0.8654 ｜ regular 0.9445 ｜ FP 1553；**4px 严格档 nano 0.6033** |
+
+**⭐ NanoBench（`manu/evaluation/tiny_target_subset.py`）= 专门测小目标召回的数据子集**（本轮被提升为**选型主判据**）：
+- T1 全量 **31,613 帧 / 25,111 GT**；分桶 GT = **nano 4,232 / micro 3,283 / small 11,796 / regular 5,800**。
+- **双容差**：**8px 主档**（对等线 nano **0.6666**）+ **4px 严格档**；匹配 = **中心欧氏距离**（**禁 IoU**）；尺寸按**物理像素**（**禁各向同性 ×640**）。
+- **语义 = no-GMC**；官方三轨 = **GMC** ⇒ **严禁混用、严禁互相引用数字**。
+- 两条参照：`base_frozen` F1 0.901312 / nano **0.6978**（板卡 **55.48 ms**）；`cs_t0043` 0.890972 / 0.6498。
+- **机理**：0031 nano@8px 0.6666 vs nano@4px 0.6033（**差 6.3 pp ⇒ P3/8 网格定位量化**）；
+  但 nano@8px 落后 base_frozen 的**主因是检出灵敏度**（T1 缺 **810 个**弱目标）⇒ **要"召回来"，不是"挪准"**。
+
+**🔴 三条必须记住的真相（2026-11-10 新发现）**：
+1. **0031 自己的官方门禁 verdict = FAIL**（`/mnt/data/siping/runs/npu20ms_offcal/gate/9031_official/gate_report.json`，
+   `veto_failures=['track1_uav']`；T1 绝对红线 **0.905736** vs 实测 **0.8859965** ⇒ Δ **−1.97 pp**）。
+   **真正给 0031 盖章的是 `dual_constraint_gate.py` 的 nano 对等线 0.6666** ⇒ 汇报时**必须同时报 gate 原始 verdict**。
+2. **参照系有两套，别混**：GMC（脚本默认，T1 ≥ 0.905736 / T2 FP ≤ 36）vs `reference_frame.json` 的 nogmc
+   （T1 ≥ 0.895897 / T2 FP ≤ 112）。训练脚本内部那次门禁用 **nogmc**，而 `nano_search.py` 的官方门禁用 **GMC**（与 0031 报告一致）✓。
+3. **NanoBench 有口径缺陷（暂不改，保持与 0031 可比）**：缓存 `gt_bboxes` 实为**原图像素**（cache/label 比值 w=640.000797、h=512.000236），
+   而 NanoBench 又把**高度 ×0.8** ⇒ **物理 nano 实为 14.64%**，参照卡写的 **16.85% 偏高 2.2 pp**、高度被低估 20%。
+
+**本轮新增资产（默认关 ⇒ 逐位不变，且带自检）**：`manu/models/heatmap_loss.py`（尺寸加权 focal）、
+`manu/training/optuna_mix_ratio_search.py`（`--size-weight-small/-large`、`--size-thr-px`、`--size-max-side-px`、`--lr-floor-ratio`）、
+`manu/pipeline/npu/nano_search.py`（Wave 驱动：训练→NanoBench→**按 nano 下限选 epoch**→官方门禁→导 rknn→一次板卡会话→联合门禁）、
+`manu/pipeline/npu/verify_size_weight.py`（逐位自检，服务器实跑 **ALL PASS**）。
+⚠️ 另修掉一个**死模型 bug**：`route2_acceptance.py` 原来把导出 `--act` **硬编码 relu** ⇒ silu 权重导 relu 图 ⇒ **F1 = 0.000000**（已修为跟随 ckpt 自描述）。
+**★ 方向一已落地：跨层高频残差注入（`hf_skip`）**（`manu/models/heatmap_model.py` 新增 `HighFreqSkip`）：
+浅层 b1(/4) 高频能量以 1 个窄通道压到**头网格**，**加性**注入 `head_in` 之后、`feat_conv` 之前 ⇒ 头张量形状不变（旧 ckpt 的头照常可加载）；
+`project` **零初始化** ⇒ 起点与原模型**逐位一致**；额外搬运 ≈ **2.04 MiB(int8)**，新增参数 129 个（+0.008%）。
+**已验证**：跨版本 12 组结构 `torch.equal` **12/12 逐位一致**；`manu/pipeline/npu/verify_hf_skip.py` 全绿；接线端到端 + ckpt 往返逐位一致。
+⚠️ **未上板实测**（增量 ms 与 rknn 编译都必须实测才算数）。详见主档 **§133**。
+详见主档 `manu/memory/memory.md` **§132** / `manu/memory/experiment_log_20261110.md`。
+
+---
+
 ---
 
 ## 3. 关键结论速查
@@ -1255,7 +1296,19 @@ GMC 11,810 入历史 → **7,169 组拟合** → 4,641 帧 opportunistic 跳过�
 | **SSHFS 代码镜像（写入即落服务器）** | `/home/manu/mnt/pycharm_project_10ae9e2e` |
 | 本地仓库 | `/media/manu/1TB-Volume/workspace/ultralytics`（本地只有 `python3`，3.14.4，无 pytest） |
 | 服务器 `/tmp` | ext4 `/dev/nvme0n1p2`（3.4T，**非 tmpfs**，重启不清空但写满会丢）⇒ 关键产物另存 `/mnt/data` |
-| **RK3588 板卡** | `ssh -p 22 root@192.168.0.64`（root 明文口令，**不得写入对外材料**） |
+| **RK3588 板卡** | `ssh -p 22 root@192.168.0.211`（**2026-11-10 换板**；root 明文口令，**不得写入对外材料**） |
+
+### 5.1b 🔴 RK3588 板卡换板换 IP（2026-11-10 17:35 实测）
+
+旧板 `root@192.168.0.64`（密码 `ematech`）**已 No route to host，作废**；新板 `root@192.168.0.211` 密码 `qwe123`。
+**新板不是同一块**：Orange Pi / **Debian 12** / 内核 `5.10.160-rockchip-rk3588` / **librknnrt 2.2.0**（旧板 2.3.0）/
+hostname `orangepicm5` / machine-id `09f263d632ef4a77a3b03a83fee822da` / 内存 7.8Gi / 根盘 28G。
+⇒ 旧卡的 `hm_speed` 边车、`rknn_yolo26n_smoke`、NFS 挂载**全没了**；**`/dev/rknpu*` 缺失**（设备树+dmesg 有 RKNPU，
+无设备节点）⇒ **新板当前跑不了 rknn 推理**。
+⚠️ host 上 **`sshpass` 未安装** ⇒ 用 `SSH_ASKPASS` + `setsid -w ssh`（脚本放 `/tmp`，不得进仓库）。
+⚠️ **host 侧 NFS 内核导出表是空的** ⇒ 板卡挂 NFS 前需 `sudo exportfs -ra`（sudo 需用户执行）。
+⚠️ **`manu/pipeline/npu/` 下 40 处脚本仍写死 `192.168.0.64`** ⇒ 改板后必然连不上，待处置（只改脚本、不改历史实验记录）。
+完整实测对照表 + 复现命令 ⇒ **`manu/memory/board_swap_20261110.md`**。
 
 ### 5.2 高频命令（**执行机：服务器**，项目目录 `/tmp/pycharm_project_10ae9e2e`）
 

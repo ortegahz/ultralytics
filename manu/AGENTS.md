@@ -57,7 +57,7 @@
 |:--|:--|
 | 训练/推理服务器 | `ssh -p 32222 huangzhe@192.168.99.40`（项目目录 `/tmp/pycharm_project_10ae9e2e`，conda env `uav`） |
 | SSHFS 代码镜像（**只读 ro**，写不进去，**不是推送通道**） | `/home/manu/mnt/pycharm_project_10ae9e2e` |
-| RK3588 板卡 | `ssh -p 22 root@192.168.0.64` |
+| RK3588 板卡 | `ssh -p 22 root@192.168.0.211`（**2026-11-10 换板**，旧 `192.168.0.64` 已作废；口令见 `manu/memory/rules.md` §1b，**不得写入对外材料**） |
 | 交叉编译器 | `/media/manu/1TB-Volume/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu`（前缀 `aarch64-rockchip-linux-gnu-`） |
 
 ### 4.1 算力归属 SOP（重活上服务器）

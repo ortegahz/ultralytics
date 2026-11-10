@@ -656,8 +656,17 @@
 - **远端项目代码目录**：`/tmp/pycharm_project_10ae9e2e`
 - **远端数据集根目录**：`/mnt/data/siping/datasets`（包含 `anti-uav`, `manu/uav_gmc_median` 等版本数据集）
 
-### 1b. RK3588 板卡连接与 NFS 挂载（2026-10-09 实物到手；**2026-10-12 挂载方向反转**）
-- **SSH 登录**：`ssh -p 22 root@192.168.0.64`，**密码 `ematech`**（root 账号、明文口令，不得写入任何对外汇报材料或代码仓库）
+### 1b. RK3588 板卡连接与 NFS 挂载（2026-10-09 实物到手；**2026-10-12 挂载方向反转**；**2026-11-10 换板换 IP**）
+- **SSH 登录**：`ssh -p 22 root@192.168.0.211`，**密码 `qwe123`**（root 账号、明文口令，不得写入任何对外汇报材料或代码仓库）
+  - 🔴 **2026-11-10 换板**：旧板 `root@192.168.0.64`（密码 `ematech`）已 **No route to host**，**作废**。
+    **新板不是同一块**（Orange Pi / Debian 12 / 内核 `5.10.160-rockchip-rk3588` / **librknnrt 2.2.0**，
+    hostname `orangepicm5`，内存 7.8Gi）⇒ **旧卡的 `hm_speed` 边车、`rknn_yolo26n_smoke`、NFS 挂载全部不在了**，
+    且 **`/dev/rknpu*` 缺失**（设备树与 dmesg 有 RKNPU，但无设备节点）⇒ 新板**当前跑不了 rknn 推理**。
+  - 完整实测对照表 + 复现命令 ⇒ **`manu/memory/board_swap_20261110.md`**（本节之后板卡事实的唯一权威来源）。
+  - ⚠️ host 上 **`sshpass` 未安装** ⇒ 口令登录用 `SSH_ASKPASS` + `setsid -w ssh`（`SSH_ASKPASS_REQUIRE=force`），
+    脚本放 `/tmp`（700），**不得进仓库**。
+  - ⚠️ **host 侧 NFS 内核导出表当前是空的**（`/etc/exports` 条目在、`nfs-server` active，但 `/proc/fs/nfsd/exports` 空）
+    ⇒ 板卡要挂 NFS 前必须先 `sudo exportfs -ra`（host 的 sudo 需用户执行）。
 
 #### 1b-0 🔥 当前拓扑：**板卡挂载 host**，用 host 存储资源（2026-10-12 反转；**2026-10-14 换导出目录**）
 
