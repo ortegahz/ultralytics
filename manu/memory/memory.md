@@ -358,7 +358,7 @@ python manu/evaluation/verify_delivery_evidence.py --server huangzhe@192.168.99.
 | 本地仓库 | `/media/manu/1TB-Volume/workspace/ultralytics` |
 | **服务器 `/tmp` 真实盘** | ext4 `/dev/nvme0n1p2`（3.4T，**非 tmpfs**）⇒ 服务器重启不清空；但写满会丢 ⇒ 关键产物必须另存 `/mnt/data` |
 | 持久盘 | `/mnt/data`（`/dev/sda`，7.4T） |
-| **RK3588 板卡** | `ssh -p 22 root@192.168.0.64`（root 明文口令，**不得写入对外材料**） |
+| **RK3588 板卡** | `ssh -p 22 root@192.168.0.211`（**2026-11-10 换板换 IP**，旧 `192.168.0.64` 已作废；root 明文口令，**不得写入对外材料**）—— 完整实测对照表见 `manu/memory/board_swap_20261110.md` |
 | 板卡 NFS（**2026-10-14 起唯一有效写法**，板卡挂 host） | `mount -t nfs 192.168.0.115:/run/media/manu/SSD960-LOCAL/nfs /mnt/manu -o nolock,soft,timeo=5,retrans=2` |
 | 交叉编译器 | `/media/manu/1TB-Volume/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu`（用 `aarch64-rockchip-linux-gnu-` 前缀，sysroot 在 `<TC>/aarch64-rockchip-linux-gnu/sysroot`，glibc 2.29） |
 | ⚠️ 交叉编译纪律 | **严禁 `-I/usr/include`**；`-ffp-contract=off` 与拒绝 fast-math 必须保留；sysroot 内**无 OpenCV/OpenCL** |
