@@ -593,6 +593,62 @@
   `run_overnight_eval.sh` 确定性三臂评测、`run_eval_perframe.sh` ★ 本轮 8 序列 per-frame+限幅评测）。
 - host 守卫：`manu/tracking/lookahead/host_guard.sh`（`start` / `status` / `stop`，默认 30 s 采样，峰值 <1% CPU）。
 
+### 15. 🔴🔴【核心铁律十五 · 2026-11-10 新增】**工程目录洁净：不需要跟踪的文件，严禁写入工程目录；IDE 产物同样适用**
+
+**背景（用户原话，2026-11-10）**：
+> 「把现在的 git ignore 整理一下，把不需要跟踪的文件加入 ignore，并把"不需要跟踪的文件，严禁写入工程目录"这一条加入 rule.md，作为铁律。」
+> 「我是用得 PyCharm IDE，对应的 ignore 文件也要写。」「这个也要写到 rule 里面。」
+
+**铁律正文**：
+
+1. **判定标准——什么算「不需要跟踪」**（边界必须清楚，否则会误删交付证据）：
+
+   | 类别 | 例子 | 是否入库 |
+   |:--|:--|:--:|
+   | 源码 / 配置 / 文档 | `*.py` `*.sh` `*.cpp` `*.md` `*.yaml` | ✅ 必须入库 |
+   | **小体积可审计证据文本** | 板卡会话原始输出（十几 KB/份）、门禁 JSON 报告 | ✅ 入库（是交付数字的**可核对凭据**） |
+   | 模型权重 / 导出 / 量化产物 | `*.pt` `*.pth` `*.onnx` `*.rknn` `*.tflite` `*.bin` `*.safetensors` | ❌ **禁止入工程目录** |
+   | 数据缓存 | `*.pkl` `*.npy` `*.npz` | ❌ **禁止入工程目录** |
+   | 运行日志 | `*.log` `logs/` | ❌ **禁止入工程目录** |
+   | 编译 / 构建中间物 | `*.o` `*.a` `build/` `cmake-build-*/` | ❌ **禁止入工程目录** |
+   | 训练与评测输出目录 | `runs/` `out/` `outputs/` `artifacts/` | ❌ **禁止入工程目录** |
+   | **IDE 产物（本团队 IDE = PyCharm）** | `.idea/` `*.iml` `out/`（PyCharm 编译输出）`*.iws` `*.ipr` `.idea/**/shelf/` `.idea/httpRequests/` `.idea/dictionaries/` | ❌ **禁止入工程目录** |
+
+2. **落盘位置约定（产物一律出工程目录）**：
+
+   - 服务器产物 → `/mnt/data/siping/runs/<任务名>/...`（canonical 位置）
+   - 本机产物 → `/media/manu/1TB-Volume/workspace/_artifacts/<仓库名>/...`（**在仓库之外**，不污染任何 repo）
+   - 工程目录内**只允许**出现：源码、配置、文档、小体积证据文本。
+
+3. **脚本必须显式指定输出目录，不得依赖 CWD**：
+   凡会落盘的脚本（ONNX 导出 / rknn 转换 / 缓存重建 / 训练 / 评测），**必须把输出写到上面的产物目录**；
+   禁止「默认写当前工作目录」这种隐式行为——**当前工作目录常常就是 git 仓库根**。
+
+4. **`.gitignore` 必须覆盖上表全部扩展名与目录**；新增产物类型时**同步补 `.gitignore` 并验证**：
+
+   ```bash
+   # 验证新规则生效，且未误伤已跟踪文件（后者必须为空）
+   git check-ignore -v <新产物>
+   git ls-files | git check-ignore --stdin      # 必须无输出
+   ```
+
+5. **按团队实际使用的 IDE 补齐忽略项**（本团队 = **PyCharm**）：
+   IDE 会在工程目录里落 `.idea/`、`*.iml`、模块编译输出 `out/` 等，**这些同样是「不需要跟踪的文件」**，
+   必须进 `.gitignore`，且**不得因为「IDE 自动生成」就默认入库**。
+   换 IDE / 新增插件产物类型时，同步补 `.gitignore` 并在汇报里说明。
+
+6. **禁止 `git add -f` 强行纳入**大件产物；确需入库的（如基线权重、交付件权重副本）必须**用户显式批准**并写明理由。
+
+**本条铁律的实测事故（2026-11-10，本地实测）**：
+
+- ONNX 导出脚本把 **4 个中间检查文件**（`check0_base_optimize.onnx` / `check1_fold_constant.onnx` /
+  `check2_correct_ops.onnx` / `check3_fuse_ops.onnx`，**各 9.8 MB、合计 38 MB**）写在**仓库根**（= CWD）。
+  ⇒ 处置：**移出**（`mv`）至 `_artifacts/ultralytics/onnx_check/`；
+  `.gitignore` 补 `/check*.onnx` 等 5 条根级规则，并加注释说明「导出脚本默认写 CWD」。
+- 同类隐患仍在代码里（导出/转换脚本的默认 `--out` 落到 CWD）⇒ **下次改这些脚本时必须顺手把默认输出改到产物目录**。
+
+**配套**：`.gitignore` 段「本工程补充（2026-11-10 · 工程目录洁净）」——含判定标准注释、落盘位置约定与 PyCharm 专项块。
+
 ## 二、远程服务器集群与挂载环境配置 (Server & Mount Config)
 
 ### 1. 训练/推理服务器连接信息

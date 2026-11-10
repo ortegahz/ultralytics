@@ -244,3 +244,71 @@ runs/
 manu/pipeline/npu/board/scratch/*.txt
 manu/pipeline/npu/board/scratch/*.json
 
+
+# --------------------------------------------------------------------------------------
+# 本工程补充（2026-11-10 · 工程目录洁净 · 配套 rules.md「核心铁律十五」）
+# --------------------------------------------------------------------------------------
+# 判定标准（一句话）：
+#   **可复现的大件产物（模型 / 导出 / 量化 / 缓存 / 日志 / 构建产物）一律出工程目录；
+#     仓库只留「源码 + 文档 + 小体积可审计证据文本」。**
+# 产物落盘位置：
+#   服务器  /mnt/data/siping/runs/<任务>/...
+#   本机    /media/manu/1TB-Volume/workspace/_artifacts/<仓库名>/...
+# （已跟踪文件不受影响；本节只挡未来新增）
+
+# ① 模型权重 / 导出 / 量化 / 数据缓存产物（*.pt|*.onnx|*.rknn|*.tflite 上文已覆盖）
+*.pth
+*.safetensors
+*.engine
+*.bin
+*.npy
+*.npz
+*.pkl
+*.tar.gz
+
+# ② ONNX 导出/转换的**中间检查文件**（导出脚本默认写 CWD ⇒ 严禁落在仓库根）
+/check*.onnx
+/*_optimize.onnx
+/*_fold_constant.onnx
+/*_correct_ops.onnx
+/*_fuse_ops.onnx
+
+# ③ 运行日志与临时输出目录
+*.log
+logs/
+/out/
+/output/
+/outputs/
+/artifacts/
+/tmp/
+
+# ④ 编译 / 构建中间物（*.so|build/ 上文已覆盖）
+*.o
+*.a
+*.d
+manu/pipeline/cpp/cmake-build-*/
+manu/pipeline/npu/.demo-build*/
+
+# ⑤ 编辑器 / 工具缓存（.idea|.codex|.minimax|.ruff_cache|.pytest_cache|__pycache__ 上文已覆盖）
+.vscode/
+*.swp
+*.swo
+
+# ⑤-1 PyCharm / IntelliJ（本团队主力 IDE = PyCharm）
+#      .idea/ 与 *.iml 上文已覆盖；这里补齐 PyCharm 其它落盘物，避免 IDE 把工程目录污染。
+#      ⚠️ gitignore **不支持行尾注释**（`out/  # xxx` 会被当成字面模式）⇒ 注释必须独占一行。
+out/
+*.iws
+*.ipr
+.idea/**/shelf/
+.idea/httpRequests/
+.idea/dictionaries/
+# out/       = PyCharm 编译输出（<module>/out/）
+# *.iws/*.ipr = IntelliJ workspace / project
+# .idea/**/shelf/ = 本地未提交改动的暂存区
+# .idea/httpRequests/ = HTTP client 的私有配置（含本机路径）
+# .idea/dictionaries/ = 用户自定义拼写词典
+
+# ⑥ 说明：
+#   manu/pipeline/npu/board_sessions/ **保留跟踪** —— 板卡会话原始输出（十几 KB 级文本），
+#   是交付文档里延迟/虚警数字的**可审计证据**；大体积同类产物请放 _artifacts/ 或服务器。

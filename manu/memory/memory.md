@@ -12633,3 +12633,40 @@ inbox 匹配，阈值取扫阈值 F1 最优点，**sequence 作用域**判孤立
 若 **nano ≥ 0.6978 是硬指标**：真实代价 = 55.48 ms + P0(+17.13 ms，≤30 ms 内不可得) + 3 轮全退火 + UAV 单域
 ⇒ 只能另立路线：**双模型 ROI**（0031 打主体 + 局部 P1 精修，预计 12~15 ms）或**分档出图**（远距小目标单独一支）。
 ⇒ **不在「裁减通道」上继续微调**（已被 12 条臂实测否证）。
+
+---
+
+## 131. ★★★ 工程目录洁净铁律落地（2026-11-10 15:20，用户指示）
+
+### 131.1 用户指示（原文）
+> 「把现在的 git ignore 整理一下，把不需要跟踪的文件加入 ignore，并把"不需要跟踪的文件，严禁写入工程目录"这一条加入 rule.md，作为铁律。」
+> 「我是用得 PyCharm IDE，对应的 ignore 文件也要写。」「这个也要写到 rule 里面。」
+
+### 131.2 ✅ 落地内容
+1. **rules.md 新增 `### 15. 🔴🔴【核心铁律十五 · 2026-11-10 新增】工程目录洁净`**（一、核心铁律 末尾，596 行）：
+   - 判定标准表（源码/文档/小证据 **入库** vs 权重/导出/缓存/日志/构建物/训练产物/**IDE 产物** **禁止入工程目录**）
+   - 落盘位置约定：服务器 `/mnt/data/siping/runs/<任务>/…`；本机 `/media/manu/1TB-Volume/workspace/_artifacts/<仓库>/…`
+   - 脚本必须显式指定输出目录，**不得依赖 CWD**（CWD 常就是仓库根）
+   - `.gitignore` 必须全覆盖 + 验证命令（`git check-ignore -v` 与 `git ls-files | git check-ignore --stdin` 须为空）
+   - **按团队实际 IDE（PyCharm）补齐忽略项**，不得因「IDE 自动生成」就默认入库
+   - 禁止 `git add -f` 强纳大件产物
+   - 附 2026-11-10 实测事故：ONNX 导出脚本把 4 个 check*.onnx（各 9.8 MB / 合计 38 MB）写在**仓库根**
+2. **.gitignore 新增段「本工程补充（2026-11-10 · 工程目录洁净）」**：
+   - ① 权重/导出/量化/缓存：`*.pth *.safetensors *.engine *.bin *.npy *.npz *.pkl *.tar.gz`（`*.pt *.onnx *.rknn *.tflite` 上文已有）
+   - ② 导出中间检查文件（禁落仓库根）：`/check*.onnx` `/*_optimize.onnx` `/*_fold_constant.onnx` `/*_correct_ops.onnx` `/*_fuse_ops.onnx`
+   - ③ 日志与临时输出：`*.log` `logs/` `/out/` `/output/` `/outputs/` `/artifacts/` `/tmp/`
+   - ④ 编译中间物：`*.o *.a *.d` `manu/pipeline/cpp/cmake-build-*/` `manu/pipeline/npu/.demo-build*/`
+   - ⑤-1 **PyCharm / IntelliJ**：`out/` `*.iws` `*.ipr` `.idea/**/shelf/` `.idea/httpRequests/` `.idea/dictionaries/`
+     （`.idea` 与 `*.iml` 上文已有）
+   - ⑥ 说明：`manu/pipeline/npu/board_sessions/` **保留跟踪**（十几 KB 级文本 = 交付数字的可核对凭据）
+3. **实测清理**：4 个 `check*.onnx`（38 MB）已**移出**工程目录 → `/media/manu/1TB-Volume/workspace/_artifacts/ultralytics/onnx_check/`
+   ⇒ **仓库根已无任何 onnx**；服务器仓库根实测 `*.onnx` 计数 = 0 ✓
+4. **同步**：`.gitignore`（md5 `b7d22c48…`）与 `rules.md`（md5 `b6089960…`）本地 = 服务器逐位一致 ✓
+
+### 131.3 ★★ 踩坑记录：**gitignore 不支持行尾注释**
+- 我第一版把 PyCharm 规则写成 `out/                   # PyCharm 编译输出` ⇒ **git 把整行（含注释文字）当成字面模式**
+  ⇒ 6 条规则**全部静默失效**（`git check-ignore` 一条都不命中）。
+- ⇒ **铁律化**：`.gitignore` 里 **注释必须独占一行**；改完必须用 `git check-ignore -v <样例路径>` **逐条验证**，
+  并用 `git ls-files | git check-ignore --stdin`（**必须无输出**）确认未误伤已跟踪文件。
+- ⇒ 同批还修了 **rules.md 编号撞车**：文档里第五节已有一条「核心铁律十四」（2026-11-03 跨机托管会话），
+  本条原拟用「十四」会让人查错 ⇒ 改为 **核心铁律十五**（一、核心铁律 内唯一），并同步修正 .gitignore 里的交叉引用。
