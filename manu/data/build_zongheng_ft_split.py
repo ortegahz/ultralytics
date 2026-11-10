@@ -301,9 +301,14 @@ def build_manifest(
                     "th=0.20 ⇒ Recall 93.91%/F1 91.98%/FAR 0.0830（虚警 4.7 倍）。"
                     "半径 128⇒F1 93.92%、64⇒93.86%，均不如 768。"
                 ),
-                "tracking": False,
+                "tracking": tracking,
                 "note": (
-                    "本域只用单帧检测（无 track），与用户要求一致。"
+                    (
+                        "本档带**龙泉山时空轨迹后处理**（双向跟踪器 + 时序平滑/插补 + 连续帧确认），"
+                        "画的是**最终系统检出**（含插补帧），不是原始单帧候选。"
+                        if tracking
+                        else "本域只用单帧检测（无 track）。"
+                    )
                     + (
                         ""
                         if abs(threshold - 0.44) < 1e-9
@@ -392,12 +397,22 @@ def write_review_sheet(path: Path, manifest: dict) -> None:
     groups = manifest["groups"]
     point = manifest["baseline_reference"]["operating_point"]
     threshold = point.get("threshold")
-    tier = "交付档（th=0.44，F1 最优、虚警最少）" if abs(float(threshold) - 0.44) < 1e-9 else (
-        f"敏感档（th={threshold}，召回优先、虚警更多）—— **仅供人工复核/标注播种，交付结论仍以 th=0.44 档为准**"
-    )
+    tracked = bool(point.get("tracking"))
+    if tracked:
+        tier = (
+            f"**时空轨迹档**（th={threshold}，带龙泉山双向跟踪 + 平滑/插补 + 连续帧确认，"
+            "画的是最终系统检出）"
+        )
+    elif abs(float(threshold) - 0.44) < 1e-9:
+        tier = "交付档（th=0.44，F1 最优、虚警最少）"
+    else:
+        tier = (
+            f"敏感档（th={threshold}，召回优先、虚警更多）—— "
+            "**仅供人工复核/标注播种，交付结论仍以 th=0.44 档为准**"
+        )
     lines = [
         "# pass",
-        "# 人工复核底稿 —— 纵横AI数据采集（RC2 单帧多尺度，中心点 OSD）",
+        "# 人工复核底稿 —— 纵横AI数据采集（RC2 多尺度，中心点 OSD）",
         f"# 工作点档位：{tier}",
         "# 复核对象（OSD 视频在 OSD_DIR 下）：",
         "#   /mnt/data/siping/datasets/manu/纵横AI数据采集_osd_rc2_<档位>/<下面给的 OSD 文件名>",
@@ -432,15 +447,17 @@ def main() -> None:
         raise SystemExit("no frames were read -- check --frames-dir / --frames-jsonl")
 
     # The operating point is read back from the render's own summary rather than hardcoded:
-    # there are two working points (th=0.44 delivery / th=0.20 sensitive) and a manifest that
-    # misreports its threshold would silently attribute one tier's numbers to the other.
+    # there are several working points (th=0.44 delivery / th=0.20 sensitive / the tracked tier) and a
+    # manifest that misreports its threshold would silently attribute one tier's numbers to another.
     threshold, merge_radius = 0.44, 768.0
+    tracking = False
     for summary_path in sorted(Path(args.frames_dir).parent.glob("summary_shard*.json")) if args.frames_dir else []:
         config = json.loads(summary_path.read_text(encoding="utf-8")).get("config", {})
         threshold = float(config.get("threshold", threshold))
         merge_radius = float(config.get("merge_radius", merge_radius))
+        tracking = bool(config.get("tracking", tracking))
         break
-    print(f"[INFO] operating point from render summary: th={threshold} r={merge_radius}px")
+    print(f"[INFO] operating point from render summary: th={threshold} r={merge_radius}px tracking={tracking}")
 
     manifest = build_manifest(sequences, args, threshold=threshold, merge_radius=merge_radius)
     out = Path(args.out)
