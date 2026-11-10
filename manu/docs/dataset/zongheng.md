@@ -20,15 +20,42 @@
 
 ## 2. 模型与工作点
 
-本域**跑了两档**，产物分目录存放、互不覆盖：
+本域跑了**三档**，产物分目录存放、互不覆盖：
 
-| 档位 | th | 用途 | 龙泉山实测 Recall / Prec / F1 / FAR |
-|:--|:--|:--|:--|
-| **交付档** | **0.44** | 看**最终结论**、评估上线质量 | 90.74% / 97.65% / **94.07%** / **0.0176** |
-| **敏感档** | **0.20** | 人工评估 / 标注播种（把弱目标候选也捞出来） | **93.91%** / 90.13% / 91.98% / 0.0830 |
+| 档位 | th | 后处理 | 用途 | 龙泉山实测 Recall / Prec / F1 / FAR |
+|:--|:--|:--|:--|:--|
+| **交付档** | **0.44** | 单帧 | 看**最终结论**、评估上线质量 | 90.74% / 97.65% / **94.07%** / **0.0176** |
+| **敏感档** | **0.20** | 单帧 | 人工评估 / 标注播种（弱目标也捞出来） | **93.91%** / 90.13% / 91.98% / 0.0830 |
+| **时空轨迹档** | **0.20** | **龙泉山时空轨迹** | 参照龙泉山业务域处理，断续检出连成轨迹 | 同上阈值，后处理另算 |
 
-🔴 **0.20 档不能当交付档**：FAR 0.0830 已越过业务域交付上限 0.030（虚警 4.7 倍）。
+🔴 **0.20 档不能当交付档**：FAR 0.0830 是 0.44 档的 4.7 倍，已越过业务域交付上限 0.030。
 **交付结论仍以 0.44 档为准**；0.20 档只是复核/预标注的工作档。
+
+### 2.1 时空轨迹档的后处理链
+
+直接复用龙泉山代码，不重写：
+
+```
+多尺度逐尺度行 → 跨尺度合并(r=768) → OnlineAdaptiveTracker（双向跟踪，天/地区分阈值）
+→ BidirectionalTemporalSmoother（拼接 / 插补 / 刚性静态剪枝 / 悬停锁定）
+→ 连续帧确认(confirm_consec=7) → 每个最终系统检出画一个红圈 + T<id>:<score>
+```
+
+轨迹参数**从龙泉山 RC2 交付点 v3 文件读回**
+（`manu/evaluation/system_sota_longquan_trial0080_delivery_v3_params.json`），不复制到本仓库，
+避免与交付臂漂移。
+
+🔴 **本域无 GT，所以有两个坑**（都已在代码里处理）：
+
+1. **跟踪器不需要 GT**（GT 只用于打分与补齐空帧），但龙泉山的 `make_records` 用
+   「候选帧 ∪ GT 帧」定帧集 ⇒ 无 GT 时**空帧被整帧删除** ⇒ tracker 的帧索引被压扁 ⇒
+   `max_age` / `min_hits` / `confirm_consec` 全部失真。
+   ⇒ 本实现按 cache meta 的 `frames` **补齐完整时间轴**。
+2. **刚性静态剪枝会杀掉静止目标**（净位移 < 2 px 且位置方差小 ⇒ 判为「冻结坏点/静态反光」）。
+   龙泉山本意就是去掉静态反光，但**静止悬停的真目标**也会被同样剪掉。
+   ⇒ 最终清单会单独列出「跟踪后 0 轨迹」的序列，供人工判断。
+
+### 2.2 三档共用
 
 | 项 | 值 | 依据 |
 |:--|:--|:--|
@@ -37,7 +64,7 @@
 | 结构自描述 | `head_conv=64`、`late_upsample=False` 走 ckpt 自带字段 | 漏传就重建出另一张图（§80「hc32 死模型」事故根因） |
 | 尺度 | native 640 + 160 + 80 | 与龙泉山 RC2 缓存一致 |
 | 跨尺度合并半径 | **768 px**（原生像素） | 实测最优；128⇒93.923%、64⇒93.857% 都更差 |
-| 跟踪 | **无**（每帧独立打分） | 用户要求 |
+| 跟踪 | 前两档**无**（每帧独立打分）；第三档**有** | 用户要求 |
 
 工作点是**测出来的**，不是拍的（`manu/evaluation/probe_rc2_threshold_table.py`，CPU-only，
 复用交付评估代码 ⇒ 数值与交付臂一致）。完整档位对照：
@@ -61,14 +88,14 @@
 
 | 产物 | 路径 | 说明 |
 |:--|:--|:--|
-| **交付档 OSD**（th=0.44） | `/mnt/data/siping/datasets/manu/纵横AI数据采集_osd_rc2_20261109/` | 58 条，1920×1080，左主画面 + 右 48px 局部放大 |
-| **敏感档 OSD**（th=0.20） | `/mnt/data/siping/datasets/manu/纵横AI数据采集_osd_rc2_th020_20261109/` | 同上，**召回更高、虚警更多** |
-| 每帧检测记录 | 各自目录下的 `frames/<SEQ>.jsonl` | 每帧一行：`{sequence, video, frame, detections:[{cx, cy, w, h, score}]}`，**原生 640×512 像素** |
-| 分片统计 | 各自目录下的 `summary_shard{0..3}.json` | 每条序列的帧数 / 检出帧数 / 检出数 / 首末检出帧 |
-| 序列划分（交付档） | `manu/data/zongheng_ft_split.json` | 见 §4 |
-| 序列划分（敏感档） | `manu/data/zongheng_ft_split_th020.json` | 同结构，按 0.20 档的覆盖率分桶 |
-| 人工复核底稿 | `manu/docs/dataset/zongheng-tk.md` / `zongheng-tk-th020.md` | `# pass` / `# unpass` 格式，同 `long-quan-tk.md` |
-| 标注候选 | `.../纵横AI数据采集_preannot_rc2` / `..._preannot_rc2_th020` | web 标注器原生布局 `<SEQ>/<帧号>.txt` + `<SEQ>/scores.json` |
+| **交付档 OSD**（th=0.44，单帧） | `/mnt/data/siping/datasets/manu/纵横AI数据采集_osd_rc2_20261109/` | 58 条，1920×1080，左主画面 + 右 48px 局部放大 |
+| **敏感档 OSD**（th=0.20，单帧） | `/mnt/data/siping/datasets/manu/纵横AI数据采集_osd_rc2_th020_20261109/` | 同上，**召回更高、虚警更多** |
+| **时空轨迹档 OSD**（th=0.20，带跟踪） | `/mnt/data/siping/datasets/manu/纵横AI数据采集_osd_rc2_tracked_th020_20261110/` | 同上，画的是**最终系统检出**（红圈 + `T<id>:<score>`，插补帧标 `Infill`） |
+| 每帧检测记录 | 各自目录下的 `frames/<SEQ>.jsonl` | 每帧一行：`{sequence, video, frame, detections:[{cx, cy, w, h, score}]}`（跟踪档只有 cx/cy/score + track_id），**原生 640×512 像素** |
+| 分片统计 | 各自目录下的 `summary_shard{0..3}.json` | 每条序列的帧数 / 检出帧数 / 检出数 |
+| 序列划分 | `manu/data/zongheng_ft_split{,_th020,_tracked}.json` | 见 §4 |
+| 人工复核底稿 | `manu/docs/dataset/zongheng-tk{,-th020,-tracked}.md` | `# pass` / `# unpass` 格式，同 `long-quan-tk.md` |
+| 标注候选 | `.../纵横AI数据采集_preannot_rc2{,_th020,_tracked}` | web 标注器原生布局 `<SEQ>/<帧号>.txt` + `<SEQ>/scores.json` |
 
 **旧 OSD `/mnt/data/siping/datasets/manu/纵横AI数据采集_osd`（trial_0474 时代）保持不动**，新产物一律进新目录。
 
