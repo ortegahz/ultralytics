@@ -101,6 +101,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--full-height", type=int, default=1080)
     parser.add_argument("--min-visible", type=float, default=0.10, help="Minimum visible fraction of a proposal")
     parser.add_argument(
+        "--default-box-size",
+        type=float,
+        default=12.0,
+        help=(
+            "Side length in native pixels used when a record carries no size. The tracked tier stores only "
+            "the centre and the score (the tracker carries positions, not boxes), so the proposals need a "
+            "placeholder box; the human resizes it in the annotator anyway."
+        ),
+    )
+    parser.add_argument(
         "--min-score",
         type=float,
         default=0.0,
@@ -158,8 +168,14 @@ def main() -> None:
                 for item in detections:
                     cx = float(item["cx"]) * scale_x + offset_x
                     cy = float(item["cy"]) * scale_y + offset_y
-                    bw = float(item["w"]) * scale_x
-                    bh = float(item["h"]) * scale_y
+                    # The tracked tier stores centre + score only (the tracker carries positions, not
+                    # boxes) => fall back to a placeholder box instead of dropping the proposal.
+                    bw = float(item.get("w", args.default_box_size)) * scale_x
+                    bh = float(item.get("h", args.default_box_size)) * scale_y
+                    if bw <= 0:
+                        bw = args.default_box_size * scale_x
+                    if bh <= 0:
+                        bh = args.default_box_size * scale_y
                     boxes.append(
                         {
                             "cls": 0,
