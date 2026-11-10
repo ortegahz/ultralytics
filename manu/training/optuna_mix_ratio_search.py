@@ -835,6 +835,15 @@ def run_worker() -> int:
     ap.add_argument("--unfreeze-b0b4", type=int, default=0, help="1=解冻底模 b0..b4（all-relu 必须）")
     ap.add_argument("--p2-out-scale", type=float, default=1.0,
                     help="P2 融合级输出通道缩放（1.0/0.75/0.5）⇒ 直接砍 160x160 搬运量")
+    # ---- 跨层高频残差注入（hf_skip，2026-11-10 方向一）----
+    # 浅层高频能量以 1~2 个窄通道压到**头网格**，加性注入 head 输入（head_in 之后、feat_conv 之前）
+    # ⇒ 头张量形状不变 ⇒ 旧 ckpt 的头照常可加载；project 零初始化 ⇒ 起点与原模型逐位一致。
+    ap.add_argument("--hf-skip", type=int, default=0,
+                    help="1=开启跨层高频残差注入侧枝（默认关 ⇒ 与原模型逐位一致）")
+    ap.add_argument("--hf-skip-src", default="b1", choices=["b0", "b1"],
+                    help="侧枝取数点：b1=骨干/4 的 160x160（默认，搬运量减半）/ b0=骨干/2 的 320x320")
+    ap.add_argument("--hf-skip-channels", type=int, default=1, choices=[1, 2],
+                    help="侧枝窄通道数（1 或 2）")
     ap.add_argument("--head-src", default="", choices=["", "p1", "p2_raw", "p2_fused", "p3"],
                     help="头吃哪一级：p1=320(现状) / p2_raw=骨干/4(已证伪) / p2_fused=结构B(160融合后) / p3=结构A(80)")
     ap.add_argument("--head-seed", type=int, default=0,
@@ -889,6 +898,38 @@ def run_worker() -> int:
         help="参照系包 JSON（可选）。换特征语义（如 no-GMC）时用："
              "里面给出 frozen_baseline / rc1 / gate 阈值 / gate_base，"
              "以免拿 GMC 语义的基线去判新语义模型。**不传 ⇒ 全部用模块常量，行为与旧版逐位一致**。",
+    )
+    # ---- 方向三：训练动力学靶向搜索（尺寸加权 / 学习率保底）----
+    ap.add_argument(
+        "--size-weight-small", type=float, default=1.0,
+        help="微小目标（nano：最长边 ≤ --size-max-side-px px 或 面积 ≤ --size-thr-px px²）"
+             "的 focal 正样本权重。1.0 = 不加权（默认 ⇒ 与旧版逐位一致）。",
+    )
+    ap.add_argument(
+        "--size-weight-large", type=float, default=1.0,
+        help="其余目标的 focal 正样本权重。1.0 = 不加权（默认 ⇒ 与旧版逐位一致）。",
+    )
+    ap.add_argument(
+        "--size-thr-px", type=float, default=16.0,
+        help="微小目标的面积阈值（px²，物理像素）。与 NanoBench 的 nano 桶口径一致（16.0）。",
+    )
+    ap.add_argument(
+        "--size-max-side-px", type=float, default=4.0,
+        help="微小目标的最长边阈值（px，物理像素）。与 NanoBench 的 nano 桶口径一致（4.0）。",
+    )
+    ap.add_argument(
+        "--size-img-w", type=float, default=640.0,
+        help="原始图像宽度（px），用于把归一化框换算成物理像素尺寸。",
+    )
+    ap.add_argument(
+        "--size-img-h", type=float, default=512.0,
+        help="原始图像高度（px），用于把归一化框换算成物理像素尺寸。",
+    )
+    ap.add_argument(
+        "--lr-floor-ratio", type=float, default=0.0,
+        help="学习率保底：相对各参数组峰值 lr 的下限比例（0=关闭 ⇒ 沿用绝对下限 "
+             "ROUTE_B_DEFAULTS['lr_min']=1e-6，行为逐位一致）。"
+             "例如 0.10 = 退火到底也保留峰值的 10% ⇒ 阻止卷积核退化为低通平滑。",
     )
     args = ap.parse_args()
 
@@ -949,6 +990,9 @@ def run_worker() -> int:
         late_upsample=bool(args.late_upsample),
         head_src=str(args.head_src),
         p2_out_scale=float(args.p2_out_scale),
+        hf_skip=bool(getattr(args, "hf_skip", 0)),
+        hf_skip_src=str(getattr(args, "hf_skip_src", "b1") or "b1"),
+        hf_skip_channels=int(getattr(args, "hf_skip_channels", 1) or 1),
         offset_init=str(getattr(args, "offset_init", "keep") or "keep"),
         offset_init_weights=str(getattr(args, "offset_init_weights", "") or ""),
         head_init=str(getattr(args, "head_init", "reset") or "reset"),
@@ -1150,6 +1194,10 @@ def run_worker() -> int:
 
     def make_lambda(base_lr: float):
         floor_ratio = min(1.0, ROUTE_B_DEFAULTS["lr_min"] / base_lr) if base_lr > 0 else 0.0
+        # ★ 学习率保底（方向三）：相对**峰值 lr** 的比例下限。
+        #   0 = 关闭 ⇒ 与历史逐位一致（沿用绝对下限 lr_min）。
+        if args.lr_floor_ratio > 0.0:
+            floor_ratio = max(floor_ratio, min(1.0, float(args.lr_floor_ratio)))
 
         def fn(step: int) -> float:
             if step < warmup_steps:
@@ -1166,7 +1214,9 @@ def run_worker() -> int:
     print(f"[SCHED] 训练 {args.epochs} ep（{total_steps} 步）| warmup {warmup_steps} 步"
           f"（{args.warmup_epochs} ep）| cosine 周期 {sched_epochs} ep（{sched_total_steps} 步）"
           f" → {ROUTE_B_DEFAULTS['lr_min']:.0e}"
-          f"{'  ← 与 RC1 同口径' if sched_epochs != args.epochs else ''}", flush=True)
+          f"{'  ← 与 RC1 同口径' if sched_epochs != args.epochs else ''}"
+          f"{'  | ★LR 保底 = 峰值的 %.1f%%' % (args.lr_floor_ratio * 100) if args.lr_floor_ratio > 0 else ''}",
+          flush=True)
 
     criterion = HeatmapLoss(
         hm_weight=1.0, offset_weight=args.offset_weight, focal_alpha=2.0, focal_beta=args.focal_beta
@@ -1228,6 +1278,12 @@ def run_worker() -> int:
                 batch_bboxes=bboxes, batch_idx=b_idx, batch_size=bs,
                 feat_shape=(loss_feat_h, loss_feat_w), stride=loss_stride,
                 min_radius=args.min_radius, device=device,
+                size_weight_small=args.size_weight_small,
+                size_weight_large=args.size_weight_large,
+                size_thr_px=args.size_thr_px,
+                size_max_side_px=args.size_max_side_px,
+                img_w=args.size_img_w,
+                img_h=args.size_img_h,
             )
             optimizer.zero_grad(set_to_none=True)
             with autocast(enabled=True):
@@ -1308,6 +1364,9 @@ def run_worker() -> int:
                 "late_upsample": bool(args.late_upsample),
                 "head_src": str(args.head_src),
                 "p2_out_scale": float(args.p2_out_scale),
+                "hf_skip": bool(getattr(args, "hf_skip", 0)),
+                "hf_skip_src": str(getattr(args, "hf_skip_src", "b1") or "b1"),
+                "hf_skip_channels": int(getattr(args, "hf_skip_channels", 1) or 1),
                 "imgsz": args.imgsz,
                 "p0_kwargs": p0_kwargs,
                 "optimizer": optimizer.state_dict(),
@@ -1420,6 +1479,11 @@ def run_worker() -> int:
         "train_epochs": args.epochs,
         "gate_epoch": gate_epoch,
         "sched_epochs": sched_epochs,
+        "size_weight_small": args.size_weight_small,
+        "size_weight_large": args.size_weight_large,
+        "size_thr_px": args.size_thr_px,
+        "size_max_side_px": args.size_max_side_px,
+        "lr_floor_ratio": args.lr_floor_ratio,
         "init_key": args.init_key,
         "init_weights": str(resolve_weights(args.weights)),
         "backbone_lr_scale": args.backbone_lr_scale,

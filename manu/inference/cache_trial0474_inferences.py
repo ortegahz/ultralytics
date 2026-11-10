@@ -189,6 +189,10 @@ def main():
     late_upsample = bool(ckpt.get("late_upsample", False))
     head_src = str(ckpt.get("head_src", "") or "")
     p2_out_scale = float(ckpt.get("p2_out_scale", 1.0) or 1.0)
+    # ---- 跨层高频残差注入（hf_skip）自描述（2026-11-10 方向一）----
+    hf_skip = bool(ckpt.get("hf_skip", False))
+    hf_skip_src = str(ckpt.get("hf_skip_src", "b1") or "b1")
+    hf_skip_channels = int(ckpt.get("hf_skip_channels", 1) or 1)
     if no_p2 or act != "silu" or head_conv or late_upsample:
         print(f"[STRUCT] ckpt 自描述: no_p2={no_p2} head_level={head_level} act={act} "
               f"head_conv={head_conv} late_upsample={late_upsample}")
@@ -207,6 +211,9 @@ def main():
         head_conv=int(head_conv) if head_conv else None,
         head_src=head_src,
         p2_out_scale=p2_out_scale,
+        hf_skip=hf_skip,
+        hf_skip_src=hf_skip_src,
+        hf_skip_channels=hf_skip_channels,
     )
 
     # ---- 激活覆盖（默认空操作：沿用 ckpt 自带 act）----

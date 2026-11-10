@@ -64,7 +64,8 @@ def load_hm_model(weights: Path, device: torch.device, stride_fallback: int = 2,
                   no_p2: bool = False, head_level: str = "p3", act: str = "silu",
                   head_conv: int | None = None, late_upsample: bool | None = None, head_src: str = "",
                   p2_out_scale: float = 1.0, offset_init: str = "keep", offset_init_weights: str = "",
-                  head_init: str = "reset"):
+                  head_init: str = "reset", hf_skip: bool | None = None,
+                  hf_skip_src: str | None = None, hf_skip_channels: int | None = None):
     """offset_init（2026-11-09 新增，针对「offset 头塌缩成常数 0.5」的定向修复）：
         keep    —— 保持默认（用 init ckpt 的 offset 权重）
         reset   —— **只**把 offset 分支留成随机初始化（其余权重照常继承）
@@ -97,6 +98,12 @@ def load_hm_model(weights: Path, device: torch.device, stride_fallback: int = 2,
     _ck_head_conv = ckpt.get("head_conv", None)
     _ck_head_conv = int(_ck_head_conv) if _ck_head_conv is not None else None
     _ck_late = bool(ckpt.get("late_upsample", False))
+    # ---- 跨层高频残差注入（hf_skip）自描述 ----
+    # ⚠️ 用 None 当"未指定"哨兵（与 late_upsample 同理）：调用方显式传 0/1 才是"要这个结构"；
+    #   不传 ⇒ 用 ckpt 里记录的 ⇒ 缓存/导出/续训都能重建出**同一张图**。
+    _ck_hf_skip = bool(ckpt.get("hf_skip", False))
+    _ck_hf_skip_src = str(ckpt.get("hf_skip_src", "b1") or "b1")
+    _ck_hf_skip_channels = int(ckpt.get("hf_skip_channels", 1) or 1)
     # 显式传入优先（调度器按搜索空间给），否则用 ckpt 里的记录
     if not head_src:
         head_src = _ck_head_src
@@ -142,6 +149,18 @@ def load_hm_model(weights: Path, device: torch.device, stride_fallback: int = 2,
     else:
         late_upsample = bool(late_upsample)
     p2_out_scale = float(p2_out_scale) if p2_out_scale else _ck_p2s
+    if hf_skip is None:
+        hf_skip = _ck_hf_skip
+    else:
+        hf_skip = bool(hf_skip)
+    if hf_skip_src is None:
+        hf_skip_src = _ck_hf_skip_src
+    else:
+        hf_skip_src = str(hf_skip_src or "b1")
+    if hf_skip_channels is None:
+        hf_skip_channels = _ck_hf_skip_channels
+    else:
+        hf_skip_channels = int(hf_skip_channels or 1)
     # "换结构"判定：重建结构 ≠ ckpt 自描述 ⇒ 调用方要的是别的结构（训练侧换结构初始化合法）
     _override = (
         (head_conv, bool(late_upsample), head_src, no_p2, head_level, act, round(p2_out_scale, 6))
@@ -172,6 +191,9 @@ def load_hm_model(weights: Path, device: torch.device, stride_fallback: int = 2,
         late_upsample=late_upsample,
         head_src=head_src,
         p2_out_scale=p2_out_scale,
+        hf_skip=hf_skip,
+        hf_skip_src=hf_skip_src,
+        hf_skip_channels=hf_skip_channels,
     )
     own_state = model.state_dict()
     matched = 0

@@ -139,6 +139,10 @@ def build_model(ckpt_path: str, ablate_p0: bool = False, merge_head_branches: bo
     _late = bool(ckpt.get("late_upsample", False))
     _head_src = str(ckpt.get("head_src", "") or "")
     _p2_out_scale = float(ckpt.get("p2_out_scale", 1.0) or 1.0)
+    # ---- 跨层高频残差注入（hf_skip）自描述（2026-11-10 方向一）----
+    _hf_skip = bool(ckpt.get("hf_skip", False))
+    _hf_skip_src = str(ckpt.get("hf_skip_src", "b1") or "b1")
+    _hf_skip_channels = int(ckpt.get("hf_skip_channels", 1) or 1)
     if _no_p2 or _ck_act != "silu" or _head_conv or _late:
         print(f"[STRUCT] ckpt 自描述: no_p2={_no_p2} head_level={_head_level} act={_ck_act} "
               f"head_conv={_head_conv} late_upsample={_late}")
@@ -161,6 +165,9 @@ def build_model(ckpt_path: str, ablate_p0: bool = False, merge_head_branches: bo
         head_conv=int(_head_conv) if _head_conv else None,
         head_src=_head_src,
         p2_out_scale=_p2_out_scale,
+        hf_skip=_hf_skip,
+        hf_skip_src=_hf_skip_src,
+        hf_skip_channels=_hf_skip_channels,
     )
     own = model.state_dict()
 

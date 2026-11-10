@@ -12670,3 +12670,252 @@ inbox 匹配，阈值取扫阈值 F1 最优点，**sequence 作用域**判孤立
   并用 `git ls-files | git check-ignore --stdin`（**必须无输出**）确认未误伤已跟踪文件。
 - ⇒ 同批还修了 **rules.md 编号撞车**：文档里第五节已有一条「核心铁律十四」（2026-11-03 跨机托管会话），
   本条原拟用「十四」会让人查错 ⇒ 改为 **核心铁律十五**（一、核心铁律 内唯一），并同步修正 .gitignore 里的交叉引用。
+
+---
+
+## 132. ★★★ NanoBench（小目标召回子集）深读 + 0031 官方门禁真相 + Wave 1 开跑（2026-11-10 16:40）
+
+> 触发：用户追加要求「还有一个专门测试小目标的召回的数据子集，相关内容你也看看」
+> ⇒ 锁定 **`manu/evaluation/tiny_target_subset.py`（NanoBench-T1）**，并在读完 memory §99/§110/§124/§129 后
+> 把它接成**选型主判据**（此前它只是"观测"，不是"选型"）。
+
+### 132.1 NanoBench-T1 规格（唯一小目标召回基准）
+- 脚本：`manu/evaluation/tiny_target_subset.py`；**T1 全量 31,613 帧 / 25,111 GT**。
+- 分桶 GT 数：**nano 4,232 / micro 3,283 / small 11,796 / regular 5,800**。
+- **双容差**：**8px 主档**（对等线 nano 0.6666）+ **4px 严格档**；匹配 = **中心欧氏距离**（**禁用 IoU**）；
+  尺寸按**物理像素**（**禁各向同性 ×640**）。
+- 语义 = **no-GMC**；官方三轨 = **GMC** ⇒ **两者严禁混用、严禁互相引用数字**（铁律）。
+- 参照卡：本地 `/home/manu/mnt/data/siping/runs/npu20ms/nanobench/`，服务器 `/mnt/data/siping/runs/npu20ms/tiny_ref/`。
+
+### 132.2 ★★★ 0031 在 NanoBench 上的全景（与两条参照的差）
+| 模型 | F1 | nano | micro | small | regular | 备注 |
+|:--|--:|--:|--:|--:|--:|:--|
+| **trial_0031（交付件）** | 0.887122 | **0.6666** | 0.8370 | 0.8654 | 0.9445 | FP 1553；**4px 严格档 nano 0.6033** |
+| base_frozen（P1 冻结基线） | **0.901312** | **0.6978** | — | — | — | 2px 网格；板卡 **55.48 ms** |
+| cs_t0043 | 0.890972 | 0.6498 | — | — | — | 交付件 init |
+- ⇒ **nano@8px(0.6666) − nano@4px(0.6033) = 6.3 pp** ⇒ **P3（80×80 网格）的定位量化**是硬伤。
+- ⇒ 但 **nano@8px 落后 base_frozen 的主因不是定位，而是检出灵敏度**（T1 全量缺 **810 个**弱目标）⇒
+  **优化目标是"把弱目标召回来"，不是"把峰挪准"**（这一条决定了 Wave 1 的臂表设计）。
+
+### 132.3 ★★★ 新发现的**基准口径缺陷**（本轮不改基准，只入档）
+- 缓存里的 `gt_bboxes` 其实是**原图像素**（实测 cache/label 比值 **w = 640.000797 / h = 512.000236**）；
+  而 NanoBench 又把**高度再 ×0.8** ⇒
+  ① **物理 nano 实占 14.64%**，参照卡写的 **16.85% 偏高 2.2 pp**；② 高度被系统性低估 **20%**。
+- **决定**：本轮**不修基准**（修了就与 0031 不可比、且会让所有历史臂的数字失真）⇒ **入档**，下一版统一修并重刷参照卡。
+
+### 132.4 ★★★ 0031 的官方门禁真相：`gate_report.json` 判的是 **FAIL**
+- 报告：`/mnt/data/siping/runs/npu20ms_offcal/gate/9031_official/gate_report.json`（**实为 0031 本体**）。
+- `verdict = FAIL`，`veto_failures = ['track1_uav']`；
+  T1 规则「**F1 ≥ 0.905736**（去 P0 冻结基线）」实测 **0.8859965** ⇒ **Δ −1.97 pp，未过绝对红线**。
+- T2 规则「F1 ≥ 0.985 且 **FP ≤ 36**」**PASS**（实测 FP 10）；T3 是**观察轨**（`veto=false`，base 0.837331）。
+- ⇒ **0031 自己没过官方 T1 绝对红线**；真正给 0031 盖章的是 `dual_constraint_gate.py` 的 **nano 对等线 0.6666**。
+- ⇒ **汇报纪律**：给"对等线口径"结论时**必须同时给出 gate 原始 verdict**，不许只报好看的那个。
+
+### 132.5 ★★★ 参照系有**两套**，别混
+| 参照系 | 出处 | T1 | T2 | T3 |
+|:--|:--|:--|:--|:--|
+| **GMC（脚本默认）** | `auto_epoch_gate_check.py` 默认 | ≥ 0.905736（绝对） | F1 ≥ 0.985 且 FP ≤ 36 | 观察轨 base 0.837331 |
+| **nogmc** | `reference_frame.json` | ≥ base−0.005 = **0.895897** | FP ≤ 52+60 = **112** | 观察轨 base 0.7578 |
+- 训练脚本内部那次门禁（被 `--skip-gate` 跳过）用的是 **nogmc** 口径；
+  `nano_search.py::run_official_gate()` **不传参照系** ⇒ 走 **GMC 口径**（与 0031 报告一致）✓。
+
+### 132.6 ★★ 修掉一个**隐蔽死模型 bug**：`route2_acceptance.py` 的 act 硬编码
+- 原实现把导出时的 `--act` **硬编码成 relu** ⇒ **silu 权重导 relu 图 = 死模型**，实测 **F1 = 0.000000**。
+- 已修为 **act 跟随 ckpt 自描述** ⇒ 导出图与训练图一致（md5 `425c1dce5a7de56b8927c843bd2d9dfc`）。
+
+### 132.7 ★★★ 本轮新增的三件工具（全部**默认关 ⇒ 逐位不变**，且带自检）
+| 文件 | md5 | 作用 |
+|:--|:--|:--|
+| `manu/models/heatmap_loss.py` | `3404c363b8e714c82895ab66dc71f1e1` | 新增**尺寸加权 focal**（默认关；开时只对 nano 目标中心加权重，offset 损失逐位不变） |
+| `manu/training/optuna_mix_ratio_search.py` | `51016fb7c5fa52051fa0f955f2f2079a` | 新增 `--size-weight-small/-large`、`--size-thr-px`、`--size-max-side-px`、`--lr-floor-ratio` |
+| `manu/pipeline/npu/nano_search.py` | `b8923786298726d0634210143182daf4` | **Wave 驱动**：训练→缓存→NanoBench→**按 nano 下限选 epoch**→官方门禁→导 rknn→**一次**板卡会话→联合门禁（幂等/台账/硬截止） |
+| `manu/pipeline/npu/verify_size_weight.py` | `41c8c4a52be9fbc33e6eb8f213cc023d` | 逐位一致性自检 |
+- **自检实跑（服务器）**：`verify_size_weight.py --old-module /tmp/old_heatmap_loss.py` ⇒ **ALL PASS**
+  （默认不产生 weight_map；heatmap/offset/ind/mask/loss 与旧实现逐位一致；开启后 weight_map 只在 nano 目标中心取 w；hm 损失 35775.64 → 35776.06）。
+- **尺寸口径对齐校验（服务器实测）**：我的 `(w_norm×640, h_norm×512)` 与 NanoBench `gt_physical_size` 分桶 **0/3360 目标不一致**
+  ⇒ **损失加权口径 == 基准口径** ✓（加权只加在基准认定的 nano 桶上）。
+
+### 132.8 ★★★ Wave 1 臂表（2026-11-10 16:40 **已启动**，4 卡并发，seeds 191xx）
+> 全部 = **trial_0031 真实配方 + 单变量**（§110.3 逐项对齐：init=cs_t0043 / 20ep / sched-5ep / warmup 1.5 /
+> lr_scale 3.5 / mix w2.0 / focal 2.75 / ow 0.4 / wd 2.69e-4 / mosaic .15 / clip 5.65 / no_p2 / hc64 / silu / late_upsample / p3）
+| trial | GPU | 单变量 | 依据 |
+|:--|:--:|:--|:--|
+| **9801** | 1 | **对照**（换种子 19101） | 给出 nano / T2-FP 的**种子噪声基线**（±0.0002 F1） |
+| **9802** | 2 | `--size-weight-small 1.5` | 方向三① 下限（与 9803 构成**剂量-响应对**） |
+| **9803** | 3 | `--size-weight-small 3.0` | 方向三① 上限 |
+| **9804** | 0 | `--train-on-native-grid 1 --min-radius 0` | 直击 §88 根因（监督分辨率 ≠ 头原生网格 ⇒ 峰被稀释）= **9504 从未跑完的格** |
+- 启动命令（服务器，幂等可续跑）：
+  ```bash
+  cd /tmp/pycharm_project_10ae9e2e && export PYTHONPATH=. && mkdir -p /mnt/data/siping/runs/npu20ms/nano_search && \
+  setsid nohup /home/huangzhe/anaconda3/envs/uav/bin/python -u manu/pipeline/npu/nano_search.py \
+    --wave W1 --epochs 5,10,15,20 --stop-at "2026-11-11 08:00" \
+    > /mnt/data/siping/runs/npu20ms/nano_search/nano_search.out 2>&1 < /dev/null &
+  ```
+- 产物：日志 `/mnt/data/siping/runs/npu20ms/nano_search/nano_search.log`；台账 `nano_search_ledger.json`；
+  臂权重 `/mnt/data/siping/runs/npu20ms_offcal/trials/trial_98xx/weights/epoch{5,10,15,20}.pt`。
+- **选 epoch 规则**（写在 `nano_search.py::pick_epoch`）：先取 **nano ≥ 0.6666** 的集合里 F1 最高者；
+  若一个都没有 ⇒ 取 nano 最高者（late_upsample 的 nano 随训练下滑 ⇒ 纯 F1 选臂会挑到最差 epoch）。
+
+### 132.9 交付判据（**对等线口径**，同时报 gate 原始 verdict）
+- NanoBench（no-GMC 8px）：**F1 > 0.887122** 且 **nano ≥ 0.6666**（力争 ≥ 0.6978）、micro ≥ 0.8370、small ≥ 0.8654、regular ≥ 0.9445。
+- 官方三轨（GMC）：T1 ≥ 0.885997、T2 F1 ≥ 0.985 且 **FP ≤ 36**（0031 = 10；文档更严 ≤ 20）、T3 ≥ 0.948330。
+- 板卡：int8 **≤ 20 ms**（0031 = 19.629 ms）。
+- ⚠️ 铁律：**`dual_constraint_gate.py` 没有 `--board-ms`**，ms 必须写进 `--candidate name=pkl=ms`；输出 JSON 键是 **`rows`**（不是 candidates）。
+  板卡测速前必须**清残留进程**、**先归档 arms/ 再上传**、**控制臂必带**、**一次会话测完**。
+
+### 132.10 ★★★ 评测链路的**对照复现**（2026-11-10 17:45，服务器实跑）
+直接拿参照卡目录里**已有的** `trial_0031.pkl`（`/mnt/data/siping/runs/npu20ms/tiny_ref/`）跑
+`tiny_target_subset.eval_cache(pkl, "nogmc", tols=(4.0,8.0), img_w=640, img_h=512)`：
+```
+[CTRL 0031] F1=0.887122  th=0.13  FP=1553  FN=3856
+[CTRL 0031] nano=0.6666  micro=0.8370  small=0.8654  regular=0.9445
+[CTRL 0031] @4px nano=0.6033  micro=0.7938  F1=0.818718
+```
+⇒ 与参照卡 **逐位一致**（含 th 与 FP/FN）⇒ **本轮 W1 各臂的 NanoBench 数字可直接与 0031 对比**，
+不存在"换了评测口径"的隐性偏差。★ 这条是所有 NanoBench 结论的**前置有效性凭据**。
+
+---
+
+## 133. ★★★ 方向一落地：跨层高频残差注入（`hf_skip`）侧枝 + ckpt 自描述接线（2026-11-10 17:20）
+
+> 目标（文档方向一「高频残差注入（侧枝）」）：≤4 px 微目标在 P3(/8) 网格上不足一个 cell，
+> 浅层的**高频脉冲**（局部峰值相对局部背景的对比度）在下采样与语义融合中被抹平
+> ⇒ 把浅层高频能量以 **1~2 个窄通道**压到**头网格**，以**加性残差**注入 head 输入。
+
+### 133.1 设计（`manu/models/heatmap_model.py:568` 新增 `class HighFreqSkip`）
+```
+b1(160×160×32) ─Conv1x1(32→1)→ narrow
+                 ─MaxPool2d(2) ─┐
+                 ─AvgPool2d(2) ─┴→ contrast = 峰 − 局部背景（高通）
+                 ─MaxPool2d(2) → 80×80×1（头网格）
+                 ─Conv1x1(1→48)→ delta（★权重+偏置零初始化）
+feat(80×80×48) + delta → head.feat_conv
+```
+- 注入点 = `head_in` **之后**、`Head.feat_conv` **之前** ⇒ **主特征通道数不变**
+  ⇒ `head.feat_conv.0.conv.weight` 仍是 (64,48,3,3) ⇒ **旧 ckpt 的头照常可加载**。
+- **为什么用 MaxPool 不用 AvgPool 降采样**：AvgPool 把 1~2 px 微目标脉冲摊平成背景（能量被抹掉）；
+  MaxPool 保峰（峰值正是微目标的能量载体）。2×2 窗口**不带 padding** ⇒ 无 `count_include_pad` 语义歧义。
+- **为什么取 b1 不取 b0**：搬运量减半（b0 源 320×320×16×4B = 6.55 MB vs b1 160×160×32×4B = 3.28 MB）；
+  且 b1 在 no_p2 下**照样被算出来**（b0→b1→b2 是 P3→P5 必经之路，删 P2 融合不影响骨干）⇒ 取 b1 **零额外骨干开销**。
+- **零初始化 `project`** ⇒ 侧枝一开恒输出 0 ⇒ **起点与原模型逐位一致**，改善全部来自训练。
+- 代价：新增 **129 个参数**（全模型 +0.008%），额外搬运 ≈ **8.18 MiB(FP32) ⇒ 2.04 MiB(int8)**；
+  ⚠️ 若头换成 p2_fused(160×160)，融合项涨到 14.7 MB ⇒ **P3 头是最优点，不建议换头**。
+
+### 133.2 ★★★ 逐位一致性验证（**两轮独立复核**，结论 = 默认关 ⇒ 与原模型逐位一致）
+| 验证 | 方法 | 结果 |
+|:--|:--|:--|
+| **跨版本交叉验证** | 服务器仓库**原始** `heatmap_model.py`（md5 `50bb9872…`）vs 改后版本（`90f7c866…`），**12 组结构**逐一 `torch.equal` | **12/12 PASS**（p3/p1/p2_raw/p2_fused/late/act=relu/merge_head/dw_head/p2_out_scale/scale=s） |
+| **结构自检脚本** | `manu/pipeline/npu/verify_hf_skip.py`（md5 `524c4b35…`，纯 CPU） | 默认参数 **state_dict 374 键完全相同**、heatmap/offset **逐位一致**；开启后 head 的 20 个张量形状不变；零初始化 ⇒ 起点一致；权重非零后输出**确实变化**（证明侧枝真在计算图里） |
+| **接线端到端** | 旧链路 vs 新链路（hf_skip 关） | **state_dict 键集合/形状/heatmap/offset 全部逐位一致** |
+| **ckpt 往返** | 训练侧写 3 个键 → `load_hm_model` / `hm_export_onnx.build_model` 读回 | 两侧都**自动重建出侧枝**，输出逐位一致 |
+| **ONNX 导出** | b1/b0 两种源 | 都可导出；图里只有 `Conv/MaxPool/AveragePool/Sub/Add`，**无 AdaptiveAveragePool、无 HardSwish** |
+- ⚠️ 不兼容组合**响亮报错**（不静默）：`hf_skip_src='b1'(stride 4) 与头网格(stride 2) 不兼容：降采样倍数需为 >= 2 的 2 的幂`。
+
+### 133.3 ckpt 自描述接线（**四进四出**，缺一不可）
+| 文件 | 改动 | md5 |
+|:--|:--|:--|
+| `manu/models/heatmap_model.py` | 侧枝本体 + 3 个构造参数（默认 False） | `90f7c8669ec20d4fe51ef7e574d62e5e` |
+| `manu/data/preannotate_hm_bbox.py` | `load_hm_model()` 加 3 个参数（**None 哨兵** = 未指定 ⇒ 用 ckpt 自描述）+ 透传 | `fd19cb0aa2f2f91c9c1775a7ac4e66cb` |
+| `manu/training/optuna_mix_ratio_search.py` | CLI `--hf-skip/--hf-skip-src/--hf-skip-channels` + 建模透传 + **写进 ckpt** | `eb677110a05612d216329ff03287ad4c` |
+| `manu/pipeline/npu/hm_export_onnx.py` | `build_model()` 读 3 个键 + 透传 | `9a7e89a0640f37d825bd65b60ca68ac0` |
+| `manu/inference/cache_trial0474_inferences.py` | 读 3 个键 + 透传 | `5b7cd38f7a14ef49b468400751c1284a` |
+- **哨兵语义**：训练侧显式传 0/1；缓存/导出/续训**不传** ⇒ 从 ckpt 重建同一张图（与 `late_upsample` 同套路）。
+- ⚠️ `hf_skip` **不进 `_override` 判定**（换结构判定）：侧枝**不改任何既有张量形状** ⇒ 不能因为它触发头的 merge/reset 路径。
+- ⚠️ 训练侧 `torch.save` 的 ckpt 会**多 3 个键** ⇒ 新训 ckpt 的 sha256 与 0031 不同（**结构没变**，只是多了自描述字段）。
+
+### 133.4 已知风险（Wave 2 前必读）
+1. **没上板实测**：0.5 ms 增量是按 int8 搬运量推的 ⇒ **必须板端实测**（`hf_skip=0/1` 同会话对照）。
+2. **ONNX 导出 ≠ RKNN 编译通过**：`Sub`/`AveragePool` 在 rknn-toolkit2 2.3.0 上应可编译，但
+   `merge_head_branches` 历史上踩过 rknn 丢 pads 的坑 ⇒ **上板前先跑一次 `hm_convert_rknn.py` 编译烟测**。
+3. **零初始化 ⇒ 前若干步梯度极小**：`compress` 的梯度要等 `project.weight` 离开 0 才非零（标准 zero-conv 行为）。
+   收敛太慢就把 `nn.init.zeros_(self.project.*)` 改成小常数（如 0.01），**一行改动**。
+4. **侧枝无 BN**（compress→project 全线性）⇒ 训练稳定性依赖预训练特征尺度 ⇒ **先跑几个 epoch 看 loss 曲线**。
+5. **`hf_skip_channels=2` 未做数值验证**（只有 =1）；**`head_src='p1'` + stride 2（320 头）不支持开侧枝**（已 assert 拦下）。
+
+---
+
+## 134. ★★ 方向二（双通道解耦 nano 头）的**三个静默必改项**（2026-11-10 17:40 复核确认）
+
+> 任务书方向二：Head 最终输出前把热图分支拆成**通道 A（≤4px 专职）/ 通道 B（常规）**，
+> A 通道只对 nano 目标挂权重、B 通道只监督 micro/regular，后处理做 Max-fusion。
+> 评估结论：**工程可行，但风险高** ⇒ **不作主线**，仅在方向一/三全灭后再考虑。
+
+### 134.1 🔴 必改项 ①：`late_upsample` 的切通道会**静默丢掉第 2 个热图通道**
+`manu/models/heatmap_model.py:133-135`（复核确认）：
+```python
+both = F.interpolate(torch.cat([hm_logit, offset], dim=1), scale_factor=self.late_scale, mode="nearest")
+hm_logit, offset = both[:, :1], both[:, 1:]      # ← 热图只取 :1！
+```
+- 单通道热图下这是对的（1 通道 hm + 2 通道 offset = 3 通道）。
+- **一旦热图变成 2 通道（方向二），`both[:, :1]` 只保留通道 0 ⇒ 通道 1 被静默丢弃**
+  ⇒ 训练看着正常、导出后 nano 通道消失 ⇒ **"看起来能用其实没生效"**。
+- ⇒ 必须改成按通道数切分：`n_hm = hm_logit.shape[1]`；`hm_logit = both[:, :n_hm]`、`offset = both[:, n_hm:]`。
+
+### 134.2 🔴 必改项 ②：能量项（focal）的 **per-channel gather**
+- 现在是对**整张热图**求 max/统计；拆成双通道后必须**按通道分别 gather**，
+  否则通道 A/B 的正样本计数互相污染 ⇒ 权重分配失效（且**不会报错**，只是效果差）。
+
+### 134.3 🔴 必改项 ③：`num_pos` 必须**按通道归一化**
+- 单通道时 `num_pos` 是全局正样本数；双通道时每个通道各有自己的正样本集
+  ⇒ 不按通道归一化 ⇒ 通道 A（nano 样本极少）的 loss 会被放大/缩小到失真。
+
+### 134.4 ⚠️ 另外两个硬风险
+1. **int8 per-channel 量化**：新增 1~2 个输出通道 ⇒ RKNN 的 per-channel scale 重算
+   ⇒ 可能把 nano 通道的动态范围压掉（**必须上板重测 T2 虚警与 nano 召回**）。
+2. **R5 跨通道 NMS 抑制**：现有后处理是**跨通道**取峰并抑制
+   ⇒ 双通道下同一物理目标的 nano 峰与常规峰会**互相抑制**（把 nano 峰吃掉）⇒ 必须改成**通道内 NMS + 通道间 Max-fusion**。
+3. **板端 C++ 也要改**：`manu/pipeline/npu/e2e_core.cpp:400/519` 与 `rknn_heatmap_smoke.cpp:532-577`
+   （形状门禁 + `extract_peaks`）⇒ **必须重新交叉编译上板** ⇒ 这是它"风险高"的主因。
+
+---
+
+## 135. ★★★ W1 实测结果 + 整晚波次排定（2026-11-10 17:50，host 18:00 关机）
+
+> 事件：host 18:00 关机 ⇒ 服务器**独立续跑**一整晚；本节是明早看结果时的**入口**。
+
+### 135.1 W1 全量读数（NanoBench no-GMC 8px 主档；F1 / nano / micro / small / regular）
+| 臂 | 变更 | ep5 nano | ep10 | ep15 | ep20 | nano@4px | **选中 ep** | **选中 F1** | **选中 nano** |
+|:--|:--|--:|--:|--:|--:|--:|--:|--:|--:|
+| **9801** | 对照（0031 配方换种子 19101） | 0.6673 | 0.6659 | 0.6668 | 0.6661 | 0.578~0.590 | 5 | 0.889960 | 0.6673 |
+| **9802** | `--size-weight-small 1.5` | 0.6843 | 0.6786 | 0.6699 | 0.6645 | 0.606~0.615 | 5 | 0.891083 | 0.6843 |
+| **9803** | `--size-weight-small 3.0` | **0.6919** | **0.6933** | **0.6902** | **0.6895** | 0.621~0.631 | 5 | **0.892343** | **0.6919** |
+| **9804** | `--train-on-native-grid 1 --min-radius 0` | 0.6668 | 0.6751 | 0.6749 | 0.6730 | **0.6465~0.6609** | 15 | 0.892028 | 0.6749 |
+| — | **交付件 0031（参照）** | — | — | — | — | 0.6033 | 20 | 0.887122 | 0.6666 |
+
+### 135.2 ★★★ 三条结论（**决定整晚搜索方向**）
+1. **size-weight 剂量-响应单调为正，且 sw=3.0 全 epoch 稳定**
+   （sw1.5 会随训练衰减到 0.6645；sw3.0 始终 0.6895~0.6933）
+   ⇒ **对 0031 的 nano 是 +2.3~2.7 pp**（相对对照臂 9801 的 0.6661~0.6673），F1 +0.0024。
+   ⇒ **方向三① 成立** ⇒ 整晚上探剂量（4/5/6/8）。
+2. **原生网格把 nano@4px 从 0.578 拉到 0.661（+8.3 pp）**
+   ⇒ **§88 根因（监督分辨率 ≠ 头原生网格 ⇒ 峰被稀释）成立**；但 8px 主档只 +0.7 pp
+   ⇒ **它修的是"定位"，不是"检出"** ⇒ 与 size-weight（修检出）**机理正交 ⇒ 必须组合**（W3 起）。
+3. ⚠️ **判据基准要换成对照臂 9801**（同配方换种子），不是 0031 本体：
+   9801 的 F1 = 0.88996 已经比 0031 的 0.887122 **高 0.0028** ⇒ 种子噪声比"±0.0002"大一个量级。
+
+### 135.3 ★★★ 整晚波次表（**36 臂 / 9 波**，服务器自主跑，08:30 前收工）
+| 波 | 臂 | 单变量/组合 |
+|:--|:--|:--|
+| **W2** | 9811 / 9812 / 9813 / 9814 | hf_skip(b1,1ch) ｜ LR 保底 10% ｜ 周期 8ep ｜ **sw 4.0** |
+| **W3** | 9821~9824 | sw 6.0 ｜ sw 8.0 ｜ **原生网格×sw3.0** ｜ 原生网格×sw4.0 |
+| **W4** | 9831~9834 | hf_skip×sw3.0 ｜ **hf_skip×原生网格×sw3.0（三合一）** ｜ 周期 6ep ｜ 周期 10ep |
+| **W5** | 9841~9844 | 原生网格×sw6.0 ｜ **12ep 短周期** ｜ sw3.0×LR保底 ｜ 周期 12ep |
+| **W6** | 9851~9854 | 原生网格×sw8.0 ｜ sw3.0×12ep ｜ hf_skip(b0 源) ｜ **sw3.0×大目标降权(swl 0.5)** |
+| **W7** | 9861~9864 | 原生网格×sw3.0×大目标降权 ｜ hf_skip 双通道(hfch=2) ｜ sw 5.0 ｜ 原生网格×sw3.0×12ep |
+| **W8** | 9871~9874 | warmup 0.5 ｜ lr_scale 4.0 ｜ 混样 w2.5 ｜ 原生网格×sw3.0×12ep（换种子） |
+| **W9** | 9881~9884 | **sw3.0 换种子（可复现性验证）** ｜ 原生网格×sw4.0×12ep ｜ hf_skip×sw4.0 ｜ sw3.0×大目标降权×12ep |
+- 调度器：`/tmp/night_runner.sh`（服务器，`setsid nohup` 常驻）⇒ **等 W1 收尾 → 顺序跑 W2..W9 → 每波跑完自动出总表**；
+  预算闸门：**最后一波必须在 08:30 前收工**（上班 09:00）；单波失败不阻断后续。
+- 台账：`/mnt/data/siping/runs/npu20ms/nano_search/nano_search_ledger.json`（逐臂落盘，可断点续跑）。
+- 每波日志：`nano_search_<WAVE>.out` + `nano_search.log`；调度日志 `night_runner.log`。
+
+### 135.4 ★★ 对话已交接服务器（host 关机不影响续跑）
+- thread id `01a1c465-e6d7-7631-a578-20f56c8e9993`；服务器 `CODEX_HOME=/mnt/data/.codex`；
+  cwd 已改写为 `/tmp/pycharm_project_10ae9e2e` ⇒ **在服务器线程选择器里可见**（`visible_in_picker: true`, `history_mode: paginated`, 636 items）。
+- 明早在服务器续跑：
+  ```bash
+  export CODEX_HOME=/mnt/data/.codex
+  cd /tmp/pycharm_project_10ae9e2e
+  codex resume 01a1c465-e6d7-7631-a578-20f56c8e9993
+  ```
+- 只读验收：`bash /home/huangzhe/codex-handoff-20261110-174943/verify_on_server.sh --thread 01a1c465-e6d7-7631-a578-20f56c8e9993`

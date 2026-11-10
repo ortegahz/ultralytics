@@ -67,6 +67,10 @@ def draw_gaussian(
     return heatmap
 
 
+# 尺寸判据的浮点容差（px）：归一化 float32 标签在 4px / 16px² 边界上会差 1 ULP
+_SIZE_EPS_PX = 1e-3
+
+
 def generate_heatmaps_and_targets(
     batch_bboxes: torch.Tensor,
     batch_idx: torch.Tensor,
@@ -76,6 +80,12 @@ def generate_heatmaps_and_targets(
     min_radius: int = 1,
     max_objects: int = 128,
     device: torch.device | None = None,
+    size_weight_small: float = 1.0,
+    size_weight_large: float = 1.0,
+    size_thr_px: float = 16.0,
+    size_max_side_px: float = 4.0,
+    img_w: float = 640.0,
+    img_h: float = 512.0,
 ) -> dict[str, torch.Tensor]:
     """
     Convert normalized bounding boxes from YOLO dataloader to ground truth heatmaps and offset maps.
@@ -88,6 +98,17 @@ def generate_heatmaps_and_targets(
         stride: downsampling stride (e.g. 4 for P2)
         min_radius: guaranteed minimum Gaussian radius (crucial for 3x3 tiny targets)
         max_objects: max number of point targets tracked per image for offset regression
+        size_weight_small: focal 正样本权重（微小目标）。1.0 = 不加权（默认 ⇒ 逐位不变）
+        size_weight_large: focal 正样本权重（其余目标）。1.0 = 不加权
+        size_thr_px: 微小目标的面积阈值（px²），与 NanoBench 的 nano 桶口径一致
+        size_max_side_px: 微小目标的最长边阈值（px），与 NanoBench 的 nano 桶口径一致
+        img_w / img_h: 原始图像的物理尺寸（px）；归一化框 × 该尺寸 = 物理像素尺寸
+
+    **尺寸口径说明**：``bboxes`` 是**归一化框**（相对原图）。
+    本项目原图 640×512、letterbox 到 640×640（x 不缩放、y 上下各补 64），
+    因此 ``w_px = w_norm × img_w``、``h_px = h_norm × img_h`` **在两种标签坐标系下都成立**
+    （letterbox 系的 y 因子 1.25 与 NanoBench 的 0.8 还原恰好互逆）。
+    ⇒ 与 NanoBench 参照卡（``manu/evaluation/tiny_target_subset.py``）同口径。
     """
     H, W = feat_shape
     if device is None:
@@ -98,6 +119,13 @@ def generate_heatmaps_and_targets(
     gt_offset = torch.zeros((batch_size, max_objects, 2), dtype=torch.float32, device=device)
     gt_ind = torch.zeros((batch_size, max_objects), dtype=torch.long, device=device)
     gt_mask = torch.zeros((batch_size, max_objects), dtype=torch.bool, device=device)
+
+    # ---- 尺寸加权图（默认关闭 ⇒ 整个分支不执行 ⇒ 逐位不变）----
+    use_size_weight = (abs(size_weight_small - 1.0) > 1e-12
+                        or abs(size_weight_large - 1.0) > 1e-12)
+    weight_map = None
+    if use_size_weight:
+        weight_map = torch.ones((batch_size, 1, H, W), dtype=torch.float32, device=device)
 
     if batch_bboxes.numel() == 0:
         return {
@@ -142,12 +170,27 @@ def generate_heatmaps_and_targets(
             gt_ind[b, i] = ct_y_int * W + ct_x_int
             gt_mask[b, i] = True
 
-    return {
+            if weight_map is not None:
+                # 物理像素尺寸（与 NanoBench 的 nano 桶判据逐位对齐）
+                # ⚠️ 加 1e-3 px 的容差：标签是 float32/归一化浮点，4.0px 这类**边界值**
+                #    会因 1 ULP 误差被判到桶外（如 4/640×640 = 4.000000000000001）。
+                w_px = float(boxes[i, 2].item()) * img_w
+                h_px = float(boxes[i, 3].item()) * img_h
+                is_tiny = ((max(w_px, h_px) <= size_max_side_px + _SIZE_EPS_PX)
+                           or (w_px * h_px <= size_thr_px + _SIZE_EPS_PX))
+                weight_map[b, 0, ct_y_int, ct_x_int] = (
+                    size_weight_small if is_tiny else size_weight_large
+                )
+
+    out = {
         "heatmap": gt_heatmap,
         "offset": gt_offset,
         "ind": gt_ind,
         "mask": gt_mask,
     }
+    if weight_map is not None:
+        out["weight_map"] = weight_map
+    return out
 
 
 class EnergyPreservingFocalLoss(nn.Module):
@@ -199,6 +242,7 @@ class EnergyPreservingFocalLoss(nn.Module):
         gt: torch.Tensor,
         ind: torch.Tensor | None = None,
         mask: torch.Tensor | None = None,
+        weight_map: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, dict[str, float]]:
         """
         Args:
@@ -206,6 +250,7 @@ class EnergyPreservingFocalLoss(nn.Module):
             gt:   (B, 1, H, W) in [0, 1]
             ind:  (B, max_objs) flat indices of target centers
             mask: (B, max_objs) boolean mask of valid targets
+            weight_map: (B, 1, H, W) 正样本逐像素权重；None = 不加权（逐位不变）
         """
         pred = pred.float()
         gt = gt.float()
@@ -226,6 +271,10 @@ class EnergyPreservingFocalLoss(nn.Module):
             pos_loss = torch.log(effective_pos_pred) * torch.pow(1.0 - effective_pos_pred, self.alpha) * pos_inds
         else:
             pos_loss = torch.log(pred_clamped) * torch.pow(1.0 - pred_clamped, self.alpha) * pos_inds
+
+        if weight_map is not None:
+            # 只放大「正样本」梯度（目标中心那一格）⇒ 大目标的梯度不会淹没微小目标
+            pos_loss = pos_loss * weight_map
 
         neg_loss = torch.log(1.0 - pred_clamped) * torch.pow(pred_clamped, self.alpha) * neg_weights * neg_inds
 
@@ -298,11 +347,17 @@ class FocalLoss(nn.Module):
         self.relaxation_tau = relaxation_tau
         self.pos_weight = pos_weight
 
-    def forward(self, pred: torch.Tensor, gt: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        pred: torch.Tensor,
+        gt: torch.Tensor,
+        weight_map: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """
         Args:
             pred: (B, 1, H, W) in [0, 1]
             gt:   (B, 1, H, W) in [0, 1]
+            weight_map: (B, 1, H, W) 正样本逐像素权重；None = 不加权（逐位不变）
         """
         # Ensure calculations are performed in float32 for numerical stability
         pred = pred.float()
@@ -323,6 +378,8 @@ class FocalLoss(nn.Module):
         pred_clamped = torch.clamp(pred, min=1e-5, max=1.0 - 1e-5)
 
         pos_loss = torch.log(pred_clamped) * torch.pow(1.0 - pred_clamped, self.alpha) * pos_inds
+        if weight_map is not None:
+            pos_loss = pos_loss * weight_map
         neg_loss = torch.log(1.0 - pred_clamped) * torch.pow(pred_clamped, self.alpha) * neg_weights * neg_inds
 
         num_pos = pos_inds.sum()
@@ -465,10 +522,13 @@ class HeatmapLoss(nn.Module):
                 targets["heatmap"],
                 ind=targets.get("ind"),
                 mask=targets.get("mask"),
+                weight_map=targets.get("weight_map"),
             )
             loss_items["loss_energy"] = hm_details.get("loss_energy", 0.0)
         else:
-            loss_hm = self.focal_loss(preds["heatmap"], targets["heatmap"])
+            loss_hm = self.focal_loss(
+                preds["heatmap"], targets["heatmap"], weight_map=targets.get("weight_map")
+            )
 
         loss_offset = self.offset_loss(
             preds["offset"], targets["offset"], targets["ind"], targets["mask"]

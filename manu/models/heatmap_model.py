@@ -565,6 +565,50 @@ class P0ResidualHighway(nn.Module):
 
 
 
+class HighFreqSkip(nn.Module):
+    """极窄通道的跨层高频残差注入（High-Frequency Skip Injection, HFSI）。
+
+    背景：≤4 px 的微目标在 P3（/8）网格上不足一个 cell，浅层里的**高频脉冲**
+    （局部峰值相对局部背景的对比度）在下采样与语义融合中被抹平 ⇒ 这里把浅层的
+    高频能量以 1~2 个窄通道压到**头网格**，以**加性残差**注入 head 输入
+    （`head_in` 1×1 适配器之后、`Head.feat_conv` 之前）⇒ 主特征通道数不变
+    ⇒ `head.feat_conv.0.conv.weight` 仍是 (64,48,3,3) ⇒ 旧 ckpt 的头照常可加载。
+
+    计算链（只用 RKNN 可编译算子：Conv2d / MaxPool2d / AvgPool2d / Sub / Add）：
+        compress : Conv2d 1x1 (src_ch -> hf_ch)     通道压缩（后续算子只在窄张量上跑）
+        contrast : MaxPool2d(2) - AvgPool2d(2)     局部对比度（峰 - 局部背景）= 高通
+        down     : MaxPool2d(pool_factor/2)        降到头网格（保峰，不糊）
+        project  : Conv2d 1x1 (hf_ch -> out_ch)    投影回主特征通道（零初始化）
+
+    为什么降采样用 MaxPool 而不是 AvgPool：AvgPool 会把 1~2 px 的微目标脉冲摊平成
+    背景（微目标能量被抹掉）；MaxPool 保留局部峰值，而峰值正是微目标的能量载体。
+    对比度窗口取 2x2 且不带 padding ⇒ NPU 侧没有 count_include_pad 的语义歧义。
+
+    为什么 `project` 零初始化：侧枝开启的瞬间输出恒为 0 ⇒ 起点与原模型**逐位一致**，
+    微目标表征的改善完全来自后续训练，不会一上来就破坏预训练好的头。
+    """
+
+    def __init__(self, src_channels: int, out_channels: int, hf_channels: int = 1, pool_factor: int = 2):
+        super().__init__()
+        self.hf_channels = int(hf_channels)
+        self.pool_factor = int(pool_factor)
+        self.compress = nn.Conv2d(src_channels, hf_channels, kernel_size=1, bias=True)
+        # 局部对比度：2x2 窗口内的峰值 - 均值（高通）
+        self.peak = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.mean = nn.AvgPool2d(kernel_size=2, stride=2)
+        # contrast 已经把源网格降了一半，剩下的差距再靠 MaxPool 补齐（pool_factor=2 时不需要）
+        self.down = (nn.MaxPool2d(kernel_size=pool_factor // 2, stride=pool_factor // 2)
+                     if pool_factor > 2 else nn.Identity())
+        self.project = nn.Conv2d(hf_channels, out_channels, kernel_size=1, bias=True)
+        nn.init.zeros_(self.project.weight)
+        nn.init.zeros_(self.project.bias)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        narrow = self.compress(x)                              # (B, hf_ch, Hs, Ws)
+        contrast = self.peak(narrow) - self.mean(narrow)       # 局部高通：峰 - 背景
+        return self.project(self.down(contrast))                # (B, out_ch, Hh, Wh)
+
+
 def swap_act_to_relu(model: nn.Module, scope: str = "all") -> int:
     """把模块里的 nn.SiLU 全部换成 nn.ReLU，返回替换个数。
 
@@ -608,6 +652,20 @@ class YOLO26HeatmapDetector(nn.Module):
     Can optionally upsample P2 to P1 (Stride 2, 320x320 for 640x640 input) for extreme small target recall.
     Supports scale='n' (width=0.25) and scale='s' (width=0.50).
     Optionally attaches P0ResidualHighway for full-resolution high-frequency impulse retention.
+
+    新增能力：**跨层高频残差注入**（`hf_skip`，默认 False ⇒ 与本能力引入前**逐位一致**）。
+    开启后，浅层（默认 b1 = 骨干 /4 的 160x160）的高频能量以 1~2 个窄通道压到头网格，
+    以加性残差注入 head 输入（`head_in` 之后、`Head.feat_conv` 之前）⇒ 头张量形状不变。
+
+    ckpt 自描述（与 `manu/pipeline/npu/hm_export_onnx.py::build_model()` 的读法一一对应）：
+      · 写：训练侧 ``torch.save({..., **model.struct_config()}, path)``
+      · 读：``YOLO26HeatmapDetector(..., hf_skip=ckpt.get("hf_skip", False),
+                                      hf_skip_src=ckpt.get("hf_skip_src", "b1"),
+                                      hf_skip_channels=ckpt.get("hf_skip_channels", 1))``
+    需要接线的三处（父代理改动，本文件不碰）：
+      1) `manu/training/optuna_mix_ratio_search.py` 的 `torch.save({...})` 块 ⇒ 加三个键；
+      2) `manu/pipeline/npu/hm_export_onnx.py::build_model()` ⇒ 构造参数加三个键；
+      3) `manu/inference/cache_trial0474_inferences.py` ⇒ 构造参数加三个键。
     """
 
     def __init__(
@@ -630,6 +688,9 @@ class YOLO26HeatmapDetector(nn.Module):
         act: str = "silu",
         head_src: str = "",
         p2_out_scale: float = 1.0,
+        hf_skip: bool = False,
+        hf_skip_src: str = "b1",
+        hf_skip_channels: int = 1,
     ):
         super().__init__()
         # ⚠️ stride=8（P3 头）只在 no_p2 结构下允许。
@@ -711,6 +772,30 @@ class YOLO26HeatmapDetector(nn.Module):
         self.upsample_mode = upsample_mode
         self.use_p0_highway = use_p0_highway
         self.late_upsample = late_upsample
+        self.p2_out_scale = float(p2_out_scale)
+
+        # ---- 跨层高频残差注入（默认关 ⇒ 与本能力引入前逐位一致）----
+        # hf_skip_src='b1' ⇒ 取骨干 /4 的 160x160（P2 stem），'b0' ⇒ 取骨干 /2 的 320x320（P1 stem）。
+        # 默认取 b1 而不是 b0 的理由是**搬运量**：同样的高频信息，b0 要多搬
+        # 320x320x16x4B = 6.55 MB，b1 只要 160x160x32x4B = 3.28 MB（搬运量减半 ⇒ 时延增量减半），
+        # 而 b1 在 no_p2 结构下**照样被算出来**（骨干 b0/b1 是 P3→P5 的必经之路，不受删 P2 影响）。
+        self.hf_skip = bool(hf_skip)
+        self.hf_skip_src = str(hf_skip_src)
+        self.hf_skip_channels = int(hf_skip_channels)
+        assert self.hf_skip_src in ("b0", "b1"), f"hf_skip_src must be 'b0' or 'b1', got {hf_skip_src!r}."
+        assert self.hf_skip_channels in (1, 2), f"hf_skip_channels must be 1 or 2, got {hf_skip_channels!r}."
+
+        # 头**实际计算**的网格 stride：输出 stride 会被 late_upsample 改写（p3+late ⇒ 输出 /2，
+        # 但头仍在 /8 上算）⇒ 这里必须单独记一个，不能拿 self.stride 当网格 stride。
+        if self.no_p2:
+            # 标准 YOLO26 拓扑：头吃 FPN 的 P3（/8）或骨干的 P2（/4）
+            head_grid_stride = 8 if self.head_level == "p3" else 4
+        elif head_src == "p1":
+            # p1 头：stride=2 时吃 fuse_p1 的 320x320（late 时降到 160）；stride=4 时吃 p2_out（160）
+            head_grid_stride = (4 if late_upsample else 2) if self.stride == 2 else 4
+        else:  # head_src == "p2_fused"
+            head_grid_stride = 4
+        self.head_grid_stride = head_grid_stride
 
         # Width scale multiplier (n: 0.25 -> 1x base; s: 0.50 -> 2x base)
         w = 1 if scale == "n" else 2
@@ -825,6 +910,27 @@ class YOLO26HeatmapDetector(nn.Module):
         else:
             head_in_ch = c_p2_out
 
+        # ---- 跨层高频残差注入侧枝（只在显式开启时建 ⇒ 默认图的 state_dict/前向逐位不变）----
+        self.hf_skip_branch = None
+        if self.hf_skip:
+            src_stride = 2 if self.hf_skip_src == "b0" else 4
+            src_channels = c_p1 if self.hf_skip_src == "b0" else c_p2
+            pool_factor = head_grid_stride // src_stride
+            # 侧枝的对比度窗口本身要占 2x2 ⇒ 源网格至少要比头网格细一半，否则对比度退化成 0
+            assert head_grid_stride % src_stride == 0 and pool_factor >= 2, (
+                f"hf_skip_src={self.hf_skip_src!r} (stride {src_stride}) 与头网格 "
+                f"(stride {head_grid_stride}) 不兼容：降采样倍数需为 >= 2 的 2 的幂。"
+            )
+            self.hf_skip_branch = HighFreqSkip(
+                src_channels=src_channels,
+                out_channels=head_in_ch,
+                hf_channels=self.hf_skip_channels,
+                pool_factor=pool_factor,
+            )
+            print(f"[hf_skip] on: src={self.hf_skip_src} (stride {src_stride}, {src_channels}ch) -> "
+                  f"head grid (stride {head_grid_stride}), pool_factor={pool_factor}, "
+                  f"hf_ch={self.hf_skip_channels}, out_ch={head_in_ch}")
+
         # P0 Residual Highway: full-resolution 640x640 residual stream with zero-init gate
         if self.use_p0_highway:
             p0_kwargs = {} if p0_highway_kwargs is None else p0_highway_kwargs
@@ -852,7 +958,8 @@ class YOLO26HeatmapDetector(nn.Module):
     def extract_features(self, x: torch.Tensor) -> torch.Tensor:
         # Backbone forward
         p1 = self.b0(x)                 # /2
-        p2_in = self.b2(self.b1(p1))    # /4
+        p2_stem = self.b1(p1)           # /4 —— 高频侧枝的默认取数点（no_p2 下同样被算出来）
+        p2_in = self.b2(p2_stem)        # /4
         p3_in = self.b4(self.b3(p2_in)) # /8
         p4_in = self.b6(self.b5(p3_in)) # /16
         p5_in = self.b10(self.b9(self.b8(self.b7(p4_in)))) # /32
@@ -866,30 +973,42 @@ class YOLO26HeatmapDetector(nn.Module):
             # p2 => 直接用骨干 /4 的 p2_in（160x160），保住极小目标分辨率；
             # p3 => 用 FPN 的 P3（80x80），最省搬运。
             src = p3_fpn if self.head_level == "p3" else p2_in
-            return self.head_in(src)
+            feat = self.head_in(src)
+        else:
+            p2_fpn = self.c19(torch.cat([self.up3(p3_fpn), p2_in], dim=1))
 
-        p2_fpn = self.c19(torch.cat([self.up3(p3_fpn), p2_in], dim=1))
+            # Bottom-up enhancement
+            p3_pan = self.c22(torch.cat([self.down1(p2_fpn), p3_fpn], dim=1))
 
-        # Bottom-up enhancement
-        p3_pan = self.c22(torch.cat([self.down1(p2_fpn), p3_fpn], dim=1))
-        
-        # P2 enriched feature
-        p2_out = self.fuse_p2(torch.cat([p2_fpn, self.up_p2(p3_pan)], dim=1))
+            # P2 enriched feature
+            p2_out = self.fuse_p2(torch.cat([p2_fpn, self.up_p2(p3_pan)], dim=1))
 
-        if self.head_src == "p2_fused":
-            # 结构 B：头吃 **P2 融合后** 的 160x160（有 P3 语义）⇒
-            #   删掉 P1 320 头分支（up_p1/fuse_p1），但**保留 P2 融合语义**
-            #   ⇒ 这是"精度友好"的那一版：P1 的 320x320 大张量没了，
-            #     而热图仍在 160x160（stride 4）⇒ 极小目标定位不掉。
-            return self.head_in(p2_out)
+            if self.head_src == "p2_fused":
+                # 结构 B：头吃 **P2 融合后** 的 160x160（有 P3 语义）⇒
+                #   删掉 P1 320 头分支（up_p1/fuse_p1），但**保留 P2 融合语义**
+                #   ⇒ 这是"精度友好"的那一版：P1 的 320x320 大张量没了，
+                #     而热图仍在 160x160（stride 4）⇒ 极小目标定位不掉。
+                feat = self.head_in(p2_out)
+            elif self.stride == 2:
+                # late_upsample: b0 的 P1 特征也要降到 P2 尺度，否则拼接时尺寸不匹配。
+                # 这里同样零 MAC，代价是 P1 高频细节被降采样（非等价，须重训）。
+                p1_feat = F.avg_pool2d(p1, 2) if self.late_upsample else p1
+                feat = self.fuse_p1(torch.cat([self.up_p1(p2_out), p1_feat], dim=1))
+            else:
+                feat = p2_out
 
-        if self.stride == 2:
-            # late_upsample: b0 的 P1 特征也要降到 P2 尺度，否则拼接时尺寸不匹配。
-            # 这里同样零 MAC，代价是 P1 高频细节被降采样（非等价，须重训）。
-            p1_feat = F.avg_pool2d(p1, 2) if self.late_upsample else p1
-            p1_out = self.fuse_p1(torch.cat([self.up_p1(p2_out), p1_feat], dim=1))
-            return p1_out
-        return p2_out
+        # 跨层高频残差注入：侧枝信号与 head 输入**加性**融合（主特征通道数不变）
+        return self._inject_hf_skip(feat, p1, p2_stem)
+
+    def _inject_hf_skip(self, feat: torch.Tensor, p1: torch.Tensor, p2_stem: torch.Tensor) -> torch.Tensor:
+        """把浅层的高频能量以加性残差注入 head 输入（`head_in` 之后、`Head.feat_conv` 之前）。
+
+        默认关闭（`hf_skip_branch is None`）⇒ 原样返回 `feat` ⇒ 与引入本能力前的模型逐位一致。
+        """
+        if self.hf_skip_branch is None:
+            return feat
+        src = p1 if self.hf_skip_src == "b0" else p2_stem
+        return feat + self.hf_skip_branch(src)
 
     def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
         feat = self.extract_features(x)
@@ -897,6 +1016,33 @@ class YOLO26HeatmapDetector(nn.Module):
             # Inject P0 full-resolution residual with zero-init gate
             feat = feat + self.p0_highway(x)
         return self.head(feat)
+
+    def struct_config(self) -> dict:
+        """返回 ckpt 自描述字段（训练侧写进 ckpt，导出/门禁侧按同一套键读回重建）。
+
+        键名与 `manu/pipeline/npu/hm_export_onnx.py::build_model()` 现有读法一一对应；
+        新增的三个键（hf_skip / hf_skip_src / hf_skip_channels）也必须被同样读回：
+
+            写：``torch.save({**other, **model.struct_config()}, path)``
+            读：``YOLO26HeatmapDetector(..., hf_skip=ckpt.get("hf_skip", False),
+                                          hf_skip_src=ckpt.get("hf_skip_src", "b1"),
+                                          hf_skip_channels=ckpt.get("hf_skip_channels", 1))``
+
+        不含 "stride"：ckpt 里的 stride 是**训练口径**，而 `self.stride` 会被 late_upsample
+        改写成输出 stride（p3+late ⇒ 头在 /8 算、输出却是 /2）⇒ 两者不一定相等，别混用。
+        """
+        return {
+            "no_p2": bool(self.no_p2),
+            "head_level": str(self.head_level),
+            "act": str(self.act_kind),
+            "head_conv": int(self.head.head_conv),
+            "late_upsample": bool(self.late_upsample),
+            "head_src": str(self.head_src),
+            "p2_out_scale": float(self.p2_out_scale),
+            "hf_skip": bool(self.hf_skip),
+            "hf_skip_src": str(self.hf_skip_src),
+            "hf_skip_channels": int(self.hf_skip_channels),
+        }
 
     def load_pretrained(self, weights_path: str | Path):
         weights_path = Path(weights_path)

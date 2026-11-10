@@ -120,3 +120,68 @@
 - **分档出图**：远距小目标单独走一支。
 
 两条都不在「裁减通道」上继续微调（已被实测否证）。
+
+---
+
+## 8. ★★ Wave 1：NanoBench 定向搜索（2026-11-10 16:40 开跑，接手 §1~§7）
+
+> 起因：用户追加要求「专门测小目标召回的数据子集」⇒ 把 **NanoBench-T1**（`manu/evaluation/tiny_target_subset.py`）
+> 从"观测指标"升级为**选型主判据**，并以 `trial_0031` 真实配方为基线做**单变量**搜索。
+> 全链：训练 → no-GMC 缓存 → NanoBench 分层（8px 主档 + 4px 严格档）→ **按 nano 下限选 epoch** → 官方三轨（GMC）
+> → 导 rknn（act 跟随 ckpt 自描述）→ **一次**板卡会话 → `dual_constraint_gate.py` 联合门禁。
+> 驱动脚本 `manu/pipeline/npu/nano_search.py`（幂等/台账/硬截止 `--stop-at`）。
+
+### 8.1 臂表（全部 = trial_0031 配方 + 单变量；seeds 191xx；4 卡并发）
+
+| trial | GPU | seed | 单变量 | 依据 | 状态 |
+|:--|:--:|--:|:--|:--|:--|
+| **9801** | 1 | 19101 | **对照**（零改动） | 给出 nano / T2-FP 的**种子噪声基线**（±0.0002 F1） | 训练中 |
+| **9802** | 2 | 19102 | `--size-weight-small 1.5` | 方向三① 下限（与 9803 构成**剂量-响应对**） | 训练中 |
+| **9803** | 3 | 19103 | `--size-weight-small 3.0` | 方向三① 上限 | 训练中 |
+| **9804** | 0 | 19104 | `--train-on-native-grid 1 --min-radius 0` | 直击 §88 根因（监督分辨率 ≠ 头原生网格 ⇒ 峰被稀释）= **9504 从未跑完的格** | 训练中 |
+
+- 启动：`setsid nohup … nano_search.py --wave W1 --epochs 5,10,15,20 --stop-at "2026-11-11 08:00" > /mnt/data/siping/runs/npu20ms/nano_search/nano_search.out 2>&1 < /dev/null &`
+- 台账：`/mnt/data/siping/runs/npu20ms/nano_search/nano_search_ledger.json`；日志 `nano_search.log`；
+  臂权重 `/mnt/data/siping/runs/npu20ms_offcal/trials/trial_98xx/weights/epoch{5,10,15,20}.pt`（**每个 epoch 都存档**）。
+- 训练实测节奏：Ep01 约 **115 s / 1779 iter**，4 臂并发单臂约 **185 s/epoch** ⇒ 20 ep ≈ **62 min**。
+
+### 8.2 选 epoch 规则（`nano_search.py::pick_epoch`）
+先取 **nano ≥ 0.6666** 的 epoch 集合里 **F1 最高**者；若一个都没有 ⇒ 取 **nano 最高**者。
+（late_upsample 的 nano 随训练下滑 ⇒ 纯 F1 选臂会挑到最差 epoch。）
+
+### 8.3 判据（对等线口径；**必须同时报 gate 原始 verdict**）
+| 轨 | 门槛 | 0031 实测 |
+|:--|:--|:--|
+| NanoBench F1 | > 0.887122 | 0.887122 |
+| NanoBench nano / micro / small / regular | ≥ 0.6666 / 0.8370 / 0.8654 / 0.9445 | 同左 |
+| 官方 T1（GMC） | ≥ 0.885997 | 0.885997（**但 gate 原始 verdict = FAIL**，T1 绝对红线 0.905736 Δ −1.97 pp） |
+| 官方 T2 | F1 ≥ 0.985 且 **FP ≤ 36** | 0.997531 / FP 10 |
+| 官方 T3 | ≥ 0.948330 | 0.948330 |
+| 板卡 int8 | ≤ 20 ms | 19.629 ms |
+
+### 8.4 本轮顺手修掉的工程缺陷
+1. `route2_acceptance.py` **act 硬编码 relu** ⇒ silu 权重导 relu 图 = **死模型（F1 = 0.000000）** ⇒ 已改为跟随 ckpt 自描述。
+2. `heatmap_loss.py` 新增尺寸加权 focal；`verify_size_weight.py` 与旧实现**逐位对比 ALL PASS**；
+   **尺寸口径对齐校验**：`(w_norm×640, h_norm×512)` 与 NanoBench `gt_physical_size` 分桶 **0/3360 不一致** ⇒ 加权口径 == 基准口径 ✓。
+3. **基准口径缺陷入档（暂不修）**：NanoBench 把 GT 高度再 ×0.8（GT 本是原图像素）⇒ 物理 nano 实为 **14.64%**，
+   参照卡写的 **16.85% 偏高 2.2 pp**；修了会与 0031 及全部历史臂失配 ⇒ 下一版统一修并重刷参照卡。
+
+---
+
+## 9. ★★ W1 实测 + 整晚排定（2026-11-10 17:50）
+
+| 臂 | 变更 | 选中 ep | F1 | nano | nano@4px | micro | regular | 官方门禁 |
+|:--|:--|--:|--:|--:|--:|--:|--:|:--|
+| 9801 | 对照（0031 配方换种子） | 5 | 0.889960 | 0.6673 | 0.5780 | 0.8325 | 0.9493 | 见台账 |
+| 9802 | size-weight 1.5 | 5 | 0.891083 | 0.6843 | 0.6153 | 0.8300 | 0.9476 | 见台账 |
+| **9803** | **size-weight 3.0** | 5 | **0.892343** | **0.6919** | 0.6210 | 0.8291 | 0.9416 | 见台账 |
+| 9804 | 原生网格 + min-radius 0 | 15 | 0.892028 | 0.6749 | **0.6609** | 0.8386 | 0.9424 | 见台账 |
+| — | **交付件 0031（参照）** | 20 | 0.887122 | 0.6666 | 0.6033 | 0.8370 | 0.9445 | T1 0.885997 / T2 FP 10 / T3 0.948330 |
+
+**读法**：① size-weight 剂量-响应单调为正，sw=3.0 **全 epoch 稳定**（sw1.5 会衰减）⇒ 方向三①成立；
+② 原生网格把 **nano@4px 抬 +8.3 pp** ⇒ §88 根因成立，但它修"定位"不修"检出" ⇒ 与 ① **机理正交，必须组合**；
+③ **判据基准换成对照臂 9801**（同配方换种子）——它的 F1 已比 0031 高 0.0028 ⇒ 种子噪声比假设大一个量级。
+
+**整晚（服务器自主，08:30 收工）**：W2~W9 共 **32 臂**，方向 = 剂量上探(4/5/6/8) + 原生网格×sw 组合 + hf_skip×sw + 周期网格(6/8/10/12)
++ LR 保底 + 大目标降权 + 12ep 短周期 + lr_scale/混样/warmup + 种子复现。调度器 `/tmp/night_runner.sh`，
+台账 `/mnt/data/siping/runs/npu20ms/nano_search/nano_search_ledger.json`。

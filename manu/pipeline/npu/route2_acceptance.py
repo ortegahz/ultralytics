@@ -86,19 +86,27 @@ def nanobench(cache: str, label: str) -> dict | None:
     return res
 
 
-def export_rknn(ckpt: str, name: str) -> tuple[str | None, int]:
-    """导出 ONNX → 转 int8 rknn。返回 (rknn 路径, stride)。"""
+def export_rknn(ckpt: str, name: str, act_override: str = "") -> tuple[str | None, int]:
+    """导出 ONNX → 转 int8 rknn。返回 (rknn 路径, stride)。
+
+    ⚠️ **act 必须跟随 ckpt 自描述**（2026-11-10 修正）：
+    历史版本这里硬编码 ``--act relu`` ⇒ 对 **silu 训练的权重**导出会得到「silu 权重 + relu 图」
+    的数值错配模型（memory §103.1 实测 **F1 = 0.000000，彻底死模型**）⇒ 交付级事故。
+    现在默认读 ckpt 的 ``act`` 字段（``hm_export_onnx.py::build_model`` 同样按 ckpt 重建结构），
+    只有显式传 ``act_override="relu"`` 才做 relu 探针（探针只测时延，不可用于验收）。
+    """
     import torch  # noqa: PLC0415
 
     d = torch.load(ckpt, map_location="cpu", weights_only=False)
     stride = int(d.get("stride", 2) or 2)
+    act = act_override or str(d.get("act", "silu") or "silu")
     onnx = f"{WORK}/onnx/{name}.onnx"
     rknn = f"{WORK}/arms/{name}_int8.rknn"
     os.makedirs(f"{WORK}/onnx", exist_ok=True)
     os.makedirs(f"{WORK}/arms", exist_ok=True)
     if not os.path.isfile(rknn):
         r = sh(f"cd {REPO} && export PYTHONPATH=. && {PY} manu/pipeline/npu/hm_export_onnx.py "
-               f"--weights {ckpt} --out {onnx} --act relu --ablate-p0 --skip-check", timeout=3600)
+               f"--weights {ckpt} --out {onnx} --act {act} --ablate-p0 --skip-check", timeout=3600)
         if not os.path.isfile(onnx):
             log(f"[export] {name} 导出失败 rc={r.returncode}: {(r.stdout or '')[-300:]}{(r.stderr or '')[-300:]}")
             return None, stride
@@ -107,7 +115,7 @@ def export_rknn(ckpt: str, name: str) -> tuple[str | None, int]:
         if not os.path.isfile(rknn):
             log(f"[rknn] {name} 转换失败 rc={r.returncode}: {(r.stdout or '')[-300:]}")
             return None, stride
-    log(f"[rknn] {name} OK stride={stride} size={os.path.getsize(rknn)}B")
+    log(f"[rknn] {name} OK stride={stride} act={act} size={os.path.getsize(rknn)}B")
     return rknn, stride
 
 
@@ -138,6 +146,9 @@ def main() -> None:
     ap.add_argument("--budget-ms", type=float, default=30.0)
     ap.add_argument("--nano-min", type=float, default=0.6978)
     ap.add_argument("--skip-board", type=int, default=0)
+    ap.add_argument("--act-override", default="",
+                    help="强制导出的 act（默认 = 跟随 ckpt 自描述）。"
+                         "'relu' 仅作**时延探针**（数值错配 ⇒ 死模型），不可用于验收")
     ap.add_argument("--out", default=f"{WORK}/route2_acceptance.json")
     args = ap.parse_args()
 
@@ -204,7 +215,8 @@ def main() -> None:
         best_nano = max(cand, key=lambda c: c["nano"])
         log(f"★ {trial} 选 epoch={best['epoch']}（{how}）F1={best['f1']:.6f} nano={best['nano']:.4f} | "
             f"nano 峰值在 epoch{best_nano['epoch']}（nano={best_nano['nano']:.4f}）")
-        rknn, stride = export_rknn(best["ckpt"], f"r2_{trial}_ep{best['epoch']}")
+        rknn, stride = export_rknn(best["ckpt"], f"r2_{trial}_ep{best['epoch']}",
+                                   act_override=args.act_override)
         if rknn:
             board_arms.append((f"r2_{trial}_ep{best['epoch']}", rknn, stride))
 
