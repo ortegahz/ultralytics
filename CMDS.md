@@ -413,3 +413,24 @@ bash manu/videos/run_rc2_tracked_osd_smoke2.sh
 # 诊断：是哪一道闸把轨迹剪掉了（逐阶段计数）
 python manu/evaluation/diag_zongheng_track_stages.py <ms_cache>/<SEQ>.pkl
 python manu/evaluation/diag_zongheng_track_gate.py <ms_cache>/
+
+# 诊断：跟踪档覆盖率损失的三级归因（CPU-only，服务器上跑）
+#   1) 逐序列清单：检出帧数 / 轨迹数 / 最长轨迹 / 插补帧，并标出「跟踪后 0 轨迹」的序列
+python manu/evaluation/diag_zongheng_track_inventory.py \
+  /mnt/data/siping/datasets/manu/纵横AI数据采集_osd_rc2_th020_20261109/frames \
+  /mnt/data/siping/datasets/manu/纵横AI数据采集_osd_rc2_tracked_th020_20261110/frames \
+  /mnt/data/siping/runs/zongheng_rc2_tracked_th020_inventory.json
+#   2) 找出「单帧连续 ≥N 帧、跟踪一帧不剩」的段，并用帧内位移区分 static / moving
+python manu/evaluation/diag_zongheng_persistent_drop.py \
+  /mnt/data/siping/datasets/manu/纵横AI数据采集_osd_rc2_th020_20261109/frames \
+  /mnt/data/siping/datasets/manu/纵横AI数据采集_osd_rc2_tracked_th020_20261110/frames 7 2.0 \
+  /mnt/data/siping/runs/zongheng_rc2_tracked_th020_pdrop.json
+#   3) 以龙泉山 v3 的 max_match_dist(=24px) 为界，统计结构性不可关联的目标
+python manu/evaluation/diag_zongheng_fast_movers.py \
+  /mnt/data/siping/datasets/manu/纵横AI数据采集_osd_rc2_th020_20261109/frames \
+  /mnt/data/siping/datasets/manu/纵横AI数据采集_osd_rc2_tracked_th020_20261110/frames \
+  manu/evaluation/system_sota_longquan_trial0080_delivery_v3_params.json \
+  /mnt/data/siping/runs/zongheng_rc2_tracked_th020_fastmovers.json
+
+# 同阈值逐序列对比（跟踪档 vs 单帧档）
+python manu/evaluation/cmp_zongheng_tracked_vs_single.py <single_frames> <tracked_frames>
