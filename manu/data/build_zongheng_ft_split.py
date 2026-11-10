@@ -157,11 +157,29 @@ def classify(bucket: dict, stable: float, any_coverage: float) -> tuple[str, str
     )
 
 
+def parse_tracking_flag(value: object) -> bool:
+    """Normalise the render summary's ``tracking`` field into a bool.
+
+    The single-frame renderer writes a real bool (``False``); the tracked renderer writes a
+    descriptive string (``"龙泉山 spatio-temporal trajectory ..."``).  A plain ``bool(value)``
+    would turn the string ``"False"`` into ``True``, so the string cases are spelled out.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in {"false", "no", "off", "none", "single_frame", "single-frame"}:
+            return False
+        return bool(text)
+    return bool(value)
+
+
 def build_manifest(
     sequences: dict[str, dict],
     args: argparse.Namespace,
     threshold: float = 0.44,
     merge_radius: float = 768.0,
+    tracking: bool = False,
 ) -> dict:
     groups: dict[str, list[dict]] = {"val": [], "train": [], "ignore": []}
     for name in sorted(sequences):
@@ -451,15 +469,32 @@ def main() -> None:
     # manifest that misreports its threshold would silently attribute one tier's numbers to another.
     threshold, merge_radius = 0.44, 768.0
     tracking = False
-    for summary_path in sorted(Path(args.frames_dir).parent.glob("summary_shard*.json")) if args.frames_dir else []:
+    summary_paths = (
+        sorted(Path(args.frames_dir).parent.glob("summary_shard*.json")) if args.frames_dir else []
+    )
+    if args.frames_dir and not summary_paths:
+        # Silently falling back to the th=0.44 delivery-tier numbers here would attribute one
+        # tier's figures to another -- exactly the mistake this reader was introduced to avoid.
+        raise SystemExit(
+            "no summary_shard*.json next to the frames dir "
+            f"({Path(args.frames_dir).parent}) -- the render has not finished writing its "
+            "summary yet, or it was written elsewhere. Refusing to guess the operating point."
+        )
+    for summary_path in summary_paths:
         config = json.loads(summary_path.read_text(encoding="utf-8")).get("config", {})
         threshold = float(config.get("threshold", threshold))
         merge_radius = float(config.get("merge_radius", merge_radius))
-        tracking = bool(config.get("tracking", tracking))
+        tracking = parse_tracking_flag(config.get("tracking", tracking))
         break
     print(f"[INFO] operating point from render summary: th={threshold} r={merge_radius}px tracking={tracking}")
 
-    manifest = build_manifest(sequences, args, threshold=threshold, merge_radius=merge_radius)
+    manifest = build_manifest(
+        sequences,
+        args,
+        threshold=threshold,
+        merge_radius=merge_radius,
+        tracking=tracking,
+    )
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
