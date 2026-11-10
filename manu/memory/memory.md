@@ -10741,7 +10741,7 @@ python manu/evaluation/eval_multiscale_cache_th.py \
 **渲染成本**：跟踪档比单帧档慢约 4%（第二遍只做裁剪+画点，不重算 GMC/中值/推理）
 ⇒ 实测 **~645 s/条**（3069~3154 帧），4 卡并行 ⇒ 58 条约 **2.7 h**。
 
-### 91.10.1 ★ 跟踪档覆盖率损失的**三级归因**（2026-11-10 10:52，33/58 渲染完成时的实测）
+### 91.10.1 ★ 跟踪档覆盖率损失的**三级归因**（2026-11-10 11:57，全 58 序列最终实测）
 
 新增三个诊断脚本（本地已 commit，双侧 md5 一致）：
 | 脚本 | 作用 |
@@ -10750,24 +10750,26 @@ python manu/evaluation/eval_multiscale_cache_th.py \
 | `manu/evaluation/diag_zongheng_persistent_drop.py` | 找出「单帧档连续 ≥N 帧、跟踪档一帧不剩」的段，并用**帧内位移**区分 static / moving |
 | `manu/evaluation/diag_zongheng_fast_movers.py` | 以龙泉山 v3 的 `max_match_dist` 为界，统计**结构性不可关联**的目标 |
 
-**实测（33 序列 / 96,439 帧）**：
+**实测（全 58 序列 / 173,781 帧，最终）**：
 ```
-单帧档命中 42,526 帧 → 跟踪档命中 39,483 帧，跟踪共删 3,043 帧
-  ├─ 短段（run < confirm_consec=7）      : 2,296 帧  (75.5%)  ← 正是「滤虚警」的设计意图
-  ├─ 门限受限（median step > 24px）      :    66 帧  ( 2.2%)  ← 快速横穿目标，见下
-  └─ 残差（可关联长段仍丢帧）             :   681 帧  (22.4%)  ← 主要是刚性静态剪枝
+单帧档命中 102,139 帧 → 跟踪档命中 96,174 帧，跟踪共删 5,965 帧（占 5.84%）
+  ├─ 短段（run < confirm_consec=7）      : 3,470 帧  (58.2%)  ← 正是「滤虚警」的设计意图
+  ├─ 门限受限（median step > 24px）      :   126 帧  ( 2.1%)  ← 快速横穿目标，见下
+  └─ 残差（可关联长段仍丢帧）             : 2,369 帧  (39.7%)  ← 主要是刚性静态剪枝
 ```
-⇒ **与 91.10 第 3 点的 8.8% 口径一致**，且给出了可操作的分类。
+⇒ 与 91.10 第 3 点的「删 3,163 帧（8.8%）」是**同口径的粗分**（25 序子集、按 run 长度分桶）；
+   上表是**全 58 序 + 机制分桶**的精确版，两者结论一致。
 
 **🔴 根因：龙泉山跟踪器的关联门限上限 = `max_match_dist` = 24 px**
 （`eval_bidirectional_track_fusion.py:214`：`cur_gate = min(max_match_dist, match_dist + 0.5*|v|)`）
 ⇒ 任何**每帧位移 > 24 px** 的目标**永远关联不上** ⇒ 每帧新建轨迹 ⇒ 达不到 `confirm_consec=7` ⇒ **整段被删**。
-本域实测有 7 段这种目标（典型每帧 25~34 px，0.3~0.4 s 横穿画面）：
+本域实测有 **11 段**这种目标（典型每帧 25~460 px，0.3~0.4 s 横穿画面）：
 `VIDEO00036:785-799` / `VIDEO00036:801-807` / `VIDEO00043:1664-1671` / `VIDEO00044:16-23` /
-`VIDEO00044:910-917` / `VIDEO00047:2830-2842` / `VIDEO00058:69-75`。
+`VIDEO00044:910-917` / `VIDEO00047:2830-2842` / `VIDEO00058:69-75` / `VIDEO00073:354-361` /
+`VIDEO00074:41-48` / `VIDEO00084:1301-1311` / `VIDEO00086:2482-2514`。
 ⇒ **这是龙泉山口径与纵横AI域的域差**，不是 bug：龙泉山目标的帧间位移在 24 px 以内。
 
-**🔴 刚性静态剪枝（`min_rigid_disp=2.0`）实测命中 36 段 / 808 帧，净位移全部 ≤ 2 px**，
+**🔴 刚性静态剪枝（`min_rigid_disp=2.0`）实测命中 66 段 / 1,197 帧，净位移全部 ≤ 2 px**，
 抽样目视核验（OSD 的 ZOOM 面板）确认**全是固定人工结构**：
 * `VIDEO00046:441` 与 `VIDEO00060` ⇒ **T 形灯杆/横臂**（灯杆顶）；
 * `VIDEO00033:1792` ⇒ 画面右下**亮树冠边缘**，非目标。
@@ -10779,6 +10781,22 @@ python manu/evaluation/eval_multiscale_cache_th.py \
 | `VIDEO00060_19700101_011137` | **243/243 帧（100%）** | 0 | **灯杆，剪对**（ZOOM 面板目视确认） |
 | `VIDEO00057_19700101_010013` | 2/449 帧（score 0.212） | 0 | 可忽略（刚好过阈值的两帧闪烁） |
 
+**时空轨迹档最终产物（2026-11-10 11:57 全部完成，验收 ALL GREEN / failures=0）**：
+| 项 | 值 |
+|---|---|
+| OSD | `/mnt/data/siping/datasets/manu/纵横AI数据采集_osd_rc2_tracked_th020_20261110`（58 mp4 / 58 frames / 58 preds / 58 cache / 4 summary） |
+| 划分 / 复核稿 | `manu/data/zongheng_ft_split_tracked.json` / `manu/docs/dataset/zongheng-tk-tracked.md`（本地已提交 `ad16d068a`） |
+| 预标注 | `/mnt/data/siping/datasets/manu/纵横AI数据采集_preannot_rc2_tracked`（**96,174** 个标签文件） |
+| 工作点（4 个 summary 一致） | `threshold=0.20` / `merge_radius=768.0` / `tracking=YES` / `confirm_consec=7` |
+| 划分 | **val 30 / train 24 / ignore 4**；检出 96,174 / 173,781 帧（55.3%） |
+| 渲染耗时 | 09:20:38 → 11:57:04，4 卡并行（≈645 s/条） |
+
+🔴 **收尾前预演抓到并修掉的 bug**（`manu/data/build_zongheng_ft_split.py`）：
+① `build_manifest` 引用了**未传入**的 `tracking` 变量 ⇒ 收尾脚本必崩（`NameError`）；
+② summary 缺失时会**静默回退到交付档 th=0.44 / tracking=False** ⇒ 把一档的数字挂到另一档名下。
+⇒ 已加 `tracking` 参数 + `tracking` 字段的 bool/字符串稳健解析 + **找不到 `summary_shard*.json` 直接报错不猜**。
+⇒ 教训：**3 小时的活必须先预演收尾脚本**，否则渲染完才发现元数据生成器是坏的。
+
 ### 91.11 待办（下一轮）
 * **人工复核**：按 `manu/docs/dataset/zongheng-tk.md`（th=0.44）/ `zongheng-tk-th020.md`（th=0.20）/
   `zongheng-tk-tracked.md`（时空轨迹档）逐条看 OSD 填 `[pass]` / `[ignore]` + 原因。
@@ -10786,6 +10804,9 @@ python manu/evaluation/eval_multiscale_cache_th.py \
 * 标注完成后**回填 `single_frame_f1`**（沿用字段名）与 `baseline_reference` 的两个 gt 键。
 * 🔴 本域划分**没有 GT 背书** ⇒ 在标注回填前，三个 `zongheng_ft_split*.json` 只能当**人工复核的组织依据**，
   **不能**当训练/验证的最终划分依据用。
+* 🔴 **待裁决：快速横穿目标**（每帧 >24px，共 11 段）被跟踪档整段删除。
+  * 选项 A（**默认**）：维持龙泉山口径不动，本档只当「降虚警的复核视图」，播种仍以 th=0.20 单帧档为准；
+  * 选项 B：把 `max_match_dist` 抬到 ≥35px 并重跑全档（≈2.7 h）。
 * 🔴 **三档不要混用**：交付结论以 th=0.44 档为准；th=0.20 档 = 召回优先（虚警 4.7 倍）；
   时空轨迹档 = 龙泉山后处理（覆盖率与前两档都不同，且会剪掉静止目标）。
 
