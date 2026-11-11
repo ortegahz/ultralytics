@@ -66,4 +66,4 @@ echo "    [ok] resolves librknnrt.so via the board's own runtime"
 # The board only has ~1.7 GB free on /, and this binary is the one file that
 # CANNOT live on NFS: executing a file off a noexec-uncertain NFS mount is a
 # gamble, and mmap'ing an executable from NFS hits ETXTBSY on re-copy.
-echo "    [ok] copy to the board with: scp $BIN root@192.168.0.64:/root/"
+echo "    [ok] copy to the board with: scp $BIN root@192.168.0.211:/root/"

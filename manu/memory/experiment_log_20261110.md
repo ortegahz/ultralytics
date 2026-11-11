@@ -185,3 +185,58 @@
 **整晚（服务器自主，08:30 收工）**：W2~W9 共 **32 臂**，方向 = 剂量上探(4/5/6/8) + 原生网格×sw 组合 + hf_skip×sw + 周期网格(6/8/10/12)
 + LR 保底 + 大目标降权 + 12ep 短周期 + lr_scale/混样/warmup + 种子复现。调度器 `/tmp/night_runner.sh`，
 台账 `/mnt/data/siping/runs/npu20ms/nano_search/nano_search_ledger.json`。
+
+## 2026-11-11 09:00 · 整晚结果收口（host 在场，服务器续跑）
+- **整晚 36 臂全部完成（04:57 收工）**，台账 `nano_search_ledger.json` 36 臂齐全（nanobench/official/picked/dual）。
+- **T1 全臂缺失 = 基线口径用错**（no-GMC 缓存当 GMC 基线用），已修 `nano_search.py`（`OFFICIAL_BASE_CACHE`），
+  09:04 起对 8 个关键臂重跑官方三轨（T1 数值同时用 `track1_ab.log` 兜底解析出来，36 臂 T1 已齐）。
+- **板卡离线**（192.168.0.64 No route to host）⇒ int8 ms 未测，已挂 5 min 轮询 watcher，板卡一上线自动测。
+- **W10 补跑队列**：sw 5.5/6.0/7.0/10.0 剂量续探 + sw5.0/sw4.0 种子复现 + sw5.0×更宽小目标定义。
+- 结论：**方向三① size-weight 是唯一真杠杆**（sw5.0 → nano 0.7086，比 0031 的 0.6666 高 **+4.2 pp**，
+  F1 0.889712 > 0.887122，T1 0.888086 > 0.885997，T2 FP 5（0031 是 10），T3 0.948489 ≥ 0.948330）；
+  hf_skip 否证；原生网格因 T2 FP 68~138 判死。
+
+## 2026-11-11 09:30 · 换板后测速打通（板卡身份问题 → 延迟链路全部恢复）
+- 用户告知「板卡更换了」⇒ 查 memory `board_swap_20261110.md`：**新板 192.168.0.211**（旧 .64 作废）。昨晚「板卡离线」= 连错板。
+- 新板 NPU 实测可用：NPU 由 **DRM `/dev/dri/renderD129`** 暴露（dmesg `Initialized rknpu 0.9.8 ... on minor 1`）⇒ 旧档「缺 /dev/rknpu ⇒ 跑不了」证伪；
+  NFS 已挂；良品 librknnrt（md5 56e425dc）已就位；host 重编侧车 `rknn_heatmap_smoke` 并推板；服务器免密已装。
+- 两次板卡会话（s1: 7 候选臂；s2: control + 9801 + 9863 + **交付件 t31_silu_int8**）⇒ 新板候选臂 21.0~22.6 ms，
+  **交付件本体 23.528 ms** ⇒ 新板整体慢 ~11~22%，绝对 20 ms 铁律需重新定标（判据改为「同会话不慢于 0031」）。
+- 结构等价性取证：9863 与 t31 的 ONNX 逐项一致（stride2 / 320 输出 / 6.68MB）⇒ 交付板 19.306 ms 由构造保证。
+- Nano 门禁清理（任务书 guardrail #2）：9811/9813/9844/9853（nano ≤ 0.6666）权重已移入 `rejected/`，台账标记。
+- W10 波次 09:21 起训练中（9910~9916 + 9917/9918）。
+
+## 2026-11-11 09:40 · 基线升轨：`trial_9863` ⇒ **Baseline_v2.0**（用户裁决）
+- 用户裁决：9863 从此刻起是**全新绝对基线模型**。理由四条：① 打破「时延 vs 精度」妥协（轻量拓扑下 Nano 召回反超离线天花板）；
+  ② 向下兼容（计算图/量化表/导出/前后处理 100% 沿用 0031，下游零改动）；③ 门禁通过（T2 FP 腰斩至 5、孤立假峰 0）；
+  ④ 确立新的训练方法论母版。
+- **资产归档动作已执行**：
+  - `trial_0031` → `[Status: Superseded / Deprecated Baseline]`；
+  - `trial_0080 (RC2)` → `[Status: Retired / Offline Historical Reference]`；
+  - `9863` → **`Baseline_v2.0`（Non-GMC / <21 ms 唯一官方基线）**。
+- **落地**：`manu/pipeline/npu/nano_search.py` 增 `BASE_V2` / `BASELINE_REGISTRY` / `BASELINE_NANO_FLOOR`，
+  `NANO_FLOOR` 默认切到 9863（CLI `--nano-floor` 可切回）；`pick_epoch` 改 Beat-to-Pass 选 epoch；
+  每臂记 `beat_to_pass_ref`；`final_report` 增 `baseline_v2`/`baseline_registry`/`beat_to_pass` 段与 `*_ge_base_v2` 检查列。
+  新增 `manu/pipeline/npu/promote_baseline.py`（幂等落盘台账 + 回灌板卡会话实测值）。
+  本地 md5 `8810c88b…`(nano_search) / `7577d3de…`(promote_baseline) = 服务器同 md5。
+- **踩坑修复**：`phase_report` 的 Beat-to-Pass 阈值若用 6 位截断常量，**基线臂自己会被 `f1_ge_base_v2` 判负**
+  （0.889712 > 0.8897117）⇒ 改为从台账取 9863 臂**精确读数**做阈值。
+- **待裁决**：新板绝对 ≤20 ms 铁律重新定标（连在位交付件 0031 自身 = 23.528 ms）。
+- **诚实口径补正（④）**：核对 `NanoBench_T1_summary_20261110.md` 参照卡 ⇒ 9863 的 **nano@4px = 0.6472 低于 0080 的 0.6668 与 base_frozen 的 0.6966**
+  ⇒「反超离线天花板」**只在 8px 主档成立**；micro@4px 9863 0.7871 亦低于 0031 0.7938 / 0080 0.8215。
+  同时 0080 / base_frozen 的官方三轨属**路线 B 混训线口径**（T3 序列集不同：0.8977 vs 0.9485）⇒ 不可与 NPU 线直接比大小。
+- **独立核对（只读探针）后的五条口径补正**：
+  ⑤ 官方门禁 `verdict=FAIL`，**0031 本体同样 FAIL**（veto 轨要求 T1 ≥ 0.905736 绝对红线）⇒ `official_ok/deliver_ok=true` ≠ 门禁通过；
+  ⑥ **19.306 ms 是 0031 的数，9863 未在交付板实测**（同图推得）；交付板 11-10 复测 0031 = 19.665 ms（+1.9%）⇒ 20 ms 裕度仅 1.7%；
+  ⑦ **基线绑死 ep5**（nano ep5 0.7086 / ep10 0.6942 / ep15 0.6897 / ep20 0.6909）；
+  ⑧ 9863 `trial_result.json` = `NO_REPORT`（infrastructure_failure，gate_epoch=20）⇒ 权威门禁是 `gate/NANO_9863_ep5_official/`；
+  ⑨ 两套参考卡并存，FP 口径可差 800+ ⇒ 统一用 `nanobench/NanoBench-T1-reference-card.json`。
+
+## 2026-11-11 11:10 · 开新目标：闭环自适应搜索（击败 9863）
+- 用户指令：继续搜索更优秀的模型争取击败 9863；host 18:00 关机，写自动程序在服务器跑，deadline 明早 09:00。
+- **新增两条此前未探过的轴**：
+  ① **Model Soup / SWA**（`ckpt_synth.py`）：零训练成本的后处理式权重平均；已实测 9863ep5+9822ep10+9884ep5
+     → 403 key、结构自描述字段完整、19.66 MB，结构不一致直接拒绝。
+  ② **闭环自适应调度器**（`adaptive_runner.py`）：读台账选 champion → 合成臂 + 以冠军为 init 的 8 个单变量训练臂
+     → 训练/NanoBench/官方三轨/联合门禁/板卡(仅候选臂) → 重选 champion → 下一轮。
+- 服务器自动化链已挂：`day1_runner`(W10) → `day3_w11`(W11) → `day4_adaptive`(自适应)，全 setsid 脱离；硬截止 11-12 09:00。

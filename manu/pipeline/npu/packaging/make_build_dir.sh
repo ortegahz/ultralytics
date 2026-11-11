@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # ===========================================================================
-# make_build_dir.sh -- 从工程里把交付嵌入式组所需的【全部依赖文件】整理进
+# make_build_dir.sh -- 从工程里把交付嵌入式组所需的【全部交付文件】整理进
 #                      build/。
 #
-# 本脚本从工程里把交付嵌入式组所需的**全部依赖文件**整理进 `build/`，
+# 本脚本从工程里把交付嵌入式组所需的**全部交付文件**整理进 `build/`，
 # 可反复重跑（幂等）：重跑会刷新全部文件、删掉不再需要的陈旧文件、
 # 重新生成 MANIFEST.md。
 #
@@ -13,6 +13,22 @@
 # 本脚本【不编译、不拷到 NFS、不 ssh】：
 #   * 编译        → build/build_lib.sh + build/build_demo.sh
 #   * 拷到 NFS    → build/copy_to_nfs.sh
+#
+# ---------------------------------------------------------------------------
+# 【2026-11-11 新板交付版】交付包结构变了
+#
+#   旧版：包内自带 third_party/（交叉编译版 OpenCV 头 + **静态库** .a、
+#         板卡 libOpenCL.so / librknnrt.so / librga.so 的副本）⇒ 220 个文件。
+#   新版：**包内不携带任何第三方 .so/.a**（嵌入式组要求：直接用板卡上
+#         原来就有的 .so）⇒ 没有 third_party/ 目录。
+#         库本身也从**静态库 .a 改成共享库 .so**：
+#           out/libmosaic_pipeline.so（SONAME = libmosaic_pipeline.so）
+#         四个测试程序用 `-lmosaic_pipeline` + `-Wl,-rpath,'$ORIGIN'` 链接它
+#         ⇒ 整包可搬、可直接跑，不需要设 LD_LIBRARY_PATH。
+#
+#   ⚠️ 头与运行库必须**同版本**：用板卡 OpenCV 4.6.0 的头去链板卡
+#      4.6.0 的 libopencv_*.so.406；不要拿 4.8 的运行库配 4.6 的头。
+# ---------------------------------------------------------------------------
 #
 # 用法: bash manu/pipeline/npu/packaging/make_build_dir.sh
 # ===========================================================================
@@ -38,27 +54,31 @@ echo
 # 占位符取值（与 build_lib.sh / build_demo.sh / copy_to_nfs.sh 的默认值一致）
 # ---------------------------------------------------------------------------
 TOOLCHAIN_V="${RK3588_TOOLCHAIN:-/media/manu/1TB-Volume/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu}"
-OPENCV_V="${OPENCV_INSTALL:-/media/manu/1TB-Volume/workspace/opencv-4.10.0-arm64-install}"
-BOARD_LIBS_V="${BOARD_LIBS:-/media/manu/1TB-Volume/rk3588/boardlibs}"
-RT_LIB_DIR_V="${RT_LIB_DIR:-/run/media/manu/SSD960-LOCAL/nfs/npu}"
 
 # ---------------------------------------------------------------------------
-# 第三方依赖的【来源】。这三个是编译期的硬依赖（缺一个就编不出来），
-# 以前只存在于开发机的绝对路径里 ⇒ 交付出去的包**根本没法原地重编**。
-# 现在把它们一并打进 third_party/，包才真正自包含。
+# 板卡依赖的【定位】。
 #
-#   OPENCV_INSTALL   → 交叉编译版 OpenCV（头 + **静态库** .a）
-#   BOARD_LIBS       → 板卡 libOpenCL.so
-#   RT_LIB_DIR       → 板卡 librknnrt.so / librga.so
+# 本包**不再携带任何第三方 .so/.a** ⇒ OpenCV / RKNN Runtime / RGA / OpenCL
+# 全部**动态链接板卡自带的库**。下面的默认值就是**板卡的系统路径**：
 #
-# 交付态的包里，build_lib.sh / build_demo.sh 默认改用 third_party/ 里的副本；
-# 这三个环境变量仍可覆盖（换板卡、换 BSP 时用）。
+#   OPENCV_INCLUDE_DIR  板卡 OpenCV **头**（含 opencv2/）   板卡默认 /usr/include/opencv4
+#   OPENCV_LIB_DIR      板卡 OpenCV **动态库**（.so.406）   板卡默认 /usr/lib/aarch64-linux-gnu
+#   BOARD_LIBS          板卡 libOpenCL.so.1 / librga.so.2   板卡默认 /usr/lib/aarch64-linux-gnu
+#   RT_LIB_DIR          板卡 librknnrt.so                   板卡默认 /usr/lib
+#
+# ⚠️ **交叉编译在宿主机上做时，上面这些路径指的是「目标板卡的文件系统」**：
+#    宿主机的 /usr 是 x86 的，**绝对不能直接用**（会污染构建）⇒
+#    必须先把板卡的那份（头 + .so）取回宿主机，再把变量指过去。
+#
+# build_lib.sh / build_demo.sh 用的是同一套变量（名字与默认值完全一致）。
 # ---------------------------------------------------------------------------
-TP_SRC_OPENCV="${OPENCV_INSTALL:-/media/manu/1TB-Volume/workspace/opencv-4.10.0-arm64-install}"
-TP_SRC_BOARDLIBS="${BOARD_LIBS:-/media/manu/1TB-Volume/rk3588/boardlibs}"
-TP_SRC_RT="${RT_LIB_DIR:-/run/media/manu/SSD960-LOCAL/nfs/npu}"
+OPENCV_INCLUDE_DIR_V="${OPENCV_INCLUDE_DIR:-/usr/include/opencv4}"
+OPENCV_LIB_DIR_V="${OPENCV_LIB_DIR:-/usr/lib/aarch64-linux-gnu}"
+OPENCV_V="${OPENCV_INSTALL:-/usr/include/opencv4}"     # 旧键名（兼容用；现在等价于板卡 OpenCV 头目录）
+BOARD_LIBS_V="${BOARD_LIBS:-/usr/lib/aarch64-linux-gnu}"
+RT_LIB_DIR_V="${RT_LIB_DIR:-/usr/lib}"
 NFS_ROOT_V="${NFS_ROOT:-/run/media/manu/SSD960-LOCAL/nfs}"
-BOARD_V="${BOARD:-root@192.168.0.64}"
+BOARD_V="${BOARD:-root@192.168.0.211}"
 BOARD_PORT_V="${BOARD_PORT:-22}"
 
 # 填占位符。模板里 {{...}} 形式的占位符由本函数按实况替换。
@@ -72,18 +92,19 @@ fill_placeholders() {
     -e "s|\{\{BOARD_PORT\}\}|$BOARD_PORT_V|g" \
     -e "s|\{\{TOOLCHAIN\}\}|$TOOLCHAIN_V|g" \
     -e "s|\{\{OPENCV_INSTALL\}\}|$OPENCV_V|g" \
+    -e "s|\{\{OPENCV_INCLUDE_DIR\}\}|$OPENCV_INCLUDE_DIR_V|g" \
+    -e "s|\{\{OPENCV_LIB_DIR\}\}|$OPENCV_LIB_DIR_V|g" \
     -e "s|\{\{BOARD_LIBS\}\}|$BOARD_LIBS_V|g" \
     -e "s|\{\{RT_LIB_DIR\}\}|$RT_LIB_DIR_V|g" \
     -e "s|\{\{FILE_COUNT\}\}|$FILE_COUNT|g" \
-    -e "s|\{\{TP_COUNT\}\}|$TP_COUNT|g" \
-    -e "s|\{\{TP_SIZE\}\}|$TP_SIZE|g" \
     -e "s|\{\{SRC_COUNT\}\}|$SRC_COUNT|g" \
     -e "s|\{\{HDR_COUNT\}\}|$HDR_COUNT|g" \
     -e "s|\{\{KERNEL_COUNT\}\}|$KERNEL_COUNT|g" \
     -e "s|\{\{OUT_COUNT\}\}|$OUT_COUNT|g" \
     -e "s|\{\{TOTAL_COUNT\}\}|$TOTAL_COUNT|g" \
     -e "s|\{\{OBJ_MD5\}\}|$OBJ_MD5|g" \
-    -e "s|\{\{LIB_A_MD5\}\}|$LIB_A_MD5|g" \
+    -e "s|\{\{LIB_SO_MD5\}\}|$LIB_SO_MD5|g" \
+    -e "s|\{\{LIB_A_MD5\}\}|$LIB_SO_MD5|g" \
     -e "s|\{\{API_TEST_MD5\}\}|$API_TEST_MD5|g" \
     -e "s|\{\{CLIENT_EXAMPLE_MD5\}\}|$CLIENT_EXAMPLE_MD5|g" \
     -e "s|\{\{CONTRACT_TEST_MD5\}\}|$CONTRACT_TEST_MD5|g" \
@@ -115,9 +136,10 @@ purpose_of() {
   case "$1" in
     README.md)                    echo "使用说明（四条命令 + 交付/零参数/NFS/一键拷贝 各节）" ;;
     MANIFEST.md)                  echo "**本交付清单**（由 make_build_dir.sh 生成）" ;;
-    build_lib.sh)                 echo "构建脚本①：只编译库 -> out/libmosaic_pipeline.a" ;;
-    build_demo.sh)                echo "构建脚本②：只编译测试程序 -> out/mosaic_api_test + out/mosaic_client_example + out/mosaic_contract_test + out/rknn_mosaic_e2e" ;;
+    build_lib.sh)                 echo "构建脚本①：只编译库 -> out/libmosaic_pipeline.so（**共享库**，SONAME=libmosaic_pipeline.so）" ;;
+    build_demo.sh)                echo "构建脚本②：只编译测试程序 -> out/mosaic_api_test + out/mosaic_client_example + out/mosaic_contract_test + out/rknn_mosaic_e2e（用 -lmosaic_pipeline + -rpath \$ORIGIN 链接同目录的 .so）" ;;
     copy_to_nfs.sh)               echo "一键脚本：编译 + 拷贝到 NFS + md5 回验 +（可选）板卡验证" ;;
+    fetch_board_libs.sh)           echo "把**板卡自带的**库与头取回宿主机（ssh 打包 → tar → 解包），并打印 build_lib.sh / build_demo.sh 要用的四个路径变量" ;;
     known_hosts)                  echo "板卡主机密钥基线（ssh 严格校验用；板卡换密钥会直接失败，这是故意的）" ;;
     src/npu/mosaic_pipeline.cpp)  echo "库实现（GMC/OpenCL + RGA mosaic + RKNN fp16 + 反投影）" ;;
     src/npu/mosaic_pipeline.h)    echo "**公开 C ABI 头**（集成方写代码时 include 它）" ;;
@@ -140,8 +162,6 @@ purpose_of() {
     runtime/kernels/gmc_feature_gpu.cl)    echo "可选：GPU 侧 GMC 特征 kernel（**库不加载**，仅探针 gmc_gpu_probe 用）" ;;
     include/rga/*)                echo "RGA API 头（第三方）" ;;
     include/CL/*)                 echo "Khronos OpenCL 头（第三方）" ;;
-    third_party/MANIFEST.md)      echo "**第三方依赖逐文件 md5 清单**（OpenCV / libOpenCL / librknnrt / librga）" ;;
-    third_party/README.md)        echo "**第三方依赖说明**（是什么 / 编译期怎么用 / 运行时怎么装到板卡）" ;;
     *)                            echo "—" ;;
   esac
 }
@@ -150,7 +170,7 @@ purpose_of() {
 out_note_of() {
   case "$1" in
     out/mosaic_pipeline.o)     echo "编译中间产物（库的 .o）" ;;
-    out/libmosaic_pipeline.a)  echo "**静态库**（客户链接它）" ;;
+    out/libmosaic_pipeline.so) echo "**共享库**（客户链接它；SONAME=libmosaic_pipeline.so；动态链接板卡自带库）" ;;
     out/mosaic_api_test)       echo "示例 demo 可执行文件（给客户的示例）" ;;
     out/mosaic_client_example) echo "**最简集成示范可执行文件**（嵌入方照着抄这份）" ;;
     out/mosaic_contract_test)  echo "契约测试可执行文件（验收门禁）" ;;
@@ -223,12 +243,13 @@ copy_one "$ROOT/../opencl/kernels/sortnet_generated.inc" "runtime/kernels/sortne
 copy_one "$ROOT/../opencl/kernels/gmc_feature_gpu.cl"    "runtime/kernels/gmc_feature_gpu.cl"
 # 脚本与文档（packaging/ 下是原件，拷进 build/ 后是运行版）
 # README.md 不在这里拷贝：它由本脚本从 packaging/README.template.md **生成**
-#   （见下面的 [5/7]），所以这里只把它登记进清单。
+#   （见下面的 [6/8]），所以这里只把它登记进清单。
 copy_one "$HERE/build_lib.sh"       "build_lib.sh"
 copy_one "$HERE/build_demo.sh"      "build_demo.sh"
 copy_one "$HERE/copy_to_nfs.sh"     "copy_to_nfs.sh"
+copy_one "$HERE/fetch_board_libs.sh" "fetch_board_libs.sh"
 copy_one "$HERE/known_hosts"        "known_hosts"
-chmod +x "$DEST/build_lib.sh" "$DEST/build_demo.sh" "$DEST/copy_to_nfs.sh"
+chmod +x "$DEST/build_lib.sh" "$DEST/build_demo.sh" "$DEST/copy_to_nfs.sh" "$DEST/fetch_board_libs.sh"
 EXPECTED+=("README.md")   # 生成物，但在交付清单里（md5 在生成后才有）
 
 # ---------------------------------------------------------------------------
@@ -246,178 +267,44 @@ for sub in rga CL; do
 done
 
 # ---------------------------------------------------------------------------
-# 4. 拷贝第三方依赖到 third_party/  ★ 本次改造的核心
+# 4. 【本轮改造】第三方依赖**不再随包携带** —— 包里一个 .so/.a 都不带
 #
-#    这三个是**编译期硬依赖**（缺一个就编不出来），以前只存在于开发机的
-#    绝对路径里 ⇒ 交付出去的包**根本没法原地重编**，README 里
-#    「放到哪都能原地重编」那句话是假的：
+#    旧设计：包内自带 third_party/（交叉编译版 OpenCV 的头 + **静态库** .a、
+#    板卡 libOpenCL.so / librknnrt.so / librga.so 的副本）⇒ 220 个文件。
+#    新设计（嵌入式组要求）：**直接用板卡上原来就有的 .so**
 #
-#      OPENCV_INSTALL  交叉编译版 OpenCV（头 + **静态库** .a）
-#      BOARD_LIBS      板卡 libOpenCL.so
-#      RT_LIB_DIR      板卡 librknnrt.so / librga.so
+#      OpenCV 4.6.0     头 /usr/include/opencv4
+#                       运行库 /usr/lib/aarch64-linux-gnu/libopencv_*.so.406
+#      RKNN Runtime 2.2.0   /usr/lib/librknnrt.so
+#      RGA                 /usr/lib/aarch64-linux-gnu/librga.so.2
+#      OpenCL 3.0(Mali-G610) /usr/lib/aarch64-linux-gnu/libOpenCL.so.1
 #
-#    现在打进包里 ⇒ 包真正自包含。包内副本优先，环境变量仍可覆盖。
+#    ⇒ 交付包**没有 third_party/**；库本身也改成**共享库**交付：
+#      out/libmosaic_pipeline.so（SONAME = libmosaic_pipeline.so），
+#      四个测试程序用 `-lmosaic_pipeline` + `-Wl,-rpath,'$ORIGIN'` 链接它。
 #
-#    ⚠️ 符号链接一律**转成实文件副本**：
-#       包内文件要参与 find -type f 枚举与 md5 回验，符号链接会被漏掉
-#       （copy_to_nfs.sh 的直写模式就是按 find -type f 逐个 cp 的）。
-#       链接器要 libX.so、运行时要 libX.so.1（SONAME）⇒ 两个名字各存一份。
+#    ⚠️ 头与运行库必须**同版本**：用板卡 4.6.0 的头去链板卡 4.6.0 的 .so.406；
+#       不要拿 4.8 的运行库配 4.6 的头（OpenCV 次版本会改 C++ ABI）。
+#    ⚠️ 交叉编译在**宿主机**上做时，上面那些路径指的是**目标板卡的文件系统**；
+#       宿主机的 /usr 是 x86 的，**绝对不能直接用**（会污染构建）⇒
+#       要先把板卡的那份（头 + .so）取回宿主机，再把变量指过去。
+#
+#    旧包残留的 third_party/ 由 [5/8] 的**目录级清理**整棵删掉。
 # ---------------------------------------------------------------------------
 echo
-echo "== [4/8] 拷贝第三方依赖到 third_party/ =="
-rm -rf "$DEST/third_party"
-mkdir -p "$DEST/third_party/opencv/include/opencv4" \
-         "$DEST/third_party/opencv/lib/opencv4/3rdparty" \
-         "$DEST/third_party/boardlibs" \
-         "$DEST/third_party/rknnrt"
-
-TP_N=0
-tp_add() {   # tp_add <源文件> <third_party 内相对路径>
-  local src="$1" rel="$2"
-  [ -f "$src" ] || die "第三方依赖缺失：$src"
-  mkdir -p "$(dirname "$DEST/third_party/$rel")"
-  cp -f "$src" "$DEST/third_party/$rel"
-  TP_N=$((TP_N + 1))
-}
-
-# --- OpenCV：整个 opencv2 头树 + 7 个静态库 + 2 个 3rdparty 静态库 ---
-_ocv_hdr="$TP_SRC_OPENCV/include/opencv4/opencv2"
-[ -d "$_ocv_hdr" ] || die "交叉编译版 OpenCV 缺失：$_ocv_hdr"
-while IFS= read -r f; do
-  tp_add "$f" "opencv/include/opencv4/opencv2/${f#"$_ocv_hdr/"}"
-done < <(find "$_ocv_hdr" -type f | LC_ALL=C sort)
-for l in core imgproc imgcodecs calib3d features2d flann video; do
-  tp_add "$TP_SRC_OPENCV/lib/libopencv_$l.a" "opencv/lib/libopencv_$l.a"
-done
-# 3rdparty **整个目录**一起带上（当前链接行只用 tegra_hal + zlib，但 liblibopenjp2.a
-# 也在里面 ⇒ 集成方换链接方式时不会缺东西；多 642 KB，不值得为省它而留隐患）
-for a in "$TP_SRC_OPENCV/lib/opencv4/3rdparty/"*.a; do
-  [ -f "$a" ] || die "OpenCV 3rdparty 静态库缺失：$a"
-  tp_add "$a" "opencv/lib/opencv4/3rdparty/$(basename "$a")"
-done
-
-# --- 板卡 libOpenCL：链接名 libOpenCL.so + 运行名 libOpenCL.so.1（SONAME）---
-_cl_real="$(readlink -f "$TP_SRC_BOARDLIBS/libOpenCL.so.1" 2>/dev/null || true)"
-[ -n "$_cl_real" ] && [ -f "$_cl_real" ] || \
-  die "板卡 libOpenCL 缺失：$TP_SRC_BOARDLIBS/libOpenCL.so.1"
-tp_add "$_cl_real" "boardlibs/libOpenCL.so"
-tp_add "$_cl_real" "boardlibs/libOpenCL.so.1"
-
-# --- 板卡 RKNN Runtime / RGA：librknnrt.so（文件名即 SONAME）+ librga.so / librga.so.2 ---
-[ -f "$TP_SRC_RT/librknnrt.so" ] || die "板卡 librknnrt.so 缺失：$TP_SRC_RT/librknnrt.so"
-tp_add "$TP_SRC_RT/librknnrt.so" "rknnrt/librknnrt.so"
-_rga_real="$(readlink -f "$TP_SRC_RT/librga.so" 2>/dev/null || true)"
-[ -n "$_rga_real" ] && [ -f "$_rga_real" ] || \
-  die "板卡 librga 缺失：$TP_SRC_RT/librga.so"
-tp_add "$_rga_real" "rknnrt/librga.so"
-tp_add "$_rga_real" "rknnrt/librga.so.2"
-
-echo "  [ok] 第三方依赖 $TP_N 个文件（OpenCV 头+静态库 / libOpenCL / librknnrt+librga）"
-
-# third_party/MANIFEST.md：逐文件 md5（资产有 220+ 个，单独成册，
-# 免得顶层 MANIFEST 被撑爆；顶层清单只登记这一份）
-TP_MANIFEST="$DEST/third_party/MANIFEST.md"
-{
-  echo '# `third_party/` 清单（第三方依赖 · 逐文件 md5）'
-  echo
-  echo "**共 $TP_N 个依赖文件。**它们是**编译期硬依赖**——以前只存在于开发机的"
-  echo "绝对路径里，导致交付包根本没法原地重编；现在一并打包 ⇒ 包自包含。"
-  echo
-  echo "| 类别 | 何时需要 | 说明 |"
-  echo "|---|---|---|"
-  # ⚠️ 用单引号：反引号在双引号里会被 bash 当成**命令替换**执行掉 ⇒ 单元格会变空
-  echo '| `opencv/include/**` | 编译期 | OpenCV 头（交叉编译版） |'
-  echo '| `opencv/lib/**` | 编译期 | OpenCV **静态库** `.a` ⇒ **静态链接**，运行时不需要板卡装 OpenCV |'
-  echo '| `boardlibs/**` | 编译期 + 运行时 | 板卡 `libOpenCL.so`（OpenCL ICD） |'
-  echo '| `rknnrt/**` | 编译期 + 运行时 | 板卡 `librknnrt.so` / `librga.so`（RKNN Runtime / RGA） |'
-  echo
-  echo "| 路径 | md5 | 字节数 |"
-  echo "|---|---|---:|"
-  while IFS= read -r f; do
-    printf '| `%s` | `%s` | %s |\n' \
-      "${f#"$DEST/third_party/"}" "$(md5sum "$f" | cut -d' ' -f1)" "$(fmt_num "$(stat -c%s "$f")")"
-  done < <(find "$DEST/third_party" -type f ! -name MANIFEST.md ! -name README.md | LC_ALL=C sort)
-} > "$TP_MANIFEST"
-chmod 0644 "$TP_MANIFEST"
-echo "  [ok] $TP_MANIFEST（$TP_N 行明细）"
-
-# third_party/README.md：给集成方看的「这三个依赖到底是什么/怎么用」
-cat > "$DEST/third_party/README.md" <<'TPREADME'
-# `third_party/` —— 交付包自带的第三方依赖
-
-这个目录里的东西以前**不在交付包里**：它们只存在于开发机的绝对路径上
-（OpenCV 交叉编译版、板卡 `libOpenCL.so`、板卡 `librknnrt.so`/`librga.so`），
-导致交付出去的包**编不出来**，README 里「放到哪都能原地重编」那句话是假的。
-
-现在它们一并打包 ⇒ **包真正自包含**：源码 + 依赖 + 脚本全在里面，
-拷到任意目录都能原地重编，不需要再去找开发机上的路径。
-
-| 目录 | 是什么 | 什么时候需要 | 大小 |
-|---|---|---|---|
-| `opencv/include/` | 交叉编译版 OpenCV 头（整个 `opencv2/` 树） | 编译期 | 7.3 MB |
-| `opencv/lib/` | OpenCV **静态库** `.a`（7 个模块 + `tegra_hal`/`zlib`） | 编译期 | 25 MB |
-| `boardlibs/` | 板卡 `libOpenCL.so`（OpenCL ICD） | 编译期 + 运行时 | 70 KB |
-| `rknnrt/` | 板卡 `librknnrt.so`（RKNN Runtime）、`librga.so`（RGA） | 编译期 + 运行时 | 7.5 MB |
-
-## 编译期怎么用
-
-`build_lib.sh` / `build_demo.sh` **默认就用这个目录里的副本**
-（路径相对脚本自身 ⇒ 拷到哪都能编）。要换掉它，用这三个环境变量：
-
-```bash
-export OPENCV_INSTALL=/path/to/opencv-arm64-install   # 默认 <包>/third_party/opencv
-export BOARD_LIBS=/path/to/boardlibs                  # 默认 <包>/third_party/boardlibs
-export RT_LIB_DIR=/path/to/npu                        # 默认 <包>/third_party/rknnrt
-```
-
-交叉编译器**不在包里**（编译器没法随包发），用这个指定：
-
-```bash
-export RK3588_TOOLCHAIN=/path/to/toolchain-root       # 可以用 ':' 分隔多个候选，按顺序试
-export CROSS_CXX=/path/to/aarch64-linux-gnu-g++       # 可选：直接指定编译器
-export CROSS_AR=/path/to/aarch64-linux-gnu-ar         # 可选：直接指定 ar
-```
-
-## 运行时怎么用
-
-OpenCV 是**静态链接**的 ⇒ **板卡不需要装 OpenCV**。
-
-`librknnrt.so` / `librga.so` / `libOpenCL.so` 是运行时依赖。
-板卡 BSP 里一般已经有了（`ldconfig -p | grep -E 'rknnrt|librga|OpenCL'` 查一下）。
-如果你们的板卡没有，把这三个文件装到板卡上：
-
-```bash
-# ⚠️ 板卡 NFS 是 soft 挂载：>1 MB 的文件从 NFS 读会被读坏
-#    ⇒ 必须先 cat 到板卡 /tmp（tmpfs）再落到 /usr/lib，并对账 md5
-ssh <板卡> 'cat /mnt/manu/mosaic_sdk/third_party/rknnrt/librknnrt.so > /tmp/librknnrt.so && \
-            cat /mnt/manu/mosaic_sdk/third_party/rknnrt/librga.so.2   > /tmp/librga.so.2 && \
-            cat /mnt/manu/mosaic_sdk/third_party/boardlibs/libOpenCL.so.1 > /tmp/libOpenCL.so.1 && \
-            md5sum /tmp/librknnrt.so /tmp/librga.so.2 /tmp/libOpenCL.so.1'
-# 三个 md5 与本包 third_party/MANIFEST.md 里的一致 ⇒ 传输没坏
-ssh <板卡> 'install -m755 /tmp/librknnrt.so /usr/lib/ && \
-            install -m755 /tmp/librga.so.2 /usr/lib/ && \
-            install -m755 /tmp/libOpenCL.so.1 /usr/lib/ && ldconfig'
-```
-
-不想装进系统也行 —— 用 `LD_LIBRARY_PATH` 指到本包（**同样先 cat 到 /tmp**）：
-
-```bash
-export LD_LIBRARY_PATH=/tmp/tp:$LD_LIBRARY_PATH
-```
-
-## 逐文件 md5
-
-见同目录的 [`MANIFEST.md`](MANIFEST.md)（本目录每个文件一行，含 md5 与字节数）。
-TPREADME
-chmod 0644 "$DEST/third_party/README.md"
-echo "  [ok] $DEST/third_party/README.md"
-
-# 这两份说明文件登记进顶层清单（依赖资产本身由 third_party/MANIFEST.md 逐条登记）
-EXPECTED+=("third_party/MANIFEST.md")
-EXPECTED+=("third_party/README.md")
+echo "== [4/8] 第三方依赖：不再随包携带 =="
+echo "  [ok] 本包**不携带任何第三方 .so/.a**："
+echo "       OpenCV / RKNN Runtime / RGA / OpenCL 全部动态链接**板卡自带**的库"
+echo "       编译期头 ：$OPENCV_INCLUDE_DIR_V"
+echo "       链接期库 ：$OPENCV_LIB_DIR_V  $RT_LIB_DIR_V  $BOARD_LIBS_V"
 
 # ---------------------------------------------------------------------------
 # 5. 清理陈旧文件（不在本次清单里的旧文件）—— 用 find -delete，不用 rm -rf
+#
+#    ⚠️ **目录级清理**：旧设计（第三方依赖随包）留下的 `third_party/` 有 220 个
+#    文件，本包**不再携带任何第三方 .so/.a** ⇒ 整棵目录必须删掉，
+#    否则旧包的副本会污染新包（MANIFEST 回验也会因「漏登记」直接失败）。
+#    逐文件 delete 慢且会留下空目录 ⇒ 这里整棵删。
 # ---------------------------------------------------------------------------
 echo
 echo "== [5/8] 清理陈旧文件 =="
@@ -433,7 +320,15 @@ for sub in src include runtime; do
     fi
   done < <(find "$DEST/$sub" -type f | sort)
 done
-echo "  [ok] 删除 $stale 个陈旧文件"
+
+# 旧包残留的 third_party/：整棵删掉（目录级）
+if [ -d "$DEST/third_party" ]; then
+  _tp_n=$(find "$DEST/third_party" -type f | wc -l)
+  rm -rf "$DEST/third_party"
+  echo "  [stale] 已删除整个目录 third_party/（旧设计的第三方依赖副本，$_tp_n 个文件）"
+  stale=$((stale + 1))
+fi
+echo "  [ok] 删除 $stale 个陈旧文件/目录"
 
 # ---------------------------------------------------------------------------
 # 5. 生成 README（内容先落临时文件，让 MANIFEST 能登记它的 md5）
@@ -447,15 +342,14 @@ README_TPL="$HERE/README.template.md"
 SRC_COUNT=$(find "$DEST/src" -type f 2>/dev/null | wc -l)
 HDR_COUNT=$(find "$DEST/include" -type f 2>/dev/null | wc -l)
 KERNEL_COUNT=$(find "$DEST/runtime" -type f 2>/dev/null | wc -l)
-TP_COUNT="$TP_N"                       # 第三方依赖资产数（不含 third_party/ 下那两份说明文件）
 FILE_COUNT=$(( ${#EXPECTED[@]} + 1 ))   # + MANIFEST.md 自身
 # out/ 的产物**不进受管清单**（md5 会随构建变），单独计数后再加总
 if [ -d "$DEST/out" ]; then OUT_COUNT=$(find "$DEST/out" -type f | wc -l); else OUT_COUNT=0; fi
-# 磁盘上真实存在的文件总数 = 受管（含 third_party 两份说明）+ 依赖资产 + 编译产物
-TOTAL_COUNT=$(( FILE_COUNT + TP_COUNT + OUT_COUNT ))
-TP_SIZE="$(du -sh "$DEST/third_party" 2>/dev/null | cut -f1)"
+# 磁盘上真实存在的文件总数 = 受管 + 编译产物
+# （**不含 third_party**：本包不携带任何第三方 .so/.a）
+TOTAL_COUNT=$(( FILE_COUNT + OUT_COUNT ))
 OBJ_MD5=$(md5_or_placeholder "$DEST/out/mosaic_pipeline.o")
-LIB_A_MD5=$(md5_or_placeholder "$DEST/out/libmosaic_pipeline.a")
+LIB_SO_MD5=$(md5_or_placeholder "$DEST/out/libmosaic_pipeline.so")
 API_TEST_MD5=$(md5_or_placeholder "$DEST/out/mosaic_api_test")
 CLIENT_EXAMPLE_MD5=$(md5_or_placeholder "$DEST/out/mosaic_client_example")
 CONTRACT_TEST_MD5=$(md5_or_placeholder "$DEST/out/mosaic_contract_test")
@@ -463,7 +357,7 @@ CONTRACT_TEST_MD5=$(md5_or_placeholder "$DEST/out/mosaic_contract_test")
 README_TMP="$(mktemp)"
 fill_placeholders "$README_TPL" "$README_TMP"
 check_no_placeholder "$README_TMP"
-echo "  [ok] README 内容已生成（计数：$TOTAL_COUNT = $FILE_COUNT + $TP_COUNT + $OUT_COUNT / $SRC_COUNT / $HDR_COUNT / $KERNEL_COUNT）"
+echo "  [ok] README 内容已生成（计数：$TOTAL_COUNT = $FILE_COUNT + $OUT_COUNT / $SRC_COUNT / $HDR_COUNT / $KERNEL_COUNT）"
 
 # ---------------------------------------------------------------------------
 # 6. 生成 build/MANIFEST.md（模板 + 自动生成的 md5 表）
@@ -496,10 +390,13 @@ trap 'rm -f "$TABLE" "$README_TMP"' EXIT
   echo
   echo "### 构建产物（不作为清单基线）"
   echo
-  echo "> ⚠️ **本段刻意不列 md5**：\`ar\` 会把成员时间戳写进归档索引，"
-  echo "> \`out/libmosaic_pipeline.a\` 的 md5 **每次构建都变**，列进来只会误导人。"
-  echo "> 需要核对产物时手动 \`md5sum out/*\`：\`mosaic_pipeline.o\` 与两个可执行"
-  echo "> 文件的 md5 是稳定的，\`.a\` 的不是。"
+  echo "> ℹ️ **本段刻意不列 md5**：\`out/\` 里是**构建产物**，随工具链/编译路径变化，"
+  echo "> 列进来只会误导人（README 顶部有一张本次构建的快照表）。"
+  echo "> 需要核对产物时手动 \`md5sum out/*\`。"
+  echo ">"
+  echo "> 本版交付的是**共享库** \`out/libmosaic_pipeline.so\`（上一版是 \`.a\` 归档）："
+  echo "> \`.so\` **没有** \`ar\` 归档时间戳那种「每次构建都变」的问题 ⇒ 在**同一个"
+  echo "> 包根路径**下重编，md5 是稳定的。"
   echo
   echo "| 路径 | 说明 |"
   echo "|---|---|"
@@ -566,14 +463,6 @@ while IFS= read -r f; do
   rel="${f#$DEST/}"
   case "$rel" in
     out/*|MANIFEST.md) continue ;;
-    third_party/*)
-      # third_party 的**依赖资产**由 third_party/MANIFEST.md 逐条登记（220+ 行），
-      # 顶层清单只登记那两份说明文件 ⇒ 资产文件不参与本检查
-      case "$rel" in
-        third_party/MANIFEST.md|third_party/README.md) ;;
-        *) continue ;;
-      esac
-      ;;
   esac
   if ! grep -qE "^\| \`$rel\` \| \`[0-9a-f]{32}\` \|" "$DEST/MANIFEST.md"; then
     echo "  [ERROR] 磁盘上有但清单里没登记：$rel" >&2
@@ -589,7 +478,7 @@ echo "  [ok] 无漏登记文件"
 src_n=$(find "$DEST/src" -type f 2>/dev/null | wc -l)
 inc_n=$(find "$DEST/include" -type f 2>/dev/null | wc -l)
 ker_n=$(find "$DEST/runtime" -type f 2>/dev/null | wc -l)
-tp_n=$(find "$DEST/third_party" -type f 2>/dev/null | wc -l)
+out_n=$(find "$DEST/out" -type f 2>/dev/null | wc -l)
 all_n=$(find "$DEST" -type f | wc -l)
 echo
 echo "== 完成 =="
@@ -597,7 +486,8 @@ echo "  build/ 文件总数 : $all_n"
 echo "  源码/脚本      : $src_n 个（src/）"
 echo "  第三方头       : $inc_n 个（include/）"
 echo "  kernel 资产    : $ker_n 个（runtime/kernels/）"
-echo "  第三方依赖     : $tp_n 个（third_party/，含 2 份说明文件）← OpenCV/libOpenCL/librknnrt/librga"
+echo "  共享库         : out/libmosaic_pipeline.so（SONAME=libmosaic_pipeline.so）← 动态链接板卡自带库"
+echo "  编译产物       : $out_n 个（out/：共享库 + 4 个测试程序 + .o）"
 echo
 echo "  下一步（⚠️ 顺序不能颠倒）："
 echo "    cd $DEST && bash build_lib.sh && bash build_demo.sh   # ① 编译（库 + 4 个测试程序）"

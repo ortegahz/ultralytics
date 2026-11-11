@@ -53,7 +53,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
 
-BOARD="${RKNPU_BOARD:-root@192.168.0.64}"
+BOARD="${RKNPU_BOARD:-root@192.168.0.211}"
 BOARD_PORT="${RKNPU_BOARD_PORT:-22}"
 BOARD_DIR="${RKNPU_BOARD_DIR:-/root/hm_speed}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_board}"

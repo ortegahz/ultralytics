@@ -3,9 +3,12 @@
 # copy_to_nfs.sh -- 把【整棵交付源码包】镜像到 NFS 交付目录（板卡 /mnt/manu）。
 #
 # 交付包 = manu/pipeline/npu/build/（由 make_build_dir.sh 生成）。脚本所在目录
-# 就是包根；本脚本把整棵树（源码 + 第三方头 + kernel 资产 + **third_party/
-# 第三方依赖** + 编译产物）原样镜像到 NFS 交付目录，再建 5 个兼容符号链接，
-# 旧的平铺命令仍然可用。
+# 就是包根；本脚本把整棵树（源码 + 第三方头 + kernel 资产 + 编译产物）原样镜像
+# 到 NFS 交付目录，再建 5 个兼容符号链接，旧的平铺命令仍然可用。
+#
+# 【2026-11-11 新板交付版】包内**不再有 third_party/**：
+#   OpenCV / RKNN Runtime / RGA / OpenCL 全部**链接板卡自带的动态库**，
+#   库本身也改成**共享库** out/libmosaic_pipeline.so（不再是静态 .a）。
 #
 # 用法:
 #   bash copy_to_nfs.sh [--build] [--nfs <目录>] [--verify]
@@ -15,7 +18,7 @@
 #   --build        拷贝前先跑 build_lib.sh && build_demo.sh（失败即退出）
 #   --nfs <目录>   覆盖 NFS 根目录（默认 /run/media/manu/SSD960-LOCAL/nfs）
 #   --verify       拷贝后 ssh 到板卡跑契约测试 + demo + 最小集成示范（严格串行）
-#   --board <目标[:端口]>    覆盖 ssh 目标（默认 root@192.168.0.64，端口 22）
+#   --board <目标[:端口]>    覆盖 ssh 目标（默认 root@192.168.0.211，端口 22）
 #   --board-dest <绝对路径>  板卡侧交付目录（默认 /mnt/manu/mosaic_sdk）
 #
 # ⚠️ 安全铁律（板卡 /root 的 ext4 已损坏，>1 MB 的二进制会被写坏）：
@@ -45,7 +48,7 @@ DEFAULT_BOARD_DEST="/mnt/manu/mosaic_sdk"
 
 NFS_ROOT="${NFS_ROOT:-$DEFAULT_NFS_ROOT}"
 DEST="$NFS_ROOT/mosaic_sdk"
-BOARD="${BOARD:-root@192.168.0.64}"
+BOARD="${BOARD:-root@192.168.0.211}"
 BOARD_PORT="${BOARD_PORT:-22}"
 BOARD_DEST="${BOARD_DEST:-}"
 
@@ -78,7 +81,7 @@ usage() {
   --build              拷贝前先编译（build_lib.sh + build_demo.sh）
   --nfs <目录>         覆盖 NFS 根目录（默认 /run/media/manu/SSD960-LOCAL/nfs）
   --verify             拷贝后 ssh 到板卡跑契约测试 + demo + 最小集成示范（串行，非 0 退出即失败）
-  --board <目标[:端口]>  覆盖 ssh 目标（默认 root@192.168.0.64，端口 22）
+  --board <目标[:端口]>  覆盖 ssh 目标（默认 root@192.168.0.211，端口 22）
   --board-dest <路径>  板卡侧交付目录（默认 /mnt/manu/mosaic_sdk；
                        NFS 根不是默认根时必须显式给出）
 
@@ -185,7 +188,7 @@ done < <(cd "$PKG_DIR" && find . -type f | sed 's|^\./||' | LC_ALL=C sort)
 ALIAS_PAIR=(
   "mosaic_api_test|out/mosaic_api_test"
   "mosaic_contract_test|out/mosaic_contract_test"
-  "libmosaic_pipeline.a|out/libmosaic_pipeline.a"
+  "libmosaic_pipeline.so|out/libmosaic_pipeline.so"
   "mosaic_pipeline.h|src/npu/mosaic_pipeline.h"
   "kernels|runtime/kernels"
 )
@@ -203,6 +206,8 @@ EXEC_FILES=(
   "build_lib.sh"
   "build_demo.sh"
   "copy_to_nfs.sh"
+  "fetch_board_libs.sh"
+  "out/libmosaic_pipeline.so"
   "out/mosaic_api_test"
   "out/mosaic_client_example"
   "out/mosaic_contract_test"
@@ -212,6 +217,7 @@ EXEC_FILES=(
 # 交付包必须齐全的关键文件
 REQUIRED_FILES=(
   "README.md" "MANIFEST.md" "build_lib.sh" "build_demo.sh" "copy_to_nfs.sh"
+  "fetch_board_libs.sh" "known_hosts"
   "src/npu/mosaic_pipeline.cpp" "src/npu/mosaic_pipeline.h"
   "src/npu/mosaic_core.h" "src/npu/mosaic_post_gpu.h"
   "src/npu/mosaic_api_test.cpp" "src/npu/mosaic_contract_test.cpp"
@@ -220,25 +226,12 @@ REQUIRED_FILES=(
   "src/opencl/host/ocl_host.h" "src/opencl/host/post_local_max.cl"
   "include/rknn_api.h" "runtime/kernels/warp_median_fused.cl"
   "runtime/kernels/sortnet_generated.inc" "runtime/kernels/gmc_feature_gpu.cl"
-  "out/mosaic_pipeline.o" "out/libmosaic_pipeline.a"
+  "out/mosaic_pipeline.o" "out/libmosaic_pipeline.so"
   "out/mosaic_api_test" "out/mosaic_contract_test"
   "out/rknn_mosaic_e2e" "out/mosaic_client_example"
-  # 第三方依赖（**编译期硬依赖**，以前只存在于开发机的绝对路径里 ⇒ 包编不出来）
-  "third_party/MANIFEST.md" "third_party/README.md"
-  "third_party/opencv/include/opencv4/opencv2/core.hpp"
-  "third_party/opencv/include/opencv4/opencv2/imgcodecs.hpp"
-  "third_party/opencv/lib/libopencv_core.a"
-  "third_party/opencv/lib/libopencv_imgproc.a"
-  "third_party/opencv/lib/libopencv_imgcodecs.a"
-  "third_party/opencv/lib/libopencv_calib3d.a"
-  "third_party/opencv/lib/libopencv_features2d.a"
-  "third_party/opencv/lib/libopencv_flann.a"
-  "third_party/opencv/lib/libopencv_video.a"
-  "third_party/opencv/lib/opencv4/3rdparty/libtegra_hal.a"
-  "third_party/opencv/lib/opencv4/3rdparty/libzlib.a"
-  "third_party/boardlibs/libOpenCL.so" "third_party/boardlibs/libOpenCL.so.1"
-  "third_party/rknnrt/librknnrt.so"
-  "third_party/rknnrt/librga.so" "third_party/rknnrt/librga.so.2"
+  # ⚠️ **故意不列 third_party/**：本版包内不携带任何第三方 .so/.a。
+  #    OpenCV / RKNN Runtime / RGA / OpenCL 全部链接**板卡自带**的动态库，
+  #    运行时由板卡 ldconfig 解析（见 README「板卡依赖矩阵」一节）。
 )
 
 # ssh 通用参数：本机 ~/.ssh 只读（known_hosts 写不了），但**主机密钥必须钉死**
@@ -295,17 +288,9 @@ echo
 echo "== [2/5] 检查包内容 =="
 for f in "${REQUIRED_FILES[@]}"; do
   if [ ! -f "$PKG_DIR/$f" ]; then
-    case "$f" in
-      third_party/*)
-        die "缺少 $f —— 这个包缺【第三方依赖】（third_party/）。
-       ⇒ 上一版交付包（69 个文件）没有 third_party/，在集成方机器上**编不出来**
-         （构建脚本指向开发机的绝对路径）。
-       ⇒ 处置：① 重新打包：bash packaging/make_build_dir.sh（会自动带上 third_party/）
-                ② 或用 OPENCV_INSTALL / BOARD_LIBS / RT_LIB_DIR 三个环境变量
-                   指向你机器上的交叉编译版 OpenCV / 板卡 libOpenCL / 板卡 librknnrt+librga。" ;;
-      *)
-        die "缺少 $f —— 先跑 build_lib.sh / build_demo.sh（--build 可自动做）" ;;
-    esac
+    die "缺少 $f —— 先跑 build_lib.sh / build_demo.sh（--build 可自动做）
+       ⇒ 本版包内**不携带**任何第三方 .so/.a（OpenCV / RKNN Runtime / RGA / OpenCL
+         全部链接板卡自带的库），所以缺的就是上面列的这些包内文件。"
   fi
   echo "  [ok] $f"
 done
@@ -644,8 +629,10 @@ if [ "$DO_VERIFY" = "1" ]; then
   echo "  [等待 3 s 让 NFS 写回落定]"
   sleep 3
 
-  # 板卡 /tmp 里的暂存前缀：带本机 PID，绝不撞板卡上别人的文件
-  VERIFY_TMP_PREFIX="/tmp/mosaic_verify_$$"
+  # 板卡 /tmp 里的暂存目录：带本机 PID，绝不撞板卡上别人的文件
+  # ⚠️ 必须是**目录**而不是单文件：四个测试程序用 -Wl,-rpath,'$ORIGIN' 找同目录的
+  #    libmosaic_pipeline.so ⇒ 可执行文件与共享库必须落在**同一个目录**里。
+  VERIFY_TMP_DIR="/tmp/mosaic_verify_$$"
 
   # 板卡侧跑一个二进制：NFS(soft) -> cat 到板卡 /tmp(tmpfs) -> chmod +x ->
   # md5 与【本机源文件】对账（不一致 = NFS 传输损坏，退出码 3）-> 执行 -> 删 /tmp。
@@ -670,16 +657,16 @@ if [ "$DO_VERIFY" = "1" ]; then
       # ⚠️ `2>&1` 必须有：mosaic_contract_test 把 `[RESULT] N passed, 0 failed`
       #    打到 **stderr**（mosaic_contract_test.cpp:1098），只捕获 stdout 会让
       #    下面的 `grep '0 failed'` 必然落空 ⇒ 误报「没找到 0 failed」。
-      out="$(ssh_board "bash -s -- '$VERIFY_TMP_PREFIX' '$tag' '$want_md5' '$BOARD_DEST/out/$tag' $args" 2>&1 <<'REMOTE'
+      out="$(ssh_board "bash -s -- '$VERIFY_TMP_DIR' '$tag' '$want_md5' '$BOARD_DEST/out/$tag' $args" 2>&1 <<'REMOTE'
 set -uo pipefail
 export LC_ALL=C
-tmp_prefix="$1"; tag="$2"; want_md5="$3"; src="$4"; shift 4
-tmp="${tmp_prefix}_${tag}"
+tmp_dir="$1"; tag="$2"; want_md5="$3"; src="$4"; shift 4
+tmp="${tmp_dir}/${tag}"
 
-# 用完就删（只删自己那一个带前缀的文件，不碰板卡上别人的东西）
-cleanup() { rm -f "$tmp"; }
+cleanup() { rm -rf "$tmp_dir"; }
 trap cleanup EXIT
 
+mkdir -p "$tmp_dir" || { echo "[ERROR] 建不了板卡暂存目录：$tmp_dir" >&2; exit 1; }
 [ -f "$src" ] || { echo "[ERROR] 板卡交付目录里没有可执行文件：$src" >&2; exit 1; }
 
 # 铁律：板卡 NFS 是 soft 挂载，直接从 NFS 执行 >1 MB 二进制会污染页缓存 ->
@@ -695,6 +682,36 @@ if [ "$got" != "$want_md5" ]; then
   exit 3
 fi
 echo "  [stage] $tag -> $tmp（已落板卡 /tmp，md5 与本机源文件一致：$got）"
+
+# ⚠️ 共享库必须与可执行文件同目录：四个测试程序用 -Wl,-rpath,'$ORIGIN' 找它。
+#    （本版不再有 third_party/，共享库就是交付包自己的 out/libmosaic_pipeline.so）
+if [ -f "$(dirname "$src")/libmosaic_pipeline.so" ]; then
+  cat "$(dirname "$src")/libmosaic_pipeline.so" > "$tmp_dir/libmosaic_pipeline.so" \
+    || { echo "[ERROR] 从 NFS 读 libmosaic_pipeline.so 失败" >&2; exit 1; }
+  chmod +x "$tmp_dir/libmosaic_pipeline.so"
+  echo "  [stage] libmosaic_pipeline.so -> $tmp_dir/（与可执行文件同目录，\$ORIGIN 可解析）"
+fi
+
+# ⚠️ 模型（6.3 MB .rknn）在 NFS 上 ⇒ 从 soft 挂载直读会被读坏。
+#    ⇒ 把参数里指向 .rknn 的路径换成【板卡 /tmp 里的副本】。
+new_args=()
+for a in "$@"; do
+  case "$a" in
+    *.rknn)
+      if [ -f "$a" ]; then
+        mbase="$(basename "$a")"
+        if [ ! -f "$tmp_dir/$mbase" ]; then
+          cat "$a" > "$tmp_dir/$mbase" || { echo "[ERROR] 从 NFS 读模型 $a 失败" >&2; exit 1; }
+          echo "  [stage] 模型 -> $tmp_dir/$mbase（$(stat -c%s "$tmp_dir/$mbase") B，"
+        fi
+        new_args+=("$tmp_dir/$mbase")
+        continue
+      fi
+      ;;
+  esac
+  new_args+=("$a")
+done
+set -- "${new_args[@]}"
 
 rc=0
 "$tmp" "$@" || rc=$?
@@ -754,66 +771,81 @@ REMOTE
   echo "  [ok] 板卡从交付目录跑通（demo + 最小集成示范）"
 
   # -------------------------------------------------------------------------
-  # [4/4] 新增门禁：**包内自带的第三方运行时库**在板卡上真的能用吗？
+  # [4/4] 新增门禁：**板卡自带库**能不能真的把本包跑起来？
   #
-  #   librknnrt.so / librga.so.2 / libOpenCL.so.1 这三个以前**不在包里**
-  #   （只存在于开发机的绝对路径），现在打进 third_party/ ⇒ 必须验证
-  #   「板卡能从包里加载它们」，否则这个依赖就白打包了。
-  #
-  #   ⚠️ 三个文件里 librknnrt.so 有 7.3 MB ⇒ 从 soft 挂载的 NFS 读会被
-  #      页缓存污染 ⇒ 同样先落板卡 /tmp（tmpfs）+ md5 对账再加载。
-  #   ⚠️ 板卡 BSP 里本来就有这三个库（ldconfig 能查到），但 LD_LIBRARY_PATH
-  #      的搜索顺序**在系统路径之前** ⇒ 加载的一定是**包里的**那一份，
-  #      这道门禁才有意义。
+  #   本版包内**不带任何第三方 .so/.a** ⇒ 运行时完全依赖板卡自带的
+  #   OpenCV / RKNN Runtime / RGA / OpenCL。这道门禁要证明三件事：
+  #     ① 交付产物的 DT_NEEDED 全部能被**板卡 ldconfig** 解析（没有 "not found"）；
+  #     ② libmosaic_pipeline.so 能被 \$ORIGIN 找到（整包可搬、不用设 LD_LIBRARY_PATH）；
+  #     ③ **不设任何 LD_LIBRARY_PATH**，最小集成示范照样跑通
+  #        ⇒ 证明它用的就是板卡上原来就有的那些库。
   # -------------------------------------------------------------------------
   echo
-  echo "  [4/4] 包内第三方运行时库：落板卡 /tmp → md5 对账 → 用【包里的】库跑一遍"
-  tp_w_rknn="$(md5sum "$PKG_DIR/third_party/rknnrt/librknnrt.so"       | cut -d' ' -f1)"
-  tp_w_rga="$(md5sum "$PKG_DIR/third_party/rknnrt/librga.so.2"           | cut -d' ' -f1)"
-  tp_w_cl="$(md5sum "$PKG_DIR/third_party/boardlibs/libOpenCL.so.1"     | cut -d' ' -f1)"
-  tp_w_mce="$(md5sum "$PKG_DIR/out/mosaic_client_example"                | cut -d' ' -f1)"
-  tp_tmp="/tmp/mosaic_tp_$$"
-  tp_out="$(ssh_board "bash -s -- '$tp_tmp' '$BOARD_DEST' '$tp_w_rknn' '$tp_w_rga' '$tp_w_cl' '$tp_w_mce'" 2>&1 <<'REMOTE'
+  echo "  [4/4] 板卡自带库：DT_NEEDED 由板卡 ldconfig 解析 + \$ORIGIN 找共享库 + 不设 LD_LIBRARY_PATH 跑通"
+  tp_w_mce="$(md5sum "$PKG_DIR/out/mosaic_client_example" | cut -d' ' -f1)"
+  tp_w_so="$(md5sum "$PKG_DIR/out/libmosaic_pipeline.so"   | cut -d' ' -f1)"
+  tp_tmp="$VERIFY_TMP_DIR"
+  tp_out="$(ssh_board "bash -s -- '$tp_tmp' '$BOARD_DEST' '$tp_w_mce' '$tp_w_so'" 2>&1 <<'REMOTE'
 set -uo pipefail
 export LC_ALL=C
-tmp="$1"; dest="$2"; w_rknn="$3"; w_rga="$4"; w_cl="$5"; w_mce="$6"
+tmp="$1"; dest="$2"; w_mce="$3"; w_so="$4"
 cleanup() { rm -rf "$tmp"; }
 trap cleanup EXIT
 
 rm -rf "$tmp"; mkdir -p "$tmp"
-cat "$dest/third_party/rknnrt/librknnrt.so"        > "$tmp/librknnrt.so"        || { echo "[ERROR] 从 NFS 读 librknnrt.so 失败" >&2; exit 1; }
-cat "$dest/third_party/rknnrt/librga.so.2"          > "$tmp/librga.so.2"          || { echo "[ERROR] 从 NFS 读 librga.so.2 失败" >&2; exit 1; }
-cat "$dest/third_party/boardlibs/libOpenCL.so.1"   > "$tmp/libOpenCL.so.1"      || { echo "[ERROR] 从 NFS 读 libOpenCL.so.1 失败" >&2; exit 1; }
-cat "$dest/out/mosaic_client_example"              > "$tmp/mosaic_client_example" || { echo "[ERROR] 从 NFS 读 mosaic_client_example 失败" >&2; exit 1; }
-chmod +x "$tmp/mosaic_client_example"
+cat "$dest/out/mosaic_client_example"   > "$tmp/mosaic_client_example"   || { echo "[ERROR] 从 NFS 读 mosaic_client_example 失败" >&2; exit 1; }
+cat "$dest/out/libmosaic_pipeline.so"   > "$tmp/libmosaic_pipeline.so"   || { echo "[ERROR] 从 NFS 读 libmosaic_pipeline.so 失败" >&2; exit 1; }
+chmod +x "$tmp/mosaic_client_example" "$tmp/libmosaic_pipeline.so"
 
-g_rknn="$(md5sum "$tmp/librknnrt.so"     | cut -d' ' -f1)"
-g_rga="$(md5sum "$tmp/librga.so.2"       | cut -d' ' -f1)"
-g_cl="$(md5sum "$tmp/libOpenCL.so.1"     | cut -d' ' -f1)"
 g_mce="$(md5sum "$tmp/mosaic_client_example" | cut -d' ' -f1)"
-[ "$g_rknn" = "$w_rknn" ] || { echo "[ERROR] NFS 传输损坏：librknnrt.so md5=$g_rknn ≠ $w_rknn" >&2; exit 3; }
-[ "$g_rga"   = "$w_rga"   ] || { echo "[ERROR] NFS 传输损坏：librga.so.2 md5=$g_rga ≠ $w_rga" >&2; exit 3; }
-[ "$g_cl"    = "$w_cl"    ] || { echo "[ERROR] NFS 传输损坏：libOpenCL.so.1 md5=$g_cl ≠ $w_cl" >&2; exit 3; }
-[ "$g_mce"   = "$w_mce"   ] || { echo "[ERROR] NFS 传输损坏：mosaic_client_example md5=$g_mce ≠ $w_mce" >&2; exit 3; }
-echo "  [stage] 包内 3 个运行时库 + 示范程序已落板卡 /tmp，md5 与本机源文件逐位一致"
+g_so="$(md5sum "$tmp/libmosaic_pipeline.so"   | cut -d' ' -f1)"
+[ "$g_mce" = "$w_mce" ] || { echo "[ERROR] NFS 传输损坏：mosaic_client_example md5=$g_mce ≠ $w_mce" >&2; exit 3; }
+[ "$g_so"  = "$w_so"  ] || { echo "[ERROR] NFS 传输损坏：libmosaic_pipeline.so md5=$g_so ≠ $w_so" >&2; exit 3; }
+echo "  [stage] 共享库 + 示范程序已落板卡 /tmp，md5 与本机源文件逐位一致"
 
-# LD_LIBRARY_PATH 优先于系统路径 ⇒ 加载的一定是【包里的】那一份
-export LD_LIBRARY_PATH="$tmp"
+# ---- ① 板卡 ldconfig 能不能满足 DT_NEEDED --------------------------------
+echo "  -- ① 板卡 ldconfig 解析 DT_NEEDED --"
+missing="$(ldd "$tmp/mosaic_client_example" 2>/dev/null | grep 'not found' || true)"
+if [ -n "$missing" ]; then
+  echo "[ERROR] 板卡上解析不了这些依赖（板卡自带库不全）：" >&2
+  printf '%s\n' "$missing" >&2
+  exit 4
+fi
+ldd "$tmp/mosaic_client_example" 2>/dev/null | sed 's/^/     /'
+
+# ---- ② 共享库由 \$ORIGIN 找到（不设 LD_LIBRARY_PATH）----------------------
+echo "  -- ② \$ORIGIN 解析共享库 --"
+unset LD_LIBRARY_PATH
+found="$(ldd "$tmp/mosaic_client_example" 2>/dev/null | grep 'libmosaic_pipeline' | sed 's/.*=> //;s/ (.*//')"
+case "$found" in
+  "$tmp"/*) echo "     [ok] libmosaic_pipeline.so 由 \$ORIGIN 解析到：$found" ;;
+  *) echo "[ERROR] libmosaic_pipeline.so 没被 \$ORIGIN 解析到（实际：$found）" >&2; exit 4 ;;
+esac
+
+# ---- ③ 不设 LD_LIBRARY_PATH，直接跑最小集成示范 ----------------------------
+echo "  -- ③ 不设 LD_LIBRARY_PATH 跑最小集成示范（证明用的就是板卡自己的库）--"
+# 模型 6.3 MB 在 NFS 上 ⇒ 先落板卡 /tmp（tmpfs），否则从 soft 挂载直读会被读坏
+MODEL="/mnt/manu/ptq/models/p0_off_A_none.rknn"
+if [ -f "$MODEL" ]; then
+  cat "$MODEL" > "$tmp/p0_off_A_none.rknn" || { echo "[ERROR] 从 NFS 读模型失败" >&2; exit 1; }
+  MODEL="$tmp/p0_off_A_none.rknn"
+  echo "     [ok] 模型已落板卡 /tmp（$(stat -c%s "$MODEL") B）"
+fi
 "$tmp/mosaic_client_example" \
   "/mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324" \
-  "/mnt/manu/ptq/models/p0_off_A_none.rknn" \
+  "$MODEL" \
   "$dest/runtime/kernels" \
   6
 rc=$?
-[ "$rc" = "0" ] && echo "  [ok] 已用【包内 third_party 的库】跑通最小集成示范（LD_LIBRARY_PATH=$tmp）"
+[ "$rc" = "0" ] && echo "  [ok] 未设 LD_LIBRARY_PATH 也跑通了（用的全是板卡自带库）"
 exit $rc
 REMOTE
 )" || tp_rc=$?
   tp_rc="${tp_rc:-0}"
-  printf '%s\n' "$tp_out" | grep -E '\[stage\]|\[ok\]' || true
-  printf '%s\n' "$tp_out" | grep -vE '\[stage\]|\[ok\]' | tail -n 8 || true
-  [ "$tp_rc" = "0" ] || die "包内第三方运行时库验证失败（退出码 $tp_rc）—— ① NFS 传输损坏（md5 对不上）② 包里的库在板卡上装不上"
-  echo "  [ok] 包内 third_party 运行时库在板卡上可用"
+  printf '%s\n' "$tp_out" | grep -E '\[stage\]|\[ok\]|--' || true
+  printf '%s\n' "$tp_out" | grep -vE '\[stage\]|\[ok\]|--' | tail -n 8 || true
+  [ "$tp_rc" = "0" ] || die "板卡自带库验证失败（退出码 $tp_rc）—— ① NFS 传输损坏（md5 对不上）② 板卡自带库不全 / DT_NEEDED 解析不了"
+  echo "  [ok] 板卡自带库（OpenCV / RKNN Runtime / RGA / OpenCL）满足本包的全部依赖"
 fi
 
 echo

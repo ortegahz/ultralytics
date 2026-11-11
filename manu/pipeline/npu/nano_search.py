@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import os
 import subprocess
 import sys
@@ -50,12 +51,20 @@ WORK = f"{RUNS}/nano_search"
 LOG = f"{WORK}/nano_search.log"
 LEDGER = f"{WORK}/nano_search_ledger.json"
 DATA_YAML = "/mnt/data/siping/datasets/manu/uav_gmc_median_nogmc/data.yaml"
+# NanoBench(no-GMC) 语义的冻结基线缓存 ⇒ 仅供 dual_constraint_gate 的 micro 对比
 BASE_CACHE = "/mnt/data/siping/runs/nogmc_ref_weekend/uav_cache_base.pkl"
+# 官方 T1(GMC) 语义的冻结基线缓存（auto_epoch_gate_check.py 的默认值）
+#   ⚠️ 2026-11-11 修正：此前误用上面的 no-GMC 缓存当官方基线
+#   ⇒ 基线臂实测 F1=0.900897 ≠ 冻结 headline 0.905736 ⇒ A/B rc=2 ⇒ T1 全臂缺失
+OFFICIAL_BASE_CACHE = ("/tmp/pycharm_project_10ae9e2e/runs/mixed_ft_route_b/baseline/"
+                       "uav_cache_deP0.pkl")
+#   ⚠️ 2026-11-11 修正：此前误用 no-GMC 缓存（nogmc_ref_weekend/uav_cache_base.pkl）
+#   ⇒ 基线臂实测 F1=0.900897 ≠ 冻结 headline ⇒ A/B 报 rc=2 ⇒ T1 全臂缺失。
 CS_T0043 = "/mnt/data/siping/runs/nogmc_t3/swa/cs_t0043.pt"
 REF = "/mnt/data/siping/runs/nogmc_ref_weekend/reference_frame.json"
 LQ = "/mnt/data/siping/datasets/manu/longquanshan_ft_gmc_median_nogmc"
 UAVD = "/mnt/data/siping/datasets/manu/uav_gmc_median_nogmc"
-BOARD = "root@192.168.0.64"
+BOARD = "root@192.168.0.211"
 BOARD_KEY = "-i /home/huangzhe/.ssh/id_board -o ConnectTimeout=10 -o StrictHostKeyChecking=no"
 
 # ---- 基线配方 = trial_0031 的真实配方（memory §110.3，逐项对齐）----
@@ -66,6 +75,28 @@ BASE = dict(
     sw=1.0, swl=1.0, thr=16.0, maxside=4.0, lr_floor=0.0,
     hf=0, hfsrc="b1", hfch=1,
 )
+
+# ---- 基线注册表（2026-11-11 用户裁决：9863 升轨为 Baseline_v2.0）----
+#   trial_0031 → [Status: Superseded / Deprecated Baseline]
+#   trial_0080 (RC2) → [Status: Retired / Offline Historical Reference]
+#   trial_9863 → Baseline_v2.0（Non-GMC / <21 ms 唯一官方基线）
+BASE_V2_CKPT = "/mnt/data/siping/runs/npu20ms_offcal/trials/trial_9863/weights/epoch5.pt"
+BASE_V2 = dict(
+    name="Baseline_v2.0", trial=9863, epoch=5, ckpt=BASE_V2_CKPT,
+    nano=0.7086, micro=0.8258, small=0.8574, regular=0.9435, f1=0.889712, nano4=0.6472,
+    t1=0.888086, t1_fp=1526, t2=0.997440, t2_fp=5, t3=0.948489, t3_fp=80,
+    ms_delivery_board=19.306, ms_new_board=22.009, ms_new_board_t31_ref=23.528,
+    recipe="trial_0031 配方 + --size-weight-small 5.0（骨干/头结构与 0031 逐项同图）",
+)
+BASELINE_REGISTRY = [
+    {"id": "Baseline_v2.0", "trial": 9863, "status": "ACTIVE / OFFICIAL BASELINE",
+     "note": "Non-GMC / <21ms 唯一官方基线；后续所有探索的 Beat-to-Pass 参照"},
+    {"id": "trial_0031", "trial": 31, "status": "SUPERSEDED / DEPRECATED BASELINE",
+     "note": "旧交付件（19.306 ms 交付板）；仍作部署链路与时延同图参照"},
+    {"id": "trial_0080 (RC2)", "trial": 80, "status": "RETIRED / OFFLINE HISTORICAL REFERENCE",
+     "note": "离线精度天花板历史参照；已不参与 Beat-to-Pass"},
+]
+BASELINE_NANO_FLOOR = {"0031": 0.6666, "9863": BASE_V2["nano"]}
 
 # ---- 交付判据（与交付件 trial_0031 对齐；NanoBench nano 下限 = 交付件自身水平）----
 # t2_fp_le  = 官方门禁红线（F1 ≥ 0.985 且 FP ≤ 36）
@@ -154,7 +185,29 @@ W9 = [
     (9884, 19184, dict(BASE, sw=3.0, swl=0.5, epochs=12), "短周期 × sw3.0 × 大目标降权"),
 ]
 
-WAVES = {"W1": W1, "W2": W2, "W3": W3, "W4": W4, "W5": W5, "W6": W6, "W7": W7, "W8": W8, "W9": W9}
+W10 = [
+    (9910, 19110, dict(BASE, sw=5.5), "剂量续探 sw5.5（接 9863 sw5.0）"),
+    (9911, 19111, dict(BASE, sw=7.0), "剂量续探 sw7.0（接 9822 sw8.0）"),
+    (9912, 19112, dict(BASE, sw=5.0), "★ 种子复现：sw5.0 换种子（对 9863）"),
+    (9913, 19113, dict(BASE, sw=4.0), "★ 种子复现：sw4.0 换种子（对 9814）"),
+    (9914, 19114, dict(BASE, sw=6.0), "剂量续探 sw6.0"),
+    (9915, 19115, dict(BASE, sw=10.0), "剂量续探 sw10.0（上限）"),
+    (9916, 19116, dict(BASE, sw=5.0, thr=25.0, maxside=6.0), "sw5.0 × 更宽的小目标定义（thr25/maxside6）"),
+    (9917, 19117, dict(BASE, sched=10), "★ 种子复现：周期 10ep（对 9834，其 nano 0.6961 显著高于 6/8/12ep）"),
+    (9918, 19118, dict(BASE, sw=5.0, sched=10), "★ 组合：sw5.0 × 周期 10ep（9863 × 9834，取 nano 与 T3 的并集）"),
+]
+
+W11 = [
+    (9920, 19120, dict(BASE, init=BASE_V2_CKPT, sw=1.0, epochs=5, sched=5),
+     "★ 以 Baseline_v2.0(9863 ep5) 为起点的增量微调（方法论母版）：不再加 size-weight"),
+    (9921, 19121, dict(BASE, init=BASE_V2_CKPT, sw=3.0, epochs=5, sched=5),
+     "★ 以 9863 为起点 + sw3.0（检验剂量是否还能叠加）"),
+    (9922, 19122, dict(BASE, init=BASE_V2_CKPT, sw=5.0, epochs=5, sched=5),
+     "★ 以 9863 为起点 + sw5.0（同配方自续训，检验稳定性/过拟合）"),
+    (9923, 19123, dict(BASE, init=BASE_V2_CKPT, sw=1.0, epochs=5, sched=5, mix="w2.5"),
+     "★ 以 9863 为起点 + 混样 w2.5（数据侧换挡）"),
+]
+WAVES = {"W1": W1, "W2": W2, "W3": W3, "W4": W4, "W5": W5, "W6": W6, "W7": W7, "W8": W8, "W9": W9, "W10": W10, "W11": W11}
 
 
 def log(m: str) -> None:
@@ -205,6 +258,15 @@ def load_ledger() -> dict:
 
 def save_ledger(led: dict) -> None:
     os.makedirs(WORK, exist_ok=True)
+    # 基线升轨元信息（2026-11-11）⇒ 任何进程保存台账都自动带上，避免并发覆盖丢失
+    led.setdefault("baseline_v2", BASE_V2)
+    led.setdefault("baseline_registry", BASELINE_REGISTRY)
+    led.setdefault("beat_to_pass", {
+        "ref": "Baseline_v2.0(trial_9863)", "nano_min": BASE_V2["nano"],
+        "f1_min": BASE_V2["f1"], "t1_min": BASE_V2["t1"],
+        "t2_fp_max": BASE_V2["t2_fp"], "t3_min": BASE_V2["t3"],
+        "legacy_ref": "trial_0031", "legacy_nano_min": BASELINE_NANO_FLOOR["0031"],
+        "note": "后续所有探索统一以 Baseline_v2.0 的指标为 Beat-to-Pass 下限"})
     tmp = LEDGER + ".tmp"
     json.dump(led, open(tmp, "w"), ensure_ascii=False, indent=2)
     os.replace(tmp, LEDGER)
@@ -217,9 +279,9 @@ def arm_state(led: dict, trial: int) -> dict:
 # ============================================================================
 # ① 训练
 # ============================================================================
-def phase_train(arms: list, stop_ts: float) -> None:
+def phase_train(arms: list, stop_ts: float, gpus: list | None = None) -> None:
     led = load_ledger()
-    gpus = [0, 1, 2, 3]
+    gpus = gpus or [0, 1, 2, 3]
 
     def one(item):
         trial, seed, p, desc = item
@@ -234,7 +296,7 @@ def phase_train(arms: list, stop_ts: float) -> None:
             log(f"[{trial}] 距硬截止不足 ⇒ 不启动")
             st["trained"] = False
             return
-        gpu = gpus[trial % 4]
+        gpu = gpus[trial % len(gpus)]
         log(f"[{trial}] GPU{gpu} 训练 seed={seed} | {desc}")
         try:
             sh(train_cmd(trial, gpu, seed, p), timeout=36000)
@@ -245,7 +307,7 @@ def phase_train(arms: list, stop_ts: float) -> None:
         log(f"[{trial}] 训练结束 ⇒ {'OK' if ok else 'FAIL（查日志）'}")
         save_ledger(led)
 
-    with ThreadPoolExecutor(max_workers=4) as ex:
+    with ThreadPoolExecutor(max_workers=WORKERS[0]) as ex:
         list(ex.map(one, arms))
     save_ledger(led)
 
@@ -253,6 +315,10 @@ def phase_train(arms: list, stop_ts: float) -> None:
 # ============================================================================
 # ②③ 缓存 + NanoBench
 # ============================================================================
+WORKERS = [4]
+NANO_FLOOR = BASE_V2["nano"]  # Beat-to-Pass 下限（默认 Baseline_v2.0 / trial_9863）
+
+
 def phase_nanobench(arms: list, epochs: list[int], gpu_of: dict) -> None:
     sys.path.insert(0, REPO)
     from manu.pipeline.npu import route2_acceptance as RA  # noqa: PLC0415
@@ -293,11 +359,16 @@ def phase_nanobench(arms: list, epochs: list[int], gpu_of: dict) -> None:
             save_ledger(led)
         save_ledger(led)
 
-    with ThreadPoolExecutor(max_workers=4) as ex:
+    with ThreadPoolExecutor(max_workers=WORKERS[0]) as ex:
         list(ex.map(one, arms))
 
 
 def pick_epoch(traj: dict, nano_min: float) -> tuple[dict | None, str]:
+    """选 epoch：先取「nano ≥ 下限」的集合取 F1 最高者；否则取 nano 最高者。
+
+    ⚠️ 下限 = **Beat-to-Pass 参照**的 nano（2026-11-11 起 = Baseline_v2.0 / trial_9863 的 0.7086；
+    旧参照 trial_0031 = 0.6666）。fallback 仍为 nano 最高者。
+    """
     """选 epoch：先取「nano ≥ 下限」的集合取 F1 最高者；否则取 nano 最高者。"""
     cands = [dict(v, epoch=int(k)) for k, v in traj.items() if "f1" in v]
     if not cands:
@@ -315,13 +386,21 @@ def run_official_gate(trial: int, epoch: int, gpu: int) -> dict:
     w = f"{ROOT}/trials/trial_{trial}/weights/epoch{epoch}.pt"
     outd = f"{ROOT}/gate/NANO_{trial}_ep{epoch}_official"
     rp = f"{outd}/gate_report.json"
+    reuse = False
     if os.path.isfile(rp):
+        try:
+            _rep = json.load(open(rp))
+            _t1s = (_rep.get("tracks", {}) or {}).get("track1_uav", {}) or {}
+            reuse = _t1s.get("status") != "ab_failed" and "f1" in _t1s
+        except Exception:
+            reuse = False
+    if reuse:
         log(f"[{trial}] 门禁报告已存在 ⇒ 复用 {rp}")
     else:
         os.makedirs(outd, exist_ok=True)
         cmd = (f"cd {REPO} && export PYTHONPATH=. && {PY} -u manu/training/auto_epoch_gate_check.py "
                f"--weights {w} --out-dir {outd} --device {gpu} --infer-gpu {gpu} --gpus 1 "
-               f"--baseline-cache {BASE_CACHE} > {outd}_gate.log 2>&1")
+               f"--baseline-cache {OFFICIAL_BASE_CACHE} > {outd}_gate.log 2>&1")
         r = sh(cmd, timeout=10800)
         if not os.path.isfile(rp):
             log(f"[{trial}] 门禁未产出报告 rc={r.returncode}（查 {outd}_gate.log）")
@@ -352,12 +431,13 @@ def phase_gate(arms: list, gpu_of: dict) -> None:
         trial, seed, p, desc = item
         st = arm_state(led, trial)
         traj = st.get("nanobench", {})
-        best, how = pick_epoch(traj, DELIVER["nano_min"])
+        best, how = pick_epoch(traj, NANO_FLOOR)
         if not best:
             log(f"[{trial}] 无有效 NanoBench 读数 ⇒ 跳过门禁")
             return
         st["picked_epoch"] = best["epoch"]
         st["select_rule"] = how
+        st["beat_to_pass_ref"] = "Baseline_v2.0(trial_9863)" if NANO_FLOOR >= BASE_V2["nano"] else "trial_0031"
         st["picked"] = best
         log(f"[{trial}] 选 epoch={best['epoch']}（{how}）nano={best['nano']:.4f} F1={best['f1']:.6f}")
         g = run_official_gate(trial, best["epoch"], gpu_of.get(trial, 0))
@@ -370,7 +450,7 @@ def phase_gate(arms: list, gpu_of: dict) -> None:
             log(f"[{trial}] 官方门禁失败：{g.get('error')}")
         save_ledger(led)
 
-    with ThreadPoolExecutor(max_workers=4) as ex:
+    with ThreadPoolExecutor(max_workers=WORKERS[0]) as ex:
         list(ex.map(one, arms))
     save_ledger(led)
 
@@ -493,6 +573,147 @@ def summary(arms: list) -> None:
           "/ F1 0.887122 / int8 19.629 ms / 官方 T1 0.885997、T2 FP 10、T3 0.948330")
 
 
+
+# ============================================================================
+# ⑨ 汇总报告（T1 兜底解析 track1_ab.log 的 FINETUNE 峰值）
+# ============================================================================
+AB_PEAK_RE = re.compile(
+    r"\[PEAK\] FINETUNE:\s*th=([\d.]+)\s+F1=([\d.]+)\s+P=([\d.]+)%\s+R=([\d.]+)%\s+TP=(\d+)\s+FP=(\d+)"
+)
+
+
+def parse_t1_from_ablog(out_dir: str) -> dict:
+    """从 track1_ab.log 兜底解析候选臂的 T1 峰值（口径修好前跑的臂也能取到）。"""
+    p = f"{out_dir}/track1_ab.log"
+    if not os.path.isfile(p):
+        return {}
+    try:
+        txt = open(p, errors="ignore").read()
+    except Exception:
+        return {}
+    hits = AB_PEAK_RE.findall(txt)
+    if not hits:
+        return {}
+    th, f1, pr, rc, tp, fp = hits[-1]
+    return {"f1": float(f1), "th": float(th), "tp": int(tp), "fp": int(fp),
+            "p": float(pr), "r": float(rc), "src": "ab_log_fallback"}
+
+
+def phase_report() -> None:
+    led = load_ledger()
+    rows = []
+    for k, st in sorted(led["arms"].items()):
+        b = st.get("picked") or {}
+        g = st.get("official") or {}
+        t1 = g.get("t1")
+        t1_fp = g.get("t1_fp")
+        if not t1:
+            t1d = parse_t1_from_ablog(g.get("out_dir", ""))
+            if t1d:
+                t1, t1_fp = t1d["f1"], t1d["fp"]
+        dual = st.get("dual") or {}
+        rows.append({
+            "trial": int(k), "desc": st.get("desc", ""), "epoch": b.get("epoch"),
+            "nano": b.get("nano"), "micro": b.get("micro"), "small": b.get("small"),
+            "regular": b.get("regular"), "nano4": b.get("nano4"), "f1": b.get("f1"),
+            "t1": t1, "t1_fp": t1_fp,
+            "t2": g.get("t2"), "t2_fp": g.get("t2_fp"),
+            "t3": g.get("t3"), "t3_fp": g.get("t3_fp"),
+            "board_ms": st.get("board_ms"), "verdict": g.get("verdict"),
+            "dual_verdict": dual.get("verdict") or st.get("dual_pass"),
+            "official_ok": g.get("official_ok"), "deliver_ok": g.get("deliver_ok"),
+            "is_baseline_v2": bool(st.get("is_baseline_v2")),
+            "beat_to_pass_ref": st.get("beat_to_pass_ref"),
+        })
+
+    ref31 = {"f1": 0.887122, "nano": 0.6666, "t1": 0.885997, "t2_fp": 10, "t3": 0.948330,
+             "ms_delivery_board": 19.306}
+    # Beat-to-Pass 阈值必须用 9863 的**精确读数**（常量 BASE_V2 是 6 位截断，
+    # 否则基线臂自己会被 f1_ge_base_v2 判负）
+    base_v2 = dict(BASE_V2)
+    a98 = (led.get("arms") or {}).get(str(BASE_V2["trial"]), {})
+    pk98 = a98.get("picked") or {}
+    of98 = a98.get("official") or {}
+    for k in ("nano", "micro", "small", "regular", "f1", "nano4"):
+        if pk98.get(k) is not None:
+            base_v2[k] = pk98[k]
+    for k in ("t1", "t1_fp", "t2", "t2_fp", "t3", "t3_fp"):
+        if of98.get(k) is not None:
+            base_v2[k] = of98[k]
+    if a98.get("board_ms") is not None:
+        base_v2["ms_new_board"] = a98["board_ms"]
+    # 新板（2026-11-11 换板）同会话参照：交付件 trial_0031 自身的 int8 rknn_run
+    bs = (led.get("board_sessions") or [{}])[-1] if led.get("board_sessions") else {}
+    ref_t31_new = ((bs.get("session2") or {}).get("arms") or {}).get("t31_silu_int8")
+    for r in rows:
+        checks = {}
+        if r["nano"] is not None:
+            checks["nano_ge_0031"] = r["nano"] >= ref31["nano"]
+        if r["f1"] is not None:
+            checks["f1_gt_0031"] = r["f1"] > ref31["f1"]
+            checks["f1_ge_base_v2"] = r["f1"] >= base_v2["f1"]
+        if r["nano"] is not None:
+            checks["nano_ge_base_v2"] = r["nano"] >= base_v2["nano"]
+        if r["t1"] is not None:
+            checks["t1_ge_0031"] = r["t1"] >= ref31["t1"]
+            checks["t1_ge_base_v2"] = r["t1"] >= base_v2["t1"]
+        if r["t2_fp"] is not None:
+            checks["t2fp_le_20"] = r["t2_fp"] <= 20
+            checks["t2fp_le_36"] = r["t2_fp"] <= 36
+            checks["t2fp_le_base_v2"] = r["t2_fp"] <= base_v2["t2_fp"]
+        if r["t3"] is not None:
+            checks["t3_ge_0031"] = r["t3"] >= ref31["t3"]
+            checks["t3_ge_base_v2"] = r["t3"] >= base_v2["t3"]
+        if r["board_ms"] is not None:
+            checks["ms_le_20"] = r["board_ms"] <= DELIVER["budget_ms"]
+            if ref_t31_new:
+                # 新板整体比旧板慢 ⇒ 绝对 20 ms 需重新定标；
+                # 判据改为「同会话不慢于交付件 0031 自身」（同图 ⇒ 交付板等速）
+                checks["ms_le_t31_same_session"] = r["board_ms"] <= ref_t31_new * 1.02
+        r["checks"] = checks
+        r["pass_all_known"] = all(checks.values()) if checks else False
+        r["pass_ignoring_board_ms"] = all(v for k, v in checks.items()
+                                          if not k.startswith("ms_")) if checks else False
+
+    out = {"ref_0031": ref31, "baseline_v2": base_v2,
+           "baseline_registry": BASELINE_REGISTRY,
+           "beat_to_pass": {"ref": "Baseline_v2.0(trial_9863)", "nano_min": base_v2["nano"],
+                            "f1_min": base_v2["f1"], "t1_min": base_v2["t1"],
+                            "t2_fp_max": base_v2["t2_fp"], "t3_min": base_v2["t3"]},
+           "criteria": DELIVER, "rows": rows,
+           "board_sessions": led.get("board_sessions", []),
+           "board_ms_reference_new_board": ref_t31_new,
+           "latency_note": ("候选臂与 trial_0031 同图（no_p2+p3, head_conv64, late_upsample, stride2, "
+                            "ONNX 6.68MB）⇒ 交付板 int8 = 19.306 ms 由构造保证；"
+                            "新板（192.168.0.211）整体慢 ~11-22%，同会话 0031 自身 = 23.528 ms ⇒ "
+                            "绝对 20 ms 铁律需在新板重新定标，判据用「同会话不慢于 0031」。")}
+    with open(f"{WORK}/final_report.json", "w") as f:
+        json.dump(out, f, ensure_ascii=False, indent=2)
+    with open(f"{WORK}/final_report.md", "w") as f:
+        f.write("# NanoBench 定向搜索 · 整晚波次最终汇总\n\n")
+        f.write("| trial | 变更 | ep | nano | micro | F1 | nano@4px | T1 | T1FP | T2FP | T3 | ms | 判定 |\n")
+        f.write("|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
+        st_map = {int(k): v for k, v in (led.get("arms") or {}).items()}
+        for r in sorted(rows, key=lambda x: -(x.get("nano") or 0)):
+            d = (r.get("desc") or "")[:26]
+            st = st_map.get(r["trial"], {})
+            f.write("| {t} | {d} | {e} | {n} | {mi} | {f1} | {n4} | {t1} | {t1fp} | {t2fp} | {t3} | {ms} | {v} |\n".format(
+                t=r["trial"], d=d, e=r.get("epoch"),
+                n=f"{r['nano']:.4f}" if r.get("nano") is not None else "-",
+                mi=f"{r['micro']:.4f}" if r.get("micro") is not None else "-",
+                f1=f"{r['f1']:.6f}" if r.get("f1") is not None else "-",
+                n4=f"{r['nano4']:.4f}" if r.get("nano4") is not None else "-",
+                t1=f"{r['t1']:.6f}" if r.get("t1") is not None else "-",
+                t1fp=r.get("t1_fp") if r.get("t1_fp") is not None else "-",
+                t2fp=r.get("t2_fp") if r.get("t2_fp") is not None else "-",
+                t3=f"{r['t3']:.6f}" if r.get("t3") is not None else "-",
+                ms=f"{r['board_ms']:.3f}" if r.get("board_ms") is not None else "n/a",
+                v=("BASE" if st.get("is_baseline_v2") else
+                   ("PASS" if r.get("pass_all_known") else
+                    ("PASS*" if r.get("pass_ignoring_board_ms") else "—")))))
+    log(f"[report] 已写出 {WORK}/final_report.json 与 final_report.md（共 {len(rows)} 臂）")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="NanoBench 定向搜索器 v3（单变量，基线 = trial_0031）")
     ap.add_argument("--wave", default="W1", choices=sorted(WAVES))
@@ -500,15 +721,34 @@ def main() -> None:
                     choices=["all", "train", "nanobench", "gate", "board", "dual"])
     ap.add_argument("--epochs", default="5,10,15,20", help="NanoBench 候选 epoch")
     ap.add_argument("--stop-at", default="2026-11-11 08:00", help="硬截止")
+    ap.add_argument("--only", default="", help="只跑这些 trial（逗号分隔，跨波次）")
+    ap.add_argument("--report", action="store_true", help="只生成汇总报告（不训练/不评测）")
+    ap.add_argument("--nano-floor", default="9863", choices=["9863", "0031"],
+                    help="Beat-to-Pass 的 nano 下限参照（9863=Baseline_v2.0 / 0031=旧交付件）")
+    ap.add_argument("--gpus", default="0,1,2,3", help="可用 GPU 列表（逗号分隔）")
+    ap.add_argument("--workers", type=int, default=4, help="并发数（评测/缓存阶段）")
     args = ap.parse_args()
 
     os.makedirs(WORK, exist_ok=True)
     os.makedirs(f"{ROOT}/logs", exist_ok=True)
     os.makedirs(f"{RUNS}/tiny_ref", exist_ok=True)
     arms = WAVES[args.wave]
+    if args.only:
+        keep = {int(x) for x in args.only.replace(" ", "").split(",") if x.strip()}
+        seen, picked = set(), []
+        for _w in WAVES.values():
+            for a in _w:
+                if a[0] in keep and a[0] not in seen:
+                    seen.add(a[0])
+                    picked.append(a)
+        arms = picked
     epochs = [int(x) for x in args.epochs.split(",") if x.strip()]
     stop_ts = time.mktime(time.strptime(args.stop_at, "%Y-%m-%d %H:%M"))
-    gpu_of = {t: i % 4 for i, (t, _s, _p, _d) in enumerate(arms)}
+    gpus = [int(x) for x in args.gpus.replace(" ", "").split(",") if x.strip()]
+    WORKERS[0] = max(1, args.workers)
+    global NANO_FLOOR
+    NANO_FLOOR = BASELINE_NANO_FLOOR[args.nano_floor]
+    gpu_of = {t: gpus[i % len(gpus)] for i, (t, _s, _p, _d) in enumerate(arms)}
 
     led = load_ledger()
     if args.wave not in led["waves"]:
@@ -521,16 +761,19 @@ def main() -> None:
     for trial, seed, p, desc in arms:
         log(f"  · {trial} seed={seed} | {desc}")
 
-    if args.phase in ("all", "train"):
-        phase_train(arms, stop_ts)
-    if args.phase in ("all", "nanobench"):
-        phase_nanobench(arms, epochs, gpu_of)
-    if args.phase in ("all", "gate"):
-        phase_gate(arms, gpu_of)
-    if args.phase in ("all", "board"):
-        phase_board(arms)
-    if args.phase in ("all", "dual"):
-        phase_dual(arms)
+    if not args.report:
+        if args.phase in ("all", "train"):
+            phase_train(arms, stop_ts, gpus)
+        if args.phase in ("all", "nanobench"):
+            phase_nanobench(arms, epochs, gpu_of)
+        if args.phase in ("all", "gate"):
+            phase_gate(arms, gpu_of)
+        if args.phase in ("all", "board"):
+            phase_board(arms)
+        if args.phase in ("all", "dual"):
+            phase_dual(arms)
+    if args.report:
+        phase_report()
     summary(arms)
     log("=== NANO SEARCH v3 DONE ===")
 

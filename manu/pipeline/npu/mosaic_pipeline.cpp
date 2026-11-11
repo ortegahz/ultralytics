@@ -437,6 +437,23 @@ struct MosaicPipeline {
   std::condition_variable cv_guard;
 
   // ---- lifecycle ----------------------------------------------------------
+  //
+  // EVERY internal wait in this library is TIMED (see kWaitTimeoutMs below).
+  // The reason is the "silent wedge" of section 10.12.3: a condition-variable
+  // notification can be LOST -- the waiter had already evaluated its predicate
+  // but had not yet enqueued on the condition variable -- and an UNTITED wait
+  // then sleeps forever.  The symptom is the worst kind: every thread parks on
+  // futex_wait, the join in the flush path never returns, **not one error
+  // message is printed**, and the caller's watchdog cannot see it (the hang is
+  // INSIDE the library, not in the caller's wait).
+  //
+  // A timed wait re-evaluates the predicate at least every kWaitTimeoutMs, so
+  // a lost notification can never wedge the pipeline.  The predicate forms are
+  // unchanged, and every call site already tolerates a spurious wakeup (each
+  // one has a `continue` that re-enters the wait), so the semantics are
+  // identical -- only the failure mode is removed.
+  static constexpr int kWaitTimeoutMs = 200;
+
   std::atomic<bool> eof{false};
   std::atomic<bool> abort{false};
   std::atomic<bool> flushed{false};
@@ -551,6 +568,52 @@ struct MosaicPipeline {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Publish a SHUTDOWN FLAG under EVERY mutex whose waiter reads it, then
+  // notify each of those condition variables.
+  //
+  // WHY THE MUTEX MATTERS (RK3588 board finding, 2026-11-11):
+  //   `cv.wait(lk, pred)` evaluates `pred` and enqueues on the condition
+  //   variable **while holding `lk`**.  If the writer sets the flag and calls
+  //   notify_all() WITHOUT holding `lk`, the notification can be LOST: the
+  //   waiter had already evaluated `pred` (false) but had not yet enqueued,
+  //   so the notify happens while nobody is listening; the waiter then sleeps
+  //   forever.
+  //
+  //   The symptom is the SAME silent wedge as section 10.12.3, only in a
+  //   different join: every thread parks on futex_wait, the join in the flush
+  //   path never returns, and **not one error message is printed** -- the
+  //   e2e's watchdog lives in the CALLER, so it cannot see a hang that
+  //   happens INSIDE the library.
+  //
+  //   The rule: publish the flag under the waiter's mutex, then notify.
+  //   => either the waiter is already enqueued (the notify wakes it), or it
+  //      acquires the mutex after us and re-evaluates the predicate with the
+  //      flag already set (so it returns at once).  No third case, no lost
+  //      wakeup.
+  //
+  // `gmc_done` is read by THREE waiters, each under its own mutex
+  // (m_feat / m_art / BufferA::m), so it has to be published under all three.
+  // ---------------------------------------------------------------------------
+  void publish_gmc_done() {
+    { std::lock_guard<std::mutex> lk(m_feat); gmc_done = true; }
+    { std::lock_guard<std::mutex> lk(m_art); gmc_done = true; }
+    for (auto& svc : npus) {
+      if (!svc->buf_a) continue;
+      { std::lock_guard<std::mutex> lk(svc->buf_a->m); gmc_done = true; }
+    }
+    cv_feat.notify_all();
+    cv_art.notify_all();
+    for (auto& svc : npus) {
+      if (svc->buf_a) svc->buf_a->cv.notify_all();
+    }
+  }
+
+  void publish_feat_done() {
+    { std::lock_guard<std::mutex> lk(m_heat); feat_done = true; }
+    cv_heat.notify_all();
+  }
+
   // A PER-FRAME error: this frame is rejected, the stream keeps running.
   // A camera stream must not die because one frame was malformed -- and a
   // malformed frame must not stall the camera either.
@@ -610,7 +673,7 @@ struct MosaicPipeline {
       InItem item;
       {
         std::unique_lock<std::mutex> lk(m_in);
-        cv_in.wait(lk, [this] { return !in_q.empty() || eof || abort; });
+        cv_in.wait_for(lk, std::chrono::milliseconds(kWaitTimeoutMs), [this] { return !in_q.empty() || eof || abort; });
         if (abort) break;
         if (in_q.empty()) {
           if (eof) break;
@@ -726,7 +789,7 @@ struct MosaicPipeline {
       {
         const auto t_wait0 = std::chrono::steady_clock::now();
         std::unique_lock<std::mutex> lk(eng->m);
-        eng->cv_head.wait(lk, [this, eng, min_stride] {
+        eng->cv_head.wait_for(lk, std::chrono::milliseconds(kWaitTimeoutMs), [this, eng, min_stride] {
           if (abort || ingest_done) return true;
           const long h = eng->pipe->latest_seeded();
           return h > eng->last_done && (h - eng->last_done) >= min_stride;
@@ -1350,7 +1413,7 @@ struct MosaicPipeline {
       {
         const auto t_wait0 = std::chrono::steady_clock::now();
         std::unique_lock<std::mutex> lk(m_feat);
-        cv_feat.wait(lk, [this] { return !feat_q.empty() || abort || gmc_done; });
+        cv_feat.wait_for(lk, std::chrono::milliseconds(kWaitTimeoutMs), [this] { return !feat_q.empty() || abort || gmc_done; });
         const double waited =
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_wait0)
                 .count();
@@ -1596,7 +1659,7 @@ struct MosaicPipeline {
       {
         const auto t_wait0 = std::chrono::steady_clock::now();
         std::unique_lock<std::mutex> lk(buf_a->m);
-        buf_a->cv.wait(lk, [this, buf_a] {
+        buf_a->cv.wait_for(lk, std::chrono::milliseconds(kWaitTimeoutMs), [this, buf_a] {
           return !buf_a->ready.empty() || abort ||
                  (pre_active.load(std::memory_order_relaxed) == 0 && gmc_done);
         });
@@ -1819,7 +1882,7 @@ struct MosaicPipeline {
       {
         const auto t_wait0 = std::chrono::steady_clock::now();
         std::unique_lock<std::mutex> lk(m_feat);
-        cv_feat.wait(lk, [this] { return !feat_q.empty() || abort || gmc_done; });
+        cv_feat.wait_for(lk, std::chrono::milliseconds(kWaitTimeoutMs), [this] { return !feat_q.empty() || abort || gmc_done; });
         const double waited =
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_wait0)
                 .count();
@@ -1912,7 +1975,7 @@ struct MosaicPipeline {
       {
         const auto t_wait0 = std::chrono::steady_clock::now();
         std::unique_lock<std::mutex> lk(m_heat);
-        cv_heat.wait(lk, [this] { return !heat_q.empty() || abort || feat_done; });
+        cv_heat.wait_for(lk, std::chrono::milliseconds(kWaitTimeoutMs), [this] { return !heat_q.empty() || abort || feat_done; });
         const double waited =
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_wait0)
                 .count();
@@ -1979,7 +2042,7 @@ struct MosaicPipeline {
       OrderedArtifact a;
       {
         std::unique_lock<std::mutex> lk(m_art);
-        cv_art.wait(lk, [this] {
+        cv_art.wait_for(lk, std::chrono::milliseconds(kWaitTimeoutMs), [this] {
           return abort || artifacts.count(next_artifact) || (gmc_done && artifacts.empty());
         });
         if (abort) break;
@@ -2030,7 +2093,7 @@ struct MosaicPipeline {
       ResultItem ri;
       {
         std::unique_lock<std::mutex> lk(m_out);
-        cv_out.wait(lk, [this] { return !cb_q.empty() || abort || flushed; });
+        cv_out.wait_for(lk, std::chrono::milliseconds(kWaitTimeoutMs), [this] { return !cb_q.empty() || abort || flushed; });
         if (abort) break;
         if (cb_q.empty()) {
           if (flushed) break;
@@ -3514,7 +3577,15 @@ int32_t mosaic_pipeline_collect(MosaicPipeline* p, int64_t* frame_id, MosaicDet*
   ResultItem ri;
   {
     std::unique_lock<std::mutex> lk(p->m_out);
-    p->cv_out.wait(lk, [p] { return !p->out_q.empty() || p->abort || p->flushed; });
+    // TIMED wait + an explicit loop: the predicate form of wait_for
+    // RETURNS (false) on a timeout, and here a false predicate means
+    // "nothing yet" -- NOT "aborted".  So keep waiting instead of
+    // reporting -1 (the old untimed wait could not time out at all).
+    for (;;) {
+      if (p->cv_out.wait_for(lk, std::chrono::milliseconds(p->kWaitTimeoutMs),
+                              [p] { return !p->out_q.empty() || p->abort || p->flushed; }))
+        break;
+    }
     if (p->out_q.empty()) return -1;  // aborted, or flushed and drained
     ri = std::move(p->out_q.front());
     p->out_q.pop_front();
@@ -3563,8 +3634,7 @@ int32_t mosaic_pipeline_flush(MosaicPipeline* p) {
   for (auto& e : p->engines) {
     if (e->th.joinable()) e->th.join();
   }
-  p->gmc_done = true;
-  p->cv_feat.notify_all();
+  p->publish_gmc_done();
   // The engines are done, so their final corner statistics are final.
   {
     std::lock_guard<std::mutex> lk(p->m_time);
@@ -3616,11 +3686,14 @@ int32_t mosaic_pipeline_flush(MosaicPipeline* p) {
   for (auto& svc : p->npus) {
     if (svc->th.joinable()) svc->th.join();
   }
-  p->feat_done = true;
-  p->cv_heat.notify_all();
+  p->publish_feat_done();
   for (auto& t : p->post_threads) {
     if (t.joinable()) t.join();
   }
+  // The artifact thread's exit predicate reads `gmc_done` (already published
+  // above) under `m_art`, and its wakeup has to be delivered under that same
+  // mutex -- otherwise the notify can be lost and this join never returns.
+  { std::lock_guard<std::mutex> lk(p->m_art); }
   p->cv_art.notify_all();
   if (p->art_thread.joinable()) p->art_thread.join();
   // v10.3: the per-frame post-processing samples are final now (the POST thread
@@ -3629,6 +3702,11 @@ int32_t mosaic_pipeline_flush(MosaicPipeline* p) {
   {
     std::lock_guard<std::mutex> lk(p->m_out);
     p->flushed = true;
+    // The dispatch thread waits on `cv_out` **under `m_out`**, so the wakeup has
+    // to be delivered under that same mutex: a notify issued without it can be
+    // LOST (the waiter evaluated its predicate but had not yet enqueued), and
+    // then the dispatch join below never returns.
+    p->cv_out.notify_all();
   }
   // The run is over: one summary line for the three fallback lines, so an
   // operator can see at a glance which one (if any) fired.
