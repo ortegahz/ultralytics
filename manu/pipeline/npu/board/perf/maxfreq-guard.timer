@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the maximum-frequency watchdog every 10 seconds
+
+[Timer]
+OnBootSec=20s
+OnUnitActiveSec=10s
+AccuracySec=2s
+Unit=maxfreq-guard.service
+
+[Install]
+WantedBy=timers.target

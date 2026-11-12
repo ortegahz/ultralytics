@@ -68,7 +68,9 @@ SEED_BASE = 21000           # 种子扫描的种子基数
 #   评测：NanoBench（ep3/4/5 三档缓存）≈ 1.3 min/臂（4 卡并行）
 #         + 门禁 / dual / 板卡 / 报告 ≈ 25 min（与臂数基本无关的固定开销）
 ROUND_FIXED_MIN = 25.0      # 门禁 + dual + 板卡 + 报告
-TRAIN_MIN_PER_ARM = 4.0     # 4 卡并行后的墙钟摊销
+# 🔴 2026-11-12 12:40 实测重标定：4 臂并发一波 4 臂 ≈ 13 min、8 臂并发一波 8 臂 ≈ 24.5 min
+#   ⇒ **臂/分钟 ≈ 0.27，两种并发同速**（GPU 早已饱和）⇒ 单臂摊销 ≈ 3.4 min
+TRAIN_MIN_PER_ARM = 3.4
 EVAL_MIN_PER_ARM = 1.3      # NanoBench 三档缓存
 MIN_ROUND_MIN = 60.0        # 剩余时间低于此值 ⇒ 收工，不再开新轮
 
@@ -176,13 +178,57 @@ PRIORITY_PATCHES: list[tuple[str, dict, str]] = [
      "小目标剂量 8.0 + LR 保底 10%（9822 sw8 官方 T1 已过线，nano 只差 0.003545）"),
     ("lrf0.10", dict(lr_floor=0.10),
      "LR 保底 10%（12053 复现：nano 过线、官方 T1 只差 0.000984）"),
+    # 🟢 2026-11-12 12:45 新增：**mix 轴是今晚证据最强的方向**
+    #   实测：mix=w2.0（基线）nano/T1 过线但 T3 −0.0017；mix=w1.8 T3 ✔ T2 ✔ 但 nano −0.0033；
+    #        mix=w2.5 nano ✔ T1 ✔ T2 ✔ 但 T3 −0.0045、nano4 −0.019
+    #   ⇒ **w1.9 正好落在 w1.8（官方强）与 w2.0（nano 强）之间** ⇒ 最可能同时压住两端的点
+    ("mixw1.9", dict(mix="w1.9"),
+     "混样 w2.0→w1.9（w1.8 官方强 / w2.0 nano 强 ⇒ 中间点最可能两侧同过）"),
+    # 🟢 2026-11-12 13:10 新增：**mixw1.9 × lrf0.10**（两个「已验证强项」的组合，从未试过）
+    #   依据（台账全量复算）：
+    #     · 12347（mix w1.8）：F1 ✔ / 虚警4 ✔ / **T3 0.949390 ✔** / T1 0.887942（差 0.00014）
+    #       / nano 0.705340（差 0.0033）/ nano4 0.643667（差 0.0035）⇒ **4/6 近失**
+    #     · 12053（lrf0.10）：**nano ✔ / nano4 +0.0095 ✔ / F1 ✔ / 虚警4 ✔ / T3 0.949250 ✔**
+    #       / T1 0.887102（差 0.00098）⇒ **5/6，全台账最接近的一个**
+    #   ⇒ w1.9 负责把 **T3/T1** 拉回线内，lrf0.10 负责把 **nano/nano4** 拉过线
+    #     ⇒ 二者相乘是台账里唯一「两侧强项互补」的未试组合
+    ("lrf0.10_mixw1.9", dict(lr_floor=0.10, mix="w1.9"),
+     "LR 保底 10% × 混样 w1.9（12347 的 T3 强项 × 12053 的 nano 强项 ⇒ 两侧互补）"),
 ]
 
 # 优先格淘汰线：n>=PRIORITY_MIN_N 后，若均值 nano 低于基线配方均值 PRIORITY_MEAN_SLACK ⇒ 停喂
 PRIORITY_MIN_N = 4
 PRIORITY_MEAN_SLACK = 0.002
-# 优先格每轮臂数上限（8 格 × 2 seed）⇒ 时间预算里先给它留位
-PRIORITY_ARMS_EST = 12
+# 优先格每轮臂数上限（9 格 × 2 seed）⇒ 时间预算里先给它留位
+PRIORITY_ARMS_EST = 18
+# 合成臂（SWA）每轮数量上限（只占评测时间，不占训练时间）｜2026-11-12 13:15
+SWA_ARMS_EST = 6
+
+# ── 算力再分配（2026-11-12 12:40，R7 全量读数实测得出）────────────────────
+#   实测（R7 全体 24 臂）：
+#     · **种子扫描**（冠军配方换 seed）：6 臂里 **2 臂是 4/6 近失**（12333 / 12335）⇒ 33%
+#     · **突变**（单参数改动）：18 臂里 **2 臂是 4/6 近失**（12346 mixw2.5 / 12347 mixw1.8）⇒ 11%
+#     · 全台账 469 臂里 NanoBench 三项全过的只有 6 个（其中 3 个还是 swl<1.0 死区）
+#   ⇒ **近失格是稀缺资源**：把算力从「泛突变」挪到「多种子复现近失格」是最优分配。
+#   ⇒ 种子扫描臂数提到 12（胜率 ≈ 突变臂的 3 倍），突变臂数压到 8（保留探索但不让它吃掉主力）。
+# 🟢 2026-11-12 13:10 再分配（台账 469 臂全量复算后的结论，见 §149.18）：
+#   **总臂数受 6 并发限制 ⇒ 一夜下来总臂数基本恒定（≈210~220）**
+#   ⇒ 唯一可控的量是「算力配比」，不是臂数。
+#   分层命中率实测（官方三轨读数回填后）：
+#     · 基配方族（sw5/swl1/thr16/lrf0/w2.0）：nano 三项全过 2/32 臂（6%），
+#       T1 过 8/26（31%）、**T3 过 3/26（11.5%，最紧的一项）**、虚警≤5 过 23/26（88%）
+#       ⇒ 单臂六项全过概率 ≈ 1%（**台账里 9863 / 12333 / 12335 / 12327 全部出自这一族**）
+#     · swl<1.0 一律 T1/T3 塌陷（死区，已 3 轮证实）⇒ 不投
+#     · 突变臂（单参数改动）近失率 11% ≈ 种子臂 33% 的 1/3 ⇒ 压到 5 臂保底
+#   ⇒ 种子格 14→20（最高产家族，多下注），突变格 8→5（保底探索），新增 1 个互补配方格。
+SEED_SCAN_TARGET = 20        # 每轮种子扫描臂数（冠军配方，换 seed）｜2026-11-12 13:10 由 14 提到 20
+MUT_CAP = 5                  # 每轮突变臂数上限（探索保底）｜2026-11-12 13:10 由 8 压到 5
+# 近失前沿复现：每轮自适应挑「只差一档」的配方格，补没试过的 seed
+NEAR_MISS_CELLS = 4          # 每轮最多复现几个近失格
+NEAR_MISS_SEEDS = 3          # 每个格每轮补几个 seed｜2026-11-12 13:15 由 2 提到 3
+NEAR_MISS_MIN_PASS = 3       # 至少过 3/6 项才算「近失」
+NEAR_MISS_MAX_DEFIIT = 0.04  # 过 4/6 时的归一化亏损上限
+NEAR_MISS_MAX_DEFIIT_3 = 0.012  # 只过 3/6 时必须**非常接近**（否则不算近失）
 
 
 def log(msg: str) -> None:
@@ -193,9 +239,19 @@ def log(msg: str) -> None:
 # 时间预算：按剩余时间决定本轮跑多少臂（保证最后一轮能在硬截止前跑完）
 # ---------------------------------------------------------------------------
 def plan_minutes(n_arms: int) -> float:
-    """跑 n_arms 臂预计占用的墙钟时间（分钟）。"""
-    waves = (n_arms + 3) // 4
-    return waves * 16.0 + n_arms * EVAL_MIN_PER_ARM + ROUND_FIXED_MIN
+    """跑 n_arms 臂预计占用的墙钟时间（分钟）。
+
+    🔴 2026-11-12 12:40 重标定（8 臂并发实测）：一波 8 臂 ≈ **24.5 min**，
+       4 臂并发时一波 4 臂 ≈ 13 min ⇒ **摊销同为 ≈3.2 min/臂** ⇒
+       **GPU 早在 4 臂/卡时就已经饱和**（util 45%→90% 但臂/分钟没变）⇒
+       不能再用「waves × 16 min」那个按 4 并发算的公式（会把预算高估 2 倍 ⇒ 最后一轮被砍）。
+    """
+    conc = max(1, int(getattr(ns, "TRAIN_WORKERS", [4])[0]))
+    per_arm_train = 3.4 if conc >= 4 else 5.2
+    # 🟢 2026-11-12 13:15：合成臂（SWA）**不占训练时间**，只占评测时间
+    #   ⇒ 预算里要单列，否则会高估（合成臂每轮 ~4~6 个）。
+    return (n_arms * (per_arm_train + EVAL_MIN_PER_ARM)
+            + SWA_ARMS_EST * EVAL_MIN_PER_ARM + ROUND_FIXED_MIN)
 
 
 def shrink_plan(remain_min: float, n_seed: int, n_mut: int) -> tuple[int, int]:
@@ -207,8 +263,9 @@ def shrink_plan(remain_min: float, n_seed: int, n_mut: int) -> tuple[int, int]:
     per_arm = TRAIN_MIN_PER_ARM + EVAL_MIN_PER_ARM
     fit = int(max(4.0, (remain_min - ROUND_FIXED_MIN) / per_arm)) - PRIORITY_ARMS_EST
     fit = max(4, (fit // 4) * 4)
-    seed_fit = max(2, min(n_seed, fit // 3))
-    mut_fit = max(1, fit - seed_fit)
+    # 🟢 2026-11-12：种子扫描臂的胜率 ≈ 突变的 3 倍 ⇒ 缩臂时**优先保种子**（原来 fit//3 → 现在 fit//2）
+    seed_fit = max(2, min(SEED_SCAN_TARGET, fit // 2))
+    mut_fit = max(1, min(MUT_CAP, fit - seed_fit))
     return seed_fit, mut_fit
 
 
@@ -643,10 +700,21 @@ def build_synth_arms(led: dict, champ: dict, base: dict, round_idx: int,
         ("swa_wide", list(range(max(1, win - 2), win + 7)), "champion 臂 epoch{~2}~{~+6} 宽窗"),
         ("swa_early", list(range(max(1, win - 2), win + 2)), "champion 臂 epoch{~2}~{~+1} 早窗"),
     ]
+    # 🟢 2026-11-12 13:10：**去重** —— 同一 (源臂, 窗口) 的 SWA 已经做过就别再做一遍
+    #   实测：冠军臂不变时，每轮都会把**同一组权重**重新平均 + 重新评测一遍
+    #   ⇒ 纯浪费评测算力（每轮 ~4 臂 × 1.3 min）。
+    _done = set()
+    for _t, _st in (led.get("arms") or {}).items():
+        _mem = _st.get("synth_members") or []
+        if _mem:
+            _done.add(tuple(sorted(str(x) for x in _mem)))
     for name, eps, note in windows:
         mem = [f"{cdir}/epoch{e}.pt" for e in eps]
         mem = [m for m in mem if os.path.isfile(m)]
         if len(mem) < 2:
+            continue
+        if tuple(sorted(mem)) in _done:
+            log(f"[synth] {name} 跳过（该窗口已存在，避免重复评测）")
             continue
         trial = next_trial[0]
         next_trial[0] += 1
@@ -664,7 +732,10 @@ def build_synth_arms(led: dict, champ: dict, base: dict, round_idx: int,
                           "mix": "w2.0", "warmup": 1.5, "lr": 3.5, "fb": 2.75, "ow": 0.4,
                           "wd": 0.000269, "mosaic": 0.15, "scale": 0.1, "translate": 0.05,
                           "clip": 5.65, "backbone_lr": 1.0, "uf": 0, "head_src": "p3",
-                          "native_grid": 0, "mr": 1, "swl": 1.0, "thr": 16.0,
+                          # 🟢 2026-11-12 12:45：swl 之前**硬编码 1.0** ⇒ 死亡区冠军的 SWA 产物
+                          #   被错标成「swl 安全」⇒ 现在跟随冠军真实 swl（口径诚实）
+                          "native_grid": 0, "mr": 1,
+                          "swl": (champ.get("params") or {}).get("swl", 1.0), "thr": 16.0,
                           "maxside": 4.0, "lr_floor": 0.0, "hf": 0, "hfsrc": "b1", "hfch": 1})
         log(f"[synth] {name} ⇒ trial {trial}（成员 {len(mem)} 个）")
         arms.append((trial, 20000 + trial, st["params"], st["desc"]))
@@ -794,6 +865,90 @@ def priority_cells(led: dict, base_params: dict) -> list[tuple[str, dict, str]]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# ②' 近失前沿复现（2026-11-12 12:40 新增）
+#   实测依据见 SEED_SCAN_TARGET 处：种子扫描臂的近失率 33% vs 突变臂 11%
+#   ⇒ 每轮把「只差一档」的配方格再补几个**没试过的**seed（近失格 = 稀缺资源）。
+#   排序：① 过项数多 ② 归一化亏损小 ③ 组内 nano 均值高
+# ---------------------------------------------------------------------------
+def _near_miss_score(st: dict, base: dict) -> tuple[int, float]:
+    """该臂过了几项 + 归一化亏损（0 = 全过）；缺项（没测）不计入亏损。"""
+    pk = st.get("picked") or {}
+    of = st.get("official") or {}
+    chk = core_checks(st, base)
+    npass = sum(1 for v in chk.values() if v)
+    deficit = 0.0
+    for k, ok in chk.items():
+        if ok:
+            continue
+        if k == "t2fp":
+            d = (float(of.get("t2_fp") or 0) - float(base.get("t2_fp") or 0)) / 5.0
+        else:
+            bv = float(base.get(k) or 0.0) or 1.0
+            mv = float(pk.get(k) if k in ("nano", "nano4", "f1") else (of.get(k) or 0))
+            d = (bv - mv) / bv
+        deficit += max(0.0, d)
+    return npass, deficit
+
+
+def near_miss_t2_ok(led: dict, g: dict, base: dict) -> bool:
+    """近失格的 T2 口径：**按交付判据**（T2 虚警 ≤ 基线 + 2），而不是 T2 F1 的 0.002 硬容差。
+
+    理由（实测）：12346（mix w2.5）T2 F1 = 0.995290，只差基线 0.00015 就被 `recipe_t2_dead`
+    判死 ⇒ 被近失队列排除；但它的 **T2 虚警只有 1 个**（基线 5 个）⇒ 六项判据里它是**过的**
+    ⇒ 这类格恰恰是今晚最该复现的「只差一档」。
+    ⇒ 这里用宽松口径（T2 F1 掉 0.01 以上 / 虚警超基线 2 个以上 才算塌），与交付判据一致。
+    """
+    t2 = group_t2(led, g)
+    if t2 is not None and t2 < (base.get("t2") or 0.0) - 0.01:
+        return False
+    fp = None
+    for t in (g.get("trials") or []):
+        of = ((led.get("arms") or {}).get(str(t)) or {}).get("official") or {}
+        if of.get("t2_fp") is not None:
+            fp = of["t2_fp"] if fp is None else max(fp, of["t2_fp"])
+    if fp is not None and fp > (base.get("t2_fp") or 0) + 2:
+        return False
+    return True
+
+
+def near_miss_cells(led: dict, base: dict, exclude_keys=()) -> list[tuple]:
+    """挑出「只差一档」的配方格（自适应），供本轮补 seed。
+
+    过滤：① 不是基线配方组（那组由种子扫描覆盖）② 必须有官方三轨读数（才算竞争者）
+          ③ swl >= 1.0（硬闸门）④ 未被证伪 T2 塌陷 ⑤ 不在本轮其它队列里（避免重复臂）
+    阈值：过 4/6 ⇒ 亏损 ≤ 0.04；只过 3/6 ⇒ 亏损必须 ≤ 0.012（否则离全过太远，不值得补 seed）
+    """
+    groups = recipe_stats(led) or {}
+    bg = base_group(led, groups)
+    bkey = (bg or {}).get("key")
+    excl = set(exclude_keys or ())
+    out = []
+    for g in groups.values():
+        if g["key"] == bkey or g["n"] < 1 or g["key"] in excl:
+            continue
+        best = None
+        for t in g["trials"]:
+            st = (led.get("arms") or {}).get(str(t)) or {}
+            if (st.get("official") or {}).get("t1") is None:
+                continue
+            npass, deficit = _near_miss_score(st, base)
+            if best is None or (npass, -deficit) > (best[0], -best[1]):
+                best = (npass, deficit, int(t))
+        if best is None or best[0] < NEAR_MISS_MIN_PASS:
+            continue
+        lim = NEAR_MISS_MAX_DEFIIT if best[0] >= 4 else NEAR_MISS_MAX_DEFIIT_3
+        if best[1] > lim:
+            continue
+        if not swl_safe_group(g):
+            continue
+        if not near_miss_t2_ok(led, g, base):
+            continue
+        out.append((g, best))
+    out.sort(key=lambda x: (-x[1][0], x[1][1], -(x[0].get("mean_nano") or 0.0)))
+    return out[:NEAR_MISS_CELLS]
+
+
 def build_train_arms(led: dict, champ: dict, round_idx: int, next_trial: list[int],
                      n_seed: int = 6, n_mut: int = 18) -> list[tuple]:
     """一轮的训练臂：
@@ -809,6 +964,10 @@ def build_train_arms(led: dict, champ: dict, round_idx: int, next_trial: list[in
     # ③ 待复现配方（优先级最高：能把「运气臂」变成「真配方」）
     pend = ((led.get("search_state") or {}).get("replication_pending") or [])[:4]
     _gs_all = recipe_stats(led) or {}
+    # 🟢 2026-11-12 12:50：近失队列要把「本轮已经喂过的配方」排除（同一配方不重复喂）
+    #   ⚠️ 只排除**真的产出了臂**的待复现配方（否则被 recipe_t2_dead 跳过的配方会误伤近失队列）
+    _pcells = priority_cells(led, base_params)
+    _emitted_keys: set = set()
     for rk in pend:
         grp = _gs_all.get(rk)
         if not grp:
@@ -823,27 +982,49 @@ def build_train_arms(led: dict, champ: dict, round_idx: int, next_trial: list[in
             arms.append((trial, seed0 + 500 + len(arms),
                          dict(p, epochs=max(5, int(p.get("sched") or 5))),
                          f"[R{round_idx}] ★★ 复现 {rk.split('|')[0][:40]} seed{k+1}（上一轮单臂打平基线）"))
+            _emitted_keys.add(rk)
 
     # ⓿ 优先格（2026-11-12 新增）：每格每轮 2 个 seed
     #   ① 配方效应 vs 种子噪声必须分开量（单臂读数分不清）
     #   ② 攒到 PRIORITY_MIN_N 个 seed 后按「均值 vs 基线配方均值」淘汰差格
-    for _name, _p, _why in priority_cells(led, base_params):
+    for _name, _p, _why in _pcells:
         for _k in range(2):
             _t = next_trial[0]
             next_trial[0] += 1
             arms.append((_t, seed0 + 200 + len(arms), dict(_p),
                          f"[R{round_idx}] ★★ 优先格 {_name} seed{_k+1}：{_why}"))
+            _emitted_keys.add(recipe_key(_p))
 
-    # ① 种子扫描
-    for i in range(n_seed):
+    # ②' 近失前沿复现（2026-11-12 12:40 新增）：给「只差一档」的格补没试过的 seed
+    #   实测依据：种子扫描臂近失率 33% vs 突变臂 11% ⇒ 近失格是稀缺资源，值得专门补 seed
+    for g, best in near_miss_cells(led, base_ref(led), exclude_keys=_emitted_keys):
+        p = clean_recipe(g["params"])
+        used_seeds = set()
+        for t in g["trials"]:
+            _s = (led.get("arms") or {}).get(str(t), {}).get("seed")
+            if _s is not None:
+                used_seeds.add(int(_s))
+        for k in range(NEAR_MISS_SEEDS):
+            trial = next_trial[0]
+            next_trial[0] += 1
+            sd = seed0 + 700 + len(arms)
+            while sd in used_seeds:
+                sd += 1
+            used_seeds.add(sd)
+            arms.append((trial, sd, dict(p, epochs=max(5, int(p.get("sched") or 5))),
+                         f"[R{round_idx}] ★★ 近失复现 {g['key'].split('|')[0][:36]} seed{k+1}"
+                         f"（该格最佳臂过 {best[0]}/6 项，亏损 {best[1]:.4f}）"))
+
+    # ① 种子扫描（🟢 2026-11-12 12:40：提到 SEED_SCAN_TARGET=12，近失率是突变的 3 倍）
+    for i in range(max(n_seed, SEED_SCAN_TARGET)):
         trial = next_trial[0]
         next_trial[0] += 1
         p = dict(base_params, epochs=5)
         arms.append((trial, seed0 + i, p,
-                     f"[R{round_idx}] ★ 种子扫描 {i+1}/{n_seed}（冠军配方复现：sw={base_params.get('sw')}）"))
+                     f"[R{round_idx}] ★ 种子扫描 {i+1}/{max(n_seed, SEED_SCAN_TARGET)}（冠军配方复现：sw={base_params.get('sw')}）"))
 
-    # ② 突变格
-    for name, patch, why in next_mutations(led, base_params, n_mut):
+    # ② 突变格（🟢 2026-11-12 12:40：封顶 MUT_CAP ⇒ 主力算力让给种子/近失格）
+    for name, patch, why in next_mutations(led, base_params, min(n_mut, MUT_CAP)):
         trial = next_trial[0]
         next_trial[0] += 1
         p = dict(base_params)
@@ -866,6 +1047,15 @@ def build_posttrain_swa(led: dict, train_trials: list, next_trial: list,
         tr = st.get("nanobench") or {}
         vals = [v for v in tr.values() if "nano" in v]
         if not vals:
+            continue
+        # 🟢 2026-11-12 13:10：**只 SWA「swl 安全」的源臂**
+        #   实测（全台账 36 个 SWA 臂）：swl<1.0 源臂的 SWA 产物**官方三轨全塌**
+        #   （12131 源：nano 0.7552 但 T1 0.8647 / T3 0.8916 ⇒ 绝无升轨可能），
+        #   而 swl>=1.0 源臂的 SWA 至少官方线都在（12327：只差 F1 0.000242 / T3 0.001173）。
+        #   ⇒ swl<1.0 的源臂直接跳过，别浪费评测算力（每臂 ~1.3 min）。
+        _swl = float(((st.get("params") or {}).get("swl") if
+                      (st.get("params") or {}).get("swl") is not None else 1.0) or 1.0)
+        if _swl < 1.0 - 1e-9:
             continue
         best = max(vals, key=lambda v: v["nano"])
         cands.append((best["nano"], t, best.get("epoch")))
@@ -1065,6 +1255,23 @@ def run_round(round_idx: int, deadline_ts: float, gpus: list, next_trial: list,
     except Exception as e:  # noqa: BLE001
         log(f"[re-pick] 失败（不影响本轮其余流程）：{e}")
 
+    # 🟢 2026-11-12 12:55：台账 `official` 字段修复（以磁盘 gate_report 为准）
+    #   实测：9 个臂的 official 是 {'stale': 'epoch_changed X->Y'} ⇒ t1/t2_fp/t3 全空
+    #   ⇒ ① 六项漏斗里它们既不算过也不算不过；② near_miss_cells 里 `official.t1 is None`
+    #     的臂会被**直接跳过** ⇒ 最接近基线的臂（12053：NanoBench 三项全过 + T2/T3 过，
+    #     只差 T1 0.000984）的配方格被排除在近失复现队列之外（白丢最强候选）。
+    #   ⇒ 每轮开头先按磁盘上的权威 gate_report 回填（只修 picked epoch，不跨 epoch 混填）。
+    try:
+        from manu.pipeline.npu.repair_official_records import repair_ledger  # noqa: PLC0415
+        _fixed = repair_ledger(led)
+        if _fixed:
+            ns.save_ledger(led)
+            log(f"[R{round_idx}] 台账 official 回填 {len(_fixed)} 个臂："
+                f"{[(f['trial'], f['epoch']) for f in _fixed]}")
+            base = base_ref(led)
+    except Exception as e:  # noqa: BLE001
+        log(f"[repair-official] 失败（不影响本轮其余流程）：{e}")
+
     champ = pick_champion_recipe(led, base)
     cg = champ.get("group") or {}
     bg = champ.get("base_group") or {}
@@ -1241,10 +1448,17 @@ def selftest() -> None:
     _pend = ((led.get("search_state") or {}).get("replication_pending") or [])[:4]
     _gs = recipe_stats(led)
     # ⚠️ 2026-11-12 09:25：T2 死区配方**不再复现** ⇒ 期望臂数要扣掉它们
-    _expect = (2 * sum(1 for rk in _pend
-                       if _gs.get(rk) and not recipe_t2_dead(led, _gs[rk], base))
-               + 2 + 3
-               + 2 * len(priority_cells(led, clean_recipe(champ["params"]))))
+    # 🟢 2026-11-12 12:55：期望臂数 = 待复现×2 + 种子扫描(≥SEED_SCAN_TARGET)
+    #   + 突变(min(n_mut, MUT_CAP)) + 优先格×2 + **近失格×2**
+    _pc = priority_cells(led, clean_recipe(champ["params"]))
+    _pend_ok = [rk for rk in _pend if _gs.get(rk) and not recipe_t2_dead(led, _gs[rk], base)]
+    _nm = near_miss_cells(led, base,
+                          exclude_keys={recipe_key(pp) for _n, pp, _w in _pc} | set(_pend_ok))
+    _expect = (2 * len(_pend_ok)
+               + max(2, SEED_SCAN_TARGET)
+               + min(3, MUT_CAP)
+               + 2 * len(_pc)
+               + NEAR_MISS_SEEDS * len(_nm))
     assert len(arms) == _expect, f"训练臂数不对：{len(arms)} != {_expect}"
     for t, s, p, d in arms:
         assert p["init"] == BASE_INIT, f"臂 {t} 的 init 不是 base init"
@@ -1392,8 +1606,8 @@ def main() -> None:
     for r in range(args.start_round, args.start_round + args.rounds):
         # 剩余时间不够跑一整轮 ⇒ 按剩余时间缩小臂数，而不是硬开一轮把时间花光
         remain_min = (deadline_ts - time.time()) / 60.0
-        n_seed, n_mut = args.n_seed, args.n_mut
-        est = plan_minutes(n_seed + n_mut + PRIORITY_ARMS_EST)
+        n_seed, n_mut = max(args.n_seed, SEED_SCAN_TARGET), min(args.n_mut, MUT_CAP)
+        est = plan_minutes(n_seed + n_mut + PRIORITY_ARMS_EST + NEAR_MISS_CELLS * NEAR_MISS_SEEDS)
         if remain_min < est + 10:
             n_seed, n_mut = shrink_plan(remain_min, n_seed, n_mut)
             log(f"[R{r}] 剩余 {remain_min:.0f} min ⇒ 缩臂到 {n_seed} 种子 + {n_mut} 突变")

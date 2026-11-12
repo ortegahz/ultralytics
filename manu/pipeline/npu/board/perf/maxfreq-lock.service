@@ -1,0 +1,13 @@
+[Unit]
+Description=Lock CPU/GPU/NPU/DMC to maximum frequency on the RK3588S CM5
+After=cpufrequtils.service loadcpufreq.service systemd-modules-load.service
+Before=multi-user.target
+ConditionPathExists=/usr/local/bin/maxfreq-lock.sh
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/maxfreq-lock.sh
+
+[Install]
+WantedBy=multi-user.target

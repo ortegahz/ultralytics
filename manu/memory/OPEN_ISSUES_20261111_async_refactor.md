@@ -9,6 +9,8 @@
 > - 专题档：`MOSAIC_RK3588_20261026.md` §三十二.13（库 API + 4 个 Fix）、§三十二.14（本轮全量验收 + ΔF1 定性 + 门禁修复 + 锁频实测）
 > - 速览：`memory_compact.md`（§三十二.13 / §三十二.14 两条指针）
 > - 交付包：`/run/media/manu/SSD960-LOCAL/nfs/mosaic_sdk/`（72 文件，MANIFEST 64 条 md5 自洽）
+> - 🆕 **2026-11-12 11:10~11:50 补充（板卡频率锁 max）**：**L4 / L5 两条遗留已实测闭合** ⇒
+>   专题档 `MOSAIC_RK3588_20261026.md` **§三十二.17**、主档 `memory.md` **§151**
 > - 🆕 **2026-11-12 补充（当日收口）**：**L1 判据裁定提案已出** ⇒ `manu/memory/L1_criterion_proposal_20261112.md`
 >   （含本轮新量化的「位级差异到底有多大」：旧板 golden vs 新板产物，**94.17% 的帧坐标差 ≤0.1 px**、
 >   p99 = 0.31 px、检出数变化帧仅 **66/11808 = 0.56%**、宏观 ΔF1 = −0.000103
@@ -25,15 +27,16 @@
 
 **代码侧全部闭合**（4 个 Fix + `push_frame` API + 5 道门禁 + 199 条契约测试 + 逐位对齐铁证）；
 **L2 / L3 两条遗留实验已于 2026-11-12 实测闭合**；
-**剩下 4 个未闭合问题（L1 待拍板 / L4 / L5 / L6）全部是「验收口径 / 硬件 / 厂商」层面，不是代码缺陷**。
+**剩下 2 个未闭合问题：L1（待拍板，验收口径）与 L6（需厂商升 RGA 内核驱动）** —— 两者都不是代码缺陷；
+**L4 / L5 已于 2026-11-12 11:10~11:50 实测闭合**（NPU 实测能到 1000 MHz；六域锁 max + 抬 passive trip point + 开机持久化已落地，14 min soak 全程 `cur=max`、cooling 零介入、峰值 82.23 °C）⇒ 见下方 L4 / L5 两节与专题档 §三十二.17 / 主档 §151。
 
 | # | 遗留问题 | 性质 | 阻塞交付？ | 闭合成本 |
 |:--|:--|:--|:--|:--|
 | L1 | 「ΔF1 = +0.000000 + md5 全量匹配」判据在换板后不可达 | **验收口径** | ⚠️ **提案已出，待拍板** | 裁定即可（0 天） |
 | L2 | 新板 golden 参照生成 | 环境 | ✅ **已完成 / PASS** | **已闭合**（52 min / 3.781 fps，官方校验器 5 项全过） |
 | L3 | `--inflight 1` 的 100% 覆盖率方案 | 调参 | ✅ **已实测** | **已闭合**（3000/3000，零跳过零溢出） |
-| L4 | NPU 800 MHz 天花板在 DT 的 PVTM 电压档位，用户态锁不动 | **硬件/厂商** | 否 | 需改 DT 或厂商解锁 |
-| L5 | 新板散热与锁频策略未定（84~86 °C，越过 75/85 °C 两级 passive） | **硬件** | 否 | 需嵌入式组 + 散热方案 |
+| L4 | NPU 800 MHz 天花板在 DT 的 PVTM 电压档位，用户态锁不动 | **硬件/厂商** | 否 | ✅ **已实测推翻并闭合**（2026-11-12）：NPU 实测 `cur_freq=1000000000`（驱动侧 `/sys/kernel/debug/rknpu/freq` 同读数）、写 `max_freq=1000000000` 成功且读回不再回落 800 MHz ⇒ **PVTM 钳位当前未生效，无需改 DT / 无需厂商解锁** |
+| L5 | 新板散热与锁频策略未定（84~86 °C，越过 75/85 °C 两级 passive） | **硬件** | 否 | ✅ **本轮定案并落地**（2026-11-12）：六域锁 max + passive 抬 90/100 °C（critical 115 保留）+ systemd/rc.local 持久化；14 min soak 峰值 **82.23 °C**、cooling 全程 0 介入、吞吐 **+12.1 %** ⇒ 仅需在封闭机箱复评阈值 |
 | L6 | 🔴🔴 板卡 RGA 驱动偶发内核 oops —— 会让交付门禁无限期挂死 | **硬件/厂商** | ⚠️ **用户态已防御** | 需**升级 RGA 内核驱动**（v1.3.0 → v1.3.1+）/ 报镜像维护方 |
 
 ---
@@ -246,28 +249,52 @@ python3 _artifacts/ultralytics/accuracy_20261111/regress/cmp_golden3way.py \
 
 ---
 
-## L4. NPU 800 MHz 天花板在 DT 的 PVTM，用户态锁不动
+## L4. NPU 800 MHz 天花板在 DT 的 PVTM，用户态锁不动 ✅ **已实测推翻，闭合**（2026-11-12 11:10~11:50）
 
-- 现象：`available_frequencies` 列到 1000 MHz，但写 `max_freq=1000000000` 读回 **800000000**；
-  `target_freq` 写 **Permission denied**；`governor=performance` 生效但频率仍被锁在 800 MHz。
-- 根因：DT `npu-opp-table` 的 **`rockchip,high-temp-max-freq`** / **`rockchip,pvtm-freq`**
-  （PVTM 电压频率管理）—— NPU 满频受**电压档位**约束，不是 devfreq 层能绕的。
-- 结论：**这不是用户态脚本能解的**。要 NPU 跑 1000 MHz，需改 DT 或由厂商解锁 PVTM。
-- 影响：推理吞吐上限受此约束；本轮 F1 结论不受影响（精度与频率无关）。
+- 原结论（本轮之前记的）：`available_frequencies` 列到 1000 MHz，但写 `max_freq=1000000000` 读回 **800000000**；
+  `target_freq` 写 **Permission denied**；`governor=performance` 生效但频率仍被锁在 800 MHz；
+  归因 DT `npu-opp-table` 的 **`rockchip,high-temp-max-freq`** / **`rockchip,pvtm-freq`**（PVTM 电压频率管理）。
+- 🔴 **2026-11-12 实测推翻**（板卡 `192.168.0.211`）：`fdab0000.npu` 读数 ——
+  `max_freq=1000000000`、**`cur_freq=1000000000`**、`target_freq=1000000000`、`governor=performance`；
+  驱动侧独立读数 `/sys/kernel/debug/rknpu/freq = 1000000000`；
+  **写 `max_freq=1000000000` 成功、读回仍是 1000000000（不再回落 800000000）**；
+  且**改设置之前**的基线采样里 NPU 就已经是 1000 MHz（`trans_stat` 93 min **零转换**）⇒ 本轮之前它就没被锁在 800 MHz。
+- `target_freq` 仍然 **Permission denied**（与原记录一致），但它**不是频率上限**，只是不能直接写 ⇒ 不构成阻碍。
+- ⇒ **PVTM 钳位在本板当前状态下未生效**；L4 原归因的前提（写 `max_freq` 被读回 800000000）**当前不可复现**。
+  **闭合方式：不需要改 DT，也不需要厂商解锁。**
+- ⚠️ 保留一条 caveat：**PVTM 是按电压/温度动态的**，换板卡版本 / 改 DT / 换电源档位都可能让钳位重新出现。
+  ⇒ 已把频率锁做成**开机自动执行**（systemd `maxfreq-lock.service` + `rc.local`），钳位一旦复发会被立刻重新拉回 max；
+  并已把「六域 `cur == max`」做成可复跑的采样脚本（`/tmp/freqmon.sh`），复现命令见专题档 §三十二.17。
 
 ---
 
-## L5. 新板散热与锁频策略未定
+## L5. 新板散热与锁频策略未定 ✅ **本轮定案并落地**（2026-11-12 11:10~11:50）
 
-- 实测（满载时）：`soc-thermal` **84~86 °C**；越过 `trip_point_0 = 75000 (passive)`、
-  逼近 `trip_point_1 = 85000 (passive)`；`trip_point_2 = **115000 (critical)**`。
-  ⚠️ **用户先前担心的「95~100 °C 触发硬件急停」在本板不存在**，余量多 30 °C。
-- 板卡自带风扇实测已在 **PWM = 255（满档）**，无 PWM 可调空间。
-- **温控特权高于用户态**：写 `scaling_max_freq` / devfreq `max_freq` **不报错但被立刻改回**
-  （`thermal_zone0 (soc-thermal)` 单区驱动全部 4 个 cooling device，governor = `power_allocator`）。
-- 本轮已**完整还原基线**（所有 governor 回 `ondemand` 系、cooling device 交回 thermal 自主管理，
-  板温 85.9 → 80.4 °C）。
-- 待定：是否需要外接风扇 / 是否接受常态 84~86 °C / 是否改 passive 阈值（**改阈值有急停风险，需厂商口径**）。
+- 原记录（本轮之前）：满载 `soc-thermal` **84~86 °C**；越过 `trip_point_0 = 75000 (passive)`、逼近 `trip_point_1 = 85000 (passive)`；
+  `trip_point_2 = **115000 (critical)**`；风扇实测已在 **PWM = 255（满档）**，「**无 PWM 可调空间**」；
+  「**温控特权高于用户态**」⇒ 写 `scaling_max_freq` / devfreq `max_freq` **不报错但被立刻改回**；
+  待定：是否外接风扇 / 是否接受常态 84~86 °C / 是否改 passive 阈值（**改阈值有急停风险，需厂商口径**）。
+- 🔴 **本轮落地（三件事一起做，缺一不可）**：
+  1. **六个频域锁 max**：CPU×3（1800 / 2400 / 2400 MHz）+ GPU（1000 MHz）+ NPU（1000 MHz）+ DMC（2112 MHz）——
+     `governor=performance` 且 **`min_freq` 与 `max_freq` 一起钉**（只钉 `max` 不够：`max` 被改写时 `min` 会变成新的天花板）；
+  2. **抬 passive trip point**：`thermal_zone0` passive **75000 → 90000**、**85000 → 100000**；**critical 115000 原样保留**（内核急停兜底不动）；
+  3. **持久化**：`/usr/local/bin/maxfreq-lock.sh`（幂等）+ systemd `maxfreq-lock.service`
+     （`After=cpufrequtils.service loadcpufreq.service`、`Before=multi-user.target` —— **必须排在 `cpufrequtils` 之后**，
+     否则开机又被设回 `ondemand`）+ `/etc/rc.local` 兜底（`rc-local.service` 已 `enabled-runtime`，实测 RC=0）。
+- **实测（14 min soak：6 轮 e2e 连跑，11:23→11:38，全部 rc=0）**：`soc-thermal` 44 → **峰值 82.23 °C**、稳态 **76~78 °C**（风扇 PWM=255 满速）；
+  **cur ≠ max 的采样数 = 0 / 155**；**4 个 cooling device 全程 `cur_state=0`** ⇒ 温控**一次都没介入**；
+  距 90 °C 钳位点余 **7.8 °C**、距 115 °C critical 余 **32.8 °C**。
+- 🔴 **对原记录的两处订正**：
+  1. 「风扇已在 PWM=255 满档、**无 PWM 可调空间**」**不准确** —— 风扇由内核 `pwm_fan` 驱动，曲线是**设备树属性**：
+     `pwm-fan/rockchip,temp-trips` = (50000,1)(55000,2)(60000,3)(65000,4)(70000,5)，
+     `cooling-levels` = 0 / 50 / 100 / 150 / 200 / **255** ⇒ **是 6 档温控曲线（≥70 °C 才满速）**，不是恒定 255；
+  2. **风扇曲线与 `thermal_zone0` 的 trip point 是两套独立机制**（`pwm-fan` **不读** trip point）
+     ⇒ **抬 passive 阈值不会让风扇失速** —— 这正是「抬阈值」这件事的安全前提（已逐字核对设备树）。
+- **代价与适用边界**：满频锁 max 后 SoC 稳态温度比 ondemand 高约 **40 °C**（36~59 → 44~82 °C），靠风扇满速吸收；
+  **封闭机箱 / 无风环境必须重新评估 90 °C 阈值**（必要时把 passive 1 调回 85000，或加装外部风道）。
+  ⇒ 这条留给嵌入式组：当前配置对**有风扇的开放环境**成立；换到密闭机箱需重测。
+- **验收**：e2e 吞吐 **3.666 → 4.109 fps（+12.1 %）**，端到端时延 mean **538.9 → 484.2 ms**，
+  且**输出 md5 与基线逐位相同** ⇒ 纯性能改动、零正确性影响。详见专题档 §三十二.17 / 主档 §151。
 
 ---
 

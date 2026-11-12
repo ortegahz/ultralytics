@@ -14,6 +14,6 @@ START_ROUND="${4:-1}"
 echo "[$(date "+%F %T")] === ADAPTIVE v3 START | deadline=${DEADLINE} ===" >> $W/adaptive.log
 $PY -u manu/pipeline/npu/adaptive_runner.py \
     --deadline "${DEADLINE}" --gpus 0,1,2,3 \
-    --n-seed "${2:-6}" --n-mut "${3:-18}" --swa-top-n 6 --start-round "${4:-1}" \
+    --n-seed "${2:-6}" --n-mut "${3:-18}" --swa-top-n 3 --start-round "${4:-1}" \
     >> $W/adaptive.log 2>&1
 echo "[$(date "+%F %T")] === ADAPTIVE v3 DONE ===" >> $W/adaptive.log

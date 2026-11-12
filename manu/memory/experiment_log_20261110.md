@@ -436,3 +436,24 @@
   README 新增「🔴 板卡 RGA 驱动会偶发内核 oops（新板特有，嵌入式组必读）」一节。
 - **新增遗留 L6**：RGA 驱动 oops —— 用户态已防御（pat import + 门禁超时），**根因需厂商侧升内核驱动**。
 - **新脚本**：`manu/pipeline/npu/tools/rga_pat_ab_test.cpp`（板卡侧 A/B 微基准）。
+
+## 2026-11-12 11:10~11:50 · 板卡频率锁 max：CPU/GPU/NPU/DMC 六个域 100 % 满频 + 温控钳位解除（L4/L5 闭合）
+- **现象**：用户贴出 `policy0 scaling_max=600000 / p4,p6 max=2016000 / p0 cur=1416000`（**cur > max**）⇒ 判断为异常；空载复查发现 **六个域里 5 个不在 max**（CPU 三档 408 MHz、GPU 300 MHz、DMC 528 MHz，只有 NPU 已在 1000 MHz）。
+- **排查链**：① 空载采样（2 s 粒度，10 点）⇒ 证实低频但 `scaling_max == cpuinfo_max`、cooling 全 0、SoC 35~37 °C ⇒ **空载低频是 governor 行为，不是温控**；
+  ② 负载采样（97 点）⇒ policy6 仅 **20.6 %** 时间在 2400 MHz、GPU **0 %** 在 1 GHz、DMC **15.5 %** 在 2112 MHz ⇒ 定位 ①**cpufreq governor** ②**devfreq governor**；
+  ③ 读 `thermal_zone0`：`passive 75/85/critical 115 °C`，单区驱动 4 个 cooling device（`thermal-cpufreq-0/1/2` + `thermal-devfreq-0`），governor `power_allocator`
+  ⇒ 定位 ③**thermal cooling device 改写 `max_freq`**（`600000`/`2016000` 恰是 A55/A76 OPP 相邻档 ⇒ 与 cooling 降频步长吻合；`cur>max` 是两次 `cat` 之间的采样撕裂）；
+  ④ 读设备树 `pwm-fan/rockchip,temp-trips` + `cooling-levels` ⇒ 确认**风扇曲线与 trip point 独立**（70 °C 即 PWM=255），抬 trip point 不会让风扇失速。
+- **结论**：三个执行者全部中和。**只锁 `max_freq` 不够** —— cooling device 会把它改回去，**必须同时抬 passive trip point**；且 **`min_freq` 也必须钉到 max**（`max` 被改写时 `min` 成为新天花板）。
+- **修复**：`/usr/local/bin/maxfreq-lock.sh`（幂等）→ CPU 三档 `performance`+`min=max=cpuinfo_max`；GPU/NPU/DMC `performance`+`min=max`（1000/1000/2112 MHz）；
+  `thermal_zone0` passive 75000→90000、85000→100000，critical 115000 保留。持久化：systemd `maxfreq-lock.service`（`After=cpufrequtils.service loadcpufreq.service`、`Before=multi-user.target`）+ `/etc/rc.local` 兜底（实测 RC=0）。
+- **实测**：同一 e2e 二进制 `--limit 600` before/after ⇒ 吞吐 **3.666 → 4.109 fps（+12.1 %）**、`run` 段 138.873 → 102.202 ms/帧（−26.4 %）、端到端时延 mean/p50/p95 538.9/445.2/1070.1 → 484.2/395.8/1011.0 ms；
+  CPU p0/p4/p6 在 max 占比 79.4/49.5/20.6 % → **100/100/100 %**，GPU/NPU/DMC 0/100/15.5 % → **100/100/100 %**；**输出 md5 逐位相同**（feature_md5 `80dc6d0e…`、TSV `090f253b…`）⇒ 纯性能改动、零正确性影响。
+- **长时 soak**：6 轮 e2e 连跑 ≈ 14 min（11:23→11:38，全 rc=0）⇒ **cur≠max 采样数 = 0 / 155**，cooling 全程 0，SoC 峰值 **82.23 °C**（风扇 255 满速），距 90 °C 钳位点 7.8 °C、距 115 °C critical 32.8 °C。
+  ⚠️ **代价**：满频后稳态温度比 ondemand 高约 **40 °C**（36~59 → 44~82 °C）；封闭机箱/无风环境需重评 90 °C 阈值。
+- **口径修正**：A/B 用的 `--limit 300`（前段帧更便宜）实测 fps **6.90**，**不可与 `--limit 600` 的 4.109 fps 混用比较**；before/after 一律同参数同二进制。
+- **「power 模式」澄清（用户提问）**：板卡上三个同名不同物 —— `powersave` **governor** 的语义是**钉死 `min_freq`**（单独用 = 全线最慢，对固定供电板卡有害）；
+  `thermal_zone*/policy=power_allocator` 是**温控 governor**；GPU 平台节点 `power_policy` 是**只读状态输出**（`[coarse_demand] always_on`，写 8 个值全被拒）。
+  实测机制表：`performance`+min=max ⇒ max；`powersave`+min=max ⇒ **也是 max（等效）**；`powersave`+min=408000 ⇒ 钉 408000；`ondemand`+min=408000 ⇒ 随负载爬升
+  ⇒ **决定频率的是 `min_freq`/`max_freq` 两个数，不是 governor 名字**；当前配置下误改成 `powersave` 也掉不下来（e2e fps 6.897 vs 6.910，差异在噪声内）⇒ 额外保险。
+- **未做**：未改任何业务代码、未动板卡上的其它任务、未 reboot（板卡共享 ⇒ 只验证 `systemctl start rc-local.service` 与 unit 手工 start 均 RC=0，开机链路靠 `After=` 排序保证）。

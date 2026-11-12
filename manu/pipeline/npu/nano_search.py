@@ -454,6 +454,12 @@ def phase_train(arms: list, stop_ts: float, gpus: list | None = None) -> None:
 # ②③ 缓存 + NanoBench
 # ============================================================================
 WORKERS = [4]
+# 🟢 2026-11-12 11:25：**NanoBench 评测阶段**并发 4 → 8（官方三轨门禁仍留 4，那三个 track 单作业内存未实测）
+#   实测（R7 评测阶段实采 11:21）：4 个 `cache_trial0474_inferences.py` 并发时整机 **38 GB used / 82 GB available**
+#   ⇒ 单个评测作业 ≈ 7 GB ⇒ 8 并发 ≈ 56 GB + 系统 10 GB = 66 GB（125 GB 机器，余 59 GB）⇒ 安全
+#   收益：该阶段 24 臂 4 并发 ≈ 10 min ⇒ 8 并发 ≈ 5 min（每轮省 ~5 min ≈ +10% 有效臂/小时）
+#   回退：NANO_BENCH_WORKERS=4
+NANO_BENCH_WORKERS = [int(os.environ.get("NANO_BENCH_WORKERS", "8"))]
 # 🟢 2026-11-12 10:30：**训练阶段**并发臂数 4 → 8（2 臂/卡），只用满整夜算力
 #   实测（4 卡 / 80 核 / 125 GB）：
 #     单臂真实物理占用(PSS) ≈ 11.0 GB ｜ 单臂 CPU ≈ 4.1 核 ｜ 单臂 GPU ≈ 45% util / 4.6 GB 显存
@@ -515,7 +521,7 @@ def phase_nanobench(arms: list, epochs: list[int], gpu_of: dict) -> None:
             save_ledger(led)
         save_ledger(led)
 
-    with ThreadPoolExecutor(max_workers=WORKERS[0]) as ex:
+    with ThreadPoolExecutor(max_workers=NANO_BENCH_WORKERS[0]) as ex:
         list(ex.map(one, arms))
 
 
@@ -595,7 +601,16 @@ def run_official_gate(trial: int, epoch: int, gpu: int) -> dict:
         try:
             _rep = json.load(open(rp))
             _t1s = (_rep.get("tracks", {}) or {}).get("track1_uav", {}) or {}
-            reuse = _t1s.get("status") != "ab_failed" and "f1" in _t1s
+            # 🔴 2026-11-12 12:55 修：**报告格式变了**（T1 的 f1 现在在 `finetune_peak.f1`，
+            #   顶层没有 "f1"）⇒ 老的复用判据 `"f1" in _t1s` **恒为 False**
+            #   ⇒ 已存在的门禁报告**永远不会被复用** ⇒ 每跑一次门禁就整轮重算（约 7 min GPU）
+            #   ⇒ 轮次重跑（守护热升级）时把已算过的门禁全部重算一遍，纯浪费算力。
+            #   ⇒ 新判据：T1 有 finetune_peak.f1（或顶层 f1）**且** T3 有 f1 **且** 状态不是 ab_failed。
+            _t1f1 = _t1s.get("finetune_peak") or {}
+            _t3s = (_rep.get("tracks", {}) or {}).get("track3_blind", {}) or {}
+            reuse = (_t1s.get("status") != "ab_failed"
+                     and ("f1" in _t1s or _t1f1.get("f1") is not None)
+                     and _t3s.get("f1") is not None)
         except Exception:
             reuse = False
     if reuse:

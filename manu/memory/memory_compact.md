@@ -2573,3 +2573,151 @@ F1 94.07% → 91.98%。⇒ **0.44 档看最终结论，0.20 档看全量候选**
   （同一 e2e 二进制挂新旧两库跑 300 帧，`feature_md5.txt`/mosaic TSV md5 全等）；② `copy_to_nfs.sh` 板卡测试加**硬超时**（600 s）⇒ 不再挂死交付。
   库 md5 `03e1e301…` → **`b39c2cf7…`**（5 个测试程序不变）；**5/5 板卡门禁全过（EXIT=0，跑两轮）**。
   仍未闭合：**L1**（待拍板）/**L4**（PVTM 锁频）/**L5**（散热）/**L6**（RGA oops，需厂商侧升内核驱动）。
+- 🟢 **§149.12（11-12 11:25）NanoBench 评测阶段并发 4 → 8**（官方三轨门禁**仍留 4**，那条的单作业内存未实测，不拿整夜算力赌）
+  实测（R7 评测阶段 11:21）：4 × `cache_trial0474_inferences.py` 并发 ⇒ 整机 38 GB used / 82 GB available ⇒ **单作业 ≈ 7 GB**；
+  NanoBench 阶段 24 臂 @4 并发 ≈ 10 min ⇒ @8 并发 ≈ 5 min（每轮省 ~5 min ≈ +10% 有效臂/小时）。
+  改 `nano_search.py`：新增 `NANO_BENCH_WORKERS=[env 或 8]`，`phase_nanobench` 用它；回退 `NANO_BENCH_WORKERS=4`。
+  **三个并发口径**：训练 `TRAIN_WORKERS=8` ｜ NanoBench 评测 `NANO_BENCH_WORKERS=8` ｜ 官方三轨门禁 `WORKERS=4`。
+  全部在 **R7 轮末守护热升级**同时生效（watchdog CUR md5 `be008a48…` ≠ state `d760c06e…`）。
+
+### 151 ⭐⭐⭐ 板卡**频率锁 max**：CPU/GPU/NPU/DMC 六个域 100 % 满频 + 温控钳位解除（2026-11-12 11:10~11:50）
+
+- **板卡**：`192.168.0.211`（Orange Pi CM5 / Debian 12 / 内核 `5.10.160-rockchip-rk3588`）⇒ **§140.5 的 L4（NPU PVTM 锁频）与 L5（散热与锁频策略）本轮实测闭合**。
+- **三个「降频执行者」（全部实测，非推断）**：① **cpufreq governor** —— policy0/4/6 全是 `ondemand` ⇒ 满载时 policy6 只有 **20.6 %** 采样在 2400 MHz、policy4 49.5 %、policy0 79.4 %；
+  ② **devfreq governor** —— GPU `simple_ondemand` ⇒ **0 %** 采样在 1 GHz（常年 300 MHz）；DMC `dmc_ondemand` ⇒ **68 %** 采样停在 528 MHz（DDR 带宽直接拖 NPU）；
+  ③ **thermal cooling device** —— 过温时内核**改写** `scaling_max_freq` / devfreq `max_freq` ⇒ 用户最初贴的 `max=600000 / 2016000` 就是它（`cur=1416000 > max=600000` 是钳位瞬间的采样撕裂）。
+- **归因证据**：`thermal_zone0 (soc-thermal)` **单区驱动全部 4 个 cooling device**（`thermal-cpufreq-0/1/2` max_state 7/13/13 绑 policy0/4/6 + `thermal-devfreq-0` max_state 7）；温控 governor = `power_allocator`；原 trip = passive 75 / passive 85 / critical 115 °C。
+- **空载基线（用户最初的问题）**：六个域里 **5 个不在 max** —— CPU 三档 408/1800、408/2400、408/2400 MHz，GPU 300/1000 MHz，DMC 528/2112 MHz；只有 NPU 已在 1000 MHz（`trans_stat` 93 min 零转换）。当时 cooling device 全 0、SoC 35~37 °C ⇒ 空载低频是 governor 行为，**不是**温控钳位。
+- **落地的设置（幂等）**：CPU 三档 `performance` + `min=max=cpuinfo_max`（1800/2400/2400 MHz）；GPU/NPU/DMC `performance` + `min=max`（1000 MHz / 1000 MHz / 2112 MHz）；
+  `thermal_zone0` passive **75000→90000 / 85000→100000**，critical **115000 原样保留**。
+  🔴 **关键点：`min_freq` 也必须钉到 max，不能只钉 `max_freq`** —— `max_freq` 被 thermal cooling 改写时，`min_freq` 会成为新的天花板 ⇒ 两者一起钉才锁得住。
+- **负载实测 before/after**（同一 e2e 二进制，`--limit 600`，600 喂入 / 598 产出）：吞吐 **3.666 → 4.109 fps（+12.1 %）**；端到端帧时 272.774 → 243.343 ms；
+  `run` 段 **138.873 → 102.202 ms/帧（−26.4 %）**；`gmc_fit` 229.560 → 217.760 ms/帧；端到端时延 mean/p50/p95/p99 **538.9/445.2/1070.1/1165.6 → 484.2/395.8/1011.0/1108.2 ms**；
+  CPU p0/p4/p6 在 max 占比 **79.4 %/49.5 %/20.6 % → 100 %/100 %/100 %**；GPU/NPU/DMC **0 %/100 %/15.5 % → 100 %/100 %/100 %**；cooling 全程 0 介入；
+  **输出 md5 逐位相同**（feature_md5 `80dc6d0e…`、mosaic TSV `090f253b…`）⇒ **纯性能改动，零正确性影响**。
+- **持久化**：`/usr/local/bin/maxfreq-lock.sh`（幂等）+ systemd `maxfreq-lock.service`（`After=cpufrequtils.service loadcpufreq.service`、`Before=multi-user.target` —— **必须排在 `cpufrequtils` 之后**，否则开机又被设回 `ondemand`）+ `/etc/rc.local` 兜底（`rc-local.service` 已 `enabled-runtime`，实测 RC=0）。
+- **温控安全边界（抬 trip point 不会让风扇失速）**：风扇曲线是**独立的设备树属性** —— `pwm-fan/rockchip,temp-trips` = (50000,1)(55000,2)(60000,3)(65000,4)(70000,5) + `cooling-levels` 0/50/100/150/200/**255**
+  ⇒ **70 °C 起 PWM=255 满速**，由内核 `pwm_fan` 驱动，**不读** `thermal_zone0` 的 trip point ⇒ 抬阈值对风扇零影响；比钳位点早 20 °C，裕度充分；critical 115 °C 保留。
+- **长时热稳态 soak**（6 轮 e2e 连跑 ≈ 14 min，11:23→11:38，全部 rc=0）：**cur ≠ max 的采样数 = 0 / 155**；cooling 全程 0；SoC 44 → **峰值 82.23 °C**（风扇满速），稳态 76~78 °C，距 90 °C 钳位点余 7.8 °C、距 115 °C critical 余 32.8 °C。
+  ⚠️ **代价**：满频后 SoC 稳态温度比 ondemand 高约 **40 °C**（36~59 → 44~82 °C）；封闭机箱/无风环境需重评 90 °C 阈值。
+- **「power 模式」到底有没有用（实测澄清三个同名不同物）**：① `powersave` **governor** 的语义是**把频率钉死在 `min_freq`**（不是「智能省电」）⇒ 单独用会把 CPU/GPU/NPU/DMC 钉到 408 MHz/300 MHz/300 MHz/528 MHz ⇒ **对固定供电板卡有害**；
+  实测机制表：governor=`performance`+min=max ⇒ max；`powersave`+min=max ⇒ **也是 max**（等效）；`powersave`+min=408000 ⇒ **钉 408000（最慢）**；`ondemand`+min=408000 ⇒ 随负载爬升。
+  ⇒ **真正决定频率的是 `min_freq`/`max_freq` 两个数，不是 governor 名字**；本轮 min 也钉到 max 后，`powersave` 与 `performance` 实测等效（e2e fps 6.897 vs 6.910，温度 78.5 vs 79.5 °C，差异在噪声内）⇒ **误改成 `powersave` 也掉不下来**（额外保险），但语义上仍保留 `performance`。
+  ② `thermal_zone0/5/6` 的 `policy=power_allocator` 是**温控 governor**，与频率锁正交；③ GPU 平台节点 `/sys/devices/platform/fb000000.gpu/power_policy` 是**只读状态输出**（`[coarse_demand] always_on`），写 8 个值全被驱动拒绝 ⇒ **不是可设模式**。
+- **口径提醒**：本轮 A/B 用的 `--limit 300`（前段帧更便宜）实测 fps 6.90，**不可与 §150 的 4.109 fps（`--limit 600`）混用比较**；before/after 对比一律同参数。
+- ✅ **§149.13（11-12 12:10）R7→R8 热升级实测通过**：守护日志 `12:05:22 重启调度器：代码已更新（d760c06e→be008a48），在轮次边界生效 ⇒ --start-round 8`，
+  新调度器 PID 1230676，R8 优先格臂同秒开跑（thr12ms3/sched6/sched7…）。
+  **8 臂并发实采：GPU util 45% → 87/90/91/91%，显存 4599→9169 MiB/卡，同时在训 8 臂。**
+  ⚠️ **「×1.8~2.0 有效算力」已作废**（见 §149.15）：GPU 早在 4 臂时已饱和，8 臂只是把同一份算力切给更多臂。
+  ⚠️ 内存余量偏薄（98 GB used / 17 GB available / swap 4.1 GB；另有他用户 clion 占 ~10 GB）⇒ 盯 swap：
+  >15 GB 则回退 `NANO_TRAIN_WORKERS=6`，否则保持 8 臂（不为边际收益打断整夜算力）。
+- ✅ **§149.14（11-12 12:27）8 臂并发稳定性通过 + 报告脚本端到端跑通**
+  swap 在 **4.8 GB 走平**（提档前 2.7 GB）、avail 稳定 19 GB、GPU util 85~95% ⇒ **不需回退 6 臂**；
+  紧张点唯一来源是**他用户 `clion` 占 ~10 GB**（不可控）。
+  R8 实际队列 **34 臂**（24 + 10 优先格）⇒ 夜产能 +42%。
+  `run_morning_report.sh` 演练 `exit=0`，十节齐全（进程/轮次/**热升级证据**/log 尾/夜汇总/升轨候选/板卡恢复/资源曲线/md5）。
+  **「只差一档」三形态**：12333（T2FP 超 2 + T3 差 0.0017）/ 12335（官方三轨全过但 nano 差 0.00047、nano4 差 0.0102）/ 12346（nano4+T3 差）
+  ⇒ 互补方向：① `thr12ms3`+`sched6/7` 补官方 ② `sw8.0`/`lrfloor0.10` 拉微小召回 —— 正是 R8 的 6 优先格 × 2 seed。
+  四个自主进程（PPID/SID 已核，关机不受影响）：守护 1143269 / 调度器 1230676（跑到 11-13 09:00）/ 采样 1237471 / 报告 1238356。
+- 🔴 **§149.15（11-12 12:40）纠正「8 臂并发 = 有效算力 ×1.8~2.0」＋ 469 臂全量漏斗 ＋ R9 新分配**
+  - **纠正**：逐臂时间戳实测（`adaptive.log`）——4 臂时单臂训练 ≈14.8 min（R4~R7：14.3/15.4/14.4/15.1），
+    **8 臂时 ≈25.9 min（×1.75）** ⇒ GPU 早就打满 ⇒ **吞吐仅 ~16.2 → ~18.5 臂/h（×1.14，不是 ×1.8~2.0）**；
+    util 45%→90% 来自并发臂的训练/评测阶段重叠填空隙，**不代表算力变多** ⇒ 再加并发无边际收益。
+  - **469 臂漏斗**（工具 `manu/pipeline/npu/analyze_near_miss.py`）：**NanoBench 三项全过 = 6 臂**（9863/12053/12252/12263/12300/12333）；
+    **T1+T3 同时过 = 5 臂**（9863/9881/9911/9912/12335）；T2 虚警过线 = 70 臂；**六项全过仍只有 9863 一个**。
+    ⇒ 三项全过的 6 臂里 **T3 失败 66.7% > T1 50% > T2 16.7%** ⇒ **瓶颈是 T3、其次 T1，T2 已不是主要矛盾**。
+  - **种子扫描胜率 ≈ 突变 3 倍**：种子类臂（全库 48 / R7 单轮 6）达 ≥4/6 项 = 3 / **2（33%）**；
+    突变类（126 / 18）= 2 / **2（11%）**；六项全过两者皆 0 ⇒ **R9 突变预算 18→8、种子预算 6→12**。
+  - **mix 轴是今晚最强方向**：12346（mix w2.5，4/6，nano4+T3 差）/ 12347（mix w1.8，3/6，**T1 只差 0.000144**、nano 差 0.0033）/ 12333（种子，4/6，T2 超 2 + T3 差 0.0017）
+    ⇒ 混样比例是唯一同时动 nano 与官方 T1 的连续轴 ⇒ 优先格补 **`mixw1.9`**（w1.8 官方强 / w2.0 nano 强 的中间点）。
+  - **R9 新分配**（代码已改并同步，守护在 R8→R9 轮次边界自动热升级）：`SEED_SCAN_TARGET=12`、`MUT_CAP=8`、
+    新增**近失前沿自适应复现**（过 4/6 且亏损 ≤0.04；过 3/6 且亏损 ≤0.012；`NEAR_MISS_CELLS=4 × NEAR_MISS_SEEDS=2`；
+    用没试过的 seed seed0+700+len；自动排除基线组/优先格/已产出臂）
+    ⇒ **R9 = 12 优先格 + 6 近失（sw4.0 / mixw2.5 / mixw1.8）+ 12 种子 + 8 突变 = 38 臂**，≈194 min/轮，`--selftest` PASS。
+  - **修 bug**：合成臂（SWA）的 `swl` 标签原硬编码 `1.0` ⇒ SWA 产物被误标成「不降大目标权重」 ⇒ 改为跟随冠军臂的 swl。
+  - ⚠️ **板卡口径（11-12）**：板卡上有别的任务在跑 ⇒ **本日所有板端读数（时延/fps/温度）一律作废**；
+    `~/.ssh/id_board` 已改名 `id_board.disabled_20261112_nano_search`（板卡全程不碰，明早 `mv` 恢复）
+    ⇒ **ms 判据挂起**，用「同会话不慢于 0031 自身 ×1.02」相对判据，绝对 20 ms 待板卡空闲后重定标。
+  - **新工具**：`analyze_near_miss.py`（漏斗/近失/同配方队列 `--cohort`）、`sample_resources.sh`（5 min 资源曲线）、`run_morning_report.sh`（明早十节报告）。
+  - **明早交付**：调度器跑到 **11-13 09:00**，**09:10** 自动出 `$W/morning_report_20261113.txt`；
+    四个进程 PPID/SID 已核（守护 1143269 / 调度器 1230676 / 采样 1237471 / 报告 1238356）⇒ **host 关机零影响**；
+    判定基准恒为 **Baseline_v2.0 = trial_9863 六项全过**，第二个六项全过臂出现即升轨。
+  - 🔍 **§149.15 附：R9 计划「只读模拟」实测**（服务器直接调 `build_train_arms(..., round=9, n_seed=12, n_mut=8)`）：
+    **搜索中心 = 基线配方**（`sw5.0|swl1.0|mix w2.0`）**未滑进 swl 死区**；总臂数 **38**（12 优先 + 6 近失 + 12 种子 + 8 突变）；**seed 无重复**；
+    优先格 6 = `thr12ms3`/`lrf0.10_thr12ms3`/`sched6_lrf0.10`/`sched7_lrf0.10`/`sw8.0_lrf0.10`/**`mixw1.9`**；
+    近失格 3 = `sw4.0(mix w2.0)`(9913, 4/6, 亏 0.0189) / **`mix w2.5`**(12346, 4/6, 亏 0.0336) / **`mix w1.8`**(12347, 3/6, 亏 0.0103) ⇒ **mix 轴两端进近失队列、中间点 w1.9 进优先格**。
+    ⚠️ **两个冠军函数别搞混**：`pick_champion()`（单臂最强）会给出 12287（swl=0.1、nano 0.7564 但官方 T1/T3 全塌）；
+    **搜索中心用 `pick_champion_recipe()`**（配方级 + swl≥1.0 硬闸门 + T2 安全闸门 + 最佳单臂≥严格线）⇒ 实测取到基线配方 ✔。
+- ⚠️ **§149.16（11-12 12:40）改了「正在跑的 bash 脚本」必须先杀后重**：
+  bash **按字节偏移增量读脚本** ⇒ 改文件会让运行中实例的偏移指错（可能执行乱码/提前退出）。
+  流程：① 改前 `pgrep -af <脚本名>` ② 有实例 ⇒ **先 `pkill -9 -f` 再用 `setsid nohup … < /dev/null &` 重起**
+  ③ 核 **PPID=1 且 PGID=SID=自己**（本轮新实例 1248692 已核）④ 改 `*.py` 无此问题（源码一次性读入）。
+  ⚠️ `pkill -f "xxx.sh"` 会**连带杀掉自己这条 ssh 命令**（命令行含同串）⇒ 用 `pgrep -f | xargs -r kill -9` 或 `pgrep -af | grep -v "bash -c"` 复核。
+  顺带：明早报告 ③ 已改为通用「各轮队列规模 + 近失复现/优先格 mixw1.9/种子扫描」证据（不再写死 `[R8]`），并新增 ⑥b 漏斗表（`analyze_near_miss.py`）。
+
+### 152 🔴🔴🔴 **过温降频的真根因是 PVTM 高温降额（PM QoS），不是 thermal cooling device** —— 更正 §151.2 ③；频率锁 v3 + 看门狗 + 重启持久化闭合（2026-11-12 11:55~13:45）
+
+- **板卡**：`192.168.0.211`（Orange Pi CM5 / Debian 12 / 内核 `5.10.160-rockchip-rk3588`）；本轮由**用户直接指令**授权重新使用板卡（§150 第七节「板端读数作废」的口径仅对**别的任务**成立）。
+- **🔴 更正 §151.2 ③**：§151 把「过温降频」归因到 thermal cooling device、并把「抬 passive trip point」当解法 ⇒ **归因错误**。
+  真凶是 **`drivers/soc/rockchip/rockchip_system_monitor.c`**（编进内核，`CONFIG_ROCKCHIP_SYSTEM_MONITOR=y`）：
+  按**设备树 OPP 表**的 `rockchip,high-temp=85000` / `rockchip,temp-hysteresis=5000` / `rockchip,high-temp-max-freq`
+  施加 **PM QoS** 频率上限（CPU `FREQ_QOS_MAX`；GPU/NPU `DEV_PM_QOS_MAX_FREQUENCY`；`dev_pm_opp` 只管电压）。
+  ⇒ **QoS 聚合取 min() ⇒ 用户态写 `scaling_max_freq` 压不过它**（实测写 2400000 读回仍是 2208000）；
+  ⇒ **无任何运行时开关**（sysfs/debugfs/module param/cmdline 全查过，驱动编进内核不可重载，probe 时读一次）；
+  ⇒ **抬 trip point 挡不住它**（§151 抬到 90/100 °C 后，**85 °C 的 PVTM 线反而成了更早更硬的瓶颈**）。
+- **内核自证（dmesg 直接打印）**：`cpu cpu0: l=10000 h=85000 hyst=5000 l_limit=0 h_limit=1608000000 h_table=0` /
+  `cpu cpu4/6: … h_limit=2208000000` / `mali fb000000.gpu: … h_limit=800000000` / `RKNPU fdab0000.npu: … h_limit=800000000` /
+  `rockchip-dmc dmc: … h=2147483647 …`（= INT_MAX ⇒ **DDR 永不被钳**）。
+  解读：h=85 °C 触发、hyst=5 °C ⇒ **>85 °C 进 / <80 °C 出**；温度源是 `soc-thermal`（TSADC），**不是** per-cluster 传感器。
+- **实测拐点（真实交付负载 `rknn_mosaic_e2e` 连跑，2 s 采样 193 点）**：12:19:48 bigT=**85** → 12:19:50 全面掉到
+  `1608000/2208000/800000000/800000000` → 12:20:47（80 °C）恢复。**cooling device 全程 `cur_state=0`** ⇒ 温控 governor 一次都没介入 ⇒ **写频率的一定是 PVTM**。
+  ⚠️ §151.8 那轮 14 min soak 峰值 **82.23 °C**，差 **2.8 °C** 没踩到 ⇒ **「cur≠max = 0/155」是运气，不是结论**；本轮 **~5 min 即触线**。
+- **🔴 最硬的结论：「任何情况都是额定 max」在当前散热下物理不成立**（满频 + 真实负载 ~5 min 顶到 85 °C ⇒ NPU 1000→800 MHz，−20 %）。
+  「max」必须重新定义：**额定 max**（1800/2400/1000，只在 <85 °C 可达，**不是恒定**）vs **PVTM 上限**（1608/2208/800，**任何温度可达且恒定**）。
+- **吞吐代价（决定性 A/B，同二进制/同序列/同热态）**：ceiling 全域 **6.577 fps** vs full 全域 **7.018 fps** ⇒ **PVTM 上限 = −6.3 % fps**
+  （NPU 1000→800 是大头：`run` 段 103.777 → **116.679 ms**）；**7 组不同频率下 mosaic TSV md5 全部 = `b1882de090ced61960e42162832de4bf`** ⇒ **频率只影响速度，不影响输出**。
+- **热预算三配置**（空载 150 s + 一轮 300 帧）：A 全钉 max ⇒ 空载 **54 °C** / 负载 **68 °C** / **7.088 fps**；
+  B（CPU 钉 max，GPU/NPU/DMC 用 ondemand）⇒ 空载 **45 °C** / 负载 **61 °C** / 6.696 fps（**−5.5 %**，DMC 停 528 MHz 拖 NPU）；
+  C（CPU ondemand，GPU/NPU/DMC 钉 max）⇒ 空载 **49 °C**。⇒ 空载底噪分解：**GPU+DMC ~9 °C**、**8 核钉 max ~5 °C**；**要性能选 A**。
+- **频率锁 v3**（`manu/pipeline/npu/board/perf/`）：① **删掉抬 trip point**（挡不住 PVTM）；② **先写 max、只在 `min ≤ eff_max` 时才写 min**（PVTM 压住 max 时 `min>max` ⇒ 后续写 sysfs **报 EIO**，本轮实测复现）；③ **从活设备树读 `rockchip,high-temp-max-freq`**（**单位 kHz**；cpufreq sysfs 是 kHz、devfreq sysfs 是 Hz —— 本轮踩过）；④ 新增 **看门狗 `maxfreq-guard.timer`（10 s）**，**SoC ≥ 78 °C 只记录不覆盖 ⇒ 不与硅抢**。
+  两种目标：`full`（默认 1800/2400/1000/2112）｜`ceiling`（`MAXFREQ_TARGET=ceiling` ⇒ 1608/2208/800/2112）。
+- **「power 模式」最终结论**：板上三个同名不同物 —— ① `powersave` **governor** 语义 = **把频率钉在 `min_freq`** ⇒ 单独用最慢（CPU 408 / GPU 300 / NPU 300 / DMC 528 MHz）⇒ **有害**；
+  ② `power_allocator` 是温控 governor，与频率锁正交、**本轮一次都没介入**；③ GPU 平台节点的 `power_policy` 是**只读状态输出**，写 8 个值全被拒 ⇒ **不是可设模式**。
+  **负载饱和时 governor 名字完全无差别**：performance **7.145** / powersave 7.093 / ondemand **7.130** fps，TSV md5 全同 ⇒ **governor 只在空载时才有区别**；
+  **要「任何情况都是 max」只有 `performance` 能保证空载也满频**（实测 IDLE：p0=1800000 p4=2400000 p6=2400000 gpu=1 GHz npu=1 GHz）。
+- **持久化（重启实测通过）**：`/usr/local/bin/maxfreq-lock.sh`（幂等）+ `maxfreq-lock.service`（`After=cpufrequtils.service`，**必须排在它之后**，否则开机又被设回 `ondemand`）+ `maxfreq-guard.timer` + `/etc/rc.local` 兜底。
+  **2026-11-12 12:44 重启后实测**：六个域全部 `performance` + max（1800/2400/2400/1 GHz/1 GHz/2112 MHz），guard timer active。
+  ⚠️ 板卡重启后 **`/mnt/manu` 的 NFS 挂载会丢**（不在 fstab）⇒ 需手工 `mount -t nfs 192.168.0.115:/run/media/manu/SSD960-LOCAL/nfs /mnt/manu -o nolock,soft,timeo=5,retrans=2`。
+- **DTB 路线（不推荐，但方案已备好）**：真正启动的 DTB 是 **`/boot/dtb/rockchip/rk3588s-orangepi-cm5.dtb`**（vfat `/boot` 普通文件，`boot.scr` → `booti`，**overlays 未设置 ⇒ 不叠 overlay**，无 `boot.img`/`extlinux.conf`）；
+  🔴 **厂商 `.deb` 装到 `/boot/dtb-5.10.160-rockchip-rk3588/rockchip/`，路径不同 ⇒ 装 deb 改不到运行中的 DTB**；改法用板卡自带 `fdtput` 改 5 张 OPP 表 × 2 属性 = 10 行（`dmc-opp-table` 无此属性不动）；回滚 = 恢复 `.orig`（原始 sha256 `8e674518a03744fe15e5bb7a0c4acabef74b547f6fe2b61ef337fd1280e2eff8`）。
+  **不推荐理由（Rockchip 自己的文档 RK-KF-YF-184「宽温配置」）**：宽温窗口是 **−40~85 °C**，且「**高温高压下芯片寿命会缩短**，需按温度限制频率和电压」⇒ **85 °C 就是原厂宽温上沿，降额是为保护寿命**；
+  且本板 DTB **无 `rockchip,high-temp-max-volt` / `rockchip,max-volt`** ⇒ 抬频率门限 = **连电压那一维的宽温降额一起去掉**；DDR 从不被钳 ⇒ 抬门限会**消掉内存子系统的唯一热信号**。
+  **交付要求推理逐位可复现 ⇒ 偶发不稳比降 6 % 频率更糟 ⇒ 判定：不抬，走散热路线。**
+- **推荐组合**：默认 `full`（性能优先）+ 看门狗日志记 SoC ≥ 78 °C 告警 + **硬件补散热把稳态压到 <85 °C**（唯一不牺牲稳定性的根本解）；
+  若要求「频率与热历史无关」（时延 SLO 要绝对稳）⇒ 切 `ceiling`（−6.3 % fps）。
+- **产物**：`manu/pipeline/npu/board/perf/{maxfreq-lock.sh, maxfreq-guard.sh, maxfreq-lock.service, maxfreq-guard.service, maxfreq-guard.timer, README.md}`；
+  本轮板端日志：`/tmp/sustain.csv`、`/tmp/pm3_*.txt`、`/tmp/ce2_*.log`、`/tmp/tb.out`。
+- 🔴🔴🔴 **§149.17（11-12 12:55）台账陈旧字段吃掉最强候选 + 门禁报告复用 bug + SWA 结构性死路**
+  - **根因**：台账里 **9 个臂** `official = {'stale': 'epoch_changed X->Y'}` ⇒ `t1/t2_fp/t3` 全空 ⇒
+    ① 六项漏斗里既不算过也不算不过；② **`near_miss_cells` 里 `official.t1 is None` 的臂被直接跳过 ⇒ 它的配方格整格消失**；
+    ③ 升轨清单漏项。**实测代价**：`trial_12053`（冠军配方+`lr_floor 0.1`）ep4 是**全台账唯一「NanoBench 三项全过 + T2/T3 过、只差 T1 一项」的臂**
+    （nano 0.709594 ✔ / nano4 0.656664 ✔ / F1 0.892338 ✔ / **T1 0.887102 ✘（差 0.000984）** / T2fp 4 ✔ / T3 0.949250 ✔）
+    ⇒ 它本该是今晚第一优先复现的近失格，却因一个 "stale" 字段**完全不在队列里**。
+  - **修法**：新增 `manu/pipeline/npu/repair_official_records.py`（**磁盘 `gate_report.json` 才是权威**，只回填 **picked epoch**）
+    + 挂在 `run_round()` 每轮开头（幂等自愈）。dry-run 只命中 1 个臂（12053 ep4）——正是最关键那个。
+    **实测效果：修前近失队列 3 格（sw4.0/mixw2.5/mixw1.8）⇒ 修后 4 格，`lrfloor0.1`（5/6，亏损 0.0011）排第一。**
+  - **🔴 门禁报告永远不被复用**：`run_official_gate` 的判据 `"f1" in tracks.track1_uav` 在**新报告格式下恒 False**
+    （f1 已挪到 `finetune_peak.f1`）⇒ **105 个报告 0 个能复用** ⇒ 每次门禁整轮重算（≈7 min GPU），轮次重跑时全部重算。修复后 **80/105 可复用**。
+  - **🔴 SWA 结构性死路**：9863 的 **F1 0.889712 / T3 0.948489 正好卡在基线上** ⇒ 对它做任何权重平均都会把两项压到线下
+    ⇒ **SWA 路径上不存在六项臂**（极限是 `12327=SWA(9863 ep5~9)`：只差 F1 −0.000242 / T3 −0.001173）；
+    且 36 个 SWA 臂 **0 个三项全过**，其中 16 个来自 swl<1.0 源臂（官方三轨全塌）⇒ **纯浪费算力**。
+    ⇒ 落地：**同 (源臂,窗口) 去重** + 训练后 SWA **只取 swl≥1.0 源臂** + `--swa-top-n` 6→3。
+  - **轴向实测（469 臂）**：`sw` 轴**只有 5.0 能过 nano**（4/6/7/8/10 全塌）⇒ **sw 轴已穷尽**；
+    `mix` 轴**只有 w2.0 六项对齐**（w1.8 差 T1 0.000144、w2.5 差 nano4 0.0187/T3 0.0045）；
+    `lr_floor 0.10` 是尖峰但该格 n=9 均值仅 0.6884 ⇒ **12053 是运气臂**；
+    `thr12ms3` 是 **nano4 提升器**（+0.0045，代价 nano −0.000945）⇒ 与 `lrfloor0.10`（nano 提升）**互补** ⇒ 优先格 `lrf0.10_thr12ms3` 正是这个组合。
+  - **分配调整（已落代码，守护在 R8→R9 热升级）**：种子 12→**14**（种子臂三项全过率 3.7% vs 突变 1.6%）、近失 seed 2→**3**、
+    突变保持 8、优先格 6×2、SWA 去重+过滤+top_n 3 ⇒ **R9 = 12 优先 + 12 近失 + 14 种子 + 8 突变 = 46 臂**，`--selftest` PASS。
+  - **战略结论**：9863 是**幸运种子**（其配方 14 个 seed 均值 nano 仅 0.695348）但**是唯一六项全过的臂**
+    ⇒ **主线必须是「冠军配方换种子」**，配方改动只在「只差一档」时做（近失队列 + 优先格）。
+    ⚠️ 配套隐患：基线配方组均值随 seed 累积**下漂**（0.6966→0.6953）⇒ 升格条件变松 ⇒ 盯住 `max_nano ≥ 严格线` + `T2 安全闸门` 两道硬闸。

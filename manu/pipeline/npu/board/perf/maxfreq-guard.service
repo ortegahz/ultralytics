@@ -1,0 +1,6 @@
+[Unit]
+Description=Re-assert the maximum-frequency lock on the RK3588S CM5
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/maxfreq-guard.sh
