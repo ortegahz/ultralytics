@@ -66,7 +66,26 @@
 // 业务方的回调：帧号（**物理**帧号）、目标、目标数、用户数据。
 // 回调跑在 Worker 线程上 ⇒ **必须短**。
 using DetectionCallback =
-    std::function<void(int64_t phys_fid, const MosaicDet* dets, int32_t n, void* user_data)>;
+    std::function<void(int64_t phys_fid, void* frame_ptr, const MosaicDet* dets, int32_t n,
+                       void* user_data)>;
+
+// ===========================================================================
+// THE EMBEDDED GROUP'S CASE: every frame arrives with a POINTER bound to it.
+//
+// The pointer is the address of that frame's own record -- the demo's
+// stand-in for a DMA buffer handle / an image / a downstream request.
+//
+// ⚠️ THE CALLER OWNS THE POINTER'S LIFETIME.  The library only CARRIES it:
+// it never dereferences it and never frees it.  So the object must outlive
+// the result -- that is why `tags` below is a vector that lives for the WHOLE
+// run and is reserved UP FRONT (a realloc would move the objects and leave
+// the library holding dangling pointers).
+struct FrameTag {
+    int64_t phys_fid = 0;
+    int32_t index = 0;
+    uint64_t magic = 0;   // the self-check: the library must give it back
+};
+static constexpr uint64_t kFrameTagMagic = 0x5AFE5EED1234ABCDull;
 
 class AsyncMosaicRunner {
 public:
@@ -88,7 +107,13 @@ public:
     // Producer 调用：交一帧进来。
     //   inflight_ > 0 ⇒ 带反压：队列满时**等**（但谓词含停机信号，不会挂死）。
     //   inflight_ = 0 ⇒ 不等，相机线程永远不等算法。
-    void feed_frame(const uint8_t* gray, int32_t w, int32_t h, int64_t phys_fid) {
+    // Producer 调用：交一帧进来，**外加一个与这一帧绑定的指针**。
+    //
+    //   frame_ptr : 调用方自己的、与这一帧绑定的指针（可以是 NULL）。
+    //               库**只携带**它：不解引用、不释放、不拥有它。
+    //               它随帧一路走到结果里，与该帧的帧号**成对**返回。
+    void feed_frame(const uint8_t* gray, int32_t w, int32_t h, int64_t phys_fid,
+                    void* frame_ptr = nullptr) {
         fed_++;
         if (inflight_ > 0) {
             std::unique_lock<std::mutex> lk(m_);
@@ -107,7 +132,8 @@ public:
         //   （早先版本是在外部用一张「内部号→物理帧号」映射表做的，既有时序
         //     竞态（collect 先于映射写入）又要额外维护一张表；原生 API 之后
         //     这张表退化成**只用于导出**的审计记录。）
-        const int64_t lib_id = mosaic_pipeline_push_frame(pipe_, gray, w, h, phys_fid);
+        const int64_t lib_id =
+            mosaic_pipeline_push_frame_ptr(pipe_, gray, w, h, phys_fid, frame_ptr);
         if (lib_id < 0) return;
         {
             std::lock_guard<std::mutex> lk(map_m_);
@@ -154,14 +180,16 @@ private:
         MosaicDet dets[128];
         for (;;) {
             int64_t lib_id = -1;
-            const int32_t nd = mosaic_pipeline_collect(pipe_, &lib_id, dets, 128);
+            // ★ collect_ex 带回**与该帧绑定的那个指针**，与帧号成对。
+            void* frame_ptr = nullptr;
+            const int32_t nd = mosaic_pipeline_collect_ex(pipe_, &lib_id, &frame_ptr, dets, 128);
             if (nd < 0) break;                    // flushed 且已排空 ⇒ 正常收尾
             delivered_++;
             cv_.notify_all();                     // 放行 Producer 的反压等待
             collected_++;
             const int64_t phys = lib_id;   // ★ 客户端帧号，库原样带回
             fprintf(stderr, "[rx] 物理帧 %lld → %d 个目标\n", (long long)phys, nd);
-            if (cb_) cb_(phys, dets, nd, ud_);
+            if (cb_) cb_(phys, frame_ptr, dets, nd, ud_);
         }
     }
 
@@ -219,11 +247,24 @@ struct Collector {
     std::mutex m;
     std::map<int64_t, std::vector<MosaicDet>> rows;
     int64_t n_dets = 0;
+    // THE POINTER SELF-CHECK: every result must carry the pointer of ITS OWN
+    // frame.  A mismatch means the pointer and the frame id came from
+    // different frames -- the one thing this API must never do.
+    int64_t ptr_ok = 0;
+    int64_t ptr_mismatch = 0;
+    int64_t ptr_null = 0;
 };
 
-static void OnDetection(int64_t phys_fid, const MosaicDet* dets, int32_t n, void* ud) {
+static void OnDetection(int64_t phys_fid, void* frame_ptr, const MosaicDet* dets, int32_t n, void* ud) {
     Collector* c = static_cast<Collector*>(ud);
     std::lock_guard<std::mutex> lk(c->m);
+    if (frame_ptr) {
+        const FrameTag* t = static_cast<const FrameTag*>(frame_ptr);
+        if (t->magic == kFrameTagMagic && t->phys_fid == phys_fid) c->ptr_ok++;
+        else c->ptr_mismatch++;
+    } else {
+        c->ptr_null++;
+    }
     c->rows[phys_fid].assign(dets, dets + n);
     c->n_dets += n;
 }
@@ -296,6 +337,20 @@ int main(int argc, char** argv) {
     Collector collector;
     AsyncMosaicRunner runner(pipe, OnDetection, &collector, inflight);
 
+    // THE PER-FRAME OBJECTS THE POINTERS POINT AT.  They must outlive every
+    // result, so they live for the WHOLE run and the vector is reserved UP
+    // FRONT (a realloc would move the objects ⇒ the library would be left
+    // holding dangling pointers).
+    std::vector<FrameTag> tags;
+    tags.reserve(paths.size());
+    for (size_t i = 0; i < paths.size(); ++i) {
+        FrameTag t;
+        t.phys_fid = ids[i];
+        t.index = static_cast<int32_t>(i);
+        t.magic = kFrameTagMagic;
+        tags.push_back(t);
+    }
+
     // ---- 3) 推帧 ----
     const int64_t period_ns = 1000000000LL / (fps > 0 ? fps : 25);
     const auto t0 = std::chrono::steady_clock::now();
@@ -306,13 +361,15 @@ int main(int argc, char** argv) {
             std::this_thread::sleep_until(t0 + std::chrono::nanoseconds((int64_t)i * period_ns));
             const cv::Mat img = cv::imread(paths[i], cv::IMREAD_GRAYSCALE);
             if (img.empty()) continue;
-            runner.feed_frame(img.data, img.cols, img.rows, ids[i]);
+            // ★ 最后一个参数 = 与这一帧绑定的指针。
+            runner.feed_frame(img.data, img.cols, img.rows, ids[i], &tags[i]);
             MosaicDet dets[128];
             int64_t lib_id = -1;
-            const int32_t nd = mosaic_pipeline_collect(pipe, &lib_id, dets, 128);
+            void* frame_ptr = nullptr;
+            const int32_t nd = mosaic_pipeline_collect_ex(pipe, &lib_id, &frame_ptr, dets, 128);
             if (nd < 0) break;
             runner.note_delivered();
-            OnDetection(lib_id, dets, nd, &collector);
+            OnDetection(lib_id, frame_ptr, dets, nd, &collector);
         }
         runner.signal_eos();
         mosaic_pipeline_flush(pipe);
@@ -325,7 +382,8 @@ int main(int argc, char** argv) {
                 //     把它们换成你的取图代码**，只要 gray 是一张 uint8_t 灰度图即可。
                 const cv::Mat img = cv::imread(paths[i], cv::IMREAD_GRAYSCALE);
                 if (img.empty()) { fprintf(stderr, "[WARN] 读不出 %s\n", paths[i].c_str()); continue; }
-                runner.feed_frame(img.data, img.cols, img.rows, ids[i]);
+                // ★ 最后一个参数 = 与这一帧绑定的指针。
+                runner.feed_frame(img.data, img.cols, img.rows, ids[i], &tags[i]);
             }
             runner.signal_eos();          // ★ EOS：推完了，通知 Worker
         });
@@ -381,6 +439,15 @@ int main(int argc, char** argv) {
     printf("库内相机队列溢出丢弃 %lld 帧（只在 app-drop 无反压时可能发生）\n",
            (long long)tm.dropped);
     printf("共 %lld 个目标\n", (long long)collector.n_dets);
+    // THE POINTER SELF-CHECK: every result carried the pointer of ITS OWN
+    // frame.  `ptr_mismatch` MUST be 0 -- a non-zero value would mean a
+    // result paired one frame's id with another frame's pointer.
+    printf("每帧指针自检：对 %lld / 不匹配 %lld / 空 %lld\n", (long long)collector.ptr_ok,
+           (long long)collector.ptr_mismatch, (long long)collector.ptr_null);
+    if (collector.ptr_mismatch != 0) {
+        fprintf(stderr, "[FATAL] 帧指针与帧号不配对 %lld 次 ⇒ 指针没有跟着同一帧走\n",
+                (long long)collector.ptr_mismatch);
+    }
 
     mosaic_pipeline_destroy(pipe);
     return 0;

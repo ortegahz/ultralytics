@@ -27,7 +27,15 @@ sleep 45
   echo "（各轮次队列规模）"
   grep -n "训练 .* 臂" $W/adaptive.log | tail -12
   echo "（新分配的证据：近失复现 / 种子扫描 / 优先格 mixw1.9 / 突变）"
-  grep -n "近失复现\|种子扫描\|优先格 mixw1.9\|突变 " $W/adaptive.log | tail -30
+  grep -n "近失复现\|种子扫描\|优先格 .*mixw1\.9\|突变 " $W/adaptive.log | tail -30
+  echo
+  echo "--- ③b 今夜算力配比是否按 §150.7.4 生效（种子格 20 / 突变 ≤5 / 优先格 9）---"
+  echo "（各轮开跑臂数：'训练 N 臂' 行）"
+  grep -nE "训练 [0-9]+ 臂|本轮共 [0-9]+ 臂" $W/adaptive.log | tail -10
+  echo "（种子扫描臂数分母：'种子扫描 i/20' ⇒ 配比已从 14 提到 20）"
+  grep -oE "种子扫描 [0-9]+/[0-9]+" $W/adaptive.log | sort -u | tail -6
+  echo "（新增互补格 lrf0.10_mixw1.9 + 近失 lrf0.10 的 official 回填证据）"
+  grep -nE "lrf0\.10_mixw1\.9|official 回填" $W/adaptive.log | tail -8
   echo "（守护日志里应有『代码已更新…在轮次边界生效』一行）"
   grep -n "代码已更新" $W/watchdog.log | tail -5
   echo
@@ -45,6 +53,16 @@ sleep 45
   echo
   echo "--- ⑦ 升轨候选清单 ---"
   $PY manu/pipeline/npu/promote_candidate.py --list 2>&1 | head -60
+  echo
+  echo "--- ⑧b 板卡同板 A/B 测速口径（板卡已换成旧板卡 64 = 192.168.0.64）---"
+  cat <<'EOF'
+① 确认板卡空闲（别抢别人的任务）：
+   ssh -p 22 root@192.168.0.64 "cat /proc/loadavg; ps -eo cmd | grep -E 'rknn|npu' | grep -v grep"
+② 恢复板卡 key：mv /home/huangzhe/.ssh/id_board.disabled_20261112_nano_search /home/huangzhe/.ssh/id_board
+③ 改流水线 BOARD 常量为 192.168.0.64（nano_search.py 受守护 md5 监控 ⇒ 09:00 之后再改，别在跑轮次里改）
+④ 判据：**候选 vs trial_0031 同板同会话 A/B**，候选_ms ≤ 0031_ms × 1.02，重复 3 次取中位数
+   ⛔ 不与 23.528 ms（11-11 新板读数）比较 —— 板卡已更换，跨板不可比
+EOF
   echo
   echo "--- ⑧ 板卡状态与恢复指令 ---"
   ls -la /home/huangzhe/.ssh/ | grep -i board

@@ -14420,3 +14420,241 @@ mv /home/huangzhe/.ssh/id_board.disabled_20261112_nano_search /home/huangzhe/.ss
 - 六项判据**不含时延** ⇒ 板卡脏不影响今夜搜索；
 - 时延判据**继续挂起**：明早板卡空闲后按「**同会话 ≤ 0031 自身 ×1.02**」重测（11-11 干净会话参照 23.528 ms）；
 - `promote_candidate.py` 的 `ms` 加在 `ok` **之后**（口径漏洞，见 §150.6 待修①）⇒ **升轨前必须加 `--require-board`**。
+
+---
+
+## §150.8 🔴 2026-11-12 14:00 板卡换成**旧 64 板**（用户告知）⇒ 时延判据口径再收紧
+
+- 事实：板卡硬件已更换为**旧 64 板**（与 11-11 记录时延参照的那块板**不是同一块硬件**）
+  ⇒ **绝对时延参照 23.528 ms（新板，11-11 干净会话）作废**（跨板不可比）。
+- 同时板上仍有他人任务（用户 11-12 两次提示）⇒ 任何单点读数都带负载噪声。
+- 结论（时延判据口径，三条同时成立）：
+  ① 六项判据**不含时延** ⇒ 夜间搜索不受影响，服务器自主跑照常；
+  ② 板卡**继续零接触隔离**（`id_board` 仍改名 `id_board.disabled_20261112_nano_search`）
+     ⇒ 流水线一个字节都不碰板卡，也不干扰别人的任务；
+  ③ 明早板卡空闲后**只做同板同会话 A/B 相对判据**：候选 vs **0031 自身在同一块板同一会话**
+     的读数，判据 `候选 ≤ 0031 × 1.02`（**不与 23.528 ms 这类跨板绝对值比较**），
+     且取多次中位数（他人任务会制造长尾）。
+- 口径漏洞仍在：`promote_candidate.py` 的 `ms` 加在 `ok` **之后** ⇒ 升轨前必须加 `--require-board`（§150.6 待修①）。
+
+### §150.8.1 板卡「旧板卡 64」定位与体检（2026-11-12 14:00~14:05 实测，从服务器侧）
+
+| 项 | 实测 |
+| --- | --- |
+| 旧板（新板）192.168.0.211 | **已下线**（ping 100% 丢包、SSH 超时） |
+| 现板 **192.168.0.64** | rockchip,rk3588-evm-lp4-v10 / kernel 5.10.160 / aarch64，**可达** |
+| 访问 | `ssh -p 22 root@192.168.0.64`（密码 `ematech`）或用 `id_board.disabled_20261112_nano_search` 私钥 |
+| **NPU** | **可用**：`[drm] Initialized rknpu 0.9.8 20240828 for fdab0000.npu on minor 1` ⇒ 走 **DRM**（`/dev/dri/card1`、`renderD129`），**没有 `/dev/rknpu` 属正常**（新式驱动）；⚠️ `npu-smi` 在该板会挂住（别用） |
+| 工具 | `/usr/bin/rknn_common_test`(2023-12)、`/usr/bin/rknn_server`(2025-12) |
+| ⚠️ 根分区 | 16 G 用了 **95%**，仅剩 **791 MB** ⇒ 放 .rknn 前先清空间 |
+| ⚠️ 文件系统 | dmesg 有 EXT4 报错（mmcblk0p6 `htree_dirblock_to_tree`）⇒ 根分区健康度存疑 |
+| 其它 | 内存 7.9 G；14:00 时刚重启（up 8 min）、load≈0 ⇒ 当时空闲 |
+
+- **我方零残留**：检查过程中起过的 `rknn_server -v`（会挂住）已 `kill -9` 清理干净，板上无我方进程。
+- **流水线侧仍安全**：`nano_search.py` / `board_speed_search.py` 里的 `BOARD = root@192.168.0.211` 已失效
+  ⇒ 板卡阶段即便触发也会 10 s 超时失败、被 runner 吞掉（"板卡测速失败（不影响本轮结论）"）。
+- **明早动作**：① 恢复 key（`mv id_board.disabled_20261112_nano_search id_board`）② 用 **.64** 做同板同会话 A/B
+  （候选 vs 0031 自身，判据 `≤0031×1.02`，3 次取中位数）③ 需要改 BOARD 常量时**不要在跑轮次里改**
+  （nano_search.py 受守护 md5 监控 ⇒ 改它会在轮次边界触发热升级；稳妥做法是明天单独改 + 自检）。
+
+---
+
+## §151 🔴 2026-11-12 嵌入式组「每帧携带 void\* 指针」接口（**只加一个指针输入，原参数全保留**）
+
+### §151.1 需求原文与约束
+
+- 嵌入式组诉求：每一帧过来时，除帧号外还带一个**与该帧绑定**的指针；
+  希望库能收下这个 `p`，在 `collect` 时**原样吐回**。
+  调用点原文：`runner.feed_frame(img.data, img.cols, img.rows, ids[i]);` → 在其后**追加一个参数**。
+- 用户追加约束（2026-11-12）：「**就加一个新的指针输入，原来所有参数还保留，比较简单，不要搞复杂了**」
+  ⇒ **只新增函数，不改任何既有函数签名**；旧接口行为与 ABI **一字不动**。
+
+### §151.2 API 设计（纯新增，3 函数 + 1 回调类型；`MOSAIC_API_VERSION` 仍为 **10**）
+
+```c
+/* 新回调：带本帧指针 */
+typedef void (*MosaicResultCallbackEx)(void* user, int64_t frame_id, void* frame_user,
+                                        const MosaicDet* dets, int32_t n_dets);
+
+/* 新推送：末尾追加 void* frame_user */
+int64_t mosaic_pipeline_push_frame_ptr(MosaicPipeline* p, const uint8_t* gray, int32_t w, int32_t h,
+                                       int64_t client_frame_id, void* frame_user);
+
+/* 新回调注册（与旧回调互斥：注册任一个会清掉另一个） */
+int32_t mosaic_pipeline_set_result_callback_ex(MosaicPipeline* p, MosaicResultCallbackEx cb, void* user);
+
+/* 新收集：多一个 void** frame_user 出参 */
+int32_t mosaic_pipeline_collect_ex(MosaicPipeline* p, int64_t* frame_id, void** frame_user,
+                                   MosaicDet* out, int32_t max_out);
+```
+
+- 旧接口 `push` / `push_frame` / `collect` / `set_result_callback` / `MosaicResultCallback`
+  **签名、语义、ABI 完全不变**（`mosaic_pipeline_collect` 等旧符号在 `.so` 导出表里原样存在）。
+- `CollectImpl()` 抽成共享静态实现 ⇒ `collect` 与 `collect_ex` 走**同一段代码**，不复制逻辑。
+- 头文件注释已写明：「`MOSAIC_API_VERSION` 仍是 10 —— 本次只追加了函数与结构体，既有布局一字未动。」
+
+### §151.3 指针传递链（**指针与帧号同处一条记录** ⇒ 绝不串帧）
+
+内部把原先的 `std::array<int64_t,3>` 换成结构体 `PhysIds{eng_idx, id, cid, cptr}`，
+指针与物理帧号**在同一条记录里流转**，而不是另开一条旁路：
+
+```
+PushImpl(..., void* frame_user)
+ → InItem.cptr
+ → engines[].phys_ids (PhysIds.cptr)
+ → GMC 引擎：phys_cptr = eng->phys_ids.front().cptr
+ → FeatureItem.cptr
+ → 【fused 路径】hi.cptr = fi.cptr
+ → 【decoupled 路径】BufferA::Slot.cptr（新增字段）→ hi.cptr
+ → HeatItem.cptr
+ → ResultItem.cptr
+ → collect_ex：*frame_user = ri.cptr
+ → callback_ex：fn_ex(user, ri.id, ri.cptr, dets, n)
+```
+
+- **两条执行路径（fused / decoupled）都覆盖**，不存在「只有一路带指针」的漏洞。
+
+### §151.4 精度验证（旧板 192.168.0.64，同一块板 A/B，逐字节比对）
+
+- 构建链路：`build_mosaic_pipeline_arm64.sh`（**静态链 OpenCV 4.10.0**，因为旧板**没有 OpenCV**）。
+  基线 = `git show HEAD:manu/pipeline/npu/{mosaic_pipeline.cpp,mosaic_pipeline.h,mosaic_async_client_example.cpp}`
+  单独编一份，两者都 scp 到旧板 `/tmp`（>1 MB 必须落 `/tmp` 再对 md5；soft-NFS 直读大文件会污染页缓存导致 SIGILL）。
+- 板端参数：模型 `p0_off_A_none.rknn`、序列 `VIDEO00007_19700101_001324`、**60 帧**、`--mode push-all`、`--inflight 4`。
+
+| 产物 | 基线 md5 | 改动版 md5 | 结论 |
+| --- | --- | --- | --- |
+| e2e `*_mosaic.tsv` | `1951358049fd694ae59f93cfe0e95d4c` | `1951358049fd694ae59f93cfe0e95d4c` | ✅ `cmp` 逐字节相同 |
+| e2e `feature_md5.txt` | `1cb0de2908d4d051f86c70dc89a148d2` | `1cb0de2908d4d051f86c70dc89a148d2` | ✅ 逐字节相同 |
+| e2e `processed_frames.csv` | — | — | ✅ 逐字节相同 |
+| async `*_mosaic.tsv` | `fc8b5f3517af891f0daa67b69c3b0ede` | `fc8b5f3517af891f0daa67b69c3b0ede` | ✅ 逐字节相同 |
+| async `feature_md5.txt` / `feature_md5_phys.txt` | `785bddf617a71d9d9e15fb0d090544a7` | `785bddf617a71d9d9e15fb0d090544a7` | ✅ 逐字节相同 |
+| async `frame_map.tsv` | `ec21393168531dbd2bbc55aa210ee5f4` | `ec21393168531dbd2bbc55aa210ee5f4` | ✅ 逐字节相同 |
+
+- 帧数与统计两边一致：**60 seeded / 58 groups computed / 2 skipped / 0 voided**；fallback summary 两边都 clean；
+  目标总数 **168** 一致；fps 9.188 vs 9.407（噪声范围）。
+- **指针自检（改动版新增的逐结果自校验）**：`每帧指针自检：对 60 / 不匹配 0 / 空 0`
+  ⇒ 60 帧每一个吐回的指针都能用它的 `magic`+`phys_fid` 校验回原帧号，**零错配、零空指针**。
+- `mosaic_contract_test`（改动版，板上实跑）：**199 passed, 0 failed**。
+- ⚠️ 与 `/root/feature_md5_golden_60_ref_gpu.txt` 的差异是**帧号索引口径**（golden 按物理帧号 `000000…`，
+  我们的 `feature_md5.txt` 按库内部号、跳 2 帧），**基线与改动版本身完全一致** ⇒ 不是回归。
+
+### §151.5 交付包状态（`build/` 动态共享库版，供嵌入式组/新板）
+
+- `packaging/make_build_dir.sh` 已重跑（源码刷进 `build/src/npu/`，**6 个源文件 md5 与工作区逐个一致**）。
+- `build_lib.sh` + `build_demo.sh` 用**板卡 OpenCV 4.6.0 头 + `.so.406` 运行库**（配套）编译出 7 个产物：
+  `libmosaic_pipeline.so`（md5 `08c8d76d64039e791076851b635b4a69`）+ 5 个测试程序 + `.o`；
+  再次 `make_build_dir.sh` 回填 md5（①②③ 顺序完成，MANIFEST 回验通过，72 文件）。
+- **ABI 核验（`readelf --dyn-syms` 对基线静态库 `.a` 的 `nm` 做 `comm` 对账）**：导出 **29** 个
+  `mosaic_pipeline_*` 符号 = 旧 **26** 个**原样在**（**基线有、新版没有的 = 空集**，一个旧符号都没丢）
+  + 新增 3 个（`push_frame_ptr` / `collect_ex` / `set_result_callback_ex`）⇒ **旧二进制不受影响**。
+- ⚠️ **动态版只能在新板跑**：OpenCV 4.6.0 需 **GLIBC_2.34**，旧板 Ubuntu 20.04 是 2.31 ⇒ 跑不了。
+  本轮板端功能验证用的是**同源静态版**（源码与交付包逐字节同源，已 md5 对账）。
+  新板恢复后仍需补一次「动态交付包原件在板上跑」的验收。
+
+### §151.6 板卡环境事实更正（**推翻 `board_swap_20261110.md` 的「硬阻塞 #1」**）
+
+- ❌ 旧结论：「新板 `/dev/rknpu*` 缺失 ⇒ 硬阻塞 #1 ⇒ `rknn_init` 会失败」——**不成立**。
+  旧板 `evm3588` 上 `/dev/rknpu*` **同样不存在**，但 NPU 正常：走 **DRM** 设备
+  `/dev/dri/renderD128/renderD129`，dmesg 有 `[drm] Initialized rknpu 0.9.8`，
+  `librknnrt version: 2.3.0` ⇒ **无 `/dev/rknpu*` 是新式驱动的正常形态，不是故障**。
+- ⚠️ **`npu-smi` 在该板会挂住**（别用）。
+- **旧板没有 OpenCV**（`/usr/include/opencv4` 不存在、ldconfig 无 opencv；历史认证二进制 `/root/e2e_par2_demo`
+  的 `ldd` 也确认是静态带 opencv）⇒ 旧板只能跑**静态带 opencv** 的二进制；
+  `build/` 那套动态链板卡 opencv 的交付包**只适用于新板**。
+- 旧板 **DRM + `rknpu 0.9.8`** ⇒ 嵌入式组在新板若仍报「找不到 rknpu 设备」，先查 DRM 节点再下结论。
+
+### §151.7 「开 subagent 必须监控 host 内存」规则已落盘到**两处**（生效层 + 记忆层）
+
+- 🔴 `manu/AGENTS.md` **§7.1**（**会随会话自动加载 ⇒ 真正生效的一层**）：
+  开子 Agent 前**必须**跑 `uptime; free -m | head -2`；
+  🟢 load ≤ **4** 且 available ≥ **6 GB** ⇒ ≤ **2** 个（只读/轻量）；
+  🟡 load 4~8 **或** available 3~6 GB ⇒ ≤ **1** 个且**只读**；
+  🔴 load > **8** **或** available < **3 GB** ⇒ **一个都不开**；
+  并发存活子 Agent ≤ **2**、完成**立即 `close`**；
+  子 Agent **禁**在 host 上跑编译/训练/推理/评测/>5 min 任务；
+  主 Agent 与子 Agent **同一时刻只能有一个吃 CPU 的来源**；
+  汇报「已开 N 个子 Agent」**必须附开之前的 `uptime`/`free -m` 读数**，否则视为未执行。
+- 🔴 `manu/memory/rules.md` **§一·16（铁律十六）**（记忆层）：同内容 + 与铁律八的关系
+  （铁律八的「必须委派」**让位**于本条的「不得起活」）+ 铁律十三加第 7 条交叉引用。
+- 本轮（§151 指针接口）**全程主 Agent 单干、未开任何子 Agent**（改动同文件紧耦合）⇒ 不触闸门。
+- ✅ **同步（服务器 md5 与本地逐个一致）**：`memory.md` / `memory_compact.md` / `rules.md` / `AGENTS.md`
+  + `mosaic_pipeline.h` / `mosaic_pipeline.cpp` / `mosaic_async_client_example.cpp`
+  → `huangzhe@192.168.99.40:32222:/tmp/pycharm_project_10ae9e2e/`。
+  ⚠️ 服务器旧版已备份到 `manu/memory/.bak_20261112_1415/`（服务器上独有的 §149.11「8 臂提档」结论
+  已被本地 §150「**硬件真相：内存才是瓶颈 ⇒ 维持 4 卡 × 1 臂**」**推翻**，故以本地为准覆盖）。
+
+### §151.8 第二轮：完成审计 ⇒ 补 `CollectImpl` 的 `-1` 路径保护 + **数字更正**
+
+- **审计发现的真实缺陷**：`CollectImpl` 在 `-1`（超时/中止/flush 已排空）路径**不写** `*frame_user`
+  ⇒ 调用方若写 `void* p;`（未初始化）并在 `collect_ex` 返回 -1 后读 `p`，是**未定义行为**。
+  ⇒ **已修**：`CollectImpl` 入口即 `if (frame_user) *frame_user = nullptr;`（成功路径再覆盖为 `ri.cptr`）；
+  头文件补一句「`*frame_user` **总是**被写：先置 NULL，-1 后读到的是**有定义的 NULL**」。
+- **同源审计（逐点核对，指针与帧号全程同属一条记录）**：
+  GMC `phys_id = eng->phys_ids.front().cid` 与 `phys_cptr = eng->phys_ids.front().cptr` **是同一次 `front()`**；
+  → `fi.id` / `fi.cptr`；→ fused：`hi.id = fi.id; hi.cptr = fi.cptr`；
+  → decoupled：`slots[id].frame_id` 与 `slots[id].cptr` **同一条 slot**（写 `fi.id/fi.cptr`，读同 slot）；
+  → `ri.cptr = hi.cptr` ⇒ **collect 吐出的 id 与指针必然同帧**。
+- ✅ **复验（旧板 .64，同板 A/B；5 个二进制 md5 双侧对账后才上板）**：
+  - 指针自检：**对 60 / 不匹配 0 / 空 0**（168 个目标）
+  - e2e：`*_mosaic.tsv` / `feature_md5.txt` / `processed_frames.csv` **IDENTICAL**
+    （md5 `1951358049fd694ae59f93cfe0e95d4c` / `1cb0de2908d4d051f86c70dc89a148d2` / `bcefedb7889c4c4bcad5d3d4873a1210`）
+  - async：`*_mosaic.tsv` / `feature_md5.txt` / `feature_md5_phys.txt` / `frame_map.tsv` **IDENTICAL**
+    （md5 `fc8b5f3517af891f0daa67b69c3b0ede` / `785bddf617a71d9d9e15fb0d090544a7` / `ec21393168531dbd2bbc55aa210ee5f4`）
+  - e2e `timing.txt` **有差** ⇒ **逐行核对后全部是耗时/时延噪声**（fps 9.360 vs 9.447 ≈ 0.9%；
+    latency mean 210.128 vs 208.200；rknn_run_max 111.865 vs 110.642）+ 输出路径字符串
+    ⇒ **无任何检测/特征/帧映射差异**。
+  - 与上一轮 md5 **完全相同** ⇒ 结果**可复现**。
+  - `mosaic_contract_test`：**199 passed, 0 failed**。
+- 🔴 **数字更正（上一版 memory 写错，已就地改）**：ABI 导出符号是 **29 个 = 旧 26 + 新 3**，
+  **不是**上一版写的「26 = 旧 23 + 新 3」。
+  对账方法：基线静态库 `.a` 的 `nm -g --defined-only` 与新版 `.so` 的 `readelf --dyn-syms` 做 `comm`
+  ⇒ **基线有、新版没有的 = 空集**（一个旧符号都没丢）；新版只多出 `collect_ex` / `push_frame_ptr` /
+  `set_result_callback_ex`。
+- **交付包重出（①②③）**：`libmosaic_pipeline.so` md5 `08c8d76d64039e791076851b635b4a69`
+  （上一版 `38704e4d…`，因 `CollectImpl` 改动而变）；**5 个测试程序 md5 不变**
+  （只链接 `.so`、不含库代码）；6 个源文件 md5 与工作区逐个一致；MANIFEST 回验通过（72 文件）。
+- ⚠️ **仍未闭环的一项（新板不在）**：动态共享库交付包**原件**的板上验收 ——
+  新板 `192.168.0.211` 仍 **ARP INCOMPLETE / 100% 丢包**；
+  旧板跑不了动态版（OpenCV 4.6.0 需 **GLIBC_2.34**，旧板 Ubuntu 20.04 是 **2.31**）
+  ⇒ 只能等新板回来补一次。**源码与静态版已同源 md5 对账**。
+
+### §151.9 交付面最后补一刀：头文件加 **MINIMAL USE** 可复制片段（纯注释，零产物影响）
+
+- **缺口**：嵌入式组直接拿 `mosaic_pipeline.h` 写代码，头文件虽有完整语义说明，但**没有可直接抄的最小用法**，
+  得去读 `.cpp` 才知道「push 时给指针 / collect 时拿回来」怎么写。
+- **已补**（`mosaic_pipeline.h`，`push_frame_ptr` 声明正上方，纯注释）：
+  ① push 侧 `mosaic_pipeline_push_frame_ptr(pipe, gray, w, h, frame_id, my_ptr);`
+  ② collect 侧 `void* p = NULL; int64_t id = 0; int32_t n = mosaic_pipeline_collect_ex(pipe, &id, &p, dets, 128);`
+     （注释写明 `id == frame_id` 且 `p == my_ptr`，**同一帧**）
+  ③ 回调侧 `mosaic_pipeline_set_result_callback_ex(pipe, on_det, my_user);` 的纯 C 函数指针形式
+  ④ 一句约束：**库不解引用、不释放该指针；调用方须保证它在那一帧的结果被消费完之前一直有效**。
+- ✅ **零产物影响（已实测）**：改完重新交叉编译后
+  `mosaic_async_client_example` / `rknn_mosaic_e2e` / `mosaic_contract_test` 三个**最终二进制 md5 一字未变**
+  （`a5383cc2057e900c1bc520ce664f9614` / `4719b79fa88a928027c0d4ee097d12ea` / `6b351feef1eebdb0cdd1ee4218cae315`）
+  ⇒ **§151.8 的板端验证结果依然完全有效**（板上跑的二进制 == 当前源码产物）。
+  交付包 7 个产物 md5 也**全部不变**（`.so` `08c8d76d64039e791076851b635b4a69` 等，`.so` 只吃 `.cpp`，注释在 `.h`）。
+  （只有带调试行号的 `mosaic_pipeline.o` / `.a` 归档变了，不进最终产物。）
+
+### §151.10 交付闭环：NFS 交付目录已更新（嵌入式组此刻能取到**带指针接口**的包）
+
+- **发现的缺口**：NFS 交付目录 `/run/media/manu/SSD960-LOCAL/nfs/mosaic_sdk`（板卡侧 `/mnt/manu/mosaic_sdk`）
+  上还是 **10:29 的旧包**（`out/` 是 10:25 的、`src/npu/mosaic_pipeline.h` 是旧版）
+  ⇒ **嵌入式组此刻去取包，拿不到指针接口**（这不是精度问题，是**交付没闭环**）。
+- 本机 NFS 根**只读** ⇒ 走脚本自带的**板卡 /tmp 中转**模式（`copy_to_nfs.sh` 的安全铁律：
+  中转目录强制落在 `/tmp`、交付目录**禁止**落在 `/root`、失败自动清理、逐文件 md5 回验）。
+- **主机密钥**：`packaging/known_hosts` 只钉了**新板 .211** ⇒ 本次**临时**把旧板 .64 的 ed25519 追加到
+  `build/known_hosts`（**生成物目录**，不污染交付基线），跑完**已恢复**
+  （与 `packaging/known_hosts` md5 一致 `a9a164653044b587f013a2812fac742a`）。
+  旧板主机密钥经**两条独立路径交叉核对**（本机 `ssh-keyscan` + 服务器 `ssh-keyscan`）得到**同一** ed25519 指纹。
+- 覆盖前已把旧包备份到旧板 `/tmp/mosaic_sdk_bak_20261112`（**72 文件 / 3.7 M**）。
+- ✅ **独立复核（不只信脚本自述）**：NFS 侧 **72 文件**，关键产物 md5 与本地 `build/` **逐个一致**：
+  `out/libmosaic_pipeline.so` = `08c8d76d64039e791076851b635b4a69`、
+  `out/mosaic_async_client_example` = `4d2e9b1fc07a9b207ed8f14f04eef936`、
+  `out/mosaic_contract_test` = `0a9346989ad4a2723a93e2286c8c78dc`、
+  `src/npu/mosaic_pipeline.h` = `e1d3d310ba611dea4aaa93af9a6d8cb0`（含 MINIMAL USE + 3 个新接口，grep 计数 11）、
+  `src/npu/mosaic_pipeline.cpp` = `6519b441fe015d3a0780edf03fa79289`、
+  `src/npu/mosaic_async_client_example.cpp` = `0a13777a3d47a67ad19f2517296d620f`；
+  兼容别名（`libmosaic_pipeline.so` / `mosaic_async_client_example` / `mosaic_pipeline.h` 等 6 个符号链接）齐全。
+- ⚠️ **板上验收仍待新板**：脚本的 `--verify` 会 ssh 到板卡跑契约测试/demo ——
+  **旧板没有 OpenCV**（动态版跑不了）⇒ 本次**不带 `--verify`**，只做「整树镜像 + 逐文件 md5 回验」；
+  **新板 .211 回来后补跑 `copy_to_nfs.sh --build --verify`**（那才是「动态交付包原件」在板上的最终验收）。

@@ -869,6 +869,21 @@ typedef struct MosaicPipeline MosaicPipeline;
 typedef void (*MosaicResultCallback)(void* user, int64_t frame_id, const MosaicDet* dets,
                                       int32_t n_dets);
 
+/* The result callback that ALSO carries the caller's per-frame pointer.
+ *
+ * `frame_user` is the opaque pointer the caller handed to
+ * mosaic_pipeline_push_frame_ptr() for the frame this result belongs to --
+ * the SAME frame whose number is `frame_id`.  It is NULL for a frame pushed
+ * through mosaic_pipeline_push() / mosaic_pipeline_push_frame().
+ *
+ * The library NEVER dereferences it and NEVER frees it.
+ *
+ * This is an ADDITION: MosaicResultCallback and
+ * mosaic_pipeline_set_result_callback() are UNCHANGED and keep behaving
+ * exactly as before. */
+typedef void (*MosaicResultCallbackEx)(void* user, int64_t frame_id, void* frame_user,
+                                        const MosaicDet* dets, int32_t n_dets);
+
 /* Feature fingerprint.
  * The rolling MD5 over the GMC's PRE-ENCODE 3 x (H*W) channel planes, computed
  * exactly like the reference implementation's --md5-out (gmc_stream_ocl.cpp:
@@ -985,12 +1000,70 @@ int64_t mosaic_pipeline_push(MosaicPipeline* p, const uint8_t* gray, int32_t w, 
 int64_t mosaic_pipeline_push_frame(MosaicPipeline* p, const uint8_t* gray, int32_t w, int32_t h,
                                    int64_t client_frame_id);
 
+/* Enqueue one raw grayscale frame WITH THE CALLER'S OWN FRAME NUMBER **AND**
+ * THE CALLER'S OWN OPAQUE PER-FRAME POINTER.
+ *
+ * `frame_user` is an arbitrary pointer the caller owns.  The library NEVER
+ * dereferences it and NEVER frees it: it only carries it, unchanged, from
+ * this call to the result (mosaic_pipeline_collect_ex() /
+ * mosaic_pipeline_set_result_callback_ex()), where it arrives TOGETHER WITH
+ * the frame number of the SAME frame.
+ *
+ * WHY: a camera pipeline usually has one object per frame (a DMA buffer
+ * handle, an image, a downstream request).  Without a way to carry it, the
+ * caller has to keep its own side table from frame id to pointer -- and that
+ * table races with the results (a result can arrive before the table is
+ * written) and has to be maintained forever.  Carrying the pointer with
+ * the frame removes the table entirely.
+ *
+ * The pointer rides in the SAME internal record as the frame number, so a
+ * result can never pair one frame's id with another frame's pointer.
+ *
+ * This is an ADDITION: mosaic_pipeline_push() and
+ * mosaic_pipeline_push_frame() are UNCHANGED (they push with a NULL
+ * pointer, and their results carry a NULL pointer back). */
+/*
+ * MINIMAL USE -- the whole point of the pointer:
+ *
+ *   // 1) push: hand the pointer over TOGETHER with the frame
+ *   mosaic_pipeline_push_frame_ptr(pipe, gray, w, h, frame_id, my_ptr);
+ *   ...
+ *   // 2) collect: the SAME pointer comes back with the SAME frame
+ *   void* p = NULL;
+ *   int64_t id = 0;
+ *   int32_t n = mosaic_pipeline_collect_ex(pipe, &id, &p, dets, 128);
+ *   //   id == frame_id  and  p == my_ptr   (for that very frame)
+ *
+ * The callback flavour carries the very same pair:
+ *
+ *   static void on_det(void* user, int64_t frame_id, void* frame_user,
+ *                      const MosaicDet* dets, int32_t n) {
+ *     // frame_user is the pointer that was pushed with THIS frame
+ *   }
+ *   mosaic_pipeline_set_result_callback_ex(pipe, on_det, my_user);
+ *
+ * The library never dereferences the pointer and never frees it; the caller
+ * keeps it alive until the result for that frame has been consumed. */
+int64_t mosaic_pipeline_push_frame_ptr(MosaicPipeline* p, const uint8_t* gray, int32_t w, int32_t h,
+                                       int64_t client_frame_id, void* frame_user);
+
 /* Register the result callback (see MosaicResultCallback).  Passing NULL
  * removes it and switches the result path back to mosaic_pipeline_collect().
  * The callback is invoked from a dedicated dispatcher thread; it must not call
  * back into the pipeline's own functions that take the result lock. */
 int32_t mosaic_pipeline_set_result_callback(MosaicPipeline* p, MosaicResultCallback cb,
                                             void* user);
+
+/* Register the result callback that also carries the per-frame pointer (see
+ * MosaicResultCallbackEx).  Passing NULL removes it and switches the result
+ * path back to mosaic_pipeline_collect().
+ *
+ * Registering the Ex callback CLEARS the plain one (and vice versa): there is
+ * exactly ONE result path at a time, so a frame is never handed out twice.
+ *
+ * This is an ADDITION: mosaic_pipeline_set_result_callback() is UNCHANGED. */
+int32_t mosaic_pipeline_set_result_callback_ex(MosaicPipeline* p, MosaicResultCallbackEx cb,
+                                               void* user);
 
 /* Block until the next frame has finished and copy its detections out.
  * `out` may be NULL if the caller only wants the count.  Returns the number
@@ -1005,6 +1078,22 @@ int32_t mosaic_pipeline_set_result_callback(MosaicPipeline* p, MosaicResultCallb
  */
 int32_t mosaic_pipeline_collect(MosaicPipeline* p, int64_t* frame_id, MosaicDet* out,
                                 int32_t max_out);
+
+/* Collect the next finished frame AND THE CALLER'S PER-FRAME POINTER.
+ *
+ * `frame_user` (may be NULL) receives the pointer that was handed to
+ * mosaic_pipeline_push_frame_ptr() for THIS frame -- the very same frame
+ * whose number lands in `frame_id`.  It is NULL for a frame pushed through
+ * mosaic_pipeline_push() / mosaic_pipeline_push_frame().
+ *
+ * `*frame_user` is ALWAYS written: it is set to NULL first, so reading it
+ * after a -1 (timeout / abort / flush) yields a defined NULL rather than
+ * an uninitialized value.
+ *
+ * This is an ADDITION: mosaic_pipeline_collect() is UNCHANGED and keeps
+ * behaving exactly as before. */
+int32_t mosaic_pipeline_collect_ex(MosaicPipeline* p, int64_t* frame_id, void** frame_user,
+                                   MosaicDet* out, int32_t max_out);
 
 /* Stop accepting frames, wait for every queued frame to finish, and join the
  * internal threads.  Returns 0 on success.  collect() may still be called

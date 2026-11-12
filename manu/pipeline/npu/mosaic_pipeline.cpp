@@ -111,7 +111,33 @@ struct InItem {
   // frames would make the engine report a HOLE and stretch its temporal
   // window -- i.e. the caller could silently destroy the accuracy.
   int64_t cid = 0;
+  // THE CALLER'S OWN OPAQUE PER-FRAME POINTER (the embedded group's `p`).
+  // The library NEVER dereferences it and NEVER frees it: it only carries it
+  // from push() to collect()/the callback, so the caller can map a result
+  // back to whatever object it owns for that frame.
+  //
+  // IT RIDES NEXT TO `cid` ON PURPOSE: the result's frame id and the result's
+  // pointer must name the SAME frame, so they can never be read from two
+  // places that could disagree.
+  void* cptr = nullptr;
   cv::Mat gray;
+};
+
+// The PHYSICAL ids of one seeded frame, as the GMC engine records them.
+//
+//   eng_idx : the index the engine anchors its 21-frame history on
+//   id      : the INTERNAL dense id (the engine's own numbering)
+//   cid     : the CALLER's frame number (what the caller sees back)
+//   cptr    : the CALLER's opaque per-frame pointer (what the caller sees back)
+//
+// `cid` and `cptr` are the two halves of ONE answer, so they travel in ONE
+// record -- a result can never carry the pointer of a different frame than
+// the frame id it names.
+struct PhysIds {
+  int64_t eng_idx = 0;
+  int64_t id = 0;
+  int64_t cid = 0;
+  void* cptr = nullptr;
 };
 
 // One frame assigned to one GMC engine.
@@ -136,12 +162,14 @@ struct GmcJob {
 // Feature frame -> NPU service.  Model order [residual, diff, I_t].
 struct FeatureItem {
   int64_t id = 0;
+  void* cptr = nullptr;   // the CALLER's per-frame pointer (rides with `id`)
   std::vector<uint8_t> rgb;
 };
 
 // Heatmap -> post-processing service.
 struct HeatItem {
   int64_t id = 0;
+  void* cptr = nullptr;   // the CALLER's per-frame pointer (rides with `id`)
   mosaic::Session* sess = nullptr;  // the NPU service that produced it
   std::vector<float> hm;
 };
@@ -149,6 +177,7 @@ struct HeatItem {
 // Finished frame -> the caller.
 struct ResultItem {
   int64_t id = 0;
+  void* cptr = nullptr;   // the CALLER's per-frame pointer (rides with `id`)
   std::vector<mosaic::Comp> comps;
 };
 
@@ -217,7 +246,11 @@ struct MosaicPipeline {
     // the deque only holds the frames between the last computed one and the
     // head.
     // (seeded index, the internal dense frame id, the caller's frame id)
-    std::deque<std::array<int64_t, 3>> phys_ids;
+    // The seeded frames' ids, in seed order.  See PhysIds: the CALLER's
+    // frame number and the CALLER's per-frame pointer travel in the SAME
+    // record, so a result can never pair one frame's id with another
+    // frame's pointer.
+    std::deque<PhysIds> phys_ids;
     // THE NEWEST INDEX THIS ENGINE HAS DEALT WITH (computed or voided).  -1
     // until the first frame arrives.  Only the engine's own thread touches
     // it, so it needs no lock.
@@ -281,6 +314,7 @@ struct MosaicPipeline {
       uint32_t bytes = 0;              // the slot's byte size
       int state = kSlotFree;
       int64_t frame_id = 0;            // the camera's PHYSICAL frame number
+      void* cptr = nullptr;            // the CALLER's per-frame pointer
     };
     std::vector<Slot> slots;
     std::deque<int> ready;      // the READY slot ids, oldest first
@@ -421,6 +455,10 @@ struct MosaicPipeline {
   std::mutex m_out;
   std::condition_variable cv_out;
   MosaicResultCallback cb = nullptr;
+  // The Ex variant of the result callback: the same, plus the caller's
+  // per-frame pointer.  Exactly ONE of the two is ever set (registering one
+  // clears the other), so a frame is never handed out twice.
+  MosaicResultCallbackEx cb_ex = nullptr;
   void* cb_user = nullptr;
   std::thread dispatch_thread;
 
@@ -729,7 +767,8 @@ struct MosaicPipeline {
       for (auto& e : engines) {
         {
           std::lock_guard<std::mutex> lk(e->m);
-          e->phys_ids.emplace_back(std::array<int64_t, 3>{(int64_t)eng_idx, item.id, item.cid});
+          e->phys_ids.emplace_back(
+              PhysIds{(int64_t)eng_idx, item.id, item.cid, item.cptr});
         }
         e->pipe->seed_frame(eng_idx, item.gray);
         // The head moved: wake the engine so it can grab the newest frame.
@@ -836,15 +875,20 @@ struct MosaicPipeline {
       // artifacts and the results have to carry the camera's PHYSICAL frame
       // number -- that is the id the caller sees.
       int64_t phys_id = abs;
+      // THE CALLER'S PER-FRAME POINTER, read from the SAME record as the
+      // frame number below -- so the pointer and the id always name the
+      // same frame.  NULL when the caller pushed without one.
+      void* phys_cptr = nullptr;
       {
         std::lock_guard<std::mutex> lk(eng->m);
         // Drop the ids of the frames this engine passed (the ones it skipped).
-        while (!eng->phys_ids.empty() && eng->phys_ids.front()[0] < abs)
+        while (!eng->phys_ids.empty() && eng->phys_ids.front().eng_idx < abs)
           eng->phys_ids.pop_front();
-        if (!eng->phys_ids.empty() && eng->phys_ids.front()[0] == abs) {
+        if (!eng->phys_ids.empty() && eng->phys_ids.front().eng_idx == abs) {
           // THE CALLER'S FRAME NUMBER is what the caller sees; the internal
           // dense id (element 1) is what the GMC history is anchored on.
-          phys_id = eng->phys_ids.front()[2];
+          phys_id = eng->phys_ids.front().cid;
+          phys_cptr = eng->phys_ids.front().cptr;
         } else {
           // Should not happen: the ingest records the id BEFORE it publishes
           // the head, so an id is always there when the head is.  Loud anyway:
@@ -1037,6 +1081,7 @@ struct MosaicPipeline {
       const size_t plane = static_cast<size_t>(height) * static_cast<size_t>(width);
       FeatureItem fi;
       fi.id = phys_id;
+      fi.cptr = phys_cptr;   // the CALLER's per-frame pointer, same frame
       fi.rgb.resize(plane * 3);
       const uint8_t* c0 = out.ptr<uint8_t>(0);
       const uint8_t* c1 = out.ptr<uint8_t>(1);
@@ -1608,6 +1653,10 @@ struct MosaicPipeline {
         // The camera's PHYSICAL frame number travels with the slot, so the
         // result can be named even though the frame crossed two stages.
         tba->slots[slot_id].frame_id = fi.id;
+        // The CALLER's per-frame pointer travels with the slot, exactly like
+        // the frame number does: the frame crossed two stages, and both
+        // halves of the caller's answer must cross with it.
+        tba->slots[slot_id].cptr = fi.cptr;
         tba->ready.push_back(slot_id);
       }
       tba->cv.notify_all();
@@ -1672,6 +1721,7 @@ struct MosaicPipeline {
     for (;;) {
       int slot_id = -1;
       int64_t frame_id = 0;
+      void* cptr = nullptr;   // the CALLER's per-frame pointer
       {
         const auto t_wait0 = std::chrono::steady_clock::now();
         std::unique_lock<std::mutex> lk(buf_a->m);
@@ -1698,6 +1748,7 @@ struct MosaicPipeline {
         buf_a->ready.pop_front();
         buf_a->slots[slot_id].state = kSlotInflight;
         frame_id = buf_a->slots[slot_id].frame_id;
+        cptr = buf_a->slots[slot_id].cptr;
       }
 
       // ---- bind the slot to THIS context, THEN run -------------------------
@@ -1787,6 +1838,7 @@ struct MosaicPipeline {
       HeatItem hi;
       // The camera's PHYSICAL frame number, carried through the slot.
       hi.id = frame_id;
+      hi.cptr = cptr;
       hi.sess = &sess;
       hi.hm = std::move(hm);
       {
@@ -1941,6 +1993,7 @@ struct MosaicPipeline {
 
       HeatItem hi;
       hi.id = fi.id;
+      hi.cptr = fi.cptr;
       hi.sess = &sess;
       hi.hm = std::move(hm);
       {
@@ -2026,6 +2079,7 @@ struct MosaicPipeline {
 
       ResultItem ri;
       ri.id = hi.id;
+      ri.cptr = hi.cptr;
       ri.comps = std::move(comps);
       {
         std::lock_guard<std::mutex> lk(m_out);
@@ -2119,12 +2173,14 @@ struct MosaicPipeline {
         cb_q.pop_front();
       }
       MosaicResultCallback fn = nullptr;
+      MosaicResultCallbackEx fn_ex = nullptr;
       void* user = nullptr;
       {
         std::lock_guard<std::mutex> lk(m_out);
         fn = cb;
+        fn_ex = cb_ex;
         user = cb_user;
-        if (!fn) {
+        if (!fn && !fn_ex) {
           // The callback was removed while this result was in flight: hand it
           // to the polling path instead of dropping it.
           out_q.push_back(std::move(ri));
@@ -2145,7 +2201,12 @@ struct MosaicPipeline {
         dets[i].peak = c.peak;
         dets[i].sum = c.sum;
       }
-      fn(user, ri.id, dets.data(), (int32_t)dets.size());
+      if (fn_ex) {
+        // THE CALLER'S PER-FRAME POINTER rides along with the frame number.
+        fn_ex(user, ri.id, ri.cptr, dets.data(), (int32_t)dets.size());
+      } else {
+        fn(user, ri.id, dets.data(), (int32_t)dets.size());
+      }
     }
   }
 };
@@ -3493,6 +3554,28 @@ int32_t mosaic_pipeline_set_result_callback(MosaicPipeline* p, MosaicResultCallb
   {
     std::lock_guard<std::mutex> lk(p->m_out);
     p->cb = cb;
+    // The Ex callback is CLEARED: there is exactly ONE result path at a time,
+    // so a frame is never handed out twice.
+    p->cb_ex = nullptr;
+    p->cb_user = user;
+  }
+  p->cv_out.notify_all();
+  return 0;
+}
+
+// Register the result callback that also carries the caller's per-frame
+// pointer (see MosaicResultCallbackEx).  Passing NULL removes it and
+// switches the result path back to mosaic_pipeline_collect().
+//
+// This is an ADDITION: mosaic_pipeline_set_result_callback() is UNCHANGED.
+int32_t mosaic_pipeline_set_result_callback_ex(MosaicPipeline* p, MosaicResultCallbackEx cb,
+                                               void* user) {
+  if (!p) return -1;
+  {
+    std::lock_guard<std::mutex> lk(p->m_out);
+    p->cb_ex = cb;
+    // The plain callback is CLEARED: one result path at a time.
+    p->cb = nullptr;
     p->cb_user = user;
   }
   p->cv_out.notify_all();
@@ -3505,7 +3588,7 @@ int32_t mosaic_pipeline_set_result_callback(MosaicPipeline* p, MosaicResultCallb
 // the caller's own frame number rides along with the frame and comes back
 // with the result.
 static int64_t PushImpl(MosaicPipeline* p, const uint8_t* gray, int32_t w, int32_t h,
-                         int64_t client_id, bool auto_client) {
+                         int64_t client_id, bool auto_client, void* frame_user) {
   if (!p || !gray || w <= 0 || h <= 0) return -1;
   // The frame size is FIXED by the mosaic core (the RGA canvas and the
   // back-projection grid are built for exactly mosaic::kSrcW x mosaic::kSrcH).
@@ -3538,6 +3621,7 @@ static int64_t PushImpl(MosaicPipeline* p, const uint8_t* gray, int32_t w, int32
     InItem item;
     item.id = id;                                    // the INTERNAL dense id
     item.cid = auto_client ? id : client_id;         // the CALLER's frame id
+    item.cptr = frame_user;                          // the CALLER's per-frame pointer
     // One copy, and it lands in an owning Mat (see InItem).
     item.gray = cv::Mat(h, w, CV_8UC1, const_cast<uint8_t*>(gray)).clone();
     // NEVER BLOCK: a 25 fps camera must not be stalled by a pipeline that
@@ -3609,16 +3693,49 @@ static int64_t PushImpl(MosaicPipeline* p, const uint8_t* gray, int32_t w, int32
 // dense numbering (which the GMC history is anchored on, and which detects a
 // hole in the camera stream) stays separate and untouched.
 int64_t mosaic_pipeline_push(MosaicPipeline* p, const uint8_t* gray, int32_t w, int32_t h) {
-  return PushImpl(p, gray, w, h, 0, true);
+  return PushImpl(p, gray, w, h, 0, true, nullptr);
 }
 
 int64_t mosaic_pipeline_push_frame(MosaicPipeline* p, const uint8_t* gray, int32_t w, int32_t h,
                                    int64_t client_frame_id) {
-  return PushImpl(p, gray, w, h, client_frame_id, false);
+  return PushImpl(p, gray, w, h, client_frame_id, false, nullptr);
 }
 
-int32_t mosaic_pipeline_collect(MosaicPipeline* p, int64_t* frame_id, MosaicDet* out,
-                                int32_t max_out) {
+// Enqueue one raw grayscale frame WITH THE CALLER'S OWN FRAME NUMBER **AND**
+// THE CALLER'S OWN OPAQUE PER-FRAME POINTER.
+//
+// `frame_user` is an arbitrary pointer the caller owns.  The library NEVER
+// dereferences it and NEVER frees it: it only carries it, unchanged, from
+// this call to the result (mosaic_pipeline_collect_ex() /
+// mosaic_pipeline_set_result_callback_ex()), where it arrives TOGETHER WITH
+// the frame number of the SAME frame.
+//
+// WHY: a camera pipeline usually has one object per frame (a DMA buffer
+// handle, an image, a downstream request).  Without a way to carry it, the
+// caller has to keep its own side table from frame id to pointer -- and that
+// table races with the results (a result can arrive before the table is
+// written) and has to be maintained forever.  Carrying the pointer with
+// the frame removes the table entirely.
+//
+// The pointer rides in the SAME internal record as the frame number, so a
+// result can never pair one frame's id with another frame's pointer.
+//
+// This is an ADDITION: mosaic_pipeline_push() and
+// mosaic_pipeline_push_frame() are UNCHANGED (they push with a NULL
+// pointer, and their results carry a NULL pointer back).
+int64_t mosaic_pipeline_push_frame_ptr(MosaicPipeline* p, const uint8_t* gray, int32_t w, int32_t h,
+                                        int64_t client_frame_id, void* frame_user) {
+  return PushImpl(p, gray, w, h, client_frame_id, false, frame_user);
+}
+
+// The shared collect body.  `frame_user` may be NULL (then the caller's
+// per-frame pointer is simply not reported).
+static int32_t CollectImpl(MosaicPipeline* p, int64_t* frame_id, void** frame_user, MosaicDet* out,
+                            int32_t max_out) {
+  // The caller's per-frame pointer is ALWAYS written, and it starts at NULL:
+  // a caller that reads *frame_user after a -1 (timeout / abort / flush)
+  // then reads a defined NULL instead of an uninitialized value.
+  if (frame_user) *frame_user = nullptr;
   if (!p) return -1;
   ResultItem ri;
   {
@@ -3637,6 +3754,10 @@ int32_t mosaic_pipeline_collect(MosaicPipeline* p, int64_t* frame_id, MosaicDet*
     p->out_q.pop_front();
   }
   if (frame_id) *frame_id = ri.id;
+  // THE CALLER'S PER-FRAME POINTER, exactly as it was handed to
+  // mosaic_pipeline_push_frame_ptr().  NULL for a frame pushed through
+  // mosaic_pipeline_push() / mosaic_pipeline_push_frame().
+  if (frame_user) *frame_user = ri.cptr;
   const int32_t n = (int32_t)ri.comps.size();
   if (out && max_out > 0) {
     const int32_t ncopy = n < max_out ? n : max_out;
@@ -3654,6 +3775,25 @@ int32_t mosaic_pipeline_collect(MosaicPipeline* p, int64_t* frame_id, MosaicDet*
     return ncopy;
   }
   return n;
+}
+
+int32_t mosaic_pipeline_collect(MosaicPipeline* p, int64_t* frame_id, MosaicDet* out,
+                                int32_t max_out) {
+  return CollectImpl(p, frame_id, nullptr, out, max_out);
+}
+
+// Collect the next finished frame AND THE CALLER'S PER-FRAME POINTER.
+//
+// `frame_user` (may be NULL) receives the pointer that was handed to
+// mosaic_pipeline_push_frame_ptr() for THIS frame -- the very same frame
+// whose number lands in `frame_id`.  It is NULL for a frame pushed through
+// mosaic_pipeline_push() / mosaic_pipeline_push_frame().
+//
+// This is an ADDITION: mosaic_pipeline_collect() is UNCHANGED and keeps
+// behaving exactly as before.
+int32_t mosaic_pipeline_collect_ex(MosaicPipeline* p, int64_t* frame_id, void** frame_user,
+                                    MosaicDet* out, int32_t max_out) {
+  return CollectImpl(p, frame_id, frame_user, out, max_out);
 }
 
 // v10.3: 逐帧后处理耗时原始样本的落盘（定义在 get_post_timing 附近）。
