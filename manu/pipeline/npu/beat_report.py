@@ -40,8 +40,8 @@ def main() -> None:
         if of98.get(k) is not None:
             base[k] = of98[k]
 
-    bs = (led.get("board_sessions") or [{}])[-1] if led.get("board_sessions") else {}
-    ref_t31 = ((bs.get("session2") or {}).get("arms") or {}).get("t31_silu_int8")
+    # 板端参照：直接读会话文件（台账里的 board_sessions 可能被搜索器覆盖成 null）
+    ref_t31 = ns.board_reference_ms()
 
     lines = []
     lines.append("# Beat-to-Pass 结论汇总（参照 Baseline_v2.0 = trial_9863）\n")
@@ -69,17 +69,23 @@ def main() -> None:
         if g.get("t3") is not None:
             chk["t3"] = g["t3"] >= base["t3"]
         ms = st.get("board_ms")
+        if ms is None and b.get("epoch") is not None:
+            ms = ns.board_ms_for(int(k), int(b["epoch"]))   # 台账没存就去会话文件里找
         if ms is not None and ref_t31:
             chk["ms"] = ms <= ref_t31 * 1.02
         core = {kk: vv for kk, vv in chk.items() if kk != "ms"}
-        beat = bool(core) and all(core.values())
+        # 🔴 六项必须**齐全**且全 True（缺项 = 官方三轨没测 ⇒ 不算打平）
+        need = ("nano", "nano4", "f1", "t1", "t2fp", "t3")
+        beat = all(k in core for k in need) and all(core[k] for k in need)
         rows.append((int(k), st.get("desc", ""), b.get("epoch"), b.get("nano"), b.get("nano4"),
                      b.get("f1"), b.get("micro"), g.get("t1"), g.get("t2_fp"), g.get("t3"), ms,
                      st.get("board_session"), beat, all(chk.values()) if chk else False,
                      st.get("is_baseline_v2", False)))
 
     lines.append("## 一、打平或超越 Baseline_v2.0 的臂\n")
-    winners = [r for r in rows if r[13] and not r[14]]
+    #   r[12] = 六项（nano/nano4/F1/T1/T2FP/T3）全平；r[13] = 再加板端时延；r[14] = 是否就是基线本体
+    #   ⇒ 六项全平但**没测速**的臂也要列出来（标 PASS*），否则最重要的候选会从榜上消失
+    winners = [r for r in rows if r[12] and not r[14]]
     if not winners:
         lines.append("（暂无 —— 无任何臂在 nano/nano@4px/F1/T1/T2FP/T3 六项上同时打平基线）\n")
     else:
@@ -88,7 +94,7 @@ def main() -> None:
         for r in sorted(winners, key=lambda x: -(x[3] or 0)):
             lines.append(f"| {r[0]} | {r[1][:30]} | {r[2]} | {fmt(r[3])} | {fmt(r[4])} | {fmt(r[5])} | "
                          f"{fmt(r[6], '.4f')} | {fmt(r[7])} | {fmt(r[8], 'd')} | {fmt(r[9])} | "
-                         f"{fmt(r[10], '.3f')} | {'PASS*' if not r[12] else 'PASS'} |")
+                         f"{fmt(r[10], '.3f')} | {'PASS' if r[13] else 'PASS*'} |")
         lines.append("")
 
     lines.append("## 二、全臂排序（按 nano）\n")

@@ -26,6 +26,7 @@
 ├── src/
 │   ├── npu/    mosaic_pipeline.cpp/.h, mosaic_core.h, mosaic_post_gpu.h,
 │   │           mosaic_api_test.cpp, mosaic_client_example.cpp,
+│   │           mosaic_async_client_example.cpp,
 │   │           mosaic_contract_test.cpp, rknn_mosaic_e2e.cpp
 │   ├── cpp/    gmc_stream_ocl.cpp, md5.h
 │   └── opencl/host/   ocl_host.h, post_local_max.cl
@@ -34,9 +35,11 @@
 ├── runtime/kernels/    warp_median_fused.cl, sortnet_generated.inc, gmc_feature_gpu.cl
 ├── out/        mosaic_pipeline.o, libmosaic_pipeline.so,
 │               mosaic_api_test, mosaic_client_example,
+│               mosaic_async_client_example,
 │               mosaic_contract_test, rknn_mosaic_e2e
 └── 兼容别名（相对符号链接）：
     mosaic_api_test       -> out/mosaic_api_test
+    mosaic_async_client_example -> out/mosaic_async_client_example
     mosaic_contract_test  -> out/mosaic_contract_test
     libmosaic_pipeline.so -> out/libmosaic_pipeline.so
     mosaic_pipeline.h     -> src/npu/mosaic_pipeline.h
@@ -53,7 +56,7 @@
 * ⚠️ **本包不携带任何第三方 .so/.a**（**没有第三方依赖目录**）：OpenCV /
   RKNN Runtime / RGA / OpenCL 全部**动态链接板卡自带的库**（见 §C 的
   **板卡依赖矩阵**）。库本身以**共享库** `out/libmosaic_pipeline.so` 交付
-  （SONAME = `libmosaic_pipeline.so`），四个测试程序用
+  （SONAME = `libmosaic_pipeline.so`），五个测试程序用
   `-lmosaic_pipeline` + `-Wl,-rpath,'$ORIGIN'` 链接它 ⇒ 整包可搬、可直接跑。
 
 <!-- MD5_TABLE:BEGIN -->
@@ -68,7 +71,7 @@
   列进来只会误导人。需要核对产物时手动 `md5sum out/*`。
   本版交付的是**共享库** `out/libmosaic_pipeline.so`（不再是 `.a` 归档）
   ⇒ **没有 `ar` 归档时间戳那种「每次构建都变」的问题**，在**同一个包根路径**
-  下重编，`.so` 与四个可执行文件的 md5 都是稳定的。
+  下重编，`.so` 与五个可执行文件的 md5 都是稳定的。
 * 🔴 **但产物 md5 与「包根的绝对路径」绑定**：编译时 `__FILE__` 把路径烤进二进制
   ⇒ **集成方在自己的目录重编，md5 会与 README 顶部那张表不同**（**行为完全一样**，
   已实测：换路径编出来的 `mosaic_client_example` 在板卡上 6 帧 12 检出、检测框
@@ -92,6 +95,7 @@
 | OpenCL 副本 | `src/opencl/host/post_local_max.cl` | GPU 后处理 kernel 的**可读副本**（运行时**不需要**） |
 | 示例 demo | `src/npu/mosaic_api_test.cpp` | 只调公开 C ABI 的示例 |
 | 最小集成示范 | `src/npu/mosaic_client_example.cpp` | **嵌入方照着抄的最简调用骨架**（open / set_post_mode / push / collect / destroy） |
+| 多线程生产-消费模板 | `src/npu/mosaic_async_client_example.cpp` | **工程级集成骨架**：相机线程不等算法 + Worker 严格一推一收 + 业务方自己的回调 |
 | 契约测试 | `src/npu/mosaic_contract_test.cpp` | 库的验收门禁 |
 | 端到端测试程序 | `src/npu/rknn_mosaic_e2e.cpp` | **吞吐/延时测量**（12.9 fps 那个数就是它测的），只调公开 C ABI |
 | 第三方头 | `include/rknn_api.h` | RKNN API |
@@ -196,7 +200,7 @@ const std::string isrc = ocl::read_file(kernel_dir + "/sortnet_generated.inc");
   `RT_LIB_DIR` 定位；默认值就是板卡的系统路径）。
 * **运行期**：上面这些**全部由板卡 `ldconfig` 解析**（板上 `ldconfig -p` 已实测
   全部可解析）⇒ **不需要设 `LD_LIBRARY_PATH`**。
-  唯一需要 `-rpath` 的是**本包自己的** `libmosaic_pipeline.so`：四个测试程序用
+  唯一需要 `-rpath` 的是**本包自己的** `libmosaic_pipeline.so`：五个测试程序用
   `-Wl,-rpath,'$ORIGIN'` 找**同目录**的那一份 ⇒ **整包可搬**。
 
 > ⚠️ **交叉编译在宿主机上做时，上表那些路径指的是「目标板卡的文件系统」**：
@@ -311,8 +315,9 @@ libgcc_s.so.1
 libc.so.6
 ```
 
-四个可执行文件（`out/mosaic_api_test` / `out/mosaic_client_example` /
-`out/mosaic_contract_test` / `out/rknn_mosaic_e2e`）的动态依赖 = **上面这份 +
+五个可执行文件（`out/mosaic_api_test` / `out/mosaic_client_example` /
+`out/mosaic_async_client_example` / `out/mosaic_contract_test` / `out/rknn_mosaic_e2e`）
+的动态依赖 = **上面这份 +
 `libmosaic_pipeline.so`**，并且带 **`RPATH = $ORIGIN`**
 ⇒ 运行时从**自己所在目录**找那份 `.so` ⇒ **整包可搬**，
 **不需要设 `LD_LIBRARY_PATH`**。

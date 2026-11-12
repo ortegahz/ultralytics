@@ -57,6 +57,7 @@
 #include "mosaic_post_gpu.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cerrno>
 #include <chrono>
@@ -98,6 +99,18 @@ namespace {
 // ---------------------------------------------------------------------------
 struct InItem {
   int64_t id = 0;
+  // THE CALLER'S OWN FRAME NUMBER (the "client id").  It travels with the
+  // frame all the way to the result, so the caller learns WHICH of its frames
+  // a detection belongs to -- the library is much slower than the camera, so
+  // the caller cannot assume that the result order matches the push order.
+  //
+  // `id` above stays the INTERNAL, DENSE frame number: it is what the GMC
+  // engine anchors its 21-frame history on (gmc_phys_anchor) and what detects
+  // a hole in the camera stream.  The two MUST NOT be merged: if the caller's
+  // frame numbers were used for the history anchor, a client that skips
+  // frames would make the engine report a HOLE and stretch its temporal
+  // window -- i.e. the caller could silently destroy the accuracy.
+  int64_t cid = 0;
   cv::Mat gray;
 };
 
@@ -203,7 +216,8 @@ struct MosaicPipeline {
     // The engine pops the entries it has passed (the frames it skipped), so
     // the deque only holds the frames between the last computed one and the
     // head.
-    std::deque<std::pair<long, int64_t>> phys_ids;
+    // (seeded index, the internal dense frame id, the caller's frame id)
+    std::deque<std::array<int64_t, 3>> phys_ids;
     // THE NEWEST INDEX THIS ENGINE HAS DEALT WITH (computed or voided).  -1
     // until the first frame arrives.  Only the engine's own thread touches
     // it, so it needs no lock.
@@ -715,7 +729,7 @@ struct MosaicPipeline {
       for (auto& e : engines) {
         {
           std::lock_guard<std::mutex> lk(e->m);
-          e->phys_ids.emplace_back(eng_idx, item.id);
+          e->phys_ids.emplace_back(std::array<int64_t, 3>{(int64_t)eng_idx, item.id, item.cid});
         }
         e->pipe->seed_frame(eng_idx, item.gray);
         // The head moved: wake the engine so it can grab the newest frame.
@@ -825,10 +839,12 @@ struct MosaicPipeline {
       {
         std::lock_guard<std::mutex> lk(eng->m);
         // Drop the ids of the frames this engine passed (the ones it skipped).
-        while (!eng->phys_ids.empty() && eng->phys_ids.front().first < abs)
+        while (!eng->phys_ids.empty() && eng->phys_ids.front()[0] < abs)
           eng->phys_ids.pop_front();
-        if (!eng->phys_ids.empty() && eng->phys_ids.front().first == abs) {
-          phys_id = eng->phys_ids.front().second;
+        if (!eng->phys_ids.empty() && eng->phys_ids.front()[0] == abs) {
+          // THE CALLER'S FRAME NUMBER is what the caller sees; the internal
+          // dense id (element 1) is what the GMC history is anchored on.
+          phys_id = eng->phys_ids.front()[2];
         } else {
           // Should not happen: the ingest records the id BEFORE it publishes
           // the head, so an id is always there when the head is.  Loud anyway:
@@ -3483,7 +3499,13 @@ int32_t mosaic_pipeline_set_result_callback(MosaicPipeline* p, MosaicResultCallb
   return 0;
 }
 
-int64_t mosaic_pipeline_push(MosaicPipeline* p, const uint8_t* gray, int32_t w, int32_t h) {
+// THE SHARED PUSH.  `auto_client` = true means "the caller has no frame
+// number of its own" => the caller's id is the internal dense id (the old
+// behaviour, and what every in-tree caller uses).  With auto_client = false
+// the caller's own frame number rides along with the frame and comes back
+// with the result.
+static int64_t PushImpl(MosaicPipeline* p, const uint8_t* gray, int32_t w, int32_t h,
+                         int64_t client_id, bool auto_client) {
   if (!p || !gray || w <= 0 || h <= 0) return -1;
   // The frame size is FIXED by the mosaic core (the RGA canvas and the
   // back-projection grid are built for exactly mosaic::kSrcW x mosaic::kSrcH).
@@ -3514,7 +3536,8 @@ int64_t mosaic_pipeline_push(MosaicPipeline* p, const uint8_t* gray, int32_t w, 
     if (p->eof || p->abort) return -1;
     id = p->next_id++;
     InItem item;
-    item.id = id;
+    item.id = id;                                    // the INTERNAL dense id
+    item.cid = auto_client ? id : client_id;         // the CALLER's frame id
     // One copy, and it lands in an owning Mat (see InItem).
     item.gray = cv::Mat(h, w, CV_8UC1, const_cast<uint8_t*>(gray)).clone();
     // NEVER BLOCK: a 25 fps camera must not be stalled by a pipeline that
@@ -3568,7 +3591,30 @@ int64_t mosaic_pipeline_push(MosaicPipeline* p, const uint8_t* gray, int32_t w, 
   // caught the implementation returning a constant 0: a caller that pushes a
   // frame that gets REJECTED (wrong size) and then pushes the next one would
   // see two identical ids and could not tell which frame it is holding.
+  // The returned handle is the library's OWN dense number (0, 1, 2, ... in push
+  // order) in BOTH entry points -- that is what the old contract test pins
+  // down ("push returned %lld for frame %d").  The CALLER's frame number
+  // rides along with the frame and comes back from collect() / the callback.
   return id;
+}
+
+// Enqueue one raw grayscale frame WITHOUT a caller frame number: the frame is
+// numbered by the library itself (0, 1, 2, ... in push order) and that number
+// comes back with the result.  This is the original API and it is UNCHANGED.
+//
+// Enqueue one raw grayscale frame WITH the caller's own frame number.  The
+// number is carried through the whole pipeline and handed back by
+// mosaic_pipeline_collect() and by the result callback, so the caller always
+// knows WHICH of its frames a detection belongs to.  The library's internal
+// dense numbering (which the GMC history is anchored on, and which detects a
+// hole in the camera stream) stays separate and untouched.
+int64_t mosaic_pipeline_push(MosaicPipeline* p, const uint8_t* gray, int32_t w, int32_t h) {
+  return PushImpl(p, gray, w, h, 0, true);
+}
+
+int64_t mosaic_pipeline_push_frame(MosaicPipeline* p, const uint8_t* gray, int32_t w, int32_t h,
+                                   int64_t client_frame_id) {
+  return PushImpl(p, gray, w, h, client_frame_id, false);
 }
 
 int32_t mosaic_pipeline_collect(MosaicPipeline* p, int64_t* frame_id, MosaicDet* out,

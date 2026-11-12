@@ -8,6 +8,10 @@
 #                                 open / push / collect / destroy.
 #     out/mosaic_client_example  the MINIMAL INTEGRATION example -- the one
 #                                 an embedded integrator copies.
+#     out/mosaic_async_client_example
+#                                 the MULTI-THREADED PRODUCER/CONSUMER template
+#                                 (camera thread never blocks + strict
+#                                 one-push-one-collect + integrator callback).
 #     out/mosaic_contract_test   the library's own API CONTRACT test.
 #     out/rknn_mosaic_e2e        the END-TO-END test program: measures
 #                                 throughput / latency (the 12.9 fps number).
@@ -137,6 +141,7 @@ echo "  RKNN 库  : $RT_LIB_DIR"
 
 [ -f "$HERE/src/npu/mosaic_api_test.cpp" ]        || die "missing source: src/npu/mosaic_api_test.cpp"
 [ -f "$HERE/src/npu/mosaic_client_example.cpp" ] || die "missing source: src/npu/mosaic_client_example.cpp"
+[ -f "$HERE/src/npu/mosaic_async_client_example.cpp" ] || die "missing source: src/npu/mosaic_async_client_example.cpp"
 [ -f "$HERE/src/npu/mosaic_contract_test.cpp" ]   || die "missing source: src/npu/mosaic_contract_test.cpp"
 [ -f "$HERE/src/npu/rknn_mosaic_e2e.cpp" ]        || die "missing source: src/npu/rknn_mosaic_e2e.cpp"
 
@@ -146,7 +151,7 @@ LIB_CXXFLAGS="-std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter -Wno-unused-fun
   $FP_FLAGS -DCL_TARGET_OPENCL_VERSION=300 \
   -I$HERE/include -I$HERE/include/rga -I$HERE/src/cpp -I$HERE/src/opencl/host -I$OPENCV_INCLUDE_DIR"
 
-# 共享库链接行（四个测试程序共用）：
+# 共享库链接行（五个测试程序共用）：
 #   -L$OUT            → 找 libmosaic_pipeline.so
 #   -lmosaic_pipeline → 链接它
 #   -rpath,'$ORIGIN'  → 运行时从**自己所在目录**找它（整包可搬）
@@ -169,6 +174,15 @@ echo "== building mosaic_client_example (the minimal integration example) =="
 "$CXX" $LIB_CXXFLAGS "$HERE/src/npu/mosaic_client_example.cpp" -o "$HERE/out/mosaic_client_example" "${LINK_COMMON[@]}"
 
 # ---------------------------------------------------------------------------
+# 1c. the MULTI-THREADED PRODUCER/CONSUMER TEMPLATE (the production-grade
+#     integration skeleton: the camera thread never blocks, the worker keeps a
+#     strict one-push-one-collect pairing, and the results are delivered to the
+#     integrator's own callback).
+# ---------------------------------------------------------------------------
+echo "== building mosaic_async_client_example (the multi-threaded template) =="
+"$CXX" $LIB_CXXFLAGS "$HERE/src/npu/mosaic_async_client_example.cpp" -o "$HERE/out/mosaic_async_client_example" "${LINK_COMMON[@]}"
+
+# ---------------------------------------------------------------------------
 # 2. the API CONTRACT test (the library's own gate)
 # ---------------------------------------------------------------------------
 echo "== building mosaic_contract_test (library contract test) =="
@@ -182,7 +196,7 @@ echo "== building rknn_mosaic_e2e (the end-to-end test program) =="
 
 echo
 echo "== artifacts =="
-for f in "$OUT/libmosaic_pipeline.so" "$OUT/mosaic_api_test" "$OUT/mosaic_client_example" "$OUT/mosaic_contract_test" "$OUT/rknn_mosaic_e2e"; do
+for f in "$OUT/libmosaic_pipeline.so" "$OUT/mosaic_api_test" "$OUT/mosaic_client_example" "$OUT/mosaic_async_client_example" "$OUT/mosaic_contract_test" "$OUT/rknn_mosaic_e2e"; do
   echo "  path : $f"
   echo "  size : $(stat -c%s "$f") B"
   echo "  md5  : $(md5sum "$f" | cut -d' ' -f1)"

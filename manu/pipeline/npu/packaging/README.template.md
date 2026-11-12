@@ -70,10 +70,11 @@
 | `out/libmosaic_pipeline.so` | **库（共享库）**：GMC/OpenCL + RGA mosaic + RKNN fp16 + 反投影，公开 C ABI 在 `src/npu/mosaic_pipeline.h`；SONAME = `libmosaic_pipeline.so` |
 | `out/mosaic_api_test` | **给客户的示例 demo**：只调公开 C ABI（open / push / collect / destroy） |
 | `out/mosaic_client_example` | **最小嵌入示范**（160 行）：只调公开 C ABI（open / set_post_mode / push / collect / destroy），零参数直接跑，嵌入式组照着抄的骨架 |
+| `out/mosaic_async_client_example` | **多线程生产-消费 + 回调模板**：相机线程（25 FPS）不等算法、Worker 严格「一推一收」、结果走业务方自己的回调；**嵌入式组真实工程集成的骨架** |
 | `out/mosaic_contract_test` | **库的契约测试**（验收门禁） |
 | `out/rknn_mosaic_e2e` | **端到端测试程序**：测吞吐/延时（fps / 延时分位就是它测的），只调公开 C ABI |
 
-> ℹ️ 四个测试程序用 `-lmosaic_pipeline` + `-Wl,-rpath,'$ORIGIN'` 链接**同目录**的
+> ℹ️ **五个**测试程序用 `-lmosaic_pipeline` + `-Wl,-rpath,'$ORIGIN'` 链接**同目录**的
 > `out/libmosaic_pipeline.so` ⇒ **整包搬到任何目录都能直接跑**，不用设
 > `LD_LIBRARY_PATH`（`readelf -d` 实测 RPATH = `$ORIGIN`）。
 
@@ -86,6 +87,7 @@
 | `out/libmosaic_pipeline.so` | `{{LIB_SO_MD5}}` |
 | `out/mosaic_api_test` | `{{API_TEST_MD5}}` |
 | `out/mosaic_client_example` | `{{CLIENT_EXAMPLE_MD5}}` |
+| `out/mosaic_async_client_example` | `{{ASYNC_EXAMPLE_MD5}}` |
 | `out/mosaic_contract_test` | `{{CONTRACT_TEST_MD5}}` |
 
 > ℹ️ **本表读的是「当前磁盘上已有的产物」**（`make_build_dir.sh` 不编译，只**读**
@@ -133,7 +135,7 @@
   + `libOpenCL.so.1`（`build_lib.sh` / `build_demo.sh` 用下面这 4 个变量定位它们）。
 * **运行期** —— 上面这些**全部由板卡 `ldconfig` 解析**
   （板上 `ldconfig -p` 已实测全部可解析）⇒ **不需要设 `LD_LIBRARY_PATH`**。
-  唯一需要 `-rpath` 的是**本包自己的** `libmosaic_pipeline.so`：四个测试程序用
+  唯一需要 `-rpath` 的是**本包自己的** `libmosaic_pipeline.so`：五个测试程序用
   `-Wl,-rpath,'$ORIGIN'` 找**同目录**的那一份 ⇒ **整包可搬**。
 
 > ⚠️ **交叉编译在宿主机上做时，上表那些路径指的是「目标板卡的文件系统」**：
@@ -242,6 +244,117 @@ e2e 自带的 `--watchdog-ms` 也看不见它（watchdog 住在**调用方**，�
   OpenCV 4.6，需另行打包 4.10；其余三个库（RKNN Runtime / RGA / OpenCL）
   用板卡自带的**完全没有问题**。
 
+### ✅ 位级门禁该拿谁当参照？（**2026-11-12 更新**：换板后参照已重建）
+
+> ⚠️ 上表里那份「认证基准」`A_gate_step2_nodrop` 是 **2026-10-28 的旧板**
+> （`192.168.0.64`，交叉编译 OpenCV 4.10）产出的。**板卡已于 11-10 换成当前这块**
+> （`192.168.0.211`，板卡自带 OpenCV 4.6 / RKNN 2.2.0）
+> ⇒ **拿旧板那份基准跟本包产物比，位级必然对不上**，这不是本包的缺陷。
+
+| 参照 | 产自 | 与本包产物逐位相同率 | 官方校验器判定 |
+|:--|:--|--:|:--|
+| 🔴 旧「认证基准」`A_gate_step2_nodrop` | **旧板**（10-28，OpenCV 4.10） | **19.97 %** | ❌ FAIL（ΔF1 −0.000103） |
+| ✅ **新板 golden**（11-12 重建） | **当前这块板**（板卡自带 OpenCV 4.6 / RKNN 2.2.0），`rknn_mosaic_e2e`，参数与原基准**逐字对齐** | **100.00 %**（共同帧 **11806/11806**，特征 md5 与检测载荷**都逐位全等**） | ✅ **PASS**（ΔF1 = **+0.000000**，TP/FP/FN/R/P/F1 全等） |
+
+⇒ **位级门禁请用「当前这块板重建的 golden」当参照**，不要用旧板那份。
+⇒ 重建方法（板卡上，约 52 min）：
+  ```bash
+  ./rknn_mosaic_e2e --raw-root <帧目录> --sequence <序列名> \
+    --model <模型.rknn> --kernel-dir <kernels 目录> --out <输出目录> \
+    --anchor-step 2 --npu-workers 2 --gmc-workers 2 --post-workers 1 \
+    --input-queue 8 --jitter-depth 8 \
+    --gmc-fit-corners 600 --gmc-fit-win 15 --gmc-fit-level 2 --gmc-fit-iters 20
+  ```
+  ⚠️ 用 `setsid nohup` 脱离运行：**TSV 只在跑完后落盘**，`timeout` 杀进程会拿不到可比对的产物。
+
+### ⚠️ 「2 帧」是**帧集合边界**，不是「有 2 帧算不出来」
+
+opportunistic 引擎忙不过来时会「取最新帧、跳过中间的」，**跳哪 2 帧每轮都不同**
+（实测：e2e 路径跳 `000001/000002`，异步 `push-all` 路径跳 `000199/000241`）。
+⇒ 两条路径的产物**各有 11808 帧、但不是同一批**；
+⇒ **裁到交集帧**（两臂都产出了的那些）再比 ⇒ **逐位 100%**（11806/11806）。
+⇒ 两轮合起来覆盖**全部 11810 帧**，**没有哪一帧是算不出来的**。
+
+### 🔁 跨环境（换板 / 换库）时的等价判据
+
+位级 md5 只在「同一块板 + 同一套库」下成立。换板后请用**容差判据**（实测值，已实测通过）：
+
+| 指标 | 判据 | 实测（旧板基准 vs 新板产物） |
+|:--|:--|:--|
+| 检出数变化率 | ≤ 1 % | **0.56 %** ✅ |
+| 坐标容差覆盖率（\|Δcx\|,\|Δcy\| ≤ 0.5 px 的帧占比） | ≥ 99 % | **99.48 %** ✅ |
+| 每帧最大坐标差 | —— | 中位 **0.0000 px**、p95 0.11 px、p99 0.31 px |
+| ΔF1 | ≥ −1.6e-4 | **−0.000103** ✅ |
+
+⇒ **亚像素抖动 ≠ 精度退化**（TP/FP/FN 判定一个都没变）。
+
+---
+
+### 🔴 板卡 RGA 驱动会**偶发内核 oops**（**新板特有**，嵌入式组必读）
+
+**现象**：在板卡 `192.168.0.211`（Orange Pi CM5 / Debian 12 / 内核 `5.10.160-rockchip-rk3588`）上
+跑本包的测试程序时，`dmesg` 偶发出现：
+
+```
+rga_mm: This is not a buffer that has been imported, handle = -1
+rga: buffer[0] mm release buffer failed! handle = -1
+Unable to handle kernel paging request at virtual address ffffff8000000000
+Internal error: Oops: 96000146 [#N] SMP
+CPU: 7 PID: 18287 Comm: mosaic_contract Tainted: G D  5.10.160-rockchip-rk3588
+  __clean_dcache_area_poc / iommu_dma_sync_single_for_device /
+  dma_sync_single_for_device / rga_mm_sync_dma_sg_for_device /
+  rga_mm_get_buffer / rga_mm_get_channel_handle_info /
+  rga_mm_map_job_info / rga_job_commit / rga_request_commit
+```
+
+⇒ **这是内核态崩溃，不是本包的用户态 bug**：崩在 Rockchip RGA 驱动的
+`rga_mm_get_buffer()` 里，它拿到 `handle = -1` 后**没有做空指针检查**就去做
+`dma_sync_single_for_device`，于是解引用 `ffffff8000000000`。
+
+**触发方确实是本包的二进制**（dmesg 里的 `Comm:` 就是 `rknn_mosaic_e2e` /
+`mosaic_contract`），**后果**是被打死的那个进程会**永久死锁**
+（实测：契约测试跑了 7.5 min 只用掉 13 s CPU 就再也醒不过来，线程全卡在
+`futex_wait_queue_me` / `do_sys_poll`）。
+
+**新旧板差异（这才是根因）**：
+
+| | 旧板（`192.168.0.64`，已作废） | 新板（`192.168.0.211`） |
+|:--|:--|:--|
+| 系统 | Ubuntu 20.04.6 | Orange Pi 1.0.0 Bookworm / Debian 12 |
+| 内核 RGA 驱动 | **`rga v1.3.1`** | **`rockchip_rga` `v1.3.0`** |
+| `librga.so.2` | md5 `7136ae54…`（192,712 B） | md5 `32c4b08f…`（200,896 B） |
+| RGA API 版本 | `1.10.0_[9]` | `1.10.0_[9]`（**相同**） |
+| 是否 oops | 未观测到 | **2 次 / 约 1.5 h** |
+
+⇒ **用户态 API 版本相同，是内核 RGA 驱动版本不同**（v1.3.1 → v1.3.0，新板反而更旧）。
+**这属于板卡/厂商侧的驱动缺陷，本包无法在用户态彻底消除。**
+
+**本包已做的两件事**：
+
+1. **修掉一处无效 API 用法**：`mosaic_core.h` 的 `ComposeFrame()` 原先把
+   `s->pat`（从未 import，`handle` 恒为 `-1`）以 `wrapbuffer_handle(-1, …)`
+   传给 `improcess()`。现已改为会话创建时 import 一次。
+   **该改动对输出零影响**：同一份 e2e 二进制分别挂新旧两版库跑 300 帧，
+   `feature_md5.txt` 与 `<seq>_mosaic.tsv` **逐字节相同**
+   （md5 `015649b0…` / `b1882de0…`）。
+   ⚠️ 但它**不是** oops 的根因 —— 实测两次运行的 `not a buffer that has been
+   imported` 计数**完全相同**（各 6 次），说明该内核报错与本包的 `pat` 无关。
+2. **给交付门禁加硬超时**：`copy_to_nfs.sh --verify` 现在每个板卡测试都套
+   `timeout -k 10 ${BOARD_TEST_TIMEOUT:-600}`。没有它的话，一次 oops 就会让
+   `--verify` **无限期挂死**且日志无任何线索（只会看到某个 `[1/5]` 之后再无输出）。
+   超时会打印 `[timeout] …` 并强杀后重试一次。
+
+**嵌入式组/平台方需要做的**：
+
+- 升级新板的 **RGA 内核驱动**（v1.3.0 → v1.3.1 或厂商修订版），或
+  向 Orange Pi 镜像维护方报这个 oops；
+- 排查现场用：`dmesg | grep -c 'Internal error: Oops'`（**计数是否增加**就是判据），
+  以及 `dmesg | grep -c 'not a buffer that has been imported'`；
+- 上板自检脚本里建议加一条「**跑之前/跑之后各记一次 oops 计数**」，
+  与本项目 §20.8 第 6 条「每臂跑完后核对 `dmesg` 的 `rga: buffer[0] mm release
+  buffer failed!` 计数」是同一条思路 —— 那条指标当时被记为「疑似跨进程资源泄漏」，
+  **现在已知它与内核 oops 同源**。
+
 ---
 
 ## ① 单独编译库
@@ -296,8 +409,8 @@ cd {{PKG_ROOT}}
 bash build_demo.sh
 ```
 
-产物：`out/mosaic_api_test`、`out/mosaic_client_example`、`out/mosaic_contract_test`、
-`out/rknn_mosaic_e2e`。
+产物：`out/mosaic_api_test`、`out/mosaic_client_example`、
+`out/mosaic_async_client_example`、`out/mosaic_contract_test`、`out/rknn_mosaic_e2e`。
 
 **等价的一行命令**（示例 demo；把源文件换成 `src/npu/mosaic_contract_test.cpp`、
 产物换成 `out/mosaic_contract_test` 即得契约测试）：
@@ -359,11 +472,13 @@ cp -a "$SRC/README.md" "$SRC/MANIFEST.md" \
       "$SRC/known_hosts" "$DST/"
 chmod +x "$DST/build_lib.sh" "$DST/build_demo.sh" "$DST/copy_to_nfs.sh" \
          "$DST/out/mosaic_api_test" "$DST/out/mosaic_client_example" \
+         "$DST/out/mosaic_async_client_example" \
          "$DST/out/mosaic_contract_test" "$DST/out/rknn_mosaic_e2e"
 
-# ③ 建 5 个兼容符号链接（**相对路径**），旧命令才继续可用
+# ③ 建 6 个兼容符号链接（**相对路径**），旧命令才继续可用
 ( cd "$DST" && \
   ln -sfn out/mosaic_api_test      mosaic_api_test && \
+  ln -sfn out/mosaic_async_client_example mosaic_async_client_example && \
   ln -sfn out/mosaic_contract_test mosaic_contract_test && \
   ln -sfn out/libmosaic_pipeline.so libmosaic_pipeline.so && \
   ln -sfn src/npu/mosaic_pipeline.h mosaic_pipeline.h && \
@@ -413,7 +528,7 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/out/libmosaic_pipeline
 > 铁律：**>1 MB 的二进制一律先 `cat` 到板卡 `/tmp`（tmpfs）再执行**，
 > `chmod +x` 后再跑。详见「必读的坑」。
 > ⚠️ 本版改成共享库后，产物**全部 < 1 MB**（最大的 `out/libmosaic_pipeline.so`
-> 约 417 KB，四个可执行文件 25–74 KB）⇒ 这条铁律**当前不再触发**；
+> 约 417 KB，五个可执行文件 20–74 KB）⇒ 这条铁律**当前不再触发**；
 > 但下面的命令**仍然 `cat` 到 `/tmp`**（稳妥，而且 `.so` 与可执行文件本来就要
 > 待在一起）。
 >
@@ -505,7 +620,7 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/out/libmosaic_pipeline
     && chmod +x /tmp/mosaic_api_test && /tmp/mosaic_api_test ...'
   ```
 
-  ⚠️ 本版产物**全部 < 1 MB**（共享库 ~417 KB，四个可执行文件 25–74 KB）⇒ 这条
+  ⚠️ 本版产物**全部 < 1 MB**（共享库 ~417 KB，五个可执行文件 20–74 KB）⇒ 这条
   铁律当前不触发；上面仍 `cat` 到 `/tmp` 是稳妥起见 + `.so` 必须同目录。
 
   详见「必读的坑」。
@@ -632,6 +747,180 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/out/libmosaic_pipeline
 | 某一帧读不出来 | `[FATAL] 读不出 <路径>` | 1 |
 | 建流水线失败 | `[FATAL] 建流水线失败：<err>`（err 是人类可读的原因） | 1 |
 
+### 🔀 多线程生产-消费 + 回调：`mosaic_async_client_example`（**真实工程集成的骨架**）
+
+> 上面那个 `mosaic_client_example` 是**单线程**原型，用来把 ABI 讲清楚、验证连通性。
+> 真实业务里**没有人会把相机取帧和阻塞式推理写在同一个线程**——按单线程写法推帧，
+> 必然踩中上面写明的第一条规矩（*推多帧 ⇒ `collect` 永久阻塞*）。
+> 这一节给的是**工程级模板**：相机硬实时（25 FPS）与算法软实时（8~13 FPS）解耦。
+
+**线程模型**
+
+```text
+[相机线程 Producer]              [算法线程 Worker]           [业务方]
+每 40 ms 产出一帧                  取「最新」的一帧              OSD / 伺服 / 推流
+feed_frame()  ────────────────>   push() → collect() ───────> callback()
+```
+
+**⭐ 库新增的 `mosaic_pipeline_push_frame()`：把「这是第几帧」交给库，让库告诉你结果属于哪一帧**
+
+库的推理速度（8~12 fps）**远低于**相机（25 fps），而且机会主义调度器**自己决定算哪几帧**
+⇒ 调用方**既不能假设结果按 push 顺序回来，也不能靠数个数** ⇒ OSD / 伺服 / 推流
+必须知道「这个检测框属于我推的第几帧」，否则会画在错误的画面上。
+
+```c
+/* 推帧时带上自己的帧号 */
+mosaic_pipeline_push_frame(p, gray, w, h, my_frame_id);
+/* 取结果时，frame_id 原样带回你的帧号 */
+int64_t fid = -1;
+mosaic_pipeline_collect(p, &fid, dets, 128);   /* fid == my_frame_id */
+```
+
+* ✅ **客户端帧号原样回传**（`collect` 的返回值、结果回调的 `frame_id` 都是它）。
+* ✅ **客户端帧号可以稀疏、可以非零** —— 库**不会**改写它。
+* ✅ **库内部的稠密编号保持独立**：GMC 的 21 帧历史锚点和「相机流空洞检测」用的仍是它
+  ⇒ **客户端跳帧不会让引擎误报 HOLE、不会拉伸时间窗、不会掉精度**。
+  （这正是「内部 id」与「客户端 id」必须**解耦**的原因：合成一个，客户端跳一帧
+  就会静默毁掉精度。）
+* ✅ **老接口一字未改**：`mosaic_pipeline_push()` 仍在，行为、返回值、ABI 全部不变
+  （它就是 `push_frame` 的「客户端没有自己的帧号」版本）。**既有代码不用改一行。**
+* 契约测试新增 3 条用例钉住这个语义（`mosaic_contract_test`：**199 passed / 0 failed**）。
+
+**三条设计规则（照抄就不会踩坑）**
+
+1. **相机线程绝不阻塞**：`feed_frame()` 只做一次 `memcpy` + 一次 `notify_one`；
+   帧数据在 `feed_frame()` 里就被**深拷贝**了一份 ⇒ 相机可以把 DMA buffer
+   立刻还给驱动复用，不会有野指针，也不会有撕裂。
+   ⚠️ **但应用层不丢帧**：算法跟不上时丢帧由**SDK 内部**做（丢队列里最老的帧），
+   **不要**在应用层做「最新帧覆盖」—— 那会打散 GMC 的 21 帧物理历史（见下面的硬规矩）。
+2. **Worker 严格「一推一收」**：`push()` 一次就 `collect()` 一次，且两个动作在
+   **同一个线程**里 ⇒ 从代码结构上杜绝「推多帧 ⇒ `collect` 永久阻塞」。
+3. **帧号是物理帧号**：`mosaic_pipeline_push_frame()` 把客户端帧号绑在这帧上，
+   库**原样带回** ⇒ 输出里不可能出现 `-1`；库内部另有自己的稠密编号
+   （给 GMC 历史做锚点、检测相机流空洞），**与客户端帧号解耦**。
+
+**三种运行模式（`--mode`）**
+
+| 模式 | 应用层行为 | SDK 侧丢帧 | 用途 |
+|:--|:--|:--|:--|
+| `serial` | **单线程** push→collect 成对执行 | 不丢（每帧都算） | **参照基线**：语义 == 老 demo `mosaic_client_example`，用来证明多线程路径不改变任何一个数字 |
+| `push-all`（**默认**） | 多线程 Producer **带反压**（`--inflight N`）⇒ 帧 **100% 连续**送入 SDK | 不丢（反压让 SDK 跟得上） | **精度验收 / Golden 对标**：输出与 `serial` **逐位相同**，大盘 F1 与认证 golden **逐项全等** |
+| `app-drop` | 多线程 Producer **不带反压**（相机线程一秒都不等） | 由 SDK 内部丢（丢队列里**最老**的帧） | **在线生产**：帧照进 SDK（历史保持物理连续），推理慢时由 SDK 自己抽帧 |
+
+**📊 覆盖率：精度对齐 ≠ 覆盖率对齐（这条必须让集成方知道）**
+
+「被处理的帧逐位相同」**不等于**「每一帧都有结果」：
+
+| 口径 | `app-drop`（3000 帧喂入） | `push-all`（3000 帧喂入） |
+|:--|:--|:--|
+| 产出结果的帧 | **1,009（≈34 %）** | **2,998（≈99.9 %）** |
+| 没产出结果的帧 | 1,991 帧**没有框** | 2 帧没有框 |
+| 被处理帧的逐位 | ✅ 与参照**全等** | ✅ 与参照**全等** |
+
+⇒ **官方校验器口径**（只比 arm 真正产出结果的帧）下两者 **ΔF1 = 0**；
+⇒ 但**按全序列算 F1**（未产出结果的帧记漏检），丢帧模式**一定会掉** ——
+校验器看不到这个差异，是因为那些帧根本不在它的子集里。
+
+⇒ **两条口径对应两种用法**：
+
+* **精度验收 / Golden 对标** ⇒ `--mode push-all --inflight 1`：
+  反压到 1 帧 ⇒ 严格一推一收 ⇒ GMC 永不忙 ⇒ **覆盖率 100 %**
+  （**已实测**：喂入 3000 帧 → 产出 **3000 帧**，零跳过；速率 3.1 fps，
+  代价是相机线程被算法节奏拖住，验收模式无所谓）。
+* **在线生产（延迟优先）** ⇒ `--mode app-drop`：相机线程一秒都不等，
+  丢帧交给 SDK 内部；**接受那部分帧没有框**。
+
+> 🔴 **最重要的一条规矩（务必照抄）**：
+> **应用层绝不跳帧**。每一帧都必须 `push` 进 SDK，丢帧只允许发生在**推理阶段**。
+>
+> ❌ **反例（本模板已废止）**：在**应用层**做「最新帧覆盖」（容量 1 的 drop queue）。
+> 那会让喂进 SDK 的时间轴从 40 ms 变成 120 ms ⇒ GMC 的 **21 帧物理历史被打散** ⇒
+> 特征静默漂移 ⇒ F1 出现万分之八量级的波动。⚠️ 而且 **SDK 察觉不到**：
+> 它的内部号是连续的发号计数，看不出物理帧号跳了 ⇒ 这种劣化**没有任何告警**。
+>
+> ✅ **正解**：应用层每帧都 push ⇒ SDK 内部丢帧时丢的是队列里**最老**的帧 ⇒
+> **GMC 拿到的输入序列仍然物理连续** ⇒ 前处理历史窗口不破，精度不掉。
+> **抽帧只能在推理阶段做，不能在前处理（历史窗口）阶段做。**
+
+> ⚠️ `push-all` **必须**限流（`--inflight`，默认 4，与 `rknn_mosaic_e2e` 同口径）：
+> 流水线中间的队列是有界的，不限流会把 GMC→NPU→POST 之间的队列灌爆，
+> 结果卡在出口出不来（表现为「特征算完了但 `collect` 永远阻塞」）。
+> 反压的等待谓词**含停机信号** ⇒ 关机时 Producer 立刻退出，`producer.join()` 不会挂死。
+
+**上板实测**（板卡 `{{BOARD}}`，25 FPS 相机，序列 `VIDEO00007_19700101_001324`）
+
+| 模式 | 相机喂入 | SDK 收到 | 产出结果 | 库内队列溢出 | 退出码 |
+|:--|--:|--:|--:|--:|:--|
+| `serial` | 300 | 300 | **300** | 0 | ✅ 0 |
+| `push-all` | 300 | 300 | 298 | 0 | ✅ 0 |
+| `push-all` | 3,000 | 3,000 | 2,998 | 0 | ✅ 0 |
+| `app-drop` | 3,000 | 3,000 | 1,009 | 0 | ✅ 0 |
+| `app-drop` | 60（交付门禁第 5 道） | 60 | 9 | 0 | ✅ 0 |
+
+⇒ **三种模式都零死锁、退出码严格 0**；相机帧率 > 算法帧率时是**丢帧而不是堆积** ⇒ 延迟不累积。
+
+**逐位对齐（这是本模板最硬的一条验收）**
+
+| 对比 | 交集 | 特征 md5 逐位相同 | 检测载荷逐字节相同 |
+|:--|--:|--:|--:|
+| `serial` vs `push-all` | 298 帧 | **298 / 298** | **298 / 298** |
+| `serial` vs `app-drop` | 209 帧 | **209 / 209** | **160 / 160** |
+| 新 `.so` vs 旧 `.so`（`serial`） | 300 帧 | **300 / 300** | **300 / 300** |
+
+⇒ **「不管 work 快慢，被处理的帧都严格与参照对齐」是逐位证明的**：
+`push-all`（反压）与 `app-drop`（无反压、SDK 内部抽帧）**被处理的帧**与单线程参照
+**一个字节都不差**；`app-drop` 少算的那些帧**不在交集里**（被 SDK 推理阶段跳过）。
+⇒ 落盘的 `feature_md5_phys.txt` / `_mosaic.tsv` / `frame_map.tsv` 里 **没有任何 `-1` 条目**。
+
+**精度（服务器官方校验器 `load_and_align_subset.py`，只比「实际处理过的帧」）**
+
+| 模式 | 子集 | `arm@S` TP/FP/FN | `arm@S` F1 | `ref@S` F1 | ΔF1 |
+|:--|--:|:--|--:|--:|--:|
+| `push-all` | 1,998 帧 | 1027 / 62 / 938 | 0.672561 | 0.672781 | **−0.000220**（TP/FN/Recall **全等**，只差 1 个 FP） |
+| **`push-all`**（**三方同子集**） | **218 帧** | **119 / 5 / 96** | **0.702065** | **0.702065** | **+0.000000（TP/FP/FN/R/P/F1 逐项全等）** |
+| `app-drop` | 518 帧 | 336 / 25 / 143 | 0.800000 | 0.780124 | +0.019876 |
+| `app-drop`（三方同子集） | 218 帧 | 128 / 9 / 87 | 0.727273 | 0.702065 | +0.025208 |
+
+⇒ **`push-all` 在 218 帧子集上与认证 golden 逐项完全一致** ⇒ **多线程模板的推帧/收集/回调
+链路与单线程参考行为等价**（代码正确性铁证）。`app-drop` 位级几乎全不同，是因为
+**跳帧 push 打散了 GMC 的 21 帧物理历史**（设计后果，不是 bug）；它在本序列上 F1 反而略高，
+但**不能据此说它更好**——只能说**宏观精度没有退化**。**要与基线逐帧对齐 ⇒ 用 `push-all`。**
+
+位级（同一子集内逐帧 md5 / 检测载荷相等）：`push-all` 1998 帧里 md5 相同 381（19.1 %）、
+检测载荷相同 470，**检出组数不一致只有 3/1528 帧**；`app-drop` 因为 GMC 的物理历史
+被打散，md5 几乎全不同（518 帧里 1 帧）但**数值差异极小**（质心差 ~0.1 像素、peak 差 ~0.0007）。
+⇒ 位级差异来自**板卡 OpenCV 4.6 与认证 golden 的版本差**（与 `rknn_mosaic_e2e` 同结论），
+**F1 宏观一致**。
+
+⚠️ **硬规矩**：`push-all` **必须**限流（`--inflight`，默认 4，与 `rknn_mosaic_e2e` 同口径）。
+不限流会把 GMC→NPU→POST 之间的队列灌爆，症状是「特征算完了但 `collect()` 永远阻塞」
+（零错误日志、所有线程 `futex_wait`）。
+
+**怎么跑**
+
+```bash
+# ⚠️ 必须先落板卡 /tmp：板卡 NFS 是 soft 挂载，>1 MB 的二进制直跑会 SIGILL(132)
+ssh -p {{BOARD_PORT}} root@{{BOARD}} 'cat /mnt/manu/mosaic_sdk/out/libmosaic_pipeline.so > /tmp/libmosaic_pipeline.so \
+  && cat /mnt/manu/mosaic_sdk/out/mosaic_async_client_example > /tmp/mace \
+  && chmod +x /tmp/mace \
+  && /tmp/mace \
+    --frames-dir /mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324 \
+    --model /mnt/manu/ptq/models/p0_off_A_none.rknn \
+    --kernel-dir /mnt/manu/mosaic_sdk/runtime/kernels \
+    --out /tmp/mosaic_async_out --frames 3000 --fps 25 --mode app-drop'
+```
+
+参数：`--frames-dir` / `--model` / `--kernel-dir` / `--out` / `--seq` / `--fps` /
+`--frames` / `--mode`（`serial` | `push-all` | `app-drop`）/ `--inflight`。
+输出：`--out` 目录里落 `<seq>_mosaic.tsv`（检测结果，stem 带**物理**帧号）、
+`feature_md5.txt`（SDK 内部号）、`feature_md5_phys.txt`（**物理**帧号，★离线比对用这一份）、
+`frame_map.tsv`（内部号 → 物理帧号）。
+
+> 📏 **文件规模**：整个文件 370 行（代码 292 行），其中**真正要照抄的只有
+> `AsyncMosaicRunner` 这一个类（约 125 行）** —— 相机线程只要调它的
+> `feed_frame()`，结果从你自己的回调里拿。其余是**演示与验证**用的：帧目录
+> 扫描、25 FPS 节奏模拟、TSV/指纹落盘（离线精度比对用）。
+
 ### 后处理模式（post mode）配置
 
 四种模式，枚举定义在 `src/npu/mosaic_pipeline.h:227-230`：
@@ -728,7 +1017,7 @@ mkdir -p out && \
   `assert(...)` 与 `gmc_stream_ocl.cpp` / `ocl_host.h` 的日志宏会把 `__FILE__`
   的**路径字符串**嵌进 `.rodata` ⇒ **包根绝对路径一变，字节就变**
   （实测包根从 `/media/manu/.../build` 换到 `/tmp/xxx/pkgB`：
-  `.o` 差 **224 字节**、四个可执行文件 md5 全变）。
+  `.o` 差 **224 字节**、五个可执行文件 md5 全变）。
   ⚠️ **字节差不是固定值** —— 它等于那几个嵌入路径串的**长度差**，
   换个长度的包根，差值就不同。
   ⇒ **你用自己的路径重编出来的产物，md5 不会等于本 README 顶部那张表** ——
@@ -749,7 +1038,7 @@ mkdir -p out && \
   必须先 `cat` 到板卡 `/tmp`（tmpfs）再跑。这是**传输/缓存损坏**，不是算法 bug。
   * ⚠️ **共享库版本：`cat` 时要把 `libmosaic_pipeline.so` 一起拷过去**
     （`-rpath '$ORIGIN'` ⇒ `.so` 必须和可执行文件同目录）。
-  * ℹ️ 本版产物**全部 < 1 MB**（共享库 ~417 KB，四个可执行文件 25–74 KB）
+  * ℹ️ 本版产物**全部 < 1 MB**（共享库 ~417 KB，五个可执行文件 20–74 KB）
     ⇒ 这条铁律**当前不触发**；下面的 `cat` 流程仍照做（稳妥 + `.so` 要同目录）。
   * **现象**（旧版静态链接 OpenCV 时）：直接执行 8.3 MB 的 `out/mosaic_api_test` /
     `out/mosaic_client_example` ⇒ **SIGILL(132)**；板卡 `dmesg` 出现
@@ -837,14 +1126,14 @@ mkdir -p out && \
    **不能当回归基线**。
    本版交付的是**共享库 `.so`** ⇒ **没有归档索引** ⇒ **同一个包根路径**下重跑
    `bash build_lib.sh`，`out/libmosaic_pipeline.so` 的 md5 **不变**
-   （`.o` 与四个可执行文件同样稳定）。
+   （`.o` 与五个可执行文件同样稳定）。
    ⚠️ 但 md5 仍然**绑定「包根的绝对路径」**（见第 3 条）。
 2. **脚本构建 vs 一行命令构建，md5 也不同**：脚本用**绝对路径**编译
    （`$HERE/src/npu/mosaic_pipeline.cpp`），README 的一行命令用**相对路径**
    （`src/npu/mosaic_pipeline.cpp`）。`assert()` 嵌的是 `__FILE__`，路径长度
    不同 ⇒ `.o` 差 **272 字节**（实测；**这个差值不是固定值** —— 它等于嵌入路径串
    的长度差）。**行为一样**，只是字节不同。
-3. 🔴 **换个目录重编 ⇒ 四个可执行文件的 md5 全变**（**这一条最容易让人误判**）：
+3. 🔴 **换个目录重编 ⇒ 五个可执行文件的 md5 全变**（**这一条最容易让人误判**）：
    `build_lib.sh` / `build_demo.sh` 用**绝对路径**编译，路径里含**包根目录**；
    `__FILE__` 把这条路径烤进 `.rodata` ⇒ **包放在哪儿，字节就取决于哪儿**。
    * 实测：包根 `/media/manu/.../npu/build` ⇒ `mosaic_client_example`
@@ -885,7 +1174,7 @@ mkdir -p out && \
      （代价：它与本包顶部那张 md5 表**不是同一个值** —— 那张表是绝对路径编出来的。）
 
 要拿可复现的基线，请用 `out/mosaic_pipeline.o`、`out/libmosaic_pipeline.so`
-或四个可执行文件的 md5，**并确保编译时的包根路径不变**；或者按第 3 条改用相对
+或五个可执行文件的 md5，**并确保编译时的包根路径不变**；或者按第 3 条改用相对
 路径编，换取跨机器一致。
 
 ---
@@ -916,6 +1205,13 @@ mkdir -p out && \
 
 > **完整交付清单（含每个文件的 md5 / 字节数 / 用途 / 板卡相关性）见
 > [`MANIFEST.md`](MANIFEST.md)。**
+
+> 🧩 **给嵌入式组的两个示例，选哪个？**
+> * `src/npu/mosaic_client_example.cpp`（160 行）—— **单线程最小原型**，用来把
+>   ABI 讲清楚、验证连通性。**照它写真实业务会踩「推多帧 ⇒ collect 永久阻塞」**。
+> * `src/npu/mosaic_async_client_example.cpp` —— **多线程生产-消费 + 回调模板**，
+>   相机线程（25 FPS）不等算法、Worker 严格「一推一收」、结果走业务方自己的回调。
+>   **真实工程集成照这个来**，细节见上文「🔀 多线程生产-消费 + 回调」一节。
 
 ## 零参数运行
 
@@ -971,7 +1267,8 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/out/libmosaic_pipeline
 ```bash
 cd <交付目录>                # 例：cd /mnt/manu/mosaic_sdk
 bash build_lib.sh            # -> out/mosaic_pipeline.o, out/libmosaic_pipeline.so（共享库）
-bash build_demo.sh           # -> out/mosaic_api_test, out/mosaic_client_example, out/mosaic_contract_test, out/rknn_mosaic_e2e
+bash build_demo.sh           # -> out/mosaic_api_test, out/mosaic_client_example,
+                              #    out/mosaic_async_client_example, out/mosaic_contract_test, out/rknn_mosaic_e2e
 ```
 
 > **交叉编译器**（编译器没法随包发）要用这个指定：
@@ -1074,11 +1371,13 @@ cp -a "$SRC/README.md" "$SRC/MANIFEST.md" \
       "$SRC/known_hosts" "$DST/"
 chmod +x "$DST/build_lib.sh" "$DST/build_demo.sh" "$DST/copy_to_nfs.sh" \
          "$DST/out/mosaic_api_test" "$DST/out/mosaic_client_example" \
+         "$DST/out/mosaic_async_client_example" \
          "$DST/out/mosaic_contract_test" "$DST/out/rknn_mosaic_e2e"
 
-# ③ 建 5 个兼容符号链接（**相对路径**），旧命令才继续可用
+# ③ 建 6 个兼容符号链接（**相对路径**），旧命令才继续可用
 ( cd "$DST" && \
   ln -sfn out/mosaic_api_test      mosaic_api_test && \
+  ln -sfn out/mosaic_async_client_example mosaic_async_client_example && \
   ln -sfn out/mosaic_contract_test mosaic_contract_test && \
   ln -sfn out/libmosaic_pipeline.so libmosaic_pipeline.so && \
   ln -sfn src/npu/mosaic_pipeline.h mosaic_pipeline.h && \

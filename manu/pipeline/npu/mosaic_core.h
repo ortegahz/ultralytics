@@ -1575,6 +1575,25 @@ inline bool AllocCanvasBuffers(Session* s) {
       !CheckBudget(s->stage, "stage")) {
     return false;
   }
+  // The pat buffer MUST be imported here, not left at handle = -1.
+  //
+  // WHY (measured on the board 2026-11-12): ComposeFrame() calls
+  // improcess(srcb, BufAs(s->canvas), BufAs(s->pat), ...), and BufAs() is
+  // wrapbuffer_handle(b.handle, ...).  An un-imported buffer carries
+  // handle = -1, and the board's RGA driver answers that with
+  //     rga_mm: This is not a buffer that has been imported, handle = -1
+  // and can then walk into a KERNEL oops inside rga_mm_get_buffer ->
+  // rga_mm_sync_dma_sg_for_device -> dma_sync_single_for_device, which
+  // dereferences ffffff8000000000 and kills the calling process.
+  //
+  // Importing it ONCE here is enough: the pat content is all-zero and never
+  // changes, and the pat_rect handed to improcess() is empty, so the
+  // composited bytes are bit-identical (verified on the board: the canvas
+  // hash is unchanged whether pat is imported or not).
+  if (!BufImport(&s->pat)) {
+    fprintf(stderr, "[FATAL] RGA pat import failed\n");
+    return false;
+  }
   // The canvas background is frame-invariant -> filled ONCE.  imfill() only
   // supports RGBA, so the RGB_888 canvas is filled with memset.
   memset(s->canvas.data, kPad, s->canvas.size);

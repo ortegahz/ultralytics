@@ -4,7 +4,7 @@
 #
 # 交付包 = manu/pipeline/npu/build/（由 make_build_dir.sh 生成）。脚本所在目录
 # 就是包根；本脚本把整棵树（源码 + 第三方头 + kernel 资产 + 编译产物）原样镜像
-# 到 NFS 交付目录，再建 5 个兼容符号链接，旧的平铺命令仍然可用。
+# 到 NFS 交付目录，再建 6 个兼容符号链接，旧的平铺命令仍然可用。
 #
 # 【2026-11-11 新板交付版】包内**不再有 third_party/**：
 #   OpenCV / RKNN Runtime / RGA / OpenCL 全部**链接板卡自带的动态库**，
@@ -169,7 +169,7 @@ fi
 [ -d "$PKG_DIR/out" ] && [ -d "$PKG_DIR/src" ] || \
   die "包目录不完整（缺 out/ 或 src/）：$PKG_DIR —— 先跑 make_build_dir.sh"
 
-# 期望集合：包内全部普通文件（相对包根）+ 5 个兼容别名
+# 期望集合：包内全部普通文件（相对包根）+ 6 个兼容别名
 PKG_FILES=()
 declare -A EXPECTED=()
 declare -A EXPECTED_DIR=()
@@ -187,6 +187,7 @@ done < <(cd "$PKG_DIR" && find . -type f | sed 's|^\./||' | LC_ALL=C sort)
 # 兼容别名（旧命令仍然可用）：名字 -> 相对链接目标
 ALIAS_PAIR=(
   "mosaic_api_test|out/mosaic_api_test"
+  "mosaic_async_client_example|out/mosaic_async_client_example"
   "mosaic_contract_test|out/mosaic_contract_test"
   "libmosaic_pipeline.so|out/libmosaic_pipeline.so"
   "mosaic_pipeline.h|src/npu/mosaic_pipeline.h"
@@ -210,6 +211,7 @@ EXEC_FILES=(
   "out/libmosaic_pipeline.so"
   "out/mosaic_api_test"
   "out/mosaic_client_example"
+  "out/mosaic_async_client_example"
   "out/mosaic_contract_test"
   "out/rknn_mosaic_e2e"
 )
@@ -222,6 +224,7 @@ REQUIRED_FILES=(
   "src/npu/mosaic_core.h" "src/npu/mosaic_post_gpu.h"
   "src/npu/mosaic_api_test.cpp" "src/npu/mosaic_contract_test.cpp"
   "src/npu/rknn_mosaic_e2e.cpp" "src/npu/mosaic_client_example.cpp"
+  "src/npu/mosaic_async_client_example.cpp"
   "src/cpp/gmc_stream_ocl.cpp" "src/cpp/md5.h"
   "src/opencl/host/ocl_host.h" "src/opencl/host/post_local_max.cl"
   "include/rknn_api.h" "runtime/kernels/warp_median_fused.cl"
@@ -229,6 +232,7 @@ REQUIRED_FILES=(
   "out/mosaic_pipeline.o" "out/libmosaic_pipeline.so"
   "out/mosaic_api_test" "out/mosaic_contract_test"
   "out/rknn_mosaic_e2e" "out/mosaic_client_example"
+  "out/mosaic_async_client_example"
   # ⚠️ **故意不列 third_party/**：本版包内不携带任何第三方 .so/.a。
   #    OpenCV / RKNN Runtime / RGA / OpenCL 全部链接**板卡自带**的动态库，
   #    运行时由板卡 ldconfig 解析（见 README「板卡依赖矩阵」一节）。
@@ -260,6 +264,34 @@ echo "  板卡目标 : $BOARD_DEST"
 if [ "$DO_BUILD" = "1" ]; then
   echo
   echo "== [1/5] 编译 =="
+  # 🔴 **编译前先校验「包目录里的源码」与「工程根的源码」是否一致**。
+  #    本包目录（build/）的 src/ 是**上一次** make_build_dir.sh 拷进去的快照；
+  #    如果你在工程根改了源码却直接 --build，编出来的就是**旧源码**的二进制
+  #    ⇒ **交付的二进制落后于交付的源码**，而且**门禁照样全过**（门禁只验「能跑」，
+  #    不验「是最新的」）⇒ 这种不一致能一路溜到集成方手里，必须在这里挡住。
+  #    ⚠️ 这里**不能**直接调 make_build_dir.sh 来同步：它会覆盖**正在运行的**
+  #    本脚本（bash 按文件偏移读脚本，覆盖后读到的就是错位的内容 ⇒ 脚本后半段
+  #    静默不执行、退出码还可能是 0）。正确做法是**在外层**按顺序跑（见下）。
+  _stale=0
+  for _f in "$ROOT"/mosaic_pipeline.cpp "$ROOT"/mosaic_pipeline.h "$ROOT"/mosaic_core.h \
+           "$ROOT"/mosaic_post_gpu.h "$ROOT"/mosaic_api_test.cpp \
+           "$ROOT"/mosaic_client_example.cpp "$ROOT"/mosaic_async_client_example.cpp \
+           "$ROOT"/mosaic_contract_test.cpp "$ROOT"/rknn_mosaic_e2e.cpp; do
+    [ -f "$_f" ] || continue
+    _b="$_f"; _n=$(basename "$_f")
+    _p="$PKG_DIR/src/npu/$_n"
+    [ -f "$_p" ] || { echo "  [stale] 包目录里缺 src/npu/$_n"; _stale=1; continue; }
+    if [ "$(md5sum "$_f" | cut -d' ' -f1)" != "$(md5sum "$_p" | cut -d' ' -f1)" ]; then
+      echo "  [stale] src/npu/$_n 与工程根不一致 ⇒ 包目录里的源码是旧的"
+      _stale=1
+    fi
+  done
+  if [ "$_stale" = "1" ]; then
+    die "包目录里的源码与工程根不一致 —— 先跑 **bash $ROOT/packaging/make_build_dir.sh**
+       （把工程里的最新源码+脚本同步进包目录）再回来 --build。
+       ⚠️ 不这么做，编出来的是**旧源码**的二进制 ⇒ 交付的二进制会落后于交付的源码。"
+  fi
+  echo "  [ok] 包目录里的源码与工程根一致"
   bash "$PKG_DIR/build_lib.sh"  || die "build_lib.sh 失败（编译错误见上）"
   bash "$PKG_DIR/build_demo.sh" || die "build_demo.sh 失败（编译错误见上）"
   # ⚠️ 编译完之后**必须再刷一次交付文档**。make_build_dir.sh 生成的 README/MANIFEST
@@ -269,8 +301,13 @@ if [ "$DO_BUILD" = "1" ]; then
   #      没有这个脚本，就只能由构建者自己再跑一次。）
   if [ -f "$PKG_DIR/../packaging/make_build_dir.sh" ]; then
     echo
-    echo "  [刷新交付文档] 再跑一次 make_build_dir.sh（把新产物 md5 与文件总数写回 README/MANIFEST）"
-    bash "$PKG_DIR/../packaging/make_build_dir.sh" || die "make_build_dir.sh 失败"
+    echo "  [刷新交付文档] ⚠️ **必须在本脚本退出之后**、在**外层**再跑一次"
+    echo "               bash $PKG_DIR/../packaging/make_build_dir.sh"
+    echo "               （把新产物 md5 与文件总数写回 README/MANIFEST）"
+    echo "               ⚠️ 不能在本脚本运行期间跑：它会覆盖正在运行的本脚本 ⇒"
+    echo "                  bash 按文件偏移读脚本 ⇒ 后半段会静默不执行、退出码还可能是 0。"
+    echo "               ⇒ 完整顺序：make_build_dir.sh → build_lib.sh+build_demo.sh →"
+    echo "                          make_build_dir.sh → copy_to_nfs.sh --verify"
   else
     echo
     echo "  [提示] 本包是**交付态**（没有 ../packaging/make_build_dir.sh）"
@@ -336,7 +373,7 @@ sweep_empty_dirs() {
   done < <(find "$dest" -depth -type d | LC_ALL=C sort -r)
 }
 
-# 5c. 建 5 个兼容符号链接（相对路径）
+# 5c. 建 6 个兼容符号链接（相对路径）
 #     建之前必须先删掉同名旧实文件/实目录：
 #       - ln -sfn 覆盖不了实目录；
 #       - cp 遇到同名符号链接会穿透进去，把 out/ 里的真文件写坏。
@@ -433,7 +470,7 @@ while IFS= read -r f; do
   fi
 done < <(find "$dest" -type f | LC_ALL=C sort)
 
-# 陈旧符号链接（5 个兼容别名要保留）
+# 陈旧符号链接（6 个兼容别名要保留）
 while IFS= read -r f; do
   rel="${f#"$dest"/}"
   keep=0
@@ -469,7 +506,7 @@ while IFS= read -r f; do
   fi
 done < <(find "$dest" -depth -type d | LC_ALL=C sort -r)
 
-# 5 个兼容符号链接（相对路径）
+# 6 个兼容符号链接（相对路径）
 for spec in $alias_spec; do
   name="${spec%%=*}"; target="${spec#*=}"
   if [ -e "$dest/$name" ] && [ ! -L "$dest/$name" ]; then
@@ -542,7 +579,7 @@ if [ "$MODE" = "直写" ]; then
   n_dst="$(find "$DEST" -type f | wc -l)"
   [ "$n_dst" = "${#PKG_FILES[@]}" ] || \
     die "目标里普通文件数 $n_dst != 源 ${#PKG_FILES[@]}（镜像不干净）"
-  echo "  [ok] 目标是干净镜像（$n_dst 个普通文件 + 5 个兼容别名）"
+  echo "  [ok] 目标是干净镜像（$n_dst 个普通文件 + 6 个兼容别名）"
 else
   echo "  [ok] 板卡侧 md5 校验已在拷贝时完成"
 fi
@@ -630,9 +667,19 @@ if [ "$DO_VERIFY" = "1" ]; then
   sleep 3
 
   # 板卡 /tmp 里的暂存目录：带本机 PID，绝不撞板卡上别人的文件
-  # ⚠️ 必须是**目录**而不是单文件：四个测试程序用 -Wl,-rpath,'$ORIGIN' 找同目录的
+  # ⚠️ 必须是**目录**而不是单文件：五个测试程序用 -Wl,-rpath,'$ORIGIN' 找同目录的
   #    libmosaic_pipeline.so ⇒ 可执行文件与共享库必须落在**同一个目录**里。
   VERIFY_TMP_DIR="/tmp/mosaic_verify_$$"
+  # 板卡侧每个测试的**硬超时**（秒）。可以用环境变量覆盖。
+  # 为什么必须有：板卡 RGA 驱动有概率触发内核 oops
+  # （rga_mm_get_buffer -> rga_mm_sync_dma_sg_for_device ->
+  #   dma_sync_single_for_device 解引用 ffffff8000000000），
+  # 被打死的那个进程会**永久死锁**（实测：契约测试 7.5 min 只用掉 13 s CPU
+  # 就再也醒不过来）。没有超时的话，`--verify` 会在这里**无限期挂死**，
+  # 而且日志里什么都看不到 —— 只会看到某个 [1/5] 之后再无输出。
+  # timeout -k 10 保证 SIGTERM 无效时再补一刀 SIGKILL。
+  BOARD_TEST_TIMEOUT="${BOARD_TEST_TIMEOUT:-600}"
+  echo "  板卡测试超时: ${BOARD_TEST_TIMEOUT}s（超时即杀 + 重试一次）"
 
   # 板卡侧跑一个二进制：NFS(soft) -> cat 到板卡 /tmp(tmpfs) -> chmod +x ->
   # md5 与【本机源文件】对账（不一致 = NFS 传输损坏，退出码 3）-> 执行 -> 删 /tmp。
@@ -657,7 +704,7 @@ if [ "$DO_VERIFY" = "1" ]; then
       # ⚠️ `2>&1` 必须有：mosaic_contract_test 把 `[RESULT] N passed, 0 failed`
       #    打到 **stderr**（mosaic_contract_test.cpp:1098），只捕获 stdout 会让
       #    下面的 `grep '0 failed'` 必然落空 ⇒ 误报「没找到 0 failed」。
-      out="$(ssh_board "bash -s -- '$VERIFY_TMP_DIR' '$tag' '$want_md5' '$BOARD_DEST/out/$tag' $args" 2>&1 <<'REMOTE'
+    out="$(ssh_board "timeout -k 10 '$BOARD_TEST_TIMEOUT' bash -s -- '$VERIFY_TMP_DIR' '$tag' '$want_md5' '$BOARD_DEST/out/$tag' $args" 2>&1 <<'REMOTE'
 set -uo pipefail
 export LC_ALL=C
 tmp_dir="$1"; tag="$2"; want_md5="$3"; src="$4"; shift 4
@@ -683,7 +730,7 @@ if [ "$got" != "$want_md5" ]; then
 fi
 echo "  [stage] $tag -> $tmp（已落板卡 /tmp，md5 与本机源文件一致：$got）"
 
-# ⚠️ 共享库必须与可执行文件同目录：四个测试程序用 -Wl,-rpath,'$ORIGIN' 找它。
+# ⚠️ 共享库必须与可执行文件同目录：五个测试程序用 -Wl,-rpath,'$ORIGIN' 找它。
 #    （本版不再有 third_party/，共享库就是交付包自己的 out/libmosaic_pipeline.so）
 if [ -f "$(dirname "$src")/libmosaic_pipeline.so" ]; then
   cat "$(dirname "$src")/libmosaic_pipeline.so" > "$tmp_dir/libmosaic_pipeline.so" \
@@ -725,6 +772,15 @@ REMOTE
         LAST_OUT="$out"
         return 0
       fi
+      if [ "$rc" = "124" ] || [ "$rc" = "137" ]; then
+        echo "  [timeout] $label 在板卡上跑了 ${BOARD_TEST_TIMEOUT}s 还没结束 —— 已强杀。"
+        echo "            板卡进程挂死的已知原因：RGA 驱动内核 oops"
+        echo "            （rga_mm_get_buffer -> rga_mm_sync_dma_sg_for_device ->"
+        echo "              dma_sync_single_for_device 解引用 ffffff8000000000）。"
+        echo "            判据：板卡 dmesg 里 'Internal error: Oops' 的条数是否增加。"
+        echo "            ⇒ 这不是 NFS 传输问题（传输问题会报 md5 不一致 / 退出码 3）。"
+        continue
+      fi
       if [ "$rc" = "3" ]; then
         die "NFS 传输损坏：$label 的二进制落到板卡 /tmp 后 md5 与本机源文件不一致 —— 同尺寸、不同内容 = 传输/页缓存损坏，不是算法 bug"
       fi
@@ -737,7 +793,7 @@ REMOTE
   }
 
   echo
-  echo "  [1/4] 契约测试：mosaic_contract_test --limit 60（先落板卡 /tmp 再执行）"
+  echo "  [1/5] 契约测试：mosaic_contract_test --limit 60（先落板卡 /tmp 再执行）"
   rc=0
   run_board_test "契约测试" "mosaic_contract_test" --limit 60 --kernel-dir "$BOARD_DEST/runtime/kernels" || rc=$?
   [ "$rc" = "0" ] || die "板卡契约测试失败（退出码 $rc）—— 疑似 NFS 页缓存损坏（已先落 /tmp + 已 drop_caches 仍失败）或真回归"
@@ -748,7 +804,7 @@ REMOTE
   fi
 
   echo
-  echo "  [2/4] demo：mosaic_api_test --limit 6（先落板卡 /tmp 再执行）"
+  echo "  [2/5] demo：mosaic_api_test --limit 6（先落板卡 /tmp 再执行）"
   rc=0
   run_board_test "demo" "mosaic_api_test" --limit 6 --kernel-dir "$BOARD_DEST/runtime/kernels" || rc=$?
   [ "$rc" = "0" ] || die "板卡 demo 失败（退出码 $rc）—— 疑似 NFS 页缓存损坏（已先落 /tmp + 已 drop_caches 仍失败）或真回归"
@@ -760,7 +816,7 @@ REMOTE
   # **必须串行**：板卡 RKNN context 上限 2，并发跑会互相抢 context。跟前两步
   # 一样，二进制先落板卡 /tmp(tmpfs) + md5 对账再执行。
   echo
-  echo "  [3/4] 最小集成示范：mosaic_client_example <帧目录> <模型> <kernel> 6（先落板卡 /tmp 再执行）"
+  echo "  [3/5] 最小集成示范：mosaic_client_example <帧目录> <模型> <kernel> 6（先落板卡 /tmp 再执行）"
   rc=0
   run_board_test "最小集成示范" "mosaic_client_example" \
     "/mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324" \
@@ -781,7 +837,7 @@ REMOTE
   #        ⇒ 证明它用的就是板卡上原来就有的那些库。
   # -------------------------------------------------------------------------
   echo
-  echo "  [4/4] 板卡自带库：DT_NEEDED 由板卡 ldconfig 解析 + \$ORIGIN 找共享库 + 不设 LD_LIBRARY_PATH 跑通"
+  echo "  [4/5] 板卡自带库：DT_NEEDED 由板卡 ldconfig 解析 + \$ORIGIN 找共享库 + 不设 LD_LIBRARY_PATH 跑通"
   tp_w_mce="$(md5sum "$PKG_DIR/out/mosaic_client_example" | cut -d' ' -f1)"
   tp_w_so="$(md5sum "$PKG_DIR/out/libmosaic_pipeline.so"   | cut -d' ' -f1)"
   tp_tmp="$VERIFY_TMP_DIR"
@@ -846,6 +902,40 @@ REMOTE
   printf '%s\n' "$tp_out" | grep -vE '\[stage\]|\[ok\]|--' | tail -n 8 || true
   [ "$tp_rc" = "0" ] || die "板卡自带库验证失败（退出码 $tp_rc）—— ① NFS 传输损坏（md5 对不上）② 板卡自带库不全 / DT_NEEDED 解析不了"
   echo "  [ok] 板卡自带库（OpenCV / RKNN Runtime / RGA / OpenCL）满足本包的全部依赖"
+
+# -------------------------------------------------------------------------
+# [5/5] 新增门禁：**多线程生产-消费 + 回调模板**在板上跑得通、而且**不锁**。
+#
+#   单线程示范（mosaic_client_example）覆盖不到多线程路径的死锁风险，所以
+#   这道门禁专门跑那个工程级模板。它同时验证三件事：
+#     ① 多线程路径在板上**零死锁**（相机线程 + Worker 线程 + SDK 内部线程）；
+#     ② TSV / 帧清单 / 特征指纹**真的落盘**；
+#     ③ 相机帧率(25 FPS) > 算法帧率时是**丢帧而不是堆积** ⇒ 延迟不累积。
+#
+#   ⚠️ 它的接口是**命名开关**（--frames-dir / --model / --out ...），
+#      与前四道门的四个位置参数不同，别照抄。
+# -------------------------------------------------------------------------
+echo
+echo "  [5/5] 多线程生产-消费模板：push-all（带反压）+ app-drop（无反压）各 60 帧"
+rc=0
+# 两条路径都要跑：**push-all 走反压**（关机时 Producer 可能在流控等待里 ⇒ 测的是
+# 「停机信号能不能把 Producer 放出来」），**app-drop 不反压**（相机线程绝不等算法）。
+# 两条都必须是 EXIT=0：不挂起、不死锁、最后一帧不丢。
+run_board_test "异步模板 push-all" "mosaic_async_client_example" \
+  --frames-dir "/mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324" \
+  --model "/mnt/manu/ptq/models/p0_off_A_none.rknn" \
+  --kernel-dir "$BOARD_DEST/runtime/kernels" \
+  --out "$VERIFY_TMP_DIR/async_gate_pa" --frames 60 --fps 25 --mode push-all --inflight 4 || rc=$?
+[ "$rc" = "0" ] || die "板卡多线程模板(push-all)失败（退出码 $rc）—— 反压关机路径死锁、或模板有回归"
+rc=0
+run_board_test "异步模板 app-drop" "mosaic_async_client_example" \
+  --frames-dir "/mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324" \
+  --model "/mnt/manu/ptq/models/p0_off_A_none.rknn" \
+  --kernel-dir "$BOARD_DEST/runtime/kernels" \
+  --out "$VERIFY_TMP_DIR/async_gate_ad" --frames 60 --fps 25 --mode app-drop || rc=$?
+[ "$rc" = "0" ] || die "板卡多线程模板(app-drop)失败（退出码 $rc）—— 多线程路径死锁、或模板本身有回归"
+echo "  [ok] 多线程生产-消费 + 回调模板在板上跑通（两条路径都零死锁、退出码严格 0）"
+
 fi
 
 echo

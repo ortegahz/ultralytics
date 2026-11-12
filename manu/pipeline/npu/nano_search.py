@@ -40,6 +40,7 @@ import re
 import os
 import subprocess
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -97,6 +98,55 @@ BASELINE_REGISTRY = [
      "note": "离线精度天花板历史参照；已不参与 Beat-to-Pass"},
 ]
 BASELINE_NANO_FLOOR = {"0031": 0.6666, "9863": BASE_V2["nano"]}
+
+# ---- 板端同会话参照（trial_0031 自身）----
+#   ⚠️ 台账里的 board_sessions 可能为空（被搜索器的 save_ledger 覆盖掉），
+#   ⇒ 板端时延判据**直接读会话文件**，不依赖台账（2026-11-11 实测台账里是 null）。
+BOARD_SESSION_FILES = [
+    ("session2", "/mnt/data/siping/runs/npu20ms/board_measure_20261111_s2/hm_speed_results.txt"),
+    ("session1", "/mnt/data/siping/runs/npu20ms/board_measure_20261111/hm_speed_results.txt"),
+]
+_TAG_RE = re.compile(r"rknn_heatmap_smoke :: (\S+) =====")
+_MS_RE = re.compile(r"rknn_run\s+avg\s+([\d.]+) ms")
+
+
+def parse_board_session_file(path: str) -> dict:
+    """从 hm_speed_results.txt 解析每个 tag 的 rknn_run avg ms。"""
+    out: dict = {}
+    if not os.path.isfile(path):
+        return out
+    tag = None
+    for line in open(path, encoding="utf-8", errors="ignore"):
+        m = _TAG_RE.search(line)
+        if m:
+            tag = m.group(1)
+            continue
+        m = _MS_RE.search(line)
+        if m and tag and tag not in out:
+            out[tag] = float(m.group(1))
+            tag = None
+    return out
+
+
+def board_ms_for(trial: int, epoch: int) -> float | None:
+    """某个臂在板卡会话文件里测到的 int8 ms（tag = arm_n{trial}_ep{epoch}_int8）。"""
+    tag = f"arm_n{trial}_ep{epoch}_int8"
+    for _key, path in BOARD_SESSION_FILES:
+        arms = parse_board_session_file(path)
+        if tag in arms:
+            return float(arms[tag])
+    return None
+
+
+def board_reference_ms() -> float | None:
+    """trial_0031 自身在**新板同会话**的 int8 ms（板端时延判据的参照；新板 = 23.528 ms）。"""
+    for _key, path in BOARD_SESSION_FILES:
+        arms = parse_board_session_file(path)
+        for tag in ("t31_silu_int8", "arm_t31_silu_int8"):
+            if tag in arms:
+                return float(arms[tag])
+    return None
+
 
 # ---- 交付判据（与交付件 trial_0031 对齐；NanoBench nano 下限 = 交付件自身水平）----
 # t2_fp_le  = 官方门禁红线（F1 ≥ 0.985 且 FP ≤ 36）
@@ -256,20 +306,102 @@ def load_ledger() -> dict:
     return {"arms": {}, "waves": [], "created": time.strftime("%Y-%m-%d %H:%M:%S")}
 
 
+_LEDGER_LOCK = threading.RLock()
+
+# ---- 跨进程写台账互斥锁（2026-11-12 09:22 新增）----------------------------
+try:
+    import fcntl  # noqa: PLC0415
+except Exception:  # noqa: BLE001
+    fcntl = None  # type: ignore[assignment]
+_LEDGER_LOCKFILE = f"{WORK}/ledger.lock"
+
+
+def _merge_disk_ledger(led: dict) -> None:
+    """把磁盘上台账的**其它进程新增内容**合并进内存态（内存态优先）。
+
+    合并口径：
+      · arms   —— 按 trial 号逐臂覆盖（内存里的这一臂是最新的）
+      · rounds —— 按 round 号合并（磁盘已有的轮**不丢**）
+      · waves  —— 并集
+    """
+    try:
+        with open(LEDGER, encoding="utf-8") as f:
+            disk = json.load(f)
+    except Exception:
+        return
+    if not isinstance(disk, dict):
+        return
+    d_arms = disk.get("arms") or {}
+    m_arms = led.get("arms") or {}
+    if d_arms:
+        merged = dict(d_arms)
+        merged.update(m_arms)
+        led["arms"] = merged
+    d_rounds = {int(r.get("round", 0)): r for r in (disk.get("rounds") or []) if isinstance(r, dict)}
+    m_rounds = {int(r.get("round", 0)): r for r in (led.get("rounds") or []) if isinstance(r, dict)}
+    all_r = dict(d_rounds)
+    all_r.update(m_rounds)
+    if all_r:
+        led["rounds"] = [all_r[k] for k in sorted(all_r)]
+    dw = list(disk.get("waves") or [])
+    mw = list(led.get("waves") or [])
+    led["waves"] = list(dict.fromkeys(dw + mw))
+
+
 def save_ledger(led: dict) -> None:
-    os.makedirs(WORK, exist_ok=True)
-    # 基线升轨元信息（2026-11-11）⇒ 任何进程保存台账都自动带上，避免并发覆盖丢失
-    led.setdefault("baseline_v2", BASE_V2)
-    led.setdefault("baseline_registry", BASELINE_REGISTRY)
-    led.setdefault("beat_to_pass", {
-        "ref": "Baseline_v2.0(trial_9863)", "nano_min": BASE_V2["nano"],
-        "f1_min": BASE_V2["f1"], "t1_min": BASE_V2["t1"],
-        "t2_fp_max": BASE_V2["t2_fp"], "t3_min": BASE_V2["t3"],
-        "legacy_ref": "trial_0031", "legacy_nano_min": BASELINE_NANO_FLOOR["0031"],
-        "note": "后续所有探索统一以 Baseline_v2.0 的指标为 Beat-to-Pass 下限"})
-    tmp = LEDGER + ".tmp"
-    json.dump(led, open(tmp, "w"), ensure_ascii=False, indent=2)
-    os.replace(tmp, LEDGER)
+    """写台账（**线程安全**）。
+
+    🔴 2026-11-11 16:52 真 bug：原先所有线程共用固定临时文件 `LEDGER + '.tmp'`，
+    4 个 worker 并发写 ⇒ 一个线程 os.replace 走掉之后另一个线程找不到 .tmp
+    ⇒ FileNotFoundError ⇒ phase_nanobench 抛异常 ⇒ **整轮 R1 被打断**
+    （24 个臂训完，却只有 5 个拿到 NanoBench 读数、0 个有 picked，
+      六项判据永远缺项 ⇒ 门禁/板卡/报告全没跑、整轮记录丢失）。
+    修：① 每线程独立临时名（pid+tid）② 全局锁串行化整个写盘
+        ③ json.dump 撞上「并发往 dict 里加臂」时重试。
+
+    🔴 2026-11-12 09:22 **跨进程**丢更新（真丢了一条轮记录）：
+      `gate_triad_arms.py` 在 09:10:58 读台账 ⇒ 09:19:36 写回 ⇒
+      它手上的台账是**旧的**（没有 R6 轮记录，R6 09:11:19 才写）⇒
+      **整个 R6 的轮记录被覆盖丢失**（`rounds` 少一轮 ⇒ 守护的续跑轮号会算错）。
+    修：④ 写盘前**重新读盘并合并**：
+        arms   —— 按 trial 号逐臂合并（内存覆盖磁盘 ⇒ 本进程的更新生效）
+        rounds —— 按 round 号合并（磁盘已有的轮不丢）
+        waves  —— 并集
+      ⑤ 加 `flock` 跨进程互斥 ⇒ 两个进程不会互相覆盖。
+    """
+    with _LEDGER_LOCK:
+        os.makedirs(WORK, exist_ok=True)
+        # ④ 跨进程合并：先读盘，把「磁盘上别的进程写的、内存里没有的」补回来
+        try:
+            with open(_LEDGER_LOCKFILE, "w", encoding="utf-8") as lf:
+                fcntl.flock(lf, fcntl.LOCK_EX)
+                try:
+                    _merge_disk_ledger(led)
+                finally:
+                    fcntl.flock(lf, fcntl.LOCK_UN)
+        except Exception as e:  # noqa: BLE001
+            log(f"[台账] 合并磁盘版本失败（继续写内存态）：{e}")
+        # 基线升轨元信息（2026-11-11）⇒ 任何进程保存台账都自动带上，避免并发覆盖丢失
+        led.setdefault("baseline_v2", BASE_V2)
+        led.setdefault("baseline_registry", BASELINE_REGISTRY)
+        led.setdefault("beat_to_pass", {
+            "ref": "Baseline_v2.0(trial_9863)", "nano_min": BASE_V2["nano"],
+            "f1_min": BASE_V2["f1"], "t1_min": BASE_V2["t1"],
+            "t2_fp_max": BASE_V2["t2_fp"], "t3_min": BASE_V2["t3"],
+            "legacy_ref": "trial_0031", "legacy_nano_min": BASELINE_NANO_FLOOR["0031"],
+            "note": "后续所有探索统一以 Baseline_v2.0 的指标为 Beat-to-Pass 下限"})
+        tmp = f"{LEDGER}.tmp.{os.getpid()}.{threading.get_ident()}"
+        for attempt in range(6):
+            try:
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump(led, f, ensure_ascii=False, indent=2)
+                break
+            except RuntimeError:
+                # dump 期间别的线程往 dict 里加臂 ⇒ 尺寸变了 ⇒ 重试
+                if attempt == 5:
+                    raise
+                time.sleep(0.05)
+        os.replace(tmp, LEDGER)
 
 
 def arm_state(led: dict, trial: int) -> dict:
@@ -284,6 +416,12 @@ def phase_train(arms: list, stop_ts: float, gpus: list | None = None) -> None:
     gpus = gpus or [0, 1, 2, 3]
 
     def one(item):
+        try:
+            _one(item)
+        except Exception as e:  # noqa: BLE001
+            log(f"[{item[0]}] 训练阶段异常：{e}")
+
+    def _one(item):
         trial, seed, p, desc = item
         st = arm_state(led, trial)
         st.update(seed=seed, desc=desc, params={k: v for k, v in p.items()})
@@ -307,7 +445,7 @@ def phase_train(arms: list, stop_ts: float, gpus: list | None = None) -> None:
         log(f"[{trial}] 训练结束 ⇒ {'OK' if ok else 'FAIL（查日志）'}")
         save_ledger(led)
 
-    with ThreadPoolExecutor(max_workers=WORKERS[0]) as ex:
+    with ThreadPoolExecutor(max_workers=TRAIN_WORKERS[0]) as ex:
         list(ex.map(one, arms))
     save_ledger(led)
 
@@ -316,6 +454,17 @@ def phase_train(arms: list, stop_ts: float, gpus: list | None = None) -> None:
 # ②③ 缓存 + NanoBench
 # ============================================================================
 WORKERS = [4]
+# 🟢 2026-11-12 10:30：**训练阶段**并发臂数 4 → 8（2 臂/卡），只用满整夜算力
+#   实测（4 卡 / 80 核 / 125 GB）：
+#     单臂真实物理占用(PSS) ≈ 11.0 GB ｜ 单臂 CPU ≈ 4.1 核 ｜ 单臂 GPU ≈ 45% util / 4.6 GB 显存
+#   ⇒ 8 臂并发后：内存 ≈ 88 GB（余 ≈ 25 GB）｜ CPU ≈ 33 核（余 ≈ 47 核）｜ 显存 ≈ 9.2 GB/卡（余 15 GB）
+#      ⇒ 单卡双臂交错，GPU util 45% → ~85%，整夜有效算力约 ×1.8
+#   写盘安全：save_ledger 有线程锁 + 跨进程 flock + 写前合并 ⇒ 8 线程并发不新增风险
+#   回退：NANO_TRAIN_WORKERS=4 bash manu/pipeline/npu/run_adaptive_night.sh ...
+TRAIN_WORKERS = [int(os.environ.get("NANO_TRAIN_WORKERS", "8"))]
+# 🟢 2026-11-12 11:00：单臂最多给几个「三项全过」的 epoch 补跑官方三轨
+#   （实测同一臂内 nano 最优 epoch 与 T1 过线 epoch 可能差 1 个 epoch ⇒ 只测一个会白丢候选）
+GATE_EPOCH_K = 3
 NANO_FLOOR = BASE_V2["nano"]  # Beat-to-Pass 下限（默认 Baseline_v2.0 / trial_9863）
 
 
@@ -326,6 +475,13 @@ def phase_nanobench(arms: list, epochs: list[int], gpu_of: dict) -> None:
     led = load_ledger()
 
     def one(item):
+        # 🔴 单臂异常不许掀掉整池（16:52 的 FileNotFoundError 就是这样把整轮打断的）
+        try:
+            _one(item)
+        except Exception as e:  # noqa: BLE001
+            log(f"[{item[0]}] NanoBench 异常：{e}")
+
+    def _one(item):
         trial, seed, p, desc = item
         st = arm_state(led, trial)
         traj = st.setdefault("nanobench", {})
@@ -363,18 +519,66 @@ def phase_nanobench(arms: list, epochs: list[int], gpu_of: dict) -> None:
         list(ex.map(one, arms))
 
 
-def pick_epoch(traj: dict, nano_min: float) -> tuple[dict | None, str]:
-    """选 epoch：先取「nano ≥ 下限」的集合取 F1 最高者；否则取 nano 最高者。
+def base_pick_thresholds() -> tuple[float, float, float]:
+    """基线（9863）的三项 NanoBench 阈值：nano / nano4 / F1（**用台账精确读数**，不用截断常量）。"""
+    led = load_ledger()
+    a = (led.get("arms") or {}).get(str(BASE_V2["trial"]), {})
+    pk = a.get("picked") or {}
+    return (pk.get("nano") or BASE_V2["nano"],
+            pk.get("nano4") or BASE_V2["nano4"],
+            pk.get("f1") or BASE_V2["f1"])
 
-    ⚠️ 下限 = **Beat-to-Pass 参照**的 nano（2026-11-11 起 = Baseline_v2.0 / trial_9863 的 0.7086；
-    旧参照 trial_0031 = 0.6666）。fallback 仍为 nano 最高者。
+
+def base_official_thresholds(led: dict | None = None) -> tuple[float, float, float]:
+    """基线（9863）的官方三轨**精确**读数：T1 下限 / T2 虚警上限 / T3 下限。"""
+    led = led if led is not None else load_ledger()
+    a = (led.get("arms") or {}).get(str(BASE_V2["trial"]), {})
+    of = a.get("official") or {}
+    fp = of.get("t2_fp")
+    return (of.get("t1") or BASE_V2["t1"],
+            float(fp) if fp is not None else float(BASE_V2["t2_fp"]),
+            of.get("t3") or BASE_V2["t3"])
+
+
+def official_beat(g: dict, bo: tuple[float, float, float]) -> bool:
+    """官方三轨是否**相对基线全过**（T1 ≥ / T2虚警 ≤ / T3 ≥）。"""
+    if not g or "error" in g:
+        return False
+    t1, fp_max, t3 = bo
+    try:
+        return (float(g["t1"]) >= t1
+                and float(g["t2_fp"]) <= fp_max
+                and float(g["t3"]) >= t3)
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def pick_epoch(traj: dict, nano_min: float, nano4_min: float | None = None,
+               f1_min: float | None = None) -> tuple[dict | None, str]:
+    """选 epoch（**六项判据的合取视角**）。
+
+    ⚠️ 下限 = **Beat-to-Pass 参照**的 nano（2026-11-11 起 = Baseline_v2.0 / trial_9863 的 0.708648；
+    旧参照 trial_0031 = 0.6666）。
+
+    🟢 2026-11-11 18:00 修：旧规则只看 F1 ⇒ 会把「nano 过了但 nano4 差一点点」的 epoch 选上
+    （实测 12047：ep5 的 nano4=0.646739 < 基线 0.647212，只差 0.0005 却直接判负；
+      而它的 ep4 nano4=0.6569 是过的）⇒ 白丢候选。
+    新规则：
+      ① 先取「nano ≥ 下限」的集合；
+      ② 其中**同时**满足 nano4 ≥ 基线 且 F1 ≥ 基线 的（三项全过）⇒ 取其中 nano 最高者；
+      ③ 否则退回「nano 过线的里 F1 最高者」；
+      ④ 再否则取 nano 最高者。
     """
-    """选 epoch：先取「nano ≥ 下限」的集合取 F1 最高者；否则取 nano 最高者。"""
     cands = [dict(v, epoch=int(k)) for k, v in traj.items() if "f1" in v]
     if not cands:
         return None, "none"
     ok = [c for c in cands if c["nano"] >= nano_min]
     if ok:
+        if nano4_min is not None and f1_min is not None:
+            full = [c for c in ok
+                    if (c.get("nano4") or 0.0) >= nano4_min and c["f1"] >= f1_min]
+            if full:
+                return max(full, key=lambda c: c["nano"]), "all3_pass_max_nano"
         return max(ok, key=lambda c: c["f1"]), "f1_within_nano_floor"
     return max(cands, key=lambda c: c["nano"]), "max_nano_nofloor"
 
@@ -424,14 +628,45 @@ def run_official_gate(trial: int, epoch: int, gpu: int) -> dict:
     return d
 
 
-def phase_gate(arms: list, gpu_of: dict) -> None:
-    led = load_ledger()
+def phase_pick(arms: list) -> None:
+    """只做「按 nano 下限选 epoch + 写 picked」，**不跑官方门禁**。
 
-    def one(item):
+    2026-11-11 v3：官方三轨门禁（GMC）很贵，只跑在「有可能打平基线」的臂上；
+    其余臂仍需写 picked（否则进不了台账排序/冠军候选），故把「选 epoch」拆出来单独跑。
+    """
+    led = load_ledger()
+    b_nano, b_nano4, b_f1 = base_pick_thresholds()
+    for item in arms:
         trial, seed, p, desc = item
         st = arm_state(led, trial)
         traj = st.get("nanobench", {})
-        best, how = pick_epoch(traj, NANO_FLOOR)
+        best, how = pick_epoch(traj, b_nano, b_nano4, b_f1)
+        if not best:
+            continue
+        st["picked_epoch"] = best["epoch"]
+        st["select_rule"] = how
+        st["beat_to_pass_ref"] = ("Baseline_v2.0(trial_9863)" if NANO_FLOOR >= BASE_V2["nano"]
+                                  else "trial_0031")
+        st["picked"] = best
+    save_ledger(led)
+
+
+def phase_gate(arms: list, gpu_of: dict) -> None:
+    led = load_ledger()
+    b_nano, b_nano4, b_f1 = base_pick_thresholds()
+    bo = base_official_thresholds(led)
+
+    def one(item):
+        try:
+            _one(item)
+        except Exception as e:  # noqa: BLE001
+            log(f"[{item[0]}] 官方门禁异常：{e}")
+
+    def _one(item):
+        trial, seed, p, desc = item
+        st = arm_state(led, trial)
+        traj = st.get("nanobench", {})
+        best, how = pick_epoch(traj, b_nano, b_nano4, b_f1)
         if not best:
             log(f"[{trial}] 无有效 NanoBench 读数 ⇒ 跳过门禁")
             return
@@ -440,7 +675,31 @@ def phase_gate(arms: list, gpu_of: dict) -> None:
         st["beat_to_pass_ref"] = "Baseline_v2.0(trial_9863)" if NANO_FLOOR >= BASE_V2["nano"] else "trial_0031"
         st["picked"] = best
         log(f"[{trial}] 选 epoch={best['epoch']}（{how}）nano={best['nano']:.4f} F1={best['f1']:.6f}")
-        g = run_official_gate(trial, best["epoch"], gpu_of.get(trial, 0))
+        gpu = gpu_of.get(trial, 0)
+        g = run_official_gate(trial, best["epoch"], gpu)
+        # 🟢 2026-11-12 11:05 新增：**多 epoch 官方门禁**
+        #   实测（12053 逐 epoch 官方读数）：ep4 = nano 最优（0.709594）但官方 T1 0.887102 不过线；
+        #   ep5 = 官方 T1 0.888286 过线但 nano 塌到 0.678166 ⇒ **只门禁 nano 最优 epoch 会白丢候选**。
+        #   ⇒ 对同一臂里其它「三项全过」的 epoch 依次补门禁，取**第一个官方三轨相对基线全过**的。
+        if not official_beat(g, bo):
+            alts = [c for c in sorted((dict(v, epoch=int(k)) for k, v in traj.items() if "f1" in v),
+                                      key=lambda c: -(c.get("nano") or 0.0))
+                    if c["epoch"] != best["epoch"]
+                    and (c.get("nano") or 0.0) >= b_nano
+                    and (c.get("nano4") or 0.0) >= b_nano4
+                    and (c.get("f1") or 0.0) >= b_f1]
+            for alt in alts[:max(0, GATE_EPOCH_K - 1)]:
+                g2 = run_official_gate(trial, alt["epoch"], gpu)
+                log(f"[{trial}] 补门禁 ep{alt['epoch']}：T1={g2.get('t1')} T2fp={g2.get('t2_fp')} "
+                    f"T3={g2.get('t3')} ⇒ {'官方三轨全过' if official_beat(g2, bo) else '未过'}")
+                if official_beat(g2, bo):
+                    g = g2
+                    best = alt
+                    st["picked_epoch"] = alt["epoch"]
+                    st["picked"] = alt
+                    st["select_rule"] = how + "+multi_epoch"
+                    log(f"[{trial}] ★ 多 epoch 命中 ⇒ 升轨候选改用 ep{alt['epoch']}")
+                    break
         st["official"] = g
         if "error" not in g:
             log(f"[{trial}] 官方门禁：T1={g['t1']:.6f} T2={g['t2']:.6f}(FP {g['t2_fp']}) "
@@ -746,6 +1005,7 @@ def main() -> None:
     stop_ts = time.mktime(time.strptime(args.stop_at, "%Y-%m-%d %H:%M"))
     gpus = [int(x) for x in args.gpus.replace(" ", "").split(",") if x.strip()]
     WORKERS[0] = max(1, args.workers)
+    TRAIN_WORKERS[0] = max(1, args.workers)  # 单独 CLI 跑时保持旧口径
     global NANO_FLOOR
     NANO_FLOOR = BASELINE_NANO_FLOOR[args.nano_floor]
     gpu_of = {t: gpus[i % len(gpus)] for i, (t, _s, _p, _d) in enumerate(arms)}

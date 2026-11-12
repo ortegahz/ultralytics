@@ -240,3 +240,199 @@
   ② **闭环自适应调度器**（`adaptive_runner.py`）：读台账选 champion → 合成臂 + 以冠军为 init 的 8 个单变量训练臂
      → 训练/NanoBench/官方三轨/联合门禁/板卡(仅候选臂) → 重选 champion → 下一轮。
 - 服务器自动化链已挂：`day1_runner`(W10) → `day3_w11`(W11) → `day4_adaptive`(自适应)，全 setsid 脱离；硬截止 11-12 09:00。
+
+## 2026-11-11 12:30 · W10 结果 + 种子噪声量级实测（重大发现）
+- W10 九臂（sw 5.5/6.0/7.0/10.0 + 种子复现 ×3 + 宽小目标 + 周期10ep）NanoBench 读数已出（gate 阶段进行中）。
+- 🔴 **同配方只换种子的 nano 散布**：sw1.0 = 0.07 pp / sw4.0 = 1.04 pp / **sw5.0 = 1.53 pp**
+  ⇒ **噪声量级随 sw 放大** ⇒ sw5.5(9910)=0.6607 是噪声不是剂量效应；**sw∈[3,8] 实为宽平台**。
+- 🔴 **9863 的 nano 0.7086 含显著运气**（同臂其它 epoch 0.6897~0.6942）⇒ **打平线双报**：
+  严格线 0.708648（对外）/ 稳健线 0.70098（sw5.0 两种子均值，内部识别可复现增益）。基线身份不变。
+- 🟢 双正向信号：**宽小目标定义 thr25/maxside6**（micro 0.8395 +1.38 pp）· **sw6~10 的 F1/micro/nano@4px 更优**。
+- 自适应调度器已据此升级：champion 评分加 nano4/F1 修正 · soup 增至 6 个（+soup_multiseed/soup_top_f1）· 训练臂 11 个
+  （+swl=0.90 收回 micro、小目标定义三档、两个双正向组合）。md5 `9bf40843ab3488b37fa0e3667bce6966`。
+
+## 2026-11-11 13:20 · W10 官方三轨全景 + Soup 材料分析
+- W10 九臂官方三轨已齐：**9863 仍是 nano 第一（0.708648）**，无人击败；第二名 9822(sw8.0) 0.705104。
+- **9915(sw10.0) 几乎全维优于基线**：F1 0.893426(+0.37pp) · T1 0.891316(+0.32pp) · T2FP **2**(基线5) · micro 0.8325(+0.67pp)；
+  **9822** nano@4px 0.670605(+2.34pp)；**9916** micro 0.8395(+1.38pp)；**9884** T2FP 0。
+- ⇒ **soup(9863+9822+9915+9916) 是最高概率胜出路径**（各维优势互补，零训练成本）。
+- soup 配方扩到 9 个（+soup_multiseed / soup_top_f1 / soup_dim_top2 / soup_dim_pair），自检全部生成成功。
+  `adaptive_runner.py` md5 `13697048a8a02e4725370574f49cb94a`（本地=服务器）。
+
+## 2026-11-11 15:05 · SWA 实测 + W11 证伪 + 自适应调度器 v3 重构
+- **SWA/合成实测（14:46）**：跨模型 Soup 全部崩盘（soup_multiseed 0.2422 / soup_dim_top2 0.3046 /
+  soup_same_sw 0.4627 / soup_top3 0.6545）⇒ 不同配方/种子的权重不在同一 loss 盆地；
+  **同臂相邻 epoch 的 SWA 成立**（swa_late = 9863 的 ep5~ep9 ⇒ nano 0.708885，已略超基线 0.708648）。
+- **W11 全负 ⇒ 证伪**：「以 9863 ep5 为 init 再训练」4 臂 nano 0.6498~0.6779（低 3~6 pp）⇒ 二次退火伤 nano；
+  v2 调度器的 11 个训练臂（12009~12019 / 12024~12034）与之同型 ⇒ 15:00 停掉 v2，避免整晚算力进死路。
+- **v3 重构**（四个改动，均有代码级依据）：① 训练臂一律 base init(cs_t0043.pt) 起训；
+  ② **epochs 20→5 逐位等价**（LR 是全局步号的函数、采样种子=seed+trial_number 且与 `--epochs` 无关、
+  `total_steps` 只用于打印 ⇒ ep1~ep5 一致）⇒ 单臂 56 min → 14 min，算力 ÷4；
+  ③ **配方级判优**（recipe_key 21 参指纹 + 多 seed 均值；冠军配方须 n≥2 且均值 nano 严格优于基线配方；
+  打平线双报：严格 0.708648 / 稳健 0.700969；新增「待复现队列」给单臂过线格自动补种子）；
+  ④ **官方三轨门禁只跑候选臂**（nano ≥ 基线−2 pp 或当轮前 8），`nano_search.py` 新增 `phase_pick()`。
+  自检 `--selftest` CPU-only PASS；md5 `9098918e0135445cf7b0fe66350fc48e`（本地=服务器）。
+- **夜间程序已拉起**：`setsid nohup bash manu/pipeline/npu/run_adaptive_night.sh "2026-11-12 09:00" 6 18 &`
+  （PID 398941，SID 独立 ⇒ SSH 断开 / host 18:00 关机都不影响）；每轮 24 训练臂（6 种子扫描 + 18 突变格）
+  + 4 SWA 合成臂 + 训练后自动 SWA top6；硬截止 11-12 09:00，剩余时间不足自动缩臂。
+- 本夜第一优先突变格：**swl=0.5**（依据 9884：nano +1.70 pp / nano@4px +3.69 pp；正对 9863 的 micro 短板 −1.13 pp）。
+
+## 2026-11-11 15:30 · 升轨工具通用化 + 板端参照修复
+- 新增 `manu/pipeline/npu/promote_candidate.py`：`--list` / `--trial N --dry-run` / `--trial N --name Baseline_v3.0`。
+  预检 = 六项判据 + 板端（≤0031 同会话 ×1.02）+ 种子复现（配方 n≥2 且均值 nano 严格优于基线配方）；单臂过线 = PASS\*（需 --force）。
+  执行写 `baseline_v2`/`baseline_registry`/`beat_to_pass` + 臂标记 + `promotion_<trial>.json`，并打印需回填的 `BASE_V2` 常量。
+  实测 `--trial 9915 --dry-run` 正确拒绝（nano/nano4/T3 不过）。
+- 🔴 板端参照失效：台账 `board_sessions=null`（被 runner 的 save_ledger 覆盖）⇒ 「ms ≤ 0031×1.02」永远判不出。
+  改为直接读会话文件（`ns.board_reference_ms` / `board_ms_for` / `parse_board_session_file`），beat_report + 升轨脚本改用之。
+- 📌 新板读数：session2 `t31=23.528` / `9863=22.009`（快 1.519 ms）/ `9801=21.766`；session1 的 0031 因 `.stride=8` FATAL。
+  ⇒ 9863 从未在交付板（19.x ms）实测，19.306 ms 是 0031 的数；绝对 20 ms 铁律在新板连 0031 自身都达不到 ⇒ 判据暂用同会话相对值。
+- 🔴 修 `beat_report.py` winners 表漏「六项全平但未测速」的臂（索引用错）⇒ 改按六项全平入选 + ms 另算 PASS/PASS\*。
+
+## 2026-11-11 15:40 · 修「打平基线」判定的缺项漏检（假 beat）
+- 现象：`core_checks()` 对缺项是**跳过** ⇒ `all(chk.values())` 把「只过 nano/nano4/F1、没测 T1/T2FP/T3」的臂判成打平基线。
+- 修：新增 `full_checks()`（六项齐全且全 True 才算 beat）· `champion_score()` 缺项计违约 · 板卡靶子只取六项齐全的臂 · beat_report 同步。
+- 处置：15:08 带修复重启调度器（代价 ≈8 min×4 卡半截训练）；重启前清掉作废臂（12035~12062）的权重与台账条目，
+  避免半截 ckpt 被 `phase_train` 的「末 epoch 已存在 ⇒ 跳过」误判；`next_mutations()` 的「已试过」判据改为
+  **只有跑出读数的格才算试过** ⇒ 重启不丢格。自检新增两条回归断言并 PASS。
+
+## 2026-11-11 15:25 · 夜间保险丝（守护 + 代码热升级）+ 系统网格生成器
+- 新增 `run_adaptive_watchdog.sh`：调度器不在 ⇒ 重启；日志静默 >45 min ⇒ 判卡死 ⇒ 杀+重启（重启前删写一半的 epoch5.pt）；
+  **代码 md5 变了且刚跑完一轮 ⇒ 在轮次边界重启**（避免浪费一轮的官方门禁）；续跑轮号 = 台账 rounds 最大轮号 + 1。
+  状态 `watchdog_state.json` / 日志 `watchdog.log`，setsid 脱离。
+- 新增 `generate_mutations()`：固定 43 格用完后转系统网格（sw × swl × 小目标定义 / lr × LR保底 / warmup × focal / offset × 混样），
+  跳过台账里已跑出读数的配方键 ⇒ 整晚不熄火。
+- 代码 md5（本地=服务器）：adaptive_runner `557a233e…` / nano_search `c85d29d1…` / beat_report `a466ef76…` /
+  promote_candidate `b43b3909…` / run_adaptive_night `4a812829…` / run_adaptive_watchdog `ba70199c…`。
+  `--selftest` CPU-only PASS（含三条回归断言）。
+
+## 2026-11-11 16:10 · 调度器 v3.1（时间预算实测校准 + 可升轨候选落盘）+ 🔴 T1 读数缺失根因
+- 🔴 **根因定位（官方三轨 T1 整片消失）**：`auto_epoch_gate_check.py` 的 Track1 A/B 用 `--baseline-cache` 的基线臂缓存
+  去复现冻结 headline（F1 0.905736 / TP 21624 / FP 1014）；早期误传 no-GMC 缓存 `nogmc_ref_weekend/uav_cache_base.pkl`
+  （实测峰值 F1 0.900897）⇒ `status=ab_failed rc=2` ⇒ 台账 `t1=0.0` ⇒ 六项判据永远缺一项 ⇒ **永远判不出打平**。
+  中招臂实测：9802/9804/9812/9813/9821/9823/9824；正确缓存 `runs/mixed_ft_route_b/baseline/uav_cache_deP0.pkl`
+  ⇒ 9803/9811/9814/9822 拿到有效 T1。本夜代码用的是正确缓存。
+- 🟢 `adaptive_runner.py` 加：① `plan_minutes()` / `shrink_plan()`（按 R1 实测校准：训练 16 min/4 臂、
+  NanoBench 1.3 min/臂、门禁/dual/板卡/报告固定 25 min ⇒ 24 臂一轮 = 152 min；收工阈值 70→60 min）；
+  ② `promotion_candidates()` + `promotion_ready.json`（三关：n≥2 seed / 六项全平 / 均值不劣于基线配方）。
+- 服务器端 `--selftest` PASS；md5 `adaptive_runner.py 8ee4f738…` 本地=服务器一致；经 watchdog 轮次边界热升级在 R2 生效。
+
+## 2026-11-11 17:03 · 🔴 台账竞态事故复盘 + 修复 + 重启（恢复 R1 的 24 个臂）
+- 事故：16:52 `phase_nanobench` 抛 `FileNotFoundError: nano_search_ledger.json.tmp -> nano_search_ledger.json`
+  ⇒ R1 整轮报废。损伤：24 臂全训完，仅 5 臂有 NanoBench 读数、0 臂有 picked ⇒ 门禁/板卡/报告全丢、`rounds` 账目错位。
+- 根因：`save_ledger()` 全线程共用固定临时文件 `LEDGER+'.tmp'` ⇒ 并发 `os.replace` 互踩；
+  NanoBench 阶段每臂每 epoch 存一次（84 次/轮）⇒ **每轮必撞**。
+- 修复：① `save_ledger` 线程安全（唯一临时名 + RLock + dump 重试 6 次）；② `phase_nanobench/phase_gate/phase_train`
+  单臂 try/except；③ `adaptive_runner`：`safe_phase()` 阶段容错 + `find_orphan_arms()` 崩溃恢复
+  （孤儿臂在下一轮开始前并入本轮补评 ⇒ 冠军配方也能用）。
+- 处置：17:03 重启调度器（`--start-round 2`，新 md5 作守护基线）；启动日志 `[R2] 崩溃恢复：35 个孤儿臂`
+  （12009~12019 + 12039~12062）。服务器端 `--selftest` PASS。md5：adaptive_runner `292539a4…` / nano_search `f85348e4…`。
+
+## 2026-11-11 17:45 · R1 抢救完成（swl0.3 = 最强格 0.7271）+ 冠军规则「均值稀释」修正 + 队列重排
+- 恢复的 35 个孤儿臂全部补评完成。关键读数：12047(sw5.0×swl0.3) ep3 **0.7271**/ep4 0.7136/ep5 0.7169（三 epoch 全过基线线）；
+  12044(sw5.0) 0.7072；12045(swl0.5) 0.6923；12046(swl0.7) 0.6779；12048(swl0.9) 0.6876；
+  12053(sw5.0×lrfloor0.10) ep4 nano 0.7096 / nano4 0.6567 / F1 0.892338（**NanoBench 侧三项全平基线**）。
+- ⚠️ swl 降权拿 F1 换 nano（12047 F1 ≤0.8860 < 0.889712 ⇒ F1 项不过）⇒ 方向 = swl0.3 + lrfloor0.10 组合。
+- 🔴 冠军规则 bug：基线配方组 seed 变多（n=8）⇒ 均值被稀释到 0.696568 ⇒ n=2 的 sw4.0 组（0.6986）被误升格。
+  修（v3.2）：「单臂最佳格直通通道」（≥基线最佳+0.5 pp 且同臂 ≥2 epoch 过线）⇒ 搜索中心切到 sw5.0×swl0.3。
+  队列最前插 14 个 swl0.3 族群格。R2 已开跑（24 臂 + 3 SWA 合成臂）。
+- md5：adaptive_runner `ea154cf5…` / nano_search `f85348e4…`（本地=服务器一致）；`--selftest` PASS。
+
+## 2026-11-11 17:52 · 修 watchdog 续跑轮号（len(rounds) → max(round)）
+- `rounds_now()` 返回记录条数而非最大轮号 ⇒ 跑完 R2 后下一轮会算成 2 ⇒ 触发重启就把 R2 重跑（浪费 ~2.5 h）⇒ 改为 `max(round)`。
+- md5 `run_adaptive_watchdog.sh 4ab0965e…`（本地=服务器一致）；17:52 重启守护（state 保留 code_md5=ea154cf5 / rounds=0）。
+
+## 2026-11-11 18:05 · 选 epoch 规则升级（六项合取）+ 守护双文件监控
+- 旧规则漏洞：选 epoch 只在「nano 过线」里取 F1 最高者 ⇒ 忽略 nano4 ⇒ 12047 的 ep5（nano4 0.646739，差 0.0005）
+  被选中，而 ep4（nano4 0.6569）是过的 ⇒ 白丢候选。新规则：三项全过优先、否则退回 F1 最高；阈值用台账精确读数。
+  回归：全台账 140 臂重算无退化；当前三项全平臂 = 9863 + 12053(lrfloor0.10)。
+- 守护改为监控 `adaptive_runner.py + nano_search.py` 的组合 md5（`71bb80ce…`）；state 留旧 md5 ⇒ R2 边界自动重启生效。
+- md5：nano_search `ebea0513…` / run_adaptive_watchdog `c4c8d762…`（本地=服务器一致）。
+
+## 2026-11-11 18:15 · 突变队列重排（70 格）+ 系统网格以冠军为中心
+- 队首新增 11 个组合格（swl0.3×lrfloor0.10×thr12ms3 / swl0.3×thr12ms3 / lrfloor0.10×thr12ms3 / swl0.25/0.35×lrfloor0.10 /
+  swl0.3×mr2 / fb2.5 / mixw2.5 / thr32ms8 / lrfloor0.10×ow0.5 / thr12ms3×ow0.5）；11 个低先验单变量格降到队尾。
+- 系统网格改为以冠军配方（sw/swl）为中心 ⇒ 样例由 grid_sw5.0_swl0.5_thr18 变为 grid_sw5.0_swl0.3_thr18。队列 43→70 格。
+- md5 `adaptive_runner.py cc230097…`（本地=服务器一致）；`--selftest` PASS。R3 起生效（守护在轮次边界热升级）。
+
+## 2026-11-12 09:00~09:30 · 定位「昨夜整夜零升轨」的真根因（swl 毁 T2），并修 8 处
+- **现象**：昨夜 R2~R6 五轮、375 臂，best_nano 0.755~0.758（基线 0.708648，+4.7 pp）却 `promotion_ready` 五轮零候选。
+- **排查链**：① 门禁窗口只取 nano 前 8 ⇒ 三项全平的臂从未跑官方三轨（4 个臂受害）② 补跑 triad 三轨后发现高 nano 臂官方 T1/T2/T3 全崩
+  ③ 按 swl 分层统计 23 个有官方读数的臂 ⇒ **T2 随 swl 单调塌陷**（1.0→0.996 / 0.5→0.99 / 0.35→0.957 / 0.3→0.957 / 0.2→0.927 / 0.1→0.82），
+  **而 NanoBench(no-GMC) 完全无感**（swl0.1 的 nano 0.7578 全场最高）⇒ 搜索中心被 nano 单指标拖进死区。
+- **结论**：`epochs=5` 捷径安全（12053 epochs=5 的 T2 0.998104 > 基线 0.997440）；T2 塌的唯一驱动是 swl。
+- **修复**：冠军加 T2 安全闸门 + 最佳臂须达严格线 + 突变/网格/待复现队列全面剔除 swl<1.0 + 队首改 lr_floor 阶梯
+  + `save_ledger` 跨进程合并/flock（修「gate 脚本写回旧台账 ⇒ R6 轮记录被覆盖丢失」事故，`restore_r6_record.py` 已补回）
+  + 新增 `gate_specific_arms.py`。
+- **triad 实测**：12053(sw5.0×swl1.0×lr_floor0.10 @ep4) T1 0.887102 / T2 0.998104(FP4) / T3 0.949250(FP76) ⇒ 六项过五项，**只差 T1 0.098 pp**；
+  12252/12263/12300 因 swl 0.5/0.35/0.2 ⇒ T2 0.9907/0.9711/0.9216 全 FAIL。
+- **口径修正**：`lr_floor=0.10` 组 n=9 均值 nano 0.6884 < 基线配方 epochs=5 均值 0.6951 ⇒ 「四项全上」是运气臂 ⇒ 结论须 n≥2 复现。
+- md5：`adaptive_runner.py 501df94c…` · `nano_search.py 8da45aed…`（本地=服务器一致）；服务器 `--selftest` PASS。
+
+## 2026-11-12 09:29~09:35 · 夜搜 R7 正式启动（服务器自主跑到 11-13 09:00）+ §149 收尾补写
+- **一键启动**：`manu/pipeline/npu/launch_night_20261112.sh`（补 R6 记录 → 起调度器 → 写守护 state → 起守护 v2 → 核验），
+  实跑参数 `"2026-11-13 09:00" 7 6 18`（deadline / start-round=7 / n-seed=6 / n-mut=18）。
+- **脱离 host 核验**：调度器 PID 1140198 **PPID=1**、SID 1140195；守护 PID 1143269 **PPID=1**、SID 1143269（**互不相同**）
+  ⇒ 18:00 host 关机后服务器继续跑。4 卡满载 51/45/44/32%。`adaptive.log` 出现 `[R7] 训练 24 臂（合成 4 臂免训练）`。
+- **搜索中心 = 基线配方**（`冠军配方 n=8 均值nano=0.696568 最佳=0.708648 | 已升格=False`）⇒ T2 安全闸门生效（无更优且 T2 已验证的格）。
+- **台账自检**：arms=375、rounds=[2,3,4,5,6]（R7 轮末才写）、pending=0；
+  9863 nano 0.708648 / T2 0.997440；12053 nano 0.709594 / T2 0.997983。
+- **§149 补写内容**：12053 ep5/ep3、12041 ep5、12040 ep4 的官方三轨读数；**「同臂不同 epoch 官方最优与 nano 最优不在同一处」**
+  ⇒ 升轨必须同臂同 epoch 六项齐全，不许分两次选 epoch 拼读数；板卡 R5/R6 假失败根因（192.168.0.211 不可达）与 09:31 恢复；
+  第 9 处修复（基线组不再整组排除）与第 10 处修复（gate_specific_arms 报告重复行 + official 槽覆盖）。
+- **代码 md5（本地=服务器）**：`adaptive_runner.py 212283d3…` · `nano_search.py 8da45aed…` · `promote_candidate.py f1fe810b…` ·
+  `gate_specific_arms.py 649fbee5…` · `gate_triad_arms.py 85b45815…` · `restore_r6_record.py 8ce8830f…`；
+  守护基线组合 md5 `d760c06e39bd326a48f27822bf3b07ff` / rounds=6。
+
+## 2026-11-12 09:40~09:55 · 板卡体检 + 今夜板卡阶段主动禁用（保护板卡上的其它任务）
+- **板卡本体实测（09:40~09:45）**：新板 `orangepicm5` / RK3588 / `5.10.160-rockchip-rk3588`；11-12 08:35 重启过（uptime 65 min）。
+  重启后 **`/dev/rknpu` 设备节点消失**（`/proc/devices`、`/sys/class/misc`、`/proc/misc` 均无 rknpu；
+  `lsmod` 空、`find /lib/modules -name '*rknpu*'` 空 ⇒ 无 rknpu.ko 可加载），
+  **但驱动本体完好**：`/sys/class/rknpu_dev.8.auto` + `/sys/kernel/debug/rknpu` 存在、
+  `CONFIG_ROCKCHIP_RKNPU=y`、dmesg 有完整 RKNPU 初始化 ⇒ **rknnrt 走 DRM/GEM 路径，不依赖 `/dev/rknpu`**。
+  实跑 `rknn_heatmap_smoke arms/t31_silu_int8.rknn feat.jpg --loops 5 --warmup 2` ⇒ **NPU 正常出结果**，
+  `rknn_run avg 22.606 ms`。
+- ⚠️ **该读数作废**：用户 09:50 告知「板卡有别的任务在跑，现在测试的时间不一定准确」（板卡 load 2.19/8 核）⇒ 不进任何判据。
+- **时延参照不变**：`t31_silu_int8 = 23.528 ms`（11-11 干净会话，`nano_search.BOARD_SESSION_FILES` 读静态文件，不受今夜影响）。
+- 🔴 **审计出我们板卡阶段会破坏板卡上的其它任务**（三条硬伤）：
+  ① `nano_search.clean_board_residue()` → `pkill -9 -f "rknn_heatmap_smoke|e2e_par2_demo|e2e_par_demo|e2e_demo"`；
+  ② `board_speed_search.archive_board_arms()` → 把板上 `arms/*.rknn` `mv` 走；
+  ③ 代码注释自述板卡驱动脆弱「长会话 → soft reset → rknn_init 132，**只能物理断电恢复**」。
+- **处置（零代码改动 ⇒ 不触发守护热升级、不打断整夜算力）**：
+  `mv /home/huangzhe/.ssh/id_board /home/huangzhe/.ssh/id_board.disabled_20261112_nano_search`
+  ⇒ 流水线对板卡的 ssh/scp **0.17 s 内立刻失败**，一个字节都不碰板卡；
+  标记文件 `$W/BOARD_PHASE_DISABLED.txt`（含恢复命令）；**明早板卡空闲后 mv 回去**。
+- **对升轨无影响**：`promote_candidate.check_arm()` 的 `res["ok"]` 在板卡检查之前算完 ⇒ 六项齐全即 `ok=True`，板卡只出 warning。
+  ⚠️ 明早待修：`promote_candidate.py:85` 的 `c["ms"]` 加在 `ok` 之后 ⇒ 板卡超预算也不挡升轨（口径漏洞）。
+
+## 2026-11-12 10:00~10:45 · 嵌入式交付收口：L2/L3 实测闭合 + 官方 PASS + 🔴 RGA 驱动内核 oops 定位与修复
+- **L2 新板 golden（`192.168.0.211`）**：e2e 路径 detached 跑，08:53→09:46（52 min，**3.781 fps**），
+  喂入 11810 / 产出 **11808**，`dropped=0`，**2 帧被引擎跳过**（000199/000241）。产物 `regress/new_golden211/`。
+- **Q1 位级对齐（新板 golden vs push-all 全量）**：共同 **11806** 帧 ⇒ feature md5 **11806/11806 逐位相同**、
+  检测 TSV **11806/11806 逐帧全等**；**官方校验器 VERDICT PASS**（`regress/align_newgolden_pa11810.md`，
+  5 项判据全过，TP/FP/FN/R/P/F1 全等，**ΔF1 = +0.000000**）。
+- **Q2 换板环境差**：旧 golden vs 新 golden md5 **19.96%** / TSV **24.04%**（与旧 push-all 对旧板 19.97% 同量级）。
+- **跨环境容差新量化**：检出数变化 **0.56%**；坐标差 中位 **0.0000 px** / p95 0.11 / p99 0.31；**94.17%** 帧 ≤0.1 px、**99.48%** ≤0.5 px。
+- **L3 `--inflight 1` 实测**（不再是推断）：3000 帧喂入 → **3000 帧产出**，零跳过零溢出；与 serial 基线 **md5 3000/3000 + TSV 逐行全等**。
+- **交付门禁复跑时发现板卡进程挂死**（7.5 min 只用 13 s CPU）⇒ 挖出 🔴 **RGA 驱动内核 oops**：
+  `Internal error: Oops: 96000146`，两次（08:52:47 `Comm: rknn_mosaic_e2e` / 10:10:54 `Comm: mosaic_contract`），
+  栈同：`__clean_dcache_area_poc → iommu_dma_sync_single_for_device → dma_sync_single_for_device →
+  rga_mm_sync_dma_sg_for_device → rga_mm_get_buffer → rga_mm_get_channel_handle_info → rga_mm_map_job_info → rga_job_commit`，
+  解引用 `ffffff8000000000`；前置日志 `rga_mm: This is not a buffer that has been imported, handle = -1`。
+  手工复跑契约测试正常（30 s，`[RESULT] 199 passed, 0 failed`）⇒ **低概率竞态，非必现**。
+- **根因定位**：① 子代理取证板卡有两份 librga（Debian `librga2 2.2.0-1` rga_api **1.10.0_[9]** md5 `32c4b08f…` = 运行时实际加载；
+  Orange Pi rockit 捆绑 `librga.so` rga_api **1.9.1_[3]** md5 `55198ac0…` = SONAME 不匹配、运行时不用）；
+  内核 RGA 驱动 **新板 `rockchip_rga v1.3.0` vs 旧板 `rga v1.3.1`** ⇒ **用户态 API 同版、内核驱动不同版**。
+  ② 板卡上直接编译微基准 `manu/pipeline/npu/tools/rga_pat_ab_test.cpp`（6 种模式）证明：
+  pat import 与否 **canvas 哈希完全相同**（`7b066d7c` / `0bb05135`）⇒ import 不改输出；
+  且**每种模式都恰好 1 次** `not a buffer that has been imported` ⇒ 该内核报错与 pat 的 `handle=-1`、与 churn 都无关。
+- **两处修复**：① `mosaic_core.h` `AllocCanvasBuffers()` 增加 `BufImport(&s->pat)`（原来 `pat` 从未 import，
+  以 `wrapbuffer_handle(-1,…)` 传给 `improcess()`）；**A/B 证明输出零影响** —— 同一 e2e 二进制
+  （`731f1244…` 未改）挂旧库 `03e1e301…` / 新库 `b39c2cf7…` 各跑 300 帧，`feature_md5.txt` md5 同为 `015649b0…`、
+  mosaic TSV md5 同为 `b1882de0…`（`diff -q` 两项 IDENTICAL）。
+  ② `copy_to_nfs.sh` 的 `run_board_test()` 加板卡侧硬超时 `timeout -k 10 $BOARD_TEST_TIMEOUT`（默认 600 s），
+  超时打印 `[timeout]` + 指向 RGA oops 的判据（`dmesg | grep -c 'Internal error: Oops'`），强杀后重试一次。
+- **交付包**：`make_build_dir.sh`（72 文件、MANIFEST 自洽）→ `copy_to_nfs.sh --verify` **5/5 门禁全过（EXIT=0，跑两轮）**；
+  板卡侧实测新库 md5 `b39c2cf72aca357d6ad74086f9980365`，5 个测试程序 md5 不变；
+  README 新增「🔴 板卡 RGA 驱动会偶发内核 oops（新板特有，嵌入式组必读）」一节。
+- **新增遗留 L6**：RGA 驱动 oops —— 用户态已防御（pat import + 门禁超时），**根因需厂商侧升内核驱动**。
+- **新脚本**：`manu/pipeline/npu/tools/rga_pat_ab_test.cpp`（板卡侧 A/B 微基准）。

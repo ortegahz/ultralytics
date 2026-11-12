@@ -480,6 +480,48 @@ static int RunContractTests(const DemoArgs& args) {
 
   mosaic_pipeline_destroy(p);
 
+  // ---- 8b. THE CALLER'S OWN FRAME NUMBER COMES BACK WITH THE RESULT --------
+  //
+  // The library is much slower than the camera (8-12 fps of inference behind a
+  // 25 fps camera), so a client CANNOT assume that the results come back in
+  // push order -- and it cannot count them either, because the opportunistic
+  // scheduler decides how many frames are really computed.  An OSD / servo /
+  // streamer therefore has to be told WHICH of its frames a detection belongs
+  // to, otherwise it draws the target on the wrong image.
+  //
+  // mosaic_pipeline_push_frame() binds the caller's number to the frame;
+  // collect() must hand it back UNCHANGED.  The number used here is
+  // deliberately NOT dense and NOT zero-based: the library must not rewrite
+  // it, and the library's own dense numbering (which the GMC history is
+  // anchored on) must not leak into the result.
+  {
+    MosaicPipelineConfig cf;
+    mosaic_pipeline_config_defaults(&cf);
+    mosaic_pipeline_config_set_paths(&cf, args.model.c_str(), args.kernel_dir.c_str(),
+                                     args.sequence.c_str());
+    char err2[256] = {0};
+    MosaicPipeline* pf2 = mosaic_pipeline_create(&cf, err2, sizeof(err2));
+    Check(pf2 != nullptr, "push_frame: a real pipeline is created for the frame-id contract");
+    if (pf2) {
+      const int64_t kBase = 1000000;      // sparse, non-zero, and NOT the library's numbering
+      const int kProbe = 4;
+      bool back_ok = true, handle_ok = true;
+      for (int i = 0; i < kProbe; ++i) {
+        const cv::Mat img = cv::imread(frames[i], cv::IMREAD_GRAYSCALE);
+        if (img.empty()) { back_ok = false; break; }
+        const int64_t handle =
+            mosaic_pipeline_push_frame(pf2, img.data, img.cols, img.rows, kBase + i);
+        if (handle != i) handle_ok = false;   // the HANDLE is the library's own dense number
+        int64_t got_id = -1;
+        const int32_t nd = mosaic_pipeline_collect(pf2, &got_id, nullptr, 0);
+        if (nd < 0 || got_id != kBase + i) back_ok = false;
+      }
+      Check(handle_ok, "push_frame: the handle is the library's own dense number (0,1,2,...)");
+      Check(back_ok, "collect: the caller's own frame number comes back UNCHANGED");
+      mosaic_pipeline_destroy(pf2);
+    }
+  }
+
   // ---- 9. THE DECOUPLED THREE-STAGE PIPELINE (v10) --------------------------
   //
   // Stage 1 (pre-process) -> Buffer A -> Stage 2 (NPU) -> Buffer B ->

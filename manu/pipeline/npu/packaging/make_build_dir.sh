@@ -23,7 +23,7 @@
 #         原来就有的 .so）⇒ 没有 third_party/ 目录。
 #         库本身也从**静态库 .a 改成共享库 .so**：
 #           out/libmosaic_pipeline.so（SONAME = libmosaic_pipeline.so）
-#         四个测试程序用 `-lmosaic_pipeline` + `-Wl,-rpath,'$ORIGIN'` 链接它
+#         五个测试程序用 `-lmosaic_pipeline` + `-Wl,-rpath,'$ORIGIN'` 链接它
 #         ⇒ 整包可搬、可直接跑，不需要设 LD_LIBRARY_PATH。
 #
 #   ⚠️ 头与运行库必须**同版本**：用板卡 OpenCV 4.6.0 的头去链板卡
@@ -107,6 +107,7 @@ fill_placeholders() {
     -e "s|\{\{LIB_A_MD5\}\}|$LIB_SO_MD5|g" \
     -e "s|\{\{API_TEST_MD5\}\}|$API_TEST_MD5|g" \
     -e "s|\{\{CLIENT_EXAMPLE_MD5\}\}|$CLIENT_EXAMPLE_MD5|g" \
+    -e "s|\{\{ASYNC_EXAMPLE_MD5\}\}|$ASYNC_EXAMPLE_MD5|g" \
     -e "s|\{\{CONTRACT_TEST_MD5\}\}|$CONTRACT_TEST_MD5|g" \
     "$src" > "$dst"
 }
@@ -137,7 +138,7 @@ purpose_of() {
     README.md)                    echo "使用说明（四条命令 + 交付/零参数/NFS/一键拷贝 各节）" ;;
     MANIFEST.md)                  echo "**本交付清单**（由 make_build_dir.sh 生成）" ;;
     build_lib.sh)                 echo "构建脚本①：只编译库 -> out/libmosaic_pipeline.so（**共享库**，SONAME=libmosaic_pipeline.so）" ;;
-    build_demo.sh)                echo "构建脚本②：只编译测试程序 -> out/mosaic_api_test + out/mosaic_client_example + out/mosaic_contract_test + out/rknn_mosaic_e2e（用 -lmosaic_pipeline + -rpath \$ORIGIN 链接同目录的 .so）" ;;
+    build_demo.sh)                echo "构建脚本②：只编译测试程序 -> out/mosaic_api_test + out/mosaic_client_example + out/mosaic_async_client_example + out/mosaic_contract_test + out/rknn_mosaic_e2e（用 -lmosaic_pipeline + -rpath \$ORIGIN 链接同目录的 .so）" ;;
     copy_to_nfs.sh)               echo "一键脚本：编译 + 拷贝到 NFS + md5 回验 +（可选）板卡验证" ;;
     fetch_board_libs.sh)           echo "把**板卡自带的**库与头取回宿主机（ssh 打包 → tar → 解包），并打印 build_lib.sh / build_demo.sh 要用的四个路径变量" ;;
     known_hosts)                  echo "板卡主机密钥基线（ssh 严格校验用；板卡换密钥会直接失败，这是故意的）" ;;
@@ -147,6 +148,7 @@ purpose_of() {
     src/npu/mosaic_post_gpu.h)    echo "GPU 后处理路径（OpenCL 局部极大；kernel 已内嵌，**不需要**外置 .cl）" ;;
     src/npu/mosaic_api_test.cpp)  echo "示例 demo 源（只调公开 C ABI）" ;;
     src/npu/mosaic_client_example.cpp) echo "**最简集成示范源**（嵌入方照着抄；含 set_post_mode 钉死 sparse）" ;;
+    src/npu/mosaic_async_client_example.cpp) echo "**多线程生产-消费 + 回调模板源**（嵌入式组的工程级集成骨架：相机线程不阻塞 + 严格一推一收 + 回调分发）" ;;
     src/npu/mosaic_contract_test.cpp) echo "契约测试源（验收门禁）" ;;
     src/npu/rknn_mosaic_e2e.cpp)  echo "**端到端测试程序源**（吞吐/延时测量，只调公开 C ABI）" ;;
     src/cpp/gmc_stream_ocl.cpp)   echo "GMC/OpenCL 引擎（被 mosaic_pipeline.cpp 以 ../cpp/ 相对包含）" ;;
@@ -173,6 +175,7 @@ out_note_of() {
     out/libmosaic_pipeline.so) echo "**共享库**（客户链接它；SONAME=libmosaic_pipeline.so；动态链接板卡自带库）" ;;
     out/mosaic_api_test)       echo "示例 demo 可执行文件（给客户的示例）" ;;
     out/mosaic_client_example) echo "**最简集成示范可执行文件**（嵌入方照着抄这份）" ;;
+    out/mosaic_async_client_example) echo "**多线程生产-消费 + 回调模板可执行文件**（工程级集成骨架；嵌入式组照着这份搭自己的相机线程）" ;;
     out/mosaic_contract_test)  echo "契约测试可执行文件（验收门禁）" ;;
     out/rknn_mosaic_e2e)       echo "端到端测试程序（吞吐/延时测量）" ;;
     *)                         echo "构建产物" ;;
@@ -228,6 +231,7 @@ copy_one "$ROOT/mosaic_core.h"                  "src/npu/mosaic_core.h"
 copy_one "$ROOT/mosaic_post_gpu.h"              "src/npu/mosaic_post_gpu.h"
 copy_one "$ROOT/mosaic_api_test.cpp"            "src/npu/mosaic_api_test.cpp"
 copy_one "$ROOT/mosaic_client_example.cpp"      "src/npu/mosaic_client_example.cpp"
+copy_one "$ROOT/mosaic_async_client_example.cpp" "src/npu/mosaic_async_client_example.cpp"
 copy_one "$ROOT/mosaic_contract_test.cpp"       "src/npu/mosaic_contract_test.cpp"
 copy_one "$ROOT/rknn_mosaic_e2e.cpp"            "src/npu/rknn_mosaic_e2e.cpp"
 # 被相对包含的引擎 / 工具 / OpenCL host
@@ -281,7 +285,7 @@ done
 #
 #    ⇒ 交付包**没有 third_party/**；库本身也改成**共享库**交付：
 #      out/libmosaic_pipeline.so（SONAME = libmosaic_pipeline.so），
-#      四个测试程序用 `-lmosaic_pipeline` + `-Wl,-rpath,'$ORIGIN'` 链接它。
+#      五个测试程序用 `-lmosaic_pipeline` + `-Wl,-rpath,'$ORIGIN'` 链接它。
 #
 #    ⚠️ 头与运行库必须**同版本**：用板卡 4.6.0 的头去链板卡 4.6.0 的 .so.406；
 #       不要拿 4.8 的运行库配 4.6 的头（OpenCV 次版本会改 C++ ABI）。
@@ -352,6 +356,7 @@ OBJ_MD5=$(md5_or_placeholder "$DEST/out/mosaic_pipeline.o")
 LIB_SO_MD5=$(md5_or_placeholder "$DEST/out/libmosaic_pipeline.so")
 API_TEST_MD5=$(md5_or_placeholder "$DEST/out/mosaic_api_test")
 CLIENT_EXAMPLE_MD5=$(md5_or_placeholder "$DEST/out/mosaic_client_example")
+ASYNC_EXAMPLE_MD5=$(md5_or_placeholder "$DEST/out/mosaic_async_client_example")
 CONTRACT_TEST_MD5=$(md5_or_placeholder "$DEST/out/mosaic_contract_test")
 
 README_TMP="$(mktemp)"
@@ -487,12 +492,15 @@ echo "  源码/脚本      : $src_n 个（src/）"
 echo "  第三方头       : $inc_n 个（include/）"
 echo "  kernel 资产    : $ker_n 个（runtime/kernels/）"
 echo "  共享库         : out/libmosaic_pipeline.so（SONAME=libmosaic_pipeline.so）← 动态链接板卡自带库"
-echo "  编译产物       : $out_n 个（out/：共享库 + 4 个测试程序 + .o）"
+echo "  编译产物       : $out_n 个（out/：共享库 + 5 个测试程序 + .o）"
 echo
 echo "  下一步（⚠️ 顺序不能颠倒）："
-echo "    cd $DEST && bash build_lib.sh && bash build_demo.sh   # ① 编译（库 + 4 个测试程序）"
+echo "    cd $DEST && bash build_lib.sh && bash build_demo.sh   # ① 编译（库 + 5 个测试程序）"
 echo "    cd <repo>/manu/pipeline/npu && bash packaging/make_build_dir.sh   # ② 再打包一次"
 echo "         └─ 把新产物的 md5 和「包内文件总数」写回 README/MANIFEST"
 echo "           （不重跑的话，交付出去的 README 会写着「（尚未编译）」+ 文件数少 6）"
-echo "    cd $DEST && bash copy_to_nfs.sh --verify              # ③ 拷贝 + 上板验证"
-echo "         └─ 已编好时用 --verify；想让它自己编用 --build --verify（会自动补②）"
+echo "         └─ ⚠️ **完整顺序必须是 ①②③**（make_build_dir.sh 会覆盖正在运行的脚本，"
+echo "            绝不能在同一脚本运行期间再调它：bash 按文件偏移读脚本，被覆盖后读到"
+echo "            的就是错位内容 ⇒ 后半段静默不执行、退出码还可能是 0）。"
+echo "            copy_to_nfs.sh --build 现在只做「编译」，且**编译前会校验包目录里的源码"
+echo "            与工程根是否一致**（不一致直接 die），但**不会**替你同步、也不会替你回填 md5。"

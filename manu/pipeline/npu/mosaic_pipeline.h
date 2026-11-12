@@ -852,6 +852,12 @@ typedef struct MosaicPipeline MosaicPipeline;
  * is).  `dets` is valid ONLY for the duration of the call: copy what you
  * need.
  *
+ * `frame_id` is THE CALLER'S OWN FRAME NUMBER (the one handed to
+ * mosaic_pipeline_push_frame(); for a mosaic_pipeline_push() caller it is the
+ * library's own dense number).  Because the library is slower than the
+ * camera, this is the only reliable way to know which camera frame a
+ * detection belongs to.
+ *
  * The callback runs on a pipeline thread, so keep it short.  A slow callback
  * does not stall the pipeline (the results queue in front of it is unbounded),
  * it only delays the delivery of the results that come after it.
@@ -950,6 +956,35 @@ int32_t mosaic_pipeline_effective_config(MosaicPipeline* p, MosaicPipelineConfig
  */
 int64_t mosaic_pipeline_push(MosaicPipeline* p, const uint8_t* gray, int32_t w, int32_t h);
 
+/* Enqueue one raw grayscale frame WITH THE CALLER'S OWN FRAME NUMBER.
+ *
+ * WHY IT EXISTS: the library is much slower than the camera (8-12 fps of
+ * inference behind a 25 fps camera), so the caller CANNOT assume that the
+ * results come back in the order the frames went in, and it cannot count
+ * them either -- the opportunistic scheduler decides how many frames are
+ * actually computed.  An OSD / servo / streamer therefore has to be told
+ * WHICH of its frames a detection belongs to, otherwise it draws the target
+ * on the wrong image.
+ *
+ * `client_frame_id` is carried through the whole pipeline and handed back
+ * unchanged by mosaic_pipeline_collect() and by MosaicResultCallback.  It may
+ * be ANY number (it is opaque to the library) and it does NOT have to be
+ * dense: the library keeps its own dense internal numbering for the GMC
+ * history anchor, so a caller that skips frame numbers does NOT make the
+ * engine report a hole and does NOT degrade the fit.
+ *
+ * Returns the library's OWN dense handle (0, 1, 2, ... in push order) or -1 on
+ * error -- exactly what mosaic_pipeline_push() returns, so the two entry
+ * points behave alike.  The CALLER's frame number comes back with the RESULT
+ * (mosaic_pipeline_collect() / MosaicResultCallback), not with the handle.
+ *
+ * This is an ADDITION: mosaic_pipeline_push() is unchanged and keeps
+ * numbering the frames itself (0, 1, 2, ... in push order).  A caller that
+ * uses push() keeps getting that number back.
+ */
+int64_t mosaic_pipeline_push_frame(MosaicPipeline* p, const uint8_t* gray, int32_t w, int32_t h,
+                                   int64_t client_frame_id);
+
 /* Register the result callback (see MosaicResultCallback).  Passing NULL
  * removes it and switches the result path back to mosaic_pipeline_collect().
  * The callback is invoked from a dedicated dispatcher thread; it must not call
@@ -961,6 +996,13 @@ int32_t mosaic_pipeline_set_result_callback(MosaicPipeline* p, MosaicResultCallb
  * `out` may be NULL if the caller only wants the count.  Returns the number
  * of detections (>= 0), or -1 on error.  *frame_id receives the id of the
  * frame (pass NULL to ignore it). */
+/* Collect the next finished frame.
+ *
+ * `frame_id` (may be NULL) receives THE CALLER'S OWN FRAME NUMBER: the number
+ * that was handed to mosaic_pipeline_push_frame(), or -- for a caller that
+ * uses mosaic_pipeline_push() -- the library's own dense number (0, 1, 2, ...
+ * in push order).  It is the number of the frame the detections belong to.
+ */
 int32_t mosaic_pipeline_collect(MosaicPipeline* p, int64_t* frame_id, MosaicDet* out,
                                 int32_t max_out);
 
