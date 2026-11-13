@@ -1,0 +1,4 @@
+17:29:28 == 主机侧观测器启动 label=repro_stress2npu duration=420s interval=1s ==
+17:29:29 *** 板卡重启！boot_id (新) -> 0751f669-95fd-403f-9028-8d4f4aa75df7（此前 uptime=288.42）
+17:30:16 *** 板卡重启！boot_id 0751f669-95fd-403f-9028-8d4f4aa75df7 -> ed0b4b86-739f-43e7-863c-9939d2466f2e（此前 uptime=13.23）
+17:36:28 == 观测结束：有效样本 211，ssh 失败 2 次 -> /tmp/bts_repro2_samples.csv ==

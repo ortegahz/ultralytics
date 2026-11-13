@@ -1,0 +1,4 @@
+17:37:32 == 主机侧观测器启动 label=repro_2client_plus_stress duration=300s interval=1s ==
+17:37:33 *** 板卡重启！boot_id (新) -> ed0b4b86-739f-43e7-863c-9939d2466f2e（此前 uptime=449.45）
+17:38:28 *** 板卡重启！boot_id ed0b4b86-739f-43e7-863c-9939d2466f2e -> 558c8243-3f4e-4a15-9ce9-5de60fc9257b（此前 uptime=12.72）
+17:42:34 == 观测结束：有效样本 118，ssh 失败 0 次 -> /tmp/bts_repro3_samples.csv ==

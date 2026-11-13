@@ -1,0 +1,102 @@
+12:12:20 [  226.176690] b8f0  08032258 ffffffc0 0be0b950 ffffffc0 080335a4 ffffffc0 80400009 00000000
+12:12:20 [  226.176702] b910  00000000 00000000 0702fc58 ffffff81 ffffffff 0000007f 087bea58 ffffffc0
+12:12:20 [  226.176715] b930  0be0b950 ffffffc0 080335a4 ffffffc0 5c17e000 00000001 00000000 00000000
+12:12:20 [  226.176727] b950* 0be0b960 ffffffc0 087c3d78 ffffffc0 0be0b990 ffffffc0 080fb038 ffffffc0
+12:12:20 [  226.176740] b970  00000001 00000000 01c39000 ffffff80 0719c880 ffffff81 08682040 ffffffc0
+12:12:20 [  226.176752] b990  0be0b9c0 ffffffc0 0870f740 ffffffc0 00000001 00000000 01c39000 ffffff80
+12:12:20 [  226.176764] b9b0  0719c880 ffffff81 00000006 00000000 0be0b9f0 ffffffc0 08710104 ffffffc0
+12:12:20 [  226.176777] b9d0  00000000 00000000 107cab00 ffffff81 07131e00 ffffff81 0871004c ffffffc0
+12:12:20 [  226.176790] b9f0  0be0ba40 ffffffc0 087102d4 ffffffc0 00000000 00000000 01c39000 ffffff80
+12:12:20 [  226.176802] ba10  01c396d8 ffffff80 07131e00 ffffff81 00000001 00000000 01c39060 ffffff80
+12:12:20 [  226.176815] ba30  00000006 00000000 000f4240 00000000 0be0bab0 ffffffc0 08710564 ffffffc0
+12:12:20 [  226.176827] ba50  00000000 00000000 01c39000 ffffff80 01c39020 ffffff80 07131e00 ffffff81
+12:12:20 [  226.176840] ba70  0a131000 ffffffc0 0719d110 ffffff81 00000002 00000000 0719c910 ffffff81
+12:12:20 [  226.176852] ba90  0be0bab0 ffffffc0 0870483c 0012c000 00000000 00000000 2e8bb000 0a9c08b9
+12:12:20 [  226.176865] bab0  0be0baf0 ffffffc0 0870a164 ffffffc0 01c39000 ffffff80 0719d080 ffffff81
+12:12:20 [  226.176877] bad0  0719c880 ffffff81 01c39000 ffffff80 0a131000 ffffffc0 00000200 00000200
+12:12:20 [  226.176890] baf0  0be0bb50 ffffffc0 0870a30c ffffffc0 4204b000 ffffff81 00000000 00000000
+12:12:20 [  226.176902] bb10  4204b088 ffffff81 000001f8 00000000 93692f10 0000007f 0000000a 00000000
+12:12:20 [  226.176915] bb30  00000000 00000000 00000000 00000000 00000000 00000000 1fea8000 ffffff81
+12:12:20 [  226.176930] Code: 9ac32042 8b010001 d1000443 8a230000 (d50b7a20) 
+12:12:20 [  226.176933] ---[ end trace 10ab6cd414f6be7a ]---
+12:12:20 [  226.182179] rga_mm: This is not a buffer that has been imported, handle = -1
+12:12:20 [  226.182196] rga: buffer[0] mm release buffer failed! handle = -1
+12:12:20 [  226.196813] systemd-journald[766]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.0 (3415 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+12:12:20 [  226.196818] systemd-journald[766]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+12:12:45 [  390.480625] systemd-journald[766]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.0 (3415 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+12:12:45 [  390.482487] systemd-journald[766]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+12:14:43 [  508.653259] systemd-journald[766]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.0 (3414 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+12:14:43 [  508.655104] systemd-journald[766]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+12:16:41 [  628.841563] systemd-journald[766]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.1 (3417 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+12:16:41 [  628.843397] systemd-journald[766]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+12:18:45 [  750.845144] systemd-journald[766]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.1 (3417 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+12:18:45 [  750.846987] systemd-journald[766]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+12:20:42 [  871.182513] systemd-journald[766]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.0 (3414 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+12:20:42 [  871.184343] systemd-journald[766]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+12:22:47 [  992.777657] systemd-journald[766]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.0 (3415 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+12:22:47 [  992.779493] systemd-journald[766]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+12:24:44 [ 1112.471623] systemd-journald[766]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.0 (3415 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+12:24:44 [ 1112.473460] systemd-journald[766]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+12:26:43 [ 1231.606071] systemd-journald[766]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.0 (3415 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+12:26:43 [ 1231.607919] systemd-journald[766]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+12:28:45 [ 1353.121515] systemd-journald[766]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.0 (3415 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+12:28:45 [ 1353.123367] systemd-journald[766]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+12:30:42 [ 1470.332666] systemd-journald[766]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.0 (3415 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+12:30:42 [ 1470.334508] systemd-journald[766]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+12:32:46 [ 1590.855964] systemd-journald[766]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.0 (3414 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+12:32:46 [ 1590.857808] systemd-journald[766]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+12:34:44 [ 1711.503664] systemd-journald[766]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.0 (3415 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+12:34:44 [ 1711.505530] systemd-journald[766]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+12:36:44 [ 1833.051766] systemd-journald[766]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.0 (3414 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+12:36:44 [ 1833.053604] systemd-journald[766]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+12:38:48 [ 1953.617810] systemd-journald[766]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.1 (3416 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+12:38:48 [ 1953.619649] systemd-journald[766]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+12:40:46 [ 2074.715938] systemd-journald[766]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.0 (3414 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+12:40:46 [ 2074.717856] systemd-journald[766]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+12:42:47 [ 2196.203469] systemd-journald[766]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.0 (3414 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+12:42:47 [ 2196.205324] systemd-journald[766]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+12:44:47 [ 2315.426572] systemd-journald[766]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.0 (3414 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+12:44:47 [ 2315.428405] systemd-journald[766]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+12:46:45 [ 2434.309263] systemd-journald[766]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.1 (3418 of 4551 items, 2621440 file size, 766 bytes per hash table item), suggesting rotation.
+12:46:45 [ 2434.311108] systemd-journald[766]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+12:48:50 [ 2555.577609] systemd-journald[766]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.1 (3417 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+12:48:50 [ 2555.579439] systemd-journald[766]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+12:50:49 [ 2676.519239] systemd-journald[766]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.0 (3414 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+12:50:49 [ 2676.521099] systemd-journald[766]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+12:52:48 [ 2797.687769] systemd-journald[766]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.1 (3416 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+12:52:48 [ 2797.689656] systemd-journald[766]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+12:54:51 [ 2917.885848] systemd-journald[766]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.1 (3418 of 4551 items, 2621440 file size, 766 bytes per hash table item), suggesting rotation.
+12:54:51 [ 2917.887705] systemd-journald[766]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+12:56:51 [ 3037.760055] systemd-journald[766]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.1 (3416 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+12:56:51 [ 3037.761885] systemd-journald[766]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+12:58:47 [ 3156.415541] systemd-journald[766]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.1 (3417 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+12:58:47 [ 3156.417376] systemd-journald[766]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+13:00:46 [ 3274.619374] systemd-journald[766]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.0 (3415 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+13:00:46 [ 3274.621229] systemd-journald[766]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+13:03:14 [ 3423.451513] systemd-journald[766]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.0 (3415 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+13:03:14 [ 3423.453344] systemd-journald[766]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+13:04:04 [ 3470.358714] bce0  9dc39000 0000007f 00020000 00000000 00000004 00000000 00000000 00000000
+13:04:04 [ 3470.359449] bd00  00020000 00000000 0e9fbce0 ffffffc0 00000001 00000000 0545a3c0 ffffff81
+13:04:04 [ 3470.360184] bd20  00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+13:04:04 [ 3470.360918] bd40  00000000 00000000 4abf8300 2f8f7b50 0e9fbd90 ffffffc0 0824d2a0 ffffffc0
+13:04:04 [ 3470.361653] bd60  00000000 00000000 00020000 00000000 0545a3c0 ffffff81 9dc39000 0000007f
+13:04:04 [ 3470.362388] bd80  0e9fbe10 ffffffc0 00000000 00000000 0e9fbdd0 ffffffc0 0824d4e0 ffffffc0
+13:04:04 [ 3470.363122] bda0  0545a3c0 ffffff81 9dc39000 0000007f 0e9fbe10 ffffffc0 00000000 00000000
+13:04:04 [ 3470.363857] bdc0  00020000 00000000 0824d4a4 ffffffc0 0e9fbe20 ffffffc0 0824d56c ffffffc0
+13:04:04 [ 3470.364593] 
+13:04:04                X0: 0xffffffc00abc5004:
+13:04:04 [ 3470.365028] 4e04  ******** ******** ******** ******** ******** ******** ******** ********
+13:04:04 [ 3470.365767] 4e24  ******** ******** ******** ******** ******** ******** ******** ********
+13:04:04 [ 3470.366505] 4e44  ******** ******** ******** ******** ******** ******** ******** ********
+13:04:04 [ 3470.367241] 4e64  ******** ******** ******** ******** ******** ******** ******** ********
+13:04:04 [ 3470.367978] 4e84  ******** ******** ******** ******** ******** ******** ******** ********
+13:04:04 [ 3470.368715] 4ea4  ******** ******** ******** ******** ******** ******** ******** ********
+13:04:04 [ 3470.369452] 4ec4  ******** ******** ******** ******** ******** ******** ******** ********
+13:04:04 [ 3470.370188] 4ee4  ******** ******** ******** ******** ******** ******** ******** ********
+13:04:04 [ 3470.370925] 4f04  ******** ******** ******** ******** ******** ******** ******** ********
+13:04:04 [ 3470.371662] 4f24  ******** ******** ******** ******** ******** ******** ******** ********
+13:04:04 [ 3470.372399] 4f44  ******** ******** ******** ******** ******** ******** ******** ********
+13:04:04 [ 3470.373135] 4f64  ******** ******** ******** ******** ******** ******** ******** ********
+13:04:04 [ 3470.373872] 4f84  ******** ******** ******** ******** ******** ******** ******** ********
+13:04:04 [ 3470.374609] 4fa4  ******** ******** ******** ******** ******** ******** ******** ********
+13:04:04 [ 3470.375346] 4fc4  ******** ******** ******** ******** ******** ******** ******** ********

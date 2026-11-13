@@ -4106,6 +4106,34 @@ int32_t mosaic_pipeline_set_post_mode(MosaicPipeline* p, int32_t mode) {
   return 0;
 }
 
+// ---------------------------------------------------------------------------
+// mosaic_pipeline_set_detect_threshold -- the runtime twin of the
+// MosaicPipelineConfig.region_threshold knob.
+//
+// WHY A POINTER INPUT: the caller keeps ownership of the value; the library
+// only reads it once, here.  That keeps the call ABI-stable (the config
+// struct is never touched) and lets the customer keep one threshold around
+// and point at whichever value it wants right now.
+//
+// WHY IT HAS TO BE ATOMIC: the POST service re-reads the threshold for every
+// frame, from its own thread, while this setter may be called from another
+// thread (same pattern as MosaicPipeline::post_mode).
+// ---------------------------------------------------------------------------
+int32_t mosaic_pipeline_set_detect_threshold(MosaicPipeline* p, const double* threshold) {
+  if (!p) return -1;
+  if (!threshold) return -1;
+  const double v = *threshold;
+  if (!(v > 0.0) || v > 1.0) return -2;
+  int n = 0;
+  for (auto& svc : p->npus) {
+    if (!svc || !svc->sess) continue;
+    svc->sess->region_threshold.store(v, std::memory_order_relaxed);
+    ++n;
+  }
+  fprintf(stderr, "[i] detect threshold -> %.6f (%d NPU service(s))\n", v, n);
+  return 0;
+}
+
 const char* mosaic_pipeline_feature_md5(MosaicPipeline* p) {
   if (!p) return "";
   std::lock_guard<std::mutex> lk(p->m_md5);

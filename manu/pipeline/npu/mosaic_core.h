@@ -23,6 +23,7 @@
 // ===========================================================================
 #pragma once
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <cmath>
@@ -1496,7 +1497,10 @@ struct Session {
   // Detection thresholds.  They default to the frozen constants so the
   // BMP-driven binary keeps its exact behaviour; the library may override
   // them through the public C ABI.
-  double region_threshold = kRegionThreshold;
+  // ATOMIC: mosaic_pipeline_set_detect_threshold() may be called while the
+  // pipeline is running, and the POST service re-reads it for every frame
+  // (same pattern as MosaicPipeline::post_mode).
+  std::atomic<double> region_threshold{kRegionThreshold};
   int min_area = kMinArea;
   int max_detections = kMaxDet;
 

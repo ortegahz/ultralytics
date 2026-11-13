@@ -1,0 +1,70 @@
+17:37:34 [  299.162324] rga_mm: [tgid:26902] Decrement the reference of handle[5076] when the user exits
+17:37:34 [  299.189200] rga_mm: [tgid:26901] Decrement the reference of handle[1] when the user exits
+17:37:34 [  299.189221] rga_mm: [tgid:26901] Decrement the reference of handle[4] when the user exits
+17:37:34 [  299.189229] rga_mm: [tgid:26901] Decrement the reference of handle[5] when the user exits
+17:37:34 [  299.189237] rga_mm: [tgid:26901] Decrement the reference of handle[7] when the user exits
+17:37:34 [  299.189248] rga_mm: [tgid:26901] Decrement the reference of handle[5056] when the user exits
+17:37:34 [  299.189284] rga_mm: [tgid:26901] Decrement the reference of handle[5080] when the user exits
+17:37:34 [  309.288362] rga_mm: This is not a buffer that has been imported, handle = -1
+17:37:34 [  309.288365] rga: buffer[0] mm release buffer failed! handle = -1
+17:37:34 [  309.291171] rga_mm: This is not a buffer that has been imported, handle = -1
+17:37:34 [  309.291174] rga: buffer[0] mm release buffer failed! handle = -1
+17:37:34 [  309.387163] rga_mm: This is not a buffer that has been imported, handle = -1
+17:37:34 [  309.387167] rga: buffer[0] mm release buffer failed! handle = -1
+17:37:34 [  309.389005] rga_mm: This is not a buffer that has been imported, handle = -1
+17:37:34 [  309.389008] rga: buffer[0] mm release buffer failed! handle = -1
+17:37:34 [  309.437760] rga_mm: This is not a buffer that has been imported, handle = -1
+17:37:34 [  309.437766] rga: buffer[0] mm release buffer failed! handle = -1
+17:37:34 [  309.521667] rga_mm: This is not a buffer that has been imported, handle = -1
+17:37:34 [  309.521675] rga: buffer[0] mm release buffer failed! handle = -1
+17:37:34 [  447.517142] rga_mm: [tgid:42407] Decrement the reference of handle[5081] when the user exits
+17:37:34 [  447.517153] rga_mm: [tgid:42407] Decrement the reference of handle[5082] when the user exits
+17:37:34 [  447.517157] rga_mm: [tgid:42407] Decrement the reference of handle[5083] when the user exits
+17:37:34 [  447.517162] rga_mm: [tgid:42407] Decrement the reference of handle[5084] when the user exits
+17:37:34 [  447.517167] rga_mm: [tgid:42407] Decrement the reference of handle[8688] when the user exits
+17:37:34 [  447.517183] rga_mm: [tgid:42407] Decrement the reference of handle[8700] when the user exits
+17:37:42 [  458.799635] systemd-journald[768]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.0 (3414 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+17:37:42 [  458.799648] systemd-journald[768]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+17:38:29 [   12.513447] mino17 4-0036: power_off enter (already=1)
+17:38:29 [   12.513460] mino17 4-0036: power_off done
+17:38:29 [   12.513626] mino17 4-0036: get_mbus_config: type=5 flags=0x212
+17:38:29 [   12.513634] mino17 4-0036: get_mbus_config: type=5 flags=0x212
+17:38:29 [   12.513639] mino17 4-0036: g_frame_interval: 1/50
+17:38:29 [   12.513770] mino17 4-0036: power_on enter (already=0)
+17:38:29 [   12.553087] mino17 4-0036: power_on done
+17:38:29 [   12.553441] mino17 4-0036: power_off enter (already=1)
+17:38:29 [   12.553456] mino17 4-0036: power_off done
+17:38:29 [   12.553629] mino17 4-0036: get_mbus_config: type=5 flags=0x212
+17:38:29 [   12.553637] mino17 4-0036: get_mbus_config: type=5 flags=0x212
+17:38:29 [   12.553641] mino17 4-0036: g_frame_interval: 1/50
+17:38:29 [   12.553769] mino17 4-0036: power_on enter (already=0)
+17:38:29 [   12.593003] mino17 4-0036: power_on done
+17:38:29 [   12.593368] mino17 4-0036: power_off enter (already=1)
+17:38:29 [   12.593382] mino17 4-0036: power_off done
+17:38:29 [   12.593561] mino17 4-0036: get_mbus_config: type=5 flags=0x212
+17:38:29 [   12.593569] mino17 4-0036: get_mbus_config: type=5 flags=0x212
+17:38:29 [   12.593574] mino17 4-0036: g_frame_interval: 1/50
+17:38:29 [   12.593712] mino17 4-0036: power_on enter (already=0)
+17:38:29 [   12.633046] mino17 4-0036: power_on done
+17:38:29 [   12.633172] mino17 4-0036: power_off enter (already=1)
+17:38:29 [   12.633184] mino17 4-0036: power_off done
+17:38:29 [   12.804854] rk_gmac-dwmac fe1c0000.ethernet end1: Link is Up - 1Gbps/Full - flow control rx/tx
+17:38:29 [   12.804900] IPv6: ADDRCONF(NETDEV_CHANGE): end1: link becomes ready
+17:38:36 [   20.610412] ttyFIQ ttyFIQ0: tty_port_close_start: tty->count = 1 port count = 3
+17:38:38 [   21.713469] systemd-journald[769]: Time jumped backwards, rotating.
+17:40:35 [  141.087098] systemd-journald[769]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.0 (3415 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+17:40:35 [  141.087113] systemd-journald[769]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+17:40:49 [  153.856115] rga_mm: This is not a buffer that has been imported, handle = -1
+17:40:49 [  153.856118] rga: buffer[0] mm release buffer failed! handle = -1
+17:40:49 [  153.859514] rga_mm: This is not a buffer that has been imported, handle = -1
+17:40:49 [  153.859518] rga: buffer[0] mm release buffer failed! handle = -1
+17:40:49 [  153.963189] rga_mm: This is not a buffer that has been imported, handle = -1
+17:40:49 [  153.963193] rga: buffer[0] mm release buffer failed! handle = -1
+17:40:49 [  153.965037] rga_mm: This is not a buffer that has been imported, handle = -1
+17:40:49 [  153.965039] rga: buffer[0] mm release buffer failed! handle = -1
+17:40:49 [  154.260863] rga_mm: This is not a buffer that has been imported, handle = -1
+17:40:49 [  154.260872] rga: buffer[0] mm release buffer failed! handle = -1
+17:40:49 [  154.326342] rga_mm: This is not a buffer that has been imported, handle = -1
+17:40:49 [  154.326349] rga: buffer[0] mm release buffer failed! handle = -1
+17:42:16 [  239.181300] systemd-journald[769]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.0 (3414 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+17:42:16 [  239.181307] systemd-journald[769]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.

@@ -1,0 +1,2 @@
+17:40:34 == 主机侧观测器启动 label=check_1client_plus_stress8 duration=240s interval=2s ==
+17:44:36 == 观测结束：有效样本 0，ssh 失败 0 次 -> /tmp/bts_chk1_samples.csv ==

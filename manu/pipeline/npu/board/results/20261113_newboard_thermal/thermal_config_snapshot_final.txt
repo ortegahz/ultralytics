@@ -1,0 +1,21 @@
+# 温控配置最终快照 (拔电前抓取, boot_id=c24d68b1-82f3-4f97-ba0f-84f388f6ccda)
+抓取时间: 2026-11-13 13:05:14  (host) / 板端 uptime 3450s
+85000
+85000
+115000
+passive
+passive
+critical
+--- cooling ---
+thermal-cpufreq-0 cur=0 max=7
+thermal-cpufreq-1 cur=0 max=13
+thermal-cpufreq-2 cur=0 max=13
+thermal-devfreq-0 cur=0 max=7
+--- governor ---
+policy0 gov=performance max=1800000
+policy4 gov=performance max=2400000
+policy6 gov=performance max=2400000
+--- services ---
+enabled
+enabled
+enabled

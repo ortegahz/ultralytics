@@ -1,0 +1,53 @@
+17:46:00 [  154.260872] rga: buffer[0] mm release buffer failed! handle = -1
+17:46:00 [  154.326342] rga_mm: This is not a buffer that has been imported, handle = -1
+17:46:00 [  154.326349] rga: buffer[0] mm release buffer failed! handle = -1
+17:46:00 [  239.181300] systemd-journald[769]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.0 (3414 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+17:46:00 [  239.181307] systemd-journald[769]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+17:46:00 [  287.873283] rga_mm: [tgid:27245] Decrement the reference of handle[1] when the user exits
+17:46:00 [  287.873295] rga_mm: [tgid:27245] Decrement the reference of handle[2] when the user exits
+17:46:00 [  287.873298] rga_mm: [tgid:27245] Decrement the reference of handle[3] when the user exits
+17:46:00 [  287.873302] rga_mm: [tgid:27245] Decrement the reference of handle[4] when the user exits
+17:46:00 [  287.873306] rga_mm: [tgid:27245] Decrement the reference of handle[4016] when the user exits
+17:46:00 [  287.873319] rga_mm: [tgid:27245] Decrement the reference of handle[4024] when the user exits
+17:46:00 [  302.774913] rga_mm: This is not a buffer that has been imported, handle = -1
+17:46:00 [  302.774917] rga: buffer[0] mm release buffer failed! handle = -1
+17:46:00 [  302.777640] rga_mm: This is not a buffer that has been imported, handle = -1
+17:46:00 [  302.777643] rga: buffer[0] mm release buffer failed! handle = -1
+17:46:00 [  302.883984] rga_mm: This is not a buffer that has been imported, handle = -1
+17:46:00 [  302.883987] rga: buffer[0] mm release buffer failed! handle = -1
+17:46:00 [  302.885861] rga_mm: This is not a buffer that has been imported, handle = -1
+17:46:00 [  302.885863] rga: buffer[0] mm release buffer failed! handle = -1
+17:46:00 [  302.937751] rga_mm: This is not a buffer that has been imported, handle = -1
+17:46:00 [  302.937758] rga: buffer[0] mm release buffer failed! handle = -1
+17:46:00 [  302.970595] rga_mm: This is not a buffer that has been imported, handle = -1
+17:46:00 [  302.970602] rga: buffer[0] mm release buffer failed! handle = -1
+17:46:00 [  361.909192] systemd-journald[769]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.1 (3416 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+17:46:00 [  361.909206] systemd-journald[769]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+17:46:52 [  517.002117] systemd-journald[769]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.0 (3414 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+17:46:52 [  517.002123] systemd-journald[769]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+17:48:49 [  634.118182] systemd-journald[769]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.0 (3414 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+17:48:49 [  634.118196] systemd-journald[769]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+17:50:41 [  746.066116] systemd-journald[769]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.0 (3414 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+17:50:41 [  746.066132] systemd-journald[769]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+17:52:28 [  853.623901] systemd-journald[769]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.0 (3414 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+17:52:28 [  853.623916] systemd-journald[769]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+17:54:24 [  969.245442] systemd-journald[769]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.1 (3416 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+17:54:24 [  969.245457] systemd-journald[769]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+17:56:22 [ 1084.085542] systemd-journald[769]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.0 (3415 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+17:56:22 [ 1084.085548] systemd-journald[769]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+17:58:15 [ 1200.476343] systemd-journald[769]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.0 (3414 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+17:58:15 [ 1200.476357] systemd-journald[769]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.
+17:58:28 [ 1210.818758] rga_mm: This is not a buffer that has been imported, handle = -1
+17:58:28 [ 1210.818762] rga: buffer[0] mm release buffer failed! handle = -1
+17:58:28 [ 1210.819068] rga_mm: This is not a buffer that has been imported, handle = -1
+17:58:28 [ 1210.819069] rga: buffer[0] mm release buffer failed! handle = -1
+17:58:28 [ 1210.871275] rga_mm: This is not a buffer that has been imported, handle = -1
+17:58:28 [ 1210.871279] rga: buffer[0] mm release buffer failed! handle = -1
+17:58:28 [ 1210.871418] rga_mm: This is not a buffer that has been imported, handle = -1
+17:58:28 [ 1210.871419] rga: buffer[0] mm release buffer failed! handle = -1
+17:58:28 [ 1210.871691] rga_mm: This is not a buffer that has been imported, handle = -1
+17:58:28 [ 1210.871692] rga: buffer[0] mm release buffer failed! handle = -1
+17:58:28 [ 1210.923781] rga_mm: This is not a buffer that has been imported, handle = -1
+17:58:28 [ 1210.923784] rga: buffer[0] mm release buffer failed! handle = -1
+18:00:15 [ 1319.603411] systemd-journald[769]: Data hash table of /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal has a fill level at 75.1 (3417 of 4551 items, 2621440 file size, 767 bytes per hash table item), suggesting rotation.
+18:00:15 [ 1319.603417] systemd-journald[769]: /var/log/journal/09f263d632ef4a77a3b03a83fee822da/system.journal: Journal header limits reached or header out-of-date, rotating.

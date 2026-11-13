@@ -54,14 +54,22 @@ def sh(cmd: str, timeout: int = 7200) -> subprocess.CompletedProcess:
                           capture_output=True, text=True, timeout=timeout)
 
 
-def build_cache(ckpt: str, out_pkl: str, gpu: int) -> bool:
-    """建 no-GMC 缓存（口径与参照卡一致：val 31613 帧 / conf 0.02 / top-k 100）。"""
+def build_cache(ckpt: str, out_pkl: str, gpu: int, extra: str = "") -> bool:
+    """建 no-GMC 缓存（口径与参照卡一致：val 31613 帧 / conf 0.02 / top-k 100）。
+
+    ``extra``：追加到建缓存命令的额外开关（默认空 ⇒ 行为完全不变）。
+    🟢 2026-11-12 17:00：NanoBench 路径传 ``--no-peak-attrs`` ⇒ 跳过连通域 area/sums 计算
+       （实测那一步占建缓存 CPU 时间的绝大部分），``pred_points`` / ``pred_scores`` **逐位不变**
+       （同一 ``extract_peaks`` 调用），而 ``tiny_target_subset.eval_cache`` **不读**
+       ``pred_area`` / ``pred_sums`` ⇒ NanoBench 读数不变。
+    """
     if os.path.isfile(out_pkl):
         log(f"缓存已存在，跳过：{out_pkl}")
         return True
     cmd = (f"cd {REPO} && export PYTHONPATH=. && {PY} -u manu/inference/cache_trial0474_inferences.py "
            f"--weights {ckpt} --data {DATA_YAML} --output {out_pkl} --imgsz 640 --stride 2 "
-           f"--batch 32 --device {gpu} --conf-thresh 0.02 --top-k 100 --ablate-p0")
+           f"--batch 32 --device {gpu} --conf-thresh 0.02 --top-k 100 --ablate-p0"
+           + (f" {extra}" if extra else ""))
     r = sh(cmd)
     ok = os.path.isfile(out_pkl)
     log(f"[cache] {os.path.basename(ckpt)} -> {'OK' if ok else 'FAIL rc=' + str(r.returncode)} "

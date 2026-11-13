@@ -1,0 +1,1 @@
+wall,t_s,soc_c,gpu_c,npu_c,cpu0_cur,cpu0_max,cpu6_cur,cpu6_max,npu_cur,npu_max,npu_load,gpu_util,cd0,cd1,cd2,cd3,fan_pwm,load1,uptime,boot_id,nload_proc,npu_target,gpu_max,dmc_max,nom0,nom4,nom6,pvtm,ssh_ok

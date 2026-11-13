@@ -1157,6 +1157,22 @@ int32_t mosaic_pipeline_get_gpu_post_timing(MosaicPipeline* p, MosaicGpuPostTimi
    a frame already being processed keeps the mode it started with. */
 int32_t mosaic_pipeline_set_post_mode(MosaicPipeline* p, int32_t mode);
 
+/* Set the connected-component detection threshold of a live pipeline.
+   This is the runtime twin of MosaicPipelineConfig.region_threshold: the
+   connected components are grown on the normalised heatmap, a pixel is a
+   candidate when heatmap >= threshold, so a HIGHER threshold means FEWER
+   (and tighter) detections and a LOWER one means more of them.
+     threshold  must point to a double in (0, 1]; the default is 0.06.
+   Every NPU service of the pipeline gets the new value, so the two services
+   never disagree.  Returns 0 on success, -1 on a NULL argument, -2 when the
+   value is out of range.  Safe to call at any time: the new value is picked
+   up by the next frame; a frame already being processed keeps the threshold
+   it started with.
+   NOTE: MosaicPipelineConfig.region_threshold is an int32_t, so it can only
+   carry integer-valued thresholds; this API is the way to set a fractional
+   one (0.06, 0.08, ...) at run time. */
+int32_t mosaic_pipeline_set_detect_threshold(MosaicPipeline* p, const double* threshold);
+
 /* Release the pipeline.  Safe on NULL.  Does NOT flush: call flush() first if
  * the queued frames matter. */
 void mosaic_pipeline_destroy(MosaicPipeline* p);

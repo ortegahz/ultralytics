@@ -103,6 +103,12 @@ BASELINE_NANO_FLOOR = {"0031": 0.6666, "9863": BASE_V2["nano"]}
 #   ⚠️ 台账里的 board_sessions 可能为空（被搜索器的 save_ledger 覆盖掉），
 #   ⇒ 板端时延判据**直接读会话文件**，不依赖台账（2026-11-11 实测台账里是 null）。
 BOARD_SESSION_FILES = [
+    # 🟢 2026-11-12 16:40：**板卡换回旧板 `192.168.0.64`（evm3588）** ⇒ 参照必须换成旧板同会话，
+    #   否则会拿新板（.211）的 0031 = 23.528 ms 去卡旧板候选（~19.6 ms）⇒ 口径错配。
+    #   实测（旧板 192.168.0.64，同一会话，LOOPS=30/WARMUP=10）：
+    #     control base(cs_t0043) 55.566 ｜ n9801 19.734 ｜ **n9863 19.642** ｜ **t31_silu(0031) 19.673** ms
+    #   ⇒ 新基线 9863 在交付板上 **比 0031 自己还快 0.031 ms**（同会话）⇒ 板端判据（≤ 同会话 0031×1.02）通过。
+    ("session3_old64", "/mnt/data/siping/runs/npu20ms/board_measure_20261112_old64/hm_speed_results.txt"),
     ("session2", "/mnt/data/siping/runs/npu20ms/board_measure_20261111_s2/hm_speed_results.txt"),
     ("session1", "/mnt/data/siping/runs/npu20ms/board_measure_20261111/hm_speed_results.txt"),
 ]
@@ -460,6 +466,84 @@ WORKERS = [4]
 #   收益：该阶段 24 臂 4 并发 ≈ 10 min ⇒ 8 并发 ≈ 5 min（每轮省 ~5 min ≈ +10% 有效臂/小时）
 #   回退：NANO_BENCH_WORKERS=4
 NANO_BENCH_WORKERS = [int(os.environ.get("NANO_BENCH_WORKERS", "8"))]
+# 🟢 2026-11-12 16:20：**NanoBench 评测段改进程池**（线程池在 GIL 上排队 ⇒ 并发越多越慢）
+#   根因（实测 R8 评测段 11-12 14:03→15:06，38 臂 63 min = 1.66 min/臂）：
+#     `eval_cache` 是**纯 Python/numpy 的 CPU 活**（无 GPU）⇒ 放进 ThreadPoolExecutor 后
+#     8 个线程在 GIL 上排队（convoy）⇒ **8 线程比串行还慢 3.2×**（同 pkl：串行 95.1 s，
+#     线程池 300.9 s 且 CPU 时间 95→2378 s）⇒ 这是 R8 评测段回退的根因，不是"算得慢"。
+#   实测（同一 pkl，8 路）：串行 95.1 s ｜ 线程池 300.9 s ｜ **进程池 12.5 s ⇒ 24.1×**，
+#     且 F1 **逐位相同**（0.890315 三模式一致）⇒ 只换并发模型，不动算法。
+#   内存：`eval_cache` 实测 **峰值 RSS 212 MB / pkl 8.1 MB**（纯 CPU，不碰 GPU）⇒ 8 路 ≈ 1.7 GB，
+#     与 8 路建缓存（各 ~7 GB）并存仍 < 60 GB / 125 GB ⇒ 安全。
+#   数值不变：同一 `eval_cache` 调用；验收走 /tmp/nb_verify.py 的 before/after 逐位 diff。
+_NB_POOL = None
+_NB_POOL_LOCK = threading.Lock()
+
+
+def _nb_pool():
+    """NanoBench 评测进程池（懒创建、跨轮复用）。
+
+    🔴 上下文选 **forkserver**（不是 spawn、不是 fork）：
+      * `fork` ⇒ 父进程是多线程的（8 个训练线程 + 子进程调用）⇒ fork 后子进程可能撞上别的线程
+        持有的锁 ⇒ 死锁风险；且父进程若已初始化 CUDA，fork 出的子进程继承 CUDA 上下文不安全。
+      * `spawn` ⇒ 子进程会**重新 import 主模块**（`__mp_main__`）⇒ 若主模块没有
+        `if __name__ == "__main__"` 保护，子进程会把主流程**再跑一遍**并在自举期里再开进程池 ⇒
+        RuntimeError: "An attempt has been made to start a new process before the current
+        process has finished its bootstrapping phase"（2026-11-12 隔离演练实测复现）。
+      * `forkserver` ⇒ worker 由一个**干净的单线程服务进程** fork，**不 import 主模块**
+        ⇒ 既没有 fork-from-threads 的死锁风险，也没有主模块自举风险。
+    """
+    global _NB_POOL
+    with _NB_POOL_LOCK:
+        if _NB_POOL is None:
+            import multiprocessing as mp
+            from concurrent.futures import ProcessPoolExecutor
+            # 用 **spawn**（Linux 3.10）：worker 由 spawn._main 启动 ⇒ 会按 preparation data
+            #   **重新 import 主模块**（`__mp_main__`）。
+            #   ⇒ 主模块**必须**有 `if __name__ == "__main__":` 保护
+            #      （`adaptive_runner.py` 有 ✔；2026-11-12 隔离演练实测：主模块若在顶层起进程池，
+            #        子进程自举期会撞 "An attempt has been made to start a new process before the
+            #        current process has finished its bootstrapping phase" ⇒ BrokenProcessPool）。
+            #   ⇒ 为此 `_one()` 里对进程池**做了兜底**：池一挂就退回线程内直算（本轮变慢，但绝不掀轮次）。
+            #   （曾试 forkserver：3.10 的 forkserver worker 仍走 spawn._main ⇒ 同样会 fixup 主模块，
+            #     且 fork-from-threads 有 stdout 锁死锁风险 ⇒ 不采用。）
+            ctx = mp.get_context("spawn")
+            _NB_POOL = ProcessPoolExecutor(max_workers=max(1, NANO_BENCH_WORKERS[0]),
+                                           mp_context=ctx)
+    return _NB_POOL
+
+
+def _nb_worker(payload):
+    """进程池 worker：跑一次 NanoBench 评测，**只回传需要的标量**（避免大对象 pickle）。"""
+    pkl, label = payload
+    from manu.pipeline.npu import route2_acceptance as RA  # noqa: PLC0415
+    res = RA.nanobench(pkl, label)
+    if not res:
+        return None
+    p8 = res["peak_tol8"]
+    p4 = res["peak_tol4"]
+    rb = p8["recall_by_bucket"]
+    rb4 = p4["recall_by_bucket"]
+    return {"f1": p8["f1"], "th": p8["th"], "fp": p8["fp"], "fn": p8["fn"],
+            "nano": rb["nano"], "micro": rb["micro"], "small": rb["small"],
+            "regular": rb["regular"],
+            "nano4": rb4["nano"], "micro4": rb4["micro"], "f1_4": p4["f1"]}
+
+
+def _nb_inline(pkl: str, label: str):
+    """兜底：在线程内直接跑一次 NanoBench 评测（进程池不可用时用）。"""
+    from manu.pipeline.npu import route2_acceptance as RA  # noqa: PLC0415
+    res = RA.nanobench(pkl, label)
+    if not res:
+        return None
+    p8 = res["peak_tol8"]
+    p4 = res["peak_tol4"]
+    rb = p8["recall_by_bucket"]
+    rb4 = p4["recall_by_bucket"]
+    return {"f1": p8["f1"], "th": p8["th"], "fp": p8["fp"], "fn": p8["fn"],
+            "nano": rb["nano"], "micro": rb["micro"], "small": rb["small"],
+            "regular": rb["regular"],
+            "nano4": rb4["nano"], "micro4": rb4["micro"], "f1_4": p4["f1"]}
 # 🟢 2026-11-12 10:30：**训练阶段**并发臂数 4 → 8（2 臂/卡），只用满整夜算力
 #   实测（4 卡 / 80 核 / 125 GB）：
 #     单臂真实物理占用(PSS) ≈ 11.0 GB ｜ 单臂 CPU ≈ 4.1 核 ｜ 单臂 GPU ≈ 45% util / 4.6 GB 显存
@@ -499,25 +583,32 @@ def phase_nanobench(arms: list, epochs: list[int], gpu_of: dict) -> None:
             if key in traj:
                 continue
             pkl = f"{RUNS}/tiny_ref/nano_{trial}_ep{ep}.pkl"
-            if not RA.build_cache(ck, pkl, gpu_of.get(trial, 0)):
+            # 🟢 2026-11-12 17:00：**跳过 peak-attrs**（area/sums）计算 ⇒ 建缓存快一大截。
+            #   官方三轨门禁走 auto_epoch_gate_check.py **自建 GMC 缓存**（不传该开关）⇒ 官方读数不受影响；
+            #   NanoBench 只读 pred_points/pred_scores ⇒ 本段读数逐位不变。
+            if not RA.build_cache(ck, pkl, gpu_of.get(trial, 0), extra="--no-peak-attrs"):
                 traj[key] = {"error": "cache_fail"}
                 continue
-            res = RA.nanobench(pkl, f"n{trial}_ep{ep}")
+            # 评测是纯 CPU 活 ⇒ 丢进**进程池**（线程池会 GIL 排队，实测比串行还慢 3.2×）
+            try:
+                res = _nb_pool().submit(_nb_worker, (pkl, f"n{trial}_ep{ep}")).result()
+            except Exception as e:  # noqa: BLE001
+                # 🔴 兜底：进程池挂（BrokenProcessPool / 自举冲突等）⇒ 线程内直算
+                #    （慢 3~20×，但**绝不掀掉整轮** ⇒ 读数不丢）
+                log(f"[{trial}] ep{ep} 进程池失败（{type(e).__name__}: {e}）⇒ 退回线程内直算")
+                res = _nb_inline(pkl, f"n{trial}_ep{ep}")
             if not res:
                 traj[key] = {"error": "nanobench_fail"}
                 continue
-            p8 = res["peak_tol8"]
-            p4 = res["peak_tol4"]
-            rb, rb4 = p8["recall_by_bucket"], p4["recall_by_bucket"]
             traj[key] = {
-                "f1": p8["f1"], "th": p8["th"], "fp": p8["fp"], "fn": p8["fn"],
-                "nano": rb["nano"], "micro": rb["micro"], "small": rb["small"],
-                "regular": rb["regular"],
-                "nano4": rb4["nano"], "micro4": rb4["micro"], "f1_4": p4["f1"],
+                "f1": res["f1"], "th": res["th"], "fp": res["fp"], "fn": res["fn"],
+                "nano": res["nano"], "micro": res["micro"], "small": res["small"],
+                "regular": res["regular"],
+                "nano4": res["nano4"], "micro4": res["micro4"], "f1_4": res["f1_4"],
                 "cache": pkl,
             }
-            log(f"[{trial}] ep{ep} F1={p8['f1']:.6f} nano={rb['nano']:.4f} "
-                f"nano@4px={rb4['nano']:.4f} micro={rb['micro']:.4f} regular={rb['regular']:.4f}")
+            log(f"[{trial}] ep{ep} F1={res['f1']:.6f} nano={res['nano']:.4f} "
+                f"nano@4px={res['nano4']:.4f} micro={res['micro']:.4f} regular={res['regular']:.4f}")
             save_ledger(led)
         save_ledger(led)
 
@@ -808,7 +899,14 @@ def phase_dual(arms: list) -> None:
         rows = rep.get("rows", []) or []
         for trial, seed, p, desc in arms:
             st = arm_state(led, trial)
-            key = f"n{trial}_ep{st['picked']['epoch']}"
+            # 🔴 2026-11-13 16:40 修：R12 的 dual 阶段整段挂掉（KeyError 'picked'）
+            #   根因：末轮被 stop_ts 砍掉的臂**没有 picked 读数** ⇒ `st['picked']['epoch']` 抛异常
+            #   ⇒ 异常冒泡出整个 phase_dual ⇒ **联合门禁（升轨证据之一）整段丢失**。
+            #   ⇒ ① 没有 picked 的臂直接跳过；② 单臂异常不许掀掉整段。
+            _pk = st.get("picked") or {}
+            if not _pk.get("epoch"):
+                continue
+            key = f"n{trial}_ep{_pk['epoch']}"
             cand = next((c for c in rows if c.get("name") == key), None)
             if cand:
                 st["dual"] = cand
