@@ -78,12 +78,14 @@ _KIMI_MODELS: dict[str, list[ModelOption]] = {
 
 _MINIMAX_MODELS: dict[str, list[ModelOption]] = {
     "quick": [
+        ("MiniMax-M3.1-Flash - Latest flash, reasoning_effort low..max", "MiniMax-M3.1-Flash"),
         ("MiniMax-M3 - Latest, 1M ctx, native multimodal", "MiniMax-M3"),
         ("MiniMax-M2.7-highspeed - Fast M2.7, 204K ctx, ~100 TPS", "MiniMax-M2.7-highspeed"),
         ("MiniMax-M2.5-highspeed - Previous-gen highspeed, 204K ctx", "MiniMax-M2.5-highspeed"),
         ("Custom model ID", "custom"),
     ],
     "deep": [
+        ("MiniMax-M3.1-Flash - Latest flash, reasoning_effort low..max", "MiniMax-M3.1-Flash"),
         ("MiniMax-M3 - Latest flagship, 1M ctx, multimodal coding/agent", "MiniMax-M3"),
         ("MiniMax-M2.7 - Previous flagship, 204K ctx", "MiniMax-M2.7"),
         ("MiniMax-M2.7-highspeed - Same quality as M2.7, ~100 TPS", "MiniMax-M2.7-highspeed"),

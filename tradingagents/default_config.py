@@ -26,6 +26,11 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_GOOGLE_THINKING_LEVEL":   "google_thinking_level",
     "TRADINGAGENTS_OPENAI_REASONING_EFFORT": "openai_reasoning_effort",
     "TRADINGAGENTS_ANTHROPIC_EFFORT":        "anthropic_effort",
+    # Provider-agnostic reasoning-effort knob. Used by OpenAI-compatible
+    # reasoning models that are not OpenAI's own family - MiniMax M-series
+    # accept low/medium/high/xhigh/max. A provider-specific var above wins
+    # over this one; this is the fallback.
+    "TRADINGAGENTS_REASONING_EFFORT":        "reasoning_effort",
 }
 
 
@@ -91,6 +96,9 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "google_thinking_level": None,      # "high", "minimal", etc.
     "openai_reasoning_effort": None,    # "medium", "high", "low"
     "anthropic_effort": None,           # "high", "medium", "low"
+    # Generic fallback for OpenAI-compatible reasoning models outside the
+    # OpenAI family (MiniMax M-series: "low"/"medium"/"high"/"xhigh"/"max").
+    "reasoning_effort": None,
     # Sampling temperature, forwarded to every provider when set. None leaves
     # each provider at its own default. Lower values reduce run-to-run
     # variation on models that honor it; reasoning models largely ignore it

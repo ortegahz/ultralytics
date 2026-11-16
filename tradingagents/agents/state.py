@@ -59,6 +59,9 @@ class AgentState(MessagesState):
         str, "Report from the News Researcher of current world affairs"
     ]
     fundamentals_report: Annotated[str, "Report from the Fundamentals Researcher"]
+    research_context: Annotated[
+        str, "Caller-supplied external research/report injected at run start"
+    ]
 
     # researcher team discussion step
     investment_debate_state: Annotated[
@@ -75,3 +78,22 @@ class AgentState(MessagesState):
     final_trade_decision: Annotated[str, "Final decision made by the Risk Analysts"]
     past_context: Annotated[str, "Memory log context injected at run start (same-ticker decisions + cross-ticker lessons)"]
     portfolio_context: Annotated[str, "Caller-supplied holdings and cash, rendered at run start; empty when not provided"]
+
+
+def render_research_context(text: str) -> str:
+    """The caller's external research block, ready to splice into a prompt.
+
+    A caller may inject an upstream report (for example a quantitative ETF
+    look-through analysis) at run start. The block carries its own label and
+    trailing newline so a prompt can interpolate it directly before the next
+    line of its template; an empty injection renders as an empty string, so
+    the prompt stays exactly as it was. A labelled empty section would read
+    as a finding the agent has to fill in.
+    """
+    text = (text or "").strip()
+    if not text:
+        return ""
+    return (
+        "External research context (from upstream quantitative analysis):\n"
+        f"{text}\n"
+    )

@@ -18,6 +18,7 @@ class Propagator:
         past_context: str = "",
         instrument_context: str = "",
         portfolio_context: str = "",
+        research_context: str = "",
     ) -> dict[str, Any]:
         """Create the initial state for the agent graph.
 
@@ -26,6 +27,10 @@ class Propagator:
         ``TradingAgentsGraph.resolve_instrument_context``). When empty, agents
         fall back to ticker-only context via
         ``get_instrument_context_from_state``.
+
+        ``research_context`` is the caller's own external report (e.g. an
+        upstream quantitative analysis); it is passed through untouched so the
+        agents can read it verbatim.
         """
         return {
             "messages": [("human", company_name)],
@@ -35,6 +40,7 @@ class Propagator:
             "trade_date": str(trade_date),
             "past_context": past_context,
             "portfolio_context": portfolio_context,
+            "research_context": research_context,
             "investment_debate_state": InvestDebateState(
                 {
                     "bull_history": "",

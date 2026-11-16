@@ -4,6 +4,7 @@ from tradingagents.agents.context import (
     opponent_argument_or_opening,
     report_or_absent,
 )
+from tradingagents.agents.state import render_research_context
 
 
 def create_bear_researcher(llm):
@@ -20,6 +21,7 @@ def create_bear_researcher(llm):
         news_report = report_or_absent(state["news_report"], "news")
         fundamentals_report = report_or_absent(state["fundamentals_report"], "fundamentals")
         instrument_context = get_instrument_context_from_state(state)
+        research_context = render_research_context(state.get("research_context", ""))
         asset_type = state.get("asset_type", "stock")
         target_label = "stock" if asset_type == "stock" else "asset"
         fundamentals_label = (
@@ -41,7 +43,7 @@ Key points to focus on:
 Resources available:
 
 {instrument_context}
-Market research report: {market_research_report}
+{research_context}Market research report: {market_research_report}
 Social media sentiment report: {sentiment_report}
 Latest world affairs news: {news_report}
 {fundamentals_label}: {fundamentals_report}

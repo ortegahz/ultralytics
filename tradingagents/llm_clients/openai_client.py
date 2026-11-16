@@ -174,10 +174,17 @@ _PASSTHROUGH_KWARGS = (
 # Drop the kwarg for those rather than crash the run.
 _OPENAI_REASONING_MODEL = re.compile(r"^(?:gpt-(?:[5-9]|[1-9]\d)|o[1-9])(?:[.-]|$)")
 
+# MiniMax M-series (M2.x/M3.x) are reasoning models on an OpenAI-compatible
+# endpoint and accept ``reasoning_effort`` with the values
+# low/medium/high/xhigh/max (platform.minimax.io). They are not part of the
+# native OpenAI model family, so they need their own pattern.
+_MINIMAX_REASONING_MODEL = re.compile(r"^minimax-m\d", re.IGNORECASE)
+
 
 def _supports_reasoning_effort(model: str) -> bool:
-    """Whether the (native OpenAI) model accepts ``reasoning_effort``."""
-    return bool(_OPENAI_REASONING_MODEL.match(model.lower().strip()))
+    """Whether the model accepts ``reasoning_effort``."""
+    name = model.lower().strip()
+    return bool(_OPENAI_REASONING_MODEL.match(name) or _MINIMAX_REASONING_MODEL.match(name))
 
 
 @dataclass(frozen=True)

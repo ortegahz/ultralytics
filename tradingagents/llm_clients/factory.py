@@ -107,6 +107,16 @@ def build_llm_kwargs(config: dict) -> dict[str, Any]:
         if effort:
             kwargs["effort"] = effort
 
+    # Generic fallback for OpenAI-compatible reasoning models that are not
+    # OpenAI's own family (MiniMax M-series accept low/medium/high/xhigh/max).
+    # A provider-specific knob set above already won, so this only fills the
+    # gap; ``_supports_reasoning_effort`` in the client drops it for models
+    # that do not accept the parameter.
+    if "reasoning_effort" not in kwargs:
+        generic_effort = config.get("reasoning_effort")
+        if generic_effort:
+            kwargs["reasoning_effort"] = generic_effort
+
     # Sampling temperature is cross-provider: forward it whenever set.
     # float() here so a value coming from a TRADINGAGENTS_TEMPERATURE env
     # string ("0.2") works the same as a programmatic float.
