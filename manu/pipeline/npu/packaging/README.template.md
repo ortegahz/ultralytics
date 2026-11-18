@@ -40,6 +40,8 @@
 ├── include/           rknn_api.h, stb_image*.h, rga/ + CL/
 ├── runtime/kernels/   warp_median_fused.cl, sortnet_generated.inc（运行时必需）,
 │                      gmc_feature_gpu.cl（可选，库不加载）
+├── models/            ← **本包自带的 RKNN 模型（来源）**：p0_off_A_none.rknn（6,326,305 B）
+│                      （板上先 cat 到 /tmp/p0_off_A_none.rknn 再用）
 └── out/               ← 产物落在这里
     ├── mosaic_pipeline.o
     ├── libmosaic_pipeline.so      ← **共享库**（SONAME=libmosaic_pipeline.so）
@@ -54,7 +56,7 @@
 > （见「板卡依赖矩阵」）。
 
 > **交付到 NFS 时是整棵树一起拷**（不是只拷几个产物文件）：板卡侧看到的目录
-> 结构与这里一一对应——`src/ include/ runtime/ out/` + 顶层 6 个文件
+> 结构与这里一一对应——`src/ include/ runtime/ models/ out/` + 顶层 6 个文件
 > （`README.md` / `MANIFEST.md` / `build_lib.sh` / `build_demo.sh` /
 > `copy_to_nfs.sh` / `known_hosts`）。
 
@@ -110,6 +112,47 @@
 > **除构建路径外所有字符串字面量完全一致**（差异只来自 `assert` 宏里的
 > `__FILE__`），且**上板跑全序列的逐帧特征 md5 与检测 TSV 逐字节相同**
 > ⇒ 差异**纯属路径字符串**，不触及任何行为。
+
+---
+
+## 🧩 本包自带的 RKNN 模型
+
+交付包里**自带一个可以直接跑的 RKNN 模型**，客户**不用**再去别处找模型：
+
+| 项 | 值 |
+|---|---|
+| **来源**：包内相对路径 | `models/p0_off_A_none.rknn` |
+| **来源**：板卡上（交付目录 `/mnt/manu/mosaic_sdk`） | `/mnt/manu/mosaic_sdk/models/p0_off_A_none.rknn` |
+| **落点**：板上使用（唯一能安全读 6.3 MB 模型的位置） | `/tmp/p0_off_A_none.rknn` |
+| 字节数 | **6,326,305 B**（约 6.3 MB） |
+| md5 | `1a3faf2f9459cad8a389ffa81810234c` |
+| 量化 | fp16 |
+| 输入 | 640×640×3 |
+| 输出 | 2×[1,1,320,320] |
+
+* **可以直接用**：把它交给 `--model`（`mosaic_api_test` / `mosaic_contract_test` /
+  `mosaic_async_client_example`）或 `mosaic_client_example` 的**第 2 个位置参数**即可。
+* **也可以换成客户自己的模型** —— 但**形状约束不变**：**fp16、输入 640×640×3、
+  输出 2×[1,1,320,320]**（否则后处理的反投影对不上，检测框会全错）。
+* 🔴 **必须先 `cat` 到板卡 `/tmp` 再用**：交付目录本身也在 NFS **soft 挂载**上
+  ⇒ librknnrt 从它上面直读 `.rknn` 会被**读坏**（症状是**模型加载失败**，
+  不是 SIGILL）⇒ 处置见「必读的坑」。
+* ℹ️ **板上使用的落点是 `/tmp/p0_off_A_none.rknn`，四个测试程序的模型内置默认值
+  也是它** ⇒ **零参数跑的前提是先把模型 `cat` 到 `/tmp`**（见「零参数运行」）。
+
+```bash
+# 模型先落到板卡 /tmp（tmpfs）并对账：md5 期望值 1a3faf2f9459cad8a389ffa81810234c
+ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.rknn > /tmp/p0_off_A_none.rknn \
+  && md5sum /tmp/p0_off_A_none.rknn \
+  && cat /mnt/manu/mosaic_sdk/out/libmosaic_pipeline.so > /tmp/libmosaic_pipeline.so \
+  && cat /mnt/manu/mosaic_sdk/out/mosaic_client_example > /tmp/mce \
+  && chmod +x /tmp/mce \
+  && /tmp/mce \
+     /mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324 \
+     /tmp/p0_off_A_none.rknn \
+     /mnt/manu/mosaic_sdk/runtime/kernels \
+     21'
+```
 
 ---
 
@@ -466,7 +509,7 @@ rm -f  "$DST/mosaic_api_test" "$DST/mosaic_contract_test" \
 rm -rf "$DST/kernels" "$DST/third_party"
 
 # ② 整树镜像
-cp -a "$SRC/src" "$SRC/include" "$SRC/runtime" "$SRC/out" "$DST/"
+cp -a "$SRC/src" "$SRC/include" "$SRC/runtime" "$SRC/models" "$SRC/out" "$DST/"
 cp -a "$SRC/README.md" "$SRC/MANIFEST.md" \
       "$SRC/build_lib.sh" "$SRC/build_demo.sh" "$SRC/copy_to_nfs.sh" \
       "$SRC/known_hosts" "$DST/"
@@ -504,22 +547,28 @@ chmod +x "$DST/build_lib.sh" "$DST/build_demo.sh" "$DST/copy_to_nfs.sh" \
 ## ④ 运行命令（板卡 `{{BOARD}}:{{BOARD_PORT}}`）
 
 ```bash
-ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/out/libmosaic_pipeline.so > /tmp/libmosaic_pipeline.so \
+# ① 模型先落到板卡 /tmp（tmpfs）并对账（md5 期望值 1a3faf2f9459cad8a389ffa81810234c）
+# ② .so 与可执行文件也 cat 到 /tmp（$ORIGIN 要同目录）
+ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.rknn > /tmp/p0_off_A_none.rknn \
+  && md5sum /tmp/p0_off_A_none.rknn \
+  && cat /mnt/manu/mosaic_sdk/out/libmosaic_pipeline.so > /tmp/libmosaic_pipeline.so \
   && cat /mnt/manu/mosaic_sdk/out/mosaic_api_test > /tmp/mosaic_api_test \
   && chmod +x /tmp/mosaic_api_test \
   && /tmp/mosaic_api_test \
   --raw-root   /mnt/manu/lq_ir_bmp \
   --sequence   VIDEO00007_19700101_001324 \
-  --model      /mnt/manu/ptq/models/p0_off_A_none.rknn \
+  --model      /tmp/p0_off_A_none.rknn \
   --kernel-dir /mnt/manu/mosaic_sdk/runtime/kernels \
   --limit 12'
 ```
 
 > ⚠️ **共享库带来的新要求**：测试程序用 `-rpath '$ORIGIN'` 找**同目录**的
 > `libmosaic_pipeline.so` ⇒ **`.so` 必须和可执行文件放在同一个目录**。
-> 上面的命令**两个文件都 `cat` 到 `/tmp`** ⇒ `$ORIGIN` = `/tmp` ⇒ 能找到。
+> 上面的命令**模型 / `.so` / 可执行文件都 `cat` 到 `/tmp`** ⇒ `$ORIGIN` = `/tmp` ⇒ 能找到。
 > （只拷可执行文件、不拷 `.so` ⇒ 程序起不来，报 `libmosaic_pipeline.so: cannot
 > open shared object file`。）
+> ℹ️ **模型同理**：它有 6.3 MB，从 NFS soft 挂载直读会被读坏 ⇒ **必须先 `cat`
+> 到 `/tmp`**，`--model` 指的是 **`/tmp/p0_off_A_none.rknn`**（不是包内路径）。
 >
 > ℹ️ **为什么要绕这一圈（`cat` 到 `/tmp` 再跑）**：板卡上的 `/mnt/manu` 是
 > **NFS soft 挂载（软挂载）** ⇒ 从它上面**直接执行**超过 1 MB 的二进制会被读坏
@@ -545,12 +594,14 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/out/libmosaic_pipeline
   **`.so` 一起拷**）：
 
   ```bash
-  ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/out/libmosaic_pipeline.so > /tmp/libmosaic_pipeline.so \
+  ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.rknn > /tmp/p0_off_A_none.rknn \
+    && md5sum /tmp/p0_off_A_none.rknn \
+    && cat /mnt/manu/mosaic_sdk/out/libmosaic_pipeline.so > /tmp/libmosaic_pipeline.so \
     && cat /mnt/manu/mosaic_sdk/out/mosaic_contract_test > /tmp/mosaic_contract_test \
     && chmod +x /tmp/mosaic_contract_test \
     && /tmp/mosaic_contract_test --raw-root /mnt/manu/lq_ir_bmp \
     --sequence VIDEO00007_19700101_001324 \
-    --model /mnt/manu/ptq/models/p0_off_A_none.rknn \
+    --model /tmp/p0_off_A_none.rknn \
     --kernel-dir /mnt/manu/mosaic_sdk/runtime/kernels --limit 60'
   ```
 
@@ -562,7 +613,7 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/out/libmosaic_pipeline
   |---|---|---|
   | `--raw-root` | `/mnt/manu/lq_ir_bmp` | 帧根目录，只用于环境体检和拼帧目录 |
   | `--sequence` | `VIDEO00007_19700101_001324` | 序列名，帧目录是 `<raw-root>/<sequence>/frame_%06d.bmp` |
-  | `--model` | `/mnt/manu/ptq/models/p0_off_A_none.rknn` | RKNN 模型路径 |
+  | `--model` | `/tmp/p0_off_A_none.rknn` | RKNN 模型路径（**板上落点**；模型**来源**是本包 `models/p0_off_A_none.rknn`，须先 `cat` 到 `/tmp`） |
   | `--kernel-dir` | `/root/kernels` | OpenCL kernel 目录 |
   | `--limit` | `60` | 最多跑多少帧（`0` = 不限） |
   | `--no-env-gate` | 关（默认开体检） | 跳过开库前的环境体检 |
@@ -689,25 +740,32 @@ mosaic_pipeline_destroy(p);
 
 ### 上板运行这个最小集成示范
 
-**先 `cat` 到板卡 `/tmp` 再执行**，并且**共享库要一起拷**（`-rpath '$ORIGIN'`
+**先 `cat` 到板卡 `/tmp` 再执行**，**模型和共享库都要一起拷**（`-rpath '$ORIGIN'`
 要求 `.so` 与可执行文件同目录；板卡 NFS 是 **soft 挂载（软挂载）**，>1 MB 的
-二进制直接在 `/mnt/manu/...` 上跑 ⇒ **SIGILL(132)**，见「必读的坑」）：
+二进制直接在 `/mnt/manu/...` 上跑 ⇒ **SIGILL(132)**；6.3 MB 的模型从 soft 挂载
+直读也会被读坏 ⇒ **模型同样必须先落到 `/tmp`**，见「必读的坑」）：
 
 ```bash
-ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/out/libmosaic_pipeline.so > /tmp/libmosaic_pipeline.so \
+# 模型先落到板卡 /tmp 并对账（md5 期望值 1a3faf2f9459cad8a389ffa81810234c）
+ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.rknn > /tmp/p0_off_A_none.rknn \
+  && md5sum /tmp/p0_off_A_none.rknn \
+  && cat /mnt/manu/mosaic_sdk/out/libmosaic_pipeline.so > /tmp/libmosaic_pipeline.so \
   && cat /mnt/manu/mosaic_sdk/out/mosaic_client_example > /tmp/mce \
   && chmod +x /tmp/mce \
   && /tmp/mce \
   /mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324 \
-  /mnt/manu/ptq/models/p0_off_A_none.rknn \
+  /tmp/p0_off_A_none.rknn \
   /mnt/manu/mosaic_sdk/runtime/kernels \
   21'
 ```
 
-**零参数直接跑也行**（上面四个位置参数全是程序内置的默认值）：
+**零参数直接跑也行**（上面四个位置参数全是程序内置的默认值，**模型的默认值
+也是 `/tmp/p0_off_A_none.rknn`** ⇒ **模型仍然要先 `cat` 到 `/tmp`**）：
 
 ```bash
-ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/out/libmosaic_pipeline.so > /tmp/libmosaic_pipeline.so \
+ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.rknn > /tmp/p0_off_A_none.rknn \
+  && md5sum /tmp/p0_off_A_none.rknn \
+  && cat /mnt/manu/mosaic_sdk/out/libmosaic_pipeline.so > /tmp/libmosaic_pipeline.so \
   && cat /mnt/manu/mosaic_sdk/out/mosaic_client_example > /tmp/mce \
   && chmod +x /tmp/mce && /tmp/mce'
 ```
@@ -727,12 +785,15 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/out/libmosaic_pipeline
 | 位置 | 含义 | 默认值 |
 |---|---|---|
 | 1 | 帧目录（里面是 `frame_%06d.bmp`） | `/mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324` |
-| 2 | RKNN 模型路径（fp16，输入 640×640×3，输出 2×[1,1,320,320]） | `/mnt/manu/ptq/models/p0_off_A_none.rknn` |
+| 2 | RKNN 模型路径（fp16，输入 640×640×3，输出 2×[1,1,320,320]） | `/tmp/p0_off_A_none.rknn`（**板上落点**；模型**来源**是本包 `models/p0_off_A_none.rknn`，须先 `cat` 到 `/tmp`） |
 | 3 | OpenCL kernel 目录 | `/mnt/manu/mosaic_sdk/runtime/kernels` |
 | 4 | 最多喂多少帧 | `21`（= GMC 的一个完整历史窗口） |
 
 ⚠️ **前三个默认值全是本板私有路径** ⇒ **换板子必须显式覆盖**，
 否则不是找不到帧就是找不到模型。
+ℹ️ **模型（位置 2）已随包交付**（来源 = 包内 `models/p0_off_A_none.rknn`，
+板上先 `cat` 到 `/tmp/p0_off_A_none.rknn`）⇒ **显式覆盖时传
+`/tmp/p0_off_A_none.rknn`**（不是包内路径 —— 那条在 NFS soft 挂载上，直读会被读坏）。
 
 **为什么默认喂 21 帧**：GMC 用 21 帧历史做运动补偿。喂不满也能出结果（早期帧的
 历史会被 clamp 到最早那一帧，运动估计退化），但**喂满 21 帧才是认证质量的拟合**。
@@ -899,13 +960,16 @@ mosaic_pipeline_collect(p, &fid, dets, 128);   /* fid == my_frame_id */
 **怎么跑**
 
 ```bash
-# ⚠️ 必须先落板卡 /tmp：板卡 NFS 是 soft 挂载，>1 MB 的二进制直跑会 SIGILL(132)
-ssh -p {{BOARD_PORT}} root@{{BOARD}} 'cat /mnt/manu/mosaic_sdk/out/libmosaic_pipeline.so > /tmp/libmosaic_pipeline.so \
+# ⚠️ 必须先落板卡 /tmp：板卡 NFS 是 soft 挂载，>1 MB 的二进制直跑会 SIGILL(132)，
+#    6.3 MB 的模型直读也会被读坏 ⇒ 模型同样先 cat 到 /tmp（md5 期望值 1a3faf2f9459cad8a389ffa81810234c）
+ssh -p {{BOARD_PORT}} root@{{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.rknn > /tmp/p0_off_A_none.rknn \
+  && md5sum /tmp/p0_off_A_none.rknn \
+  && cat /mnt/manu/mosaic_sdk/out/libmosaic_pipeline.so > /tmp/libmosaic_pipeline.so \
   && cat /mnt/manu/mosaic_sdk/out/mosaic_async_client_example > /tmp/mace \
   && chmod +x /tmp/mace \
   && /tmp/mace \
     --frames-dir /mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324 \
-    --model /mnt/manu/ptq/models/p0_off_A_none.rknn \
+    --model /tmp/p0_off_A_none.rknn \
     --kernel-dir /mnt/manu/mosaic_sdk/runtime/kernels \
     --out /tmp/mosaic_async_out --frames 3000 --fps 25 --mode app-drop'
 ```
@@ -1062,22 +1126,33 @@ mkdir -p out && \
       && chmod +x /tmp/mce \
       && /tmp/mce'
     ```
-  * ⚠️ **模型文件也受同一条铁律约束**：`--model` 指向的 `.rknn`（本板是
-    `/mnt/manu/ptq/models/p0_off_A_none.rknn`，**6.3 MB**）同样是 librknnrt 从
-    **soft 挂载**上直读的 ⇒ 也会被读坏。症状不同：**模型加载失败**（不是 SIGILL）。
+  * ⚠️ **模型文件也受同一条铁律约束**：`.rknn` 模型（**本包自带**，来源 =
+    包内 `models/p0_off_A_none.rknn`，板上 =
+    `/mnt/manu/mosaic_sdk/models/p0_off_A_none.rknn`，**6,326,305 B**）同样是
+    librknnrt 从 **soft 挂载**上直读的 ⇒ 也会被读坏。症状不同：**模型加载失败**
+    （不是 SIGILL）。
     稳妥做法是**模型也落 `/tmp`**（实测落盘后 md5 与源一致、结果逐位相同）：
+    **板上落点固定是 `/tmp/p0_off_A_none.rknn`**（四个测试程序的模型内置默认值
+    也是它 ⇒ 不传 `--model` 时同样要求模型已经在 `/tmp`）：
 
     ```bash
-    ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/ptq/models/p0_off_A_none.rknn > /tmp/model.rknn \
+    ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.rknn > /tmp/p0_off_A_none.rknn \
+      && md5sum /tmp/p0_off_A_none.rknn \
       && cat /mnt/manu/mosaic_sdk/out/libmosaic_pipeline.so > /tmp/libmosaic_pipeline.so \
       && cat /mnt/manu/mosaic_sdk/out/mosaic_client_example > /tmp/mce \
       && chmod +x /tmp/mce \
       && /tmp/mce \
          /mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324 \
-         /tmp/model.rknn \
+         /tmp/p0_off_A_none.rknn \
          /mnt/manu/mosaic_sdk/runtime/kernels \
          21'
     ```
+
+    ⚠️ **模型已随包交付（`models/`），但「先落 `/tmp`」这一步不能省**：交付目录
+    本身也在 NFS soft 挂载上 ⇒ 同一条直读约束照样适用。
+    ℹ️ **`md5sum /tmp/p0_off_A_none.rknn` 的期望值** =
+    `1a3faf2f9459cad8a389ffa81810234c`（与包内 `models/p0_off_A_none.rknn`
+    逐位一致才算传输没坏）。
 
     （注意 `mosaic_client_example` 用的是**四个位置参数**：帧目录 / 模型 /
     kernel 目录 / 帧数 —— 它**不是** `mosaic_api_test` 那种命名开关。）
@@ -1186,11 +1261,16 @@ mkdir -p out && \
 
 * **板卡无关（直接可用）**：全部源码（`src/**`）、全部头文件（`include/**`）、
   **OpenCL kernel 资产（`runtime/kernels/**`）**、两个构建脚本
-  （`build_lib.sh` / `build_demo.sh`）、预编译产物（`out/**`）。
+  （`build_lib.sh` / `build_demo.sh`）、预编译产物（`out/**`）、
+  **自带的 RKNN 模型（`models/p0_off_A_none.rknn`）**。
   这些文件**不含任何板卡私有路径**，换一个 RK3588 板子照样能编。
 * **板卡相关（必须由他们自己板子提供/确认）**：
-  * 模型 `.rknn` —— 可以直接用我们这份，也可以换他们自己的（但**换模型必须
-    保持输入 640×640×3 fp16、输出 2×[1,1,320,320]**，否则后处理不匹配）。
+  * 模型 `.rknn` —— **已随包交付**：**来源** = 包内 `models/p0_off_A_none.rknn`
+    （板上 = `/mnt/manu/mosaic_sdk/models/p0_off_A_none.rknn`），**落点** =
+    `/tmp/p0_off_A_none.rknn`（**必须先 `cat` 到板卡 `/tmp`** —— 从 NFS soft
+    挂载直读会被读坏）⇒ **可以直接用我们这份**；也可以换他们自己的
+    （但**换模型必须保持输入 640×640×3 fp16、输出 2×[1,1,320,320]**，
+    否则后处理不匹配）。
   * **绑核参数** —— 我们预设的旋钮是**按这块板子的核拓扑排的，换板子必须重设**。
     详见 `MANIFEST.md` §D。
   * **板卡自带的第三方动态库** —— 本包**不携带任何第三方 .so/.a**
@@ -1215,18 +1295,20 @@ mkdir -p out && \
 
 ## 零参数运行
 
-板卡上 demo 的**默认路径在本板全部存在**：
+板卡上 demo 的**默认路径在本板全部存在**（模型除外：它得先 `cat` 到 `/tmp`）：
 
 | 项 | demo 默认值 | 本板是否存在 |
 |---|---|:--:|
-| 模型 | `/mnt/manu/ptq/models/p0_off_A_none.rknn` | ✅ |
+| 模型 | `/tmp/p0_off_A_none.rknn`（**板上落点**；来源 = 包内 `models/p0_off_A_none.rknn`） | ✅（先 `cat` 到 `/tmp` 之后） |
 | kernel 目录 | `/root/kernels` | ✅（仅本板碰巧有，见下） |
 | 帧目录 | `/mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324` | ✅ |
 
-所以**不带任何参数就能直接跑**：
+所以**在本板**（上面三项都就位）**不带任何参数就能直接跑**：
 
 ```bash
-ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/out/libmosaic_pipeline.so > /tmp/libmosaic_pipeline.so \
+ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.rknn > /tmp/p0_off_A_none.rknn \
+  && md5sum /tmp/p0_off_A_none.rknn \
+  && cat /mnt/manu/mosaic_sdk/out/libmosaic_pipeline.so > /tmp/libmosaic_pipeline.so \
   && cat /mnt/manu/mosaic_sdk/out/mosaic_api_test > /tmp/mosaic_api_test \
   && chmod +x /tmp/mosaic_api_test \
   && /tmp/mosaic_api_test --limit 12'
@@ -1236,10 +1318,14 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/out/libmosaic_pipeline
 > 直接在 `/mnt/manu/...` 上执行 ⇒ **SIGILL(132)**（见「必读的坑」）。
 > ⚠️ **共享库要一起 `cat`**（`-rpath '$ORIGIN'` 要求 `.so` 与可执行文件同目录）。
 > ℹ️ 本版产物**全部 < 1 MB** ⇒ 这条铁律当前不触发，上面仍 `cat` 是稳妥起见。
+> 🔴 **模型也要 `cat`**：demo 的模型内置默认值是 `/tmp/p0_off_A_none.rknn`
+> ⇒ **零参数跑的前提是模型已经在板卡 `/tmp`**（上面命令的第一步就是它）。
 >
 > **换板子时这三个默认路径大概率不同**（模型放哪、kernel 放哪、帧从哪来，都
 > 取决于他们的系统布局）⇒ 用 `--model` / `--kernel-dir` / `--raw-root` /
 > `--sequence` 显式覆盖，别照抄默认值。
+> ℹ️ **模型用本包自带的那个**：先从包内 `models/p0_off_A_none.rknn` `cat` 到
+> `/tmp/p0_off_A_none.rknn`，再 `--model /tmp/p0_off_A_none.rknn`。
 >
 > ⚠️ **`--kernel-dir` 的默认值 `/root/kernels` 是这块开发板上碰巧存在的路径**，
 > **不是交付包的一部分**。交付包自带 kernel（`runtime/kernels/`），在交付目录
@@ -1331,6 +1417,8 @@ bash build_demo.sh           # -> out/mosaic_api_test, out/mosaic_client_example
 │   ├── warp_median_fused.cl     ← 运行时必需
 │   ├── sortnet_generated.inc    ← 运行时必需
 │   └── gmc_feature_gpu.cl       ← 可选（探针用，库不加载）
+├── models/                  ← **本包自带的 RKNN 模型（来源）**：p0_off_A_none.rknn
+│                              （板上先 cat 到 /tmp/p0_off_A_none.rknn 再用）
 ├── out/                      ← 编译产物
 │   ├── mosaic_pipeline.o
 │   ├── libmosaic_pipeline.so    ← **共享库**（SONAME=libmosaic_pipeline.so）
@@ -1404,7 +1492,7 @@ bash copy_to_nfs.sh --build --verify      # 编译 + 拷贝 + 上板验证，一
 ```
 
 `copy_to_nfs.sh` 会做这些事：**整树镜像**到 NFS（`src/` `include/` `runtime/`
-`out/` + 顶层 6 个文件，不是零散拷几个产物）→ **递归 md5 回验**
+`models/` `out/` + 顶层 6 个文件，不是零散拷几个产物）→ **递归 md5 回验**
 （NFS 写坏了立刻报错）→ 在交付根目录建好指向 `out/` 与 `runtime/kernels` 的
 **相对符号链接**（兼容别名）→ 打印目标清单、板卡侧路径和运行命令。
 
@@ -1446,7 +1534,7 @@ bash {{SRC_ROOT}}/packaging/make_build_dir.sh
 
 1. 把工程里的**全部交付文件**拷进 `build/`：`src/npu/`（库 + demo + 契约测试）、
    `src/cpp/`、`src/opencl/host/`、`include/`（第三方头）、`runtime/kernels/`
-   （OpenCL kernel 资产）、三个脚本 + 本 README。
+   （OpenCL kernel 资产）、`models/`（**自带的 RKNN 模型**）、三个脚本 + 本 README。
    （**不拷任何第三方 .so/.a** —— 那些改用板卡自带的库。）
 2. **删掉陈旧文件**：`build/src`、`build/include`、`build/runtime` 下不再需要的
    旧文件会被清掉（逐个打印 `[stale] 已删除 …`）；

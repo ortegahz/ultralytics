@@ -45,7 +45,9 @@ int main(int argc, char** argv)
     // ---- 命令行参数（默认值就是板卡上的那一套，不带参数也能直接跑）----------
     std::string raw_root = "/mnt/manu/lq_ir_bmp";
     std::string sequence = "VIDEO00007_19700101_001324";
-    std::string model = "/mnt/manu/ptq/models/p0_off_A_none.rknn";
+    // 模型默认从**板卡 tmpfs** 读：交付目录在 NFS soft 挂载上，6.3 MB 直读会被读坏。
+    // 先 `cat <交付目录>/models/p0_off_A_none.rknn > /tmp/p0_off_A_none.rknn` 再跑。
+    std::string model = "/tmp/p0_off_A_none.rknn";
     std::string kernel_dir = "/root/kernels";
     std::string dump_tsv; // 空 = 不导出 TSV
     int limit = 60; // 最多跑多少帧

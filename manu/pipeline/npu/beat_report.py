@@ -70,7 +70,7 @@ def main() -> None:
             chk["t3"] = g["t3"] >= base["t3"]
         ms = st.get("board_ms")
         if ms is None and b.get("epoch") is not None:
-            ms = ns.board_ms_for(int(k), int(b["epoch"]))   # 台账没存就去会话文件里找
+            ms = ns.board_ms_for(int(k), b["epoch"])   # 台账没存就去会话文件里找（epoch 可能是分数）
         if ms is not None and ref_t31:
             chk["ms"] = ms <= ref_t31 * 1.02
         core = {kk: vv for kk, vv in chk.items() if kk != "ms"}

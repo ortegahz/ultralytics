@@ -78,6 +78,10 @@ OPENCV_V="${OPENCV_INSTALL:-/usr/include/opencv4}"     # 旧键名（兼容用�
 BOARD_LIBS_V="${BOARD_LIBS:-/usr/lib/aarch64-linux-gnu}"
 RT_LIB_DIR_V="${RT_LIB_DIR:-/usr/lib}"
 NFS_ROOT_V="${NFS_ROOT:-/run/media/manu/SSD960-LOCAL/nfs}"
+# RKNN 模型（.rknn）—— 本轮起**随包交付**，放在 models/ 下。
+#   默认从 NFS 的 ptq/models/ 取；可用 MODEL_RKNN 指向别的副本。
+#   设 MODEL_RKNN="" 显式表示「不打包模型」（只给不想带模型的场合）。
+MODEL_RKNN="${MODEL_RKNN-$NFS_ROOT_V/ptq/models/p0_off_A_none.rknn}"
 BOARD_V="${BOARD:-root@192.168.0.211}"
 BOARD_PORT_V="${BOARD_PORT:-22}"
 
@@ -164,6 +168,7 @@ purpose_of() {
     runtime/kernels/gmc_feature_gpu.cl)    echo "可选：GPU 侧 GMC 特征 kernel（**库不加载**，仅探针 gmc_gpu_probe 用）" ;;
     include/rga/*)                echo "RGA API 头（第三方）" ;;
     include/CL/*)                 echo "Khronos OpenCL 头（第三方）" ;;
+    models/p0_off_A_none.rknn)    echo "**RKNN 模型**（fp16，640x640x3 -> 2x[1,1,320,320]）—— 随包交付，客户可直接用；板上使用前需先 cat 到 /tmp（NFS soft 挂载直读会被读坏）" ;;
     *)                            echo "—" ;;
   esac
 }
@@ -214,7 +219,8 @@ echo "  [ok] $STAGE（rga/ + CL/ 齐备）"
 echo
 echo "== [2/8] 拷贝源码 / 脚本 / kernel 资产 =="
 mkdir -p "$DEST/src/npu" "$DEST/src/cpp" "$DEST/src/opencl/host" \
-         "$DEST/runtime/kernels" "$DEST/include/rga" "$DEST/include/CL"
+         "$DEST/runtime/kernels" "$DEST/include/rga" "$DEST/include/CL" \
+         "$DEST/models"
 
 copy_one() {
   local src="$1" rel="$2"
@@ -255,6 +261,21 @@ copy_one "$HERE/fetch_board_libs.sh" "fetch_board_libs.sh"
 copy_one "$HERE/known_hosts"        "known_hosts"
 chmod +x "$DEST/build_lib.sh" "$DEST/build_demo.sh" "$DEST/copy_to_nfs.sh" "$DEST/fetch_board_libs.sh"
 EXPECTED+=("README.md")   # 生成物，但在交付清单里（md5 在生成后才有）
+
+# RKNN 模型（.rknn）—— **随包交付**（models/p0_off_A_none.rknn）。
+#   为什么必须打包：交付包原来**一个 .rknn 都没有**，README 与交付脚本却让客户用
+#   `/mnt/manu/ptq/models/p0_off_A_none.rknn`（**我们内部 NFS 的路径**）⇒
+#   客户照抄命令必然失败（路径不存在）。模型进包后统一用包内路径。
+#   注意：模型在 NFS 上是 soft 挂载，**板卡直读会被读坏** ⇒ 板上仍要先 cat 到 /tmp。
+if [ -n "$MODEL_RKNN" ]; then
+  [ -f "$MODEL_RKNN" ] || die "找不到 RKNN 模型：$MODEL_RKNN
+       ⇒ 本包现在**自带模型**（models/p0_off_A_none.rknn）。
+         可用 MODEL_RKNN=<路径> 指向别的副本；
+         确实不想带模型时设 MODEL_RKNN=""（显式置空）。"
+  copy_one "$MODEL_RKNN" "models/p0_off_A_none.rknn"
+else
+  echo "  [--] MODEL_RKNN 为空 ⇒ **本次不打包模型**（客户需自备 .rknn）"
+fi
 
 # ---------------------------------------------------------------------------
 # 2. 拷贝第三方头
@@ -313,7 +334,7 @@ echo "       链接期库 ：$OPENCV_LIB_DIR_V  $RT_LIB_DIR_V  $BOARD_LIBS_V"
 echo
 echo "== [5/8] 清理陈旧文件 =="
 stale=0
-for sub in src include runtime; do
+for sub in src include runtime models; do
   [ -d "$DEST/$sub" ] || continue
   while IFS= read -r f; do
     rel="${f#$DEST/}"
@@ -483,6 +504,7 @@ echo "  [ok] 无漏登记文件"
 src_n=$(find "$DEST/src" -type f 2>/dev/null | wc -l)
 inc_n=$(find "$DEST/include" -type f 2>/dev/null | wc -l)
 ker_n=$(find "$DEST/runtime" -type f 2>/dev/null | wc -l)
+mdl_n=$(find "$DEST/models" -type f 2>/dev/null | wc -l)
 out_n=$(find "$DEST/out" -type f 2>/dev/null | wc -l)
 all_n=$(find "$DEST" -type f | wc -l)
 echo
@@ -491,6 +513,7 @@ echo "  build/ 文件总数 : $all_n"
 echo "  源码/脚本      : $src_n 个（src/）"
 echo "  第三方头       : $inc_n 个（include/）"
 echo "  kernel 资产    : $ker_n 个（runtime/kernels/）"
+echo "  RKNN 模型      : $mdl_n 个（models/）"
 echo "  共享库         : out/libmosaic_pipeline.so（SONAME=libmosaic_pipeline.so）← 动态链接板卡自带库"
 echo "  编译产物       : $out_n 个（out/：共享库 + 5 个测试程序 + .o）"
 echo

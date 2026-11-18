@@ -235,7 +235,7 @@ typedef struct {
   int32_t version; /* must be MOSAIC_API_VERSION */
 
   /* model */
-  const char* model_path; /* .rknn file, e.g. /mnt/manu/ptq/models/p0_off_A_none.rknn */
+  const char* model_path; /* .rknn file, e.g. /tmp/p0_off_A_none.rknn（板上先从交付目录 cat 到 tmpfs） */
 
   /* GMC feature engine */
   const char* kernel_dir;     /* OpenCL kernel pair dir, e.g. /root/kernels */

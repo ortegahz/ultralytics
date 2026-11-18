@@ -28,18 +28,24 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <strings.h>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <string>
 #include <vector>
 
 #include <fcntl.h>
 #include <pthread.h>
 #include <sched.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+
+#include <linux/ioctl.h>
 
 #include "rknn_api.h"
 
@@ -408,11 +414,221 @@ bool dequant(const rknn_output& o, const rknn_tensor_attr& a, std::vector<float>
 //     placed by improcess() (scale + place in one call).
 //   * RGB_888 requires the WIDTH to be 16-aligned: 640 / 160 / 80 all are.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// RGA 句柄生命周期诊断开关（2026-11-18）
+//
+// 板卡内核 RGA 驱动在「释放一个仍被 in-flight job 引用的 import 句柄」时，
+// 会打印
+//     rga_mm: This is not a buffer that has been imported, handle = -1
+//     rga: buffer[0] mm release buffer failed! handle = -1
+// 并且在部分板卡上直接内核 oops（解引用 phys=0）。本 SDK 原来每帧都
+// BufImport(&s->canvas)（= 先 release 旧句柄再 import 新句柄），这正是
+// 高危动作。
+//
+// 三个环境变量用于**定位**（默认行为完全不变，交付不受影响）：
+//   MOSAIC_RGA_TRACE=1        打印每次 import/improve/release 的时序
+//   MOSAIC_RGA_NO_RELEASE=1   一律不调用 releasebuffer_handle（验证是不是 release 触发）
+//   MOSAIC_RGA_CANVAS_ONCE=1  画布只在初始化时 import 一次，之后不再 release/re-import
+// ---------------------------------------------------------------------------
+inline bool RgaEnvOn(const char* name)
+{
+  const char* v = getenv(name);
+  return v != nullptr && v[0] != '\0' && strcmp(v, "0") != 0;
+}
+inline bool RgaNoRelease()
+{
+  static int on = -1;
+  if (on < 0) on = RgaEnvOn("MOSAIC_RGA_NO_RELEASE") ? 1 : 0;
+  return on == 1;
+}
+inline bool RgaCanvasOnce()
+{
+  static int on = -1;
+  if (on < 0) on = RgaEnvOn("MOSAIC_RGA_CANVAS_ONCE") ? 1 : 0;
+  return on == 1;
+}
+inline bool RgaTraceOn()
+{
+  static int on = -1;
+  if (on < 0) on = RgaEnvOn("MOSAIC_RGA_TRACE") ? 1 : 0;
+  return on == 1;
+}
+inline void RgaTrace(const char* what, long handle)
+{
+  if (!RgaTraceOn()) return;
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  fprintf(stderr, "[rga-trace] %-22s handle=%ld t=%lld.%06ld\n", what, handle,
+          (long long)ts.tv_sec, (long long)(ts.tv_nsec / 1000));
+}
+
+// ---------------------------------------------------------------------------
+// CPU 拼图（完全不碰 RGA）
+//
+// WHY: 2026-11-18 在 Orange Pi CM5（5.10.160-rockchip-rk3588）上实测，
+//      SDK 每帧调 improcess() 会把内核打死：
+//          rga_ioctl_blit -> rga_job_commit -> rga_mm_map_job_info
+//                        -> rga_mm_get_channel_handle_info -> rga_mm_get_buffer
+//                        -> rga_mm_sync_dma_sg_for_device -> dma_sync_single_for_device
+//                        -> __clean_dcache_area_poc(phys_to_virt(0))  => Oops
+//      三个定位开关（MOSAIC_RGA_NO_RELEASE / MOSAIC_RGA_CANVAS_ONCE / 两者
+//      同时开）都照样 oops，说明与 release/re-import 无关，只与「本帧提交
+//      的 RGA 作业」有关。拼图本身只是几次拷贝+缩放，用 CPU 做即可。
+//
+// HOW: 开关 MOSAIC_COMPOSE=cpu（或 =1）走 CPU 路径；**默认是 rga**（交付要求，
+//      RGA 硬件路径保留）。CPU 路径**不 import 任何 buffer、不调任何 RGA
+//      ioctl**，所以内核完全不会被卷进来，只作为诊断手段保留。
+//
+// 字节一致性：
+//   * native tile (tag 0, 640x512 @ (0,0)) 是 1:1 拷贝 => 与 RGA **逐字节相同**
+//   * thumb160 / thumb80 用 box 平均，RGA 用自己的滤波 => 会有几个 LSB 的差别，
+//     只影响缩略图区域的热力图，native 区域的检测不受影响。
+// ---------------------------------------------------------------------------
+// 2026-11-18：RGA 路径打死内核的根因已定位（RGA 虚拟地址导入路径会让内核拿
+// phys_addr=0 去刷 cache），并已用**预分配 dma-buf（wrapbuffer_fd）**根治，
+// 所以默认仍然走 RGA 硬件路径。MOSAIC_COMPOSE=cpu 只作为诊断开关保留。
+inline bool CpuComposeMode()
+{
+  static int mode = -1;
+  if (mode < 0) {
+    const char* v = getenv("MOSAIC_COMPOSE");
+    mode = (v != nullptr && (strcasecmp(v, "cpu") == 0 || strcmp(v, "1") == 0)) ? 1 : 0;
+  }
+  return mode == 1;
+}
+
+
+// ---------------------------------------------------------------------------
+// 方案二：RGA 的输入/输出缓冲全部改用**预分配的 dma-buf**（wrapbuffer_fd）
+//
+// WHY（2026-11-18 在交付目标板 Orange Pi CM5 / kernel 5.10.160-rockchip-rk3588
+// 上实测，并对照内核源码 kernel/drivers/video/rockchip/rga3/rga_mm.c）：
+//
+//   旧路径 importbuffer_virtualaddr() 在内核里走 rga_mm_map_virt_addr()，
+//   它会**无条件**给这个 buffer 打上 RGA_MEM_FORCE_FLUSH_CACHE，于是每个
+//   RGA 作业都会执行：
+//       rga_mm_get_buffer()
+//         -> rga_mm_sync_dma_sg_for_device()
+//              -> dma_sync_single_for_device(dev, buffer->phys_addr, size, dir)
+//   而 buffer->phys_addr 在这条链路上可以是 0（内核里
+//   `internal_buffer->phys_addr = phys_addr ? phys_addr + offset : 0`），
+//   内核就会拿 phys_to_virt(0) 去刷 cache，直接把调用进程连同内核打挂：
+//       Unable to handle kernel paging request at virtual address ffffff8000000000
+//       Internal error: Oops: 96000146
+//         rga_ioctl_blit -> rga_mm_map_job_info -> rga_mm_get_channel_handle_info
+//         -> rga_mm_get_buffer -> rga_mm_sync_dma_sg_for_device
+//   崩溃现场的 size = 0x12c000 = 640*640*3，正是 SDK 画布的大小。
+//
+//   dma-buf 路径 importbuffer_fd() 在内核里走 rga_mm_map_dma_buffer()，
+//   它**不会**打 RGA_MEM_FORCE_FLUSH_CACHE，所以那条崩溃分支在结构上不可达。
+//   实测（板上 rga_fd_probe2）：fd 画布连续 6 帧 import+improve，
+//   **零 OOPS**，且 native tile 与 CPU 参考逐字节一致。
+//
+//   附带收益（板上 rga_snapshot 实测）：RGA 的 buffer 内容是**作业时读取**，
+//   不是导入时快照。所以画布**只需在初始化时 import 一次**，之后每帧复用，
+//   不再每帧 release/import 画布（句柄不再单调增长）。
+//
+// HOW：
+//   * 画布 / 源 / pat 三个 buffer 都在初始化时用 dma_heap 一次性分配；
+//   * CPU 侧通过 mmap 访问同一块物理内存；
+//   * RGA 侧通过 importbuffer_fd() 拿 handle，再 wrapbuffer_handle() 使用；
+//   * 源帧（调用方给的普通 CPU 指针）先 memcpy 进我们的 dma-buf staging
+//     buffer 再交给 RGA —— **任何 std::vector / malloc 的虚拟地址都不再
+//     传给 RGA**；
+//   * heap 默认 /dev/dma_heap/system-uncached（不可缓存映射）：RGA 写完画布
+//     后 CPU 直接读内存，不需要刷 cache，也就不会读到脏数据。
+//     实测带宽 ~700 MB/s，画布 1.2 MB/帧 => 约 1.7 ms，可接受。
+//
+// 回退：MOSAIC_RGA_DMA=0 强制走旧的虚拟地址路径（仅用于对比排查）；
+//       dma_heap 打不开时自动回退到虚拟地址路径并打印告警。
+// ---------------------------------------------------------------------------
+struct DmaHeapAllocData {
+  uint64_t len;
+  uint32_t fd;
+  uint32_t fd_flags;
+  uint64_t heap_flags;
+};
+#define MOSAIC_DMA_HEAP_IOC_ALLOC _IOWR('H', 0x0, DmaHeapAllocData)
+
+// 用了哪个 dma_heap（默认 system-uncached：CPU 侧不可缓存，天然免 cache 一致性）
+inline const char* RgaDmaHeap() {
+  static const char* heap = [] {
+    const char* v = getenv("MOSAIC_RGA_HEAP");
+    return (v && *v) ? v : "/dev/dma_heap/system-uncached";
+  }();
+  return heap;
+}
+
+// 是否启用 dma-buf 路径（默认启用）
+inline bool RgaUseDma() {
+  static int on = [] {
+    const char* v = getenv("MOSAIC_RGA_DMA");
+    if (!v || !*v) return 1;
+    return (strcmp(v, "0") == 0 || strcasecmp(v, "off") == 0 || strcasecmp(v, "no") == 0) ? 0 : 1;
+  }();
+  return on != 0;
+}
+
+// 从 dma_heap 分配一块物理连续内存并映射到用户态。
+// 返回 fd（>=0 成功），失败返回 -1。
+inline int DmaHeapAlloc(size_t len, void** out_ptr) {
+  const char* heap = RgaDmaHeap();
+  const int h = open(heap, O_RDWR | O_CLOEXEC);
+  if (h < 0) {
+    fprintf(stderr, "[WARN] dma_heap %s open failed: %s\n", heap, strerror(errno));
+    return -1;
+  }
+  DmaHeapAllocData dat{};
+  dat.len = len;
+  dat.fd_flags = O_RDWR | O_CLOEXEC;
+  dat.heap_flags = 0;
+  if (ioctl(h, MOSAIC_DMA_HEAP_IOC_ALLOC, &dat) < 0) {
+    fprintf(stderr, "[WARN] dma_heap %s alloc(%zu) failed: %s\n", heap, len, strerror(errno));
+    close(h);
+    return -1;
+  }
+  close(h);
+  void* p = mmap(nullptr, len, PROT_READ | PROT_WRITE, MAP_SHARED, (int)dat.fd, 0);
+  if (p == MAP_FAILED) {
+    fprintf(stderr, "[WARN] dma_heap %s mmap failed: %s\n", heap, strerror(errno));
+    close((int)dat.fd);
+    return -1;
+  }
+  *out_ptr = p;
+  return (int)dat.fd;
+}
+
+// 映射是可缓存的时候（MOSAIC_RGA_HEAP 指向 system / cma 之类），CPU 的写
+// 不会自动对设备可见，交给 RGA 之前必须 clean + invalidate 一次。
+// 默认 heap 是 system-uncached（不可缓存），这条路径不会被走到。
+inline void CacheCleanInvalidate(const void* p, size_t len) {
+#if defined(__aarch64__)
+  if (!p || !len) return;
+  uintptr_t begin = (uintptr_t)p & ~(uintptr_t)63;
+  const uintptr_t end = ((uintptr_t)p + len + 63) & ~(uintptr_t)63;
+  for (uintptr_t addr = begin; addr < end; addr += 64) {
+    asm volatile("dc civac, %0" : : "r"(addr) : "memory");
+  }
+  asm volatile("dsb sy" : : : "memory");
+#else
+  (void)p;
+  (void)len;
+#endif
+}
+
+constexpr rga_buffer_handle_t kRgaInvalidHandle = 0xFFFFFFFFu;
+
 struct RgaBuf {
   uint8_t* data = nullptr;
   size_t size = 0;
   int w = 0, h = 0, fmt = 0;
-  rga_buffer_handle_t handle = -1;
+  rga_buffer_handle_t handle = 0;
+  bool imported = false;  // handle 是不是一次成功 import 的结果
+  // ---- dma-buf 后端（方案二）----
+  int fd = -1;            // >=0 表示这块内存是 dma-buf，RGA 走 importbuffer_fd
+  void* map = nullptr;    // mmap 得到的地址（== data）
+  size_t map_len = 0;     // mmap 长度（>= size）
+  bool cached = false;    // 映射是否可缓存（true 时交给设备前要刷 cache）
 };
 
 im_rect MakeRect(int x, int y, int w, int h) {
@@ -436,22 +652,87 @@ bool BufAlloc(RgaBuf* b, int w, int h, int fmt) {
   b->w = w;
   b->h = h;
   b->fmt = fmt;
-  b->handle = -1;
+  b->handle = 0;
+  b->imported = false;
   return true;
 }
 
+// 方案二：用 dma_heap **预分配**这块内存，RGA 侧走 importbuffer_fd()。
+// 成功时 b->fd >= 0；dma_heap 不可用时回退到普通 CPU 内存（fd = -1）。
+bool BufAllocDma(RgaBuf* b, int w, int h, int fmt) {
+  const size_t bytes = (size_t)w * (size_t)h * (size_t)get_bpp_from_format(fmt);
+  if (!RgaUseDma()) return BufAlloc(b, w, h, fmt);
+  void* p = nullptr;
+  const int fd = DmaHeapAlloc(bytes, &p);
+  if (fd < 0) {
+    fprintf(stderr,
+            "[WARN] dma-buf unavailable; falling back to the virtual-address RGA path "
+            "(this path is what crashed the kernel on the CM5)\n");
+    return BufAlloc(b, w, h, fmt);
+  }
+  memset(p, 0, bytes);
+  b->data = (uint8_t*)p;
+  b->size = bytes;
+  b->w = w;
+  b->h = h;
+  b->fmt = fmt;
+  b->handle = 0;
+  b->imported = false;
+  b->fd = fd;
+  b->map = p;
+  b->map_len = bytes;
+  b->cached = (strstr(RgaDmaHeap(), "uncached") == nullptr);
+  return true;
+}
+
+// 把这块内存的 CPU 侧修改同步给设备（可缓存映射才需要）。
+inline void BufSyncToDevice(RgaBuf* b) {
+  if (b->cached) CacheCleanInvalidate(b->data, b->size);
+}
+
 void BufFree(RgaBuf* b) {
-  if (b->handle > 0) releasebuffer_handle(b->handle);
-  if (b->data) free(b->data);
+  if (b->imported && !RgaNoRelease()) {
+    RgaTrace("release(buffree)", (long)b->handle);
+    releasebuffer_handle(b->handle);
+  }
+  if (b->map) {
+    munmap(b->map, b->map_len);
+    b->map = nullptr;
+  } else if (b->data) {
+    free(b->data);
+  }
+  if (b->fd >= 0) {
+    close(b->fd);
+    b->fd = -1;
+  }
   b->data = nullptr;
-  b->handle = -1;
+  b->handle = 0;
+  b->imported = false;
 }
 
 // Import AFTER the content is final.
 bool BufImport(RgaBuf* b) {
-  if (b->handle > 0) releasebuffer_handle(b->handle);
-  b->handle = importbuffer_virtualaddr(b->data, b->w, b->h, b->fmt);
-  return b->handle > 0;
+  if (b->imported && !RgaNoRelease()) {
+    RgaTrace("release(reimport)", (long)b->handle);
+    releasebuffer_handle(b->handle);
+    b->imported = false;
+  }
+  // 方案二：dma-buf 走 importbuffer_fd()，虚拟地址走 importbuffer_virtualaddr()。
+  // 两者的内核实现不同：前者是 rga_mm_map_dma_buffer()，**不会**给 buffer 打
+  // RGA_MEM_FORCE_FLUSH_CACHE，所以不会走进
+  // dma_sync_single_for_device(phys_addr=0) 那条会打死内核的分支。
+  if (b->fd >= 0) {
+    b->handle = importbuffer_fd(b->fd, b->w, b->h, b->fmt);
+  } else {
+    b->handle = importbuffer_virtualaddr(b->data, b->w, b->h, b->fmt);
+  }
+  b->imported = (b->handle != kRgaInvalidHandle);
+  RgaTrace("import", (long)b->handle);
+  if (!b->imported) {
+    fprintf(stderr, "[FATAL] RGA import failed (handle=%u, fd=%d)\n", (unsigned)b->handle, b->fd);
+    return false;
+  }
+  return true;
 }
 
 rga_buffer_t BufAs(const RgaBuf& b) { return wrapbuffer_handle(b.handle, b.w, b.h, b.fmt); }
@@ -1570,11 +1851,15 @@ inline bool LayoutTiles(Session* s, CanvasMode mode, const std::vector<int>& onl
 // The RGA buffers and the canvas background.  Shared by both entry points.
 // VERBATIM from the original InitSession.
 inline bool AllocCanvasBuffers(Session* s) {
-  if (!BufAlloc(&s->canvas, kCanvas, kCanvas, kRgaFmt) || !BufAlloc(&s->pat, 4, 4, kRgaFmt) ||
-      !BufAlloc(&s->stage, kSrcW, kSrcH, kRgaFmt)) {
+  // 方案二：画布 / pat / 源 staging 全部用 dma_heap **预分配**，RGA 侧走 fd。
+  if (!BufAllocDma(&s->canvas, kCanvas, kCanvas, kRgaFmt) || !BufAllocDma(&s->pat, 4, 4, kRgaFmt) ||
+      !BufAllocDma(&s->stage, kSrcW, kSrcH, kRgaFmt)) {
     fprintf(stderr, "[FATAL] RGA buffer allocation failed\n");
     return false;
   }
+  // dma-buf 路径下，源帧必须先拷进 staging buffer 再交给 RGA，
+  // 所以 use_staging 常开（调用方给的是普通 CPU 指针，不是 dma-buf）。
+  if (s->stage.fd >= 0) s->use_staging = true;
   if (!CheckBudget(s->canvas, "canvas") || !CheckBudget(s->pat, "pat") ||
       !CheckBudget(s->stage, "stage")) {
     return false;
@@ -1594,13 +1879,28 @@ inline bool AllocCanvasBuffers(Session* s) {
   // changes, and the pat_rect handed to improcess() is empty, so the
   // composited bytes are bit-identical (verified on the board: the canvas
   // hash is unchanged whether pat is imported or not).
-  if (!BufImport(&s->pat)) {
-    fprintf(stderr, "[FATAL] RGA pat import failed\n");
-    return false;
+  if (!CpuComposeMode()) {
+    // CPU 拼图路径完全不用 RGA，连 pat 都不 import（少一次内核交互）
+    if (!BufImport(&s->pat)) {
+      fprintf(stderr, "[FATAL] RGA pat import failed\n");
+      return false;
+    }
   }
   // The canvas background is frame-invariant -> filled ONCE.  imfill() only
   // supports RGBA, so the RGB_888 canvas is filled with memset.
   memset(s->canvas.data, kPad, s->canvas.size);
+  BufSyncToDevice(&s->canvas);
+  // 画布只 import 一次：
+  //   * dma-buf 路径（RGA 的 buffer 内容是**作业时**读取的，板上实测）-> 必须
+  //     只 import 一次，之后每帧复用同一个 handle；
+  //   * 虚拟地址路径 -> 保留原来的「每帧 release/import」行为，除非显式打开
+  //     MOSAIC_RGA_CANVAS_ONCE。
+  if (s->canvas.fd >= 0 || RgaCanvasOnce()) {
+    if (!BufImport(&s->canvas)) {
+      fprintf(stderr, "[FATAL] RGA canvas import failed\n");
+      return false;
+    }
+  }
   return true;
 }
 
@@ -1833,31 +2133,116 @@ struct FrameOut {
 // reached s->npu in the upload section, which stayed in PrepareFrame.
 //
 // The body below is the old section 1, VERBATIM.
+// 把 rgb(kSrcW x kSrcH x kSrcC) 拼进 canvas(kCanvas x kCanvas x kSrcC)。
+// 每个 tile 的目标矩形是 (t.x, t.y, t.w, t.h)，源矩形按比例取整映射，
+// native tile 正好退化成 1:1（src 区间长度 1）。
+inline bool CpuCompose(Session* s, const uint8_t* rgb, int w, int h)
+{
+  if (!s || !rgb || !s->canvas.data) return false;
+  const int src_stride = kSrcW * kSrcC;
+  const int dst_stride = kCanvas * kSrcC;
+  for (const Tile& t : s->tiles) {
+    if (t.w <= 0 || t.h <= 0) continue;
+    for (int dy = 0; dy < t.h; ++dy) {
+      int sy0 = (int)((int64_t)dy * kSrcH / t.h);
+      int sy1 = (int)((int64_t)(dy + 1) * kSrcH / t.h);
+      if (sy1 <= sy0) sy1 = sy0 + 1;
+      if (sy0 >= kSrcH) sy0 = kSrcH - 1;
+      if (sy1 > kSrcH) sy1 = kSrcH;
+      uint8_t* drow = s->canvas.data + (size_t)(t.y + dy) * dst_stride + (size_t)t.x * kSrcC;
+      for (int dx = 0; dx < t.w; ++dx) {
+        int sx0 = (int)((int64_t)dx * kSrcW / t.w);
+        int sx1 = (int)((int64_t)(dx + 1) * kSrcW / t.w);
+        if (sx1 <= sx0) sx1 = sx0 + 1;
+        if (sx0 >= kSrcW) sx0 = kSrcW - 1;
+        if (sx1 > kSrcW) sx1 = kSrcW;
+        if (sx1 - sx0 == 1 && sy1 - sy0 == 1) {
+          const uint8_t* srow = rgb + (size_t)sy0 * src_stride + (size_t)sx0 * kSrcC;
+          memcpy(drow + (size_t)dx * kSrcC, srow, (size_t)kSrcC);
+          continue;
+        }
+        uint32_t acc[3] = {0, 0, 0};
+        uint32_t n = 0;
+        for (int sy = sy0; sy < sy1; ++sy) {
+          const uint8_t* srow = rgb + (size_t)sy * src_stride;
+          for (int sx = sx0; sx < sx1; ++sx) {
+            acc[0] += srow[(size_t)sx * kSrcC + 0];
+            acc[1] += srow[(size_t)sx * kSrcC + 1];
+            acc[2] += srow[(size_t)sx * kSrcC + 2];
+            ++n;
+          }
+        }
+        if (n == 0) n = 1;
+        drow[(size_t)dx * kSrcC + 0] = (uint8_t)(acc[0] / n);
+        drow[(size_t)dx * kSrcC + 1] = (uint8_t)(acc[1] / n);
+        drow[(size_t)dx * kSrcC + 2] = (uint8_t)(acc[2] / n);
+      }
+    }
+  }
+  return true;
+}
+
+// librga 的 rga_buffer_handle_t 是 **uint32_t**，所以失败返回值 -1 实际是
+// 0xFFFFFFFF。原来这里用 handle = -1 当哨兵、再用 `handle > 0` 判断
+// 「有没有 import 过」，对哨兵是成立的（0xFFFFFFFF > 0）=> 每次
+// BufImport()/BufFree() 都会拿 -1 去 releasebuffer_handle()，内核每次都刷
+//     rga_mm: This is not a buffer that has been imported, handle = -1
+// 而且 import 失败时 `handle > 0` 同样成立 => BufImport() 会把失败当成功，
+// 于是一个 handle = -1 的 buffer 被塞进 improcess() 的作业里。
+// 现在用显式的 imported 标志 + 明确的失败哨兵。
 bool ComposeFrame(Session* s, const uint8_t* rgb, int w, int h, FrameOut* out) {
   if (w != kSrcW || h != kSrcH) {
     fprintf(stderr, "[FATAL] expected %dx%d, got %dx%d\n", kSrcW, kSrcH, w, h);
     return false;
   }
 
+  // ---- 0. CPU 拼图：一次 RGA ioctl 都不发 --------------------------------
+  if (CpuComposeMode()) {
+    const double c0 = now_ms();
+    if (!CpuCompose(s, rgb, w, h)) {
+      fprintf(stderr, "[FATAL] CPU compose failed\n");
+      return false;
+    }
+    out->rga_improcess = now_ms() - c0;
+    s->verified = true;  // 没有 RGA，就没有 RGA 自检
+    return true;
+  }
+
   // ---- 1. RGA: import + improcess ----------------------------------------
+  // 方案二：源帧先 memcpy 进我们的 **dma-buf staging buffer**，然后把它的
+  // dma_fd 交给 RGA。这样 RGA 从头到尾只碰 dma-buf，**任何调用方的虚拟地址
+  // 都不会再被传给 RGA**（旧的 importbuffer_virtualaddr 路径正是内核 Oops
+  // 的来源）。
   const uint8_t* src_pixels = rgb;
   if (s->use_staging) {
     memcpy(s->stage.data, rgb, s->stage.size);
+    BufSyncToDevice(&s->stage);
     src_pixels = s->stage.data;
   }
   bool rga_ok = true;
   for (int attempt = 0; attempt < 2 && rga_ok; attempt++) {
     const double i0 = now_ms();
     // The source buffer must be imported AFTER its content is final.
-    const rga_buffer_handle_t src_handle =
-        importbuffer_virtualaddr(const_cast<uint8_t*>(src_pixels), kSrcW, kSrcH, kRgaFmt);
-    const bool canvas_ok = BufImport(&s->canvas);
+    rga_buffer_handle_t src_handle;
+    if (s->stage.fd >= 0) {
+      src_handle = importbuffer_fd(s->stage.fd, kSrcW, kSrcH, kRgaFmt);
+    } else {
+      src_handle = importbuffer_virtualaddr(const_cast<uint8_t*>(src_pixels), kSrcW, kSrcH, kRgaFmt);
+    }
+    RgaTrace("import(src)", (long)src_handle);
+    bool canvas_ok = true;
+    if (s->canvas.fd >= 0 || RgaCanvasOnce()) {
+      // 已在初始化时 import 过一次，直接复用（dma-buf 路径：内容作业时读取）。
+      canvas_ok = s->canvas.imported;
+    } else {
+      canvas_ok = BufImport(&s->canvas);
+    }
     const double i1 = now_ms();
     out->rga_import = i1 - i0;
-    if (src_handle <= 0 || !canvas_ok) {
-      fprintf(stderr, "[FATAL] RGA import failed (src=%d dst=%d)\n", (int)(src_handle > 0),
-              (int)canvas_ok);
-      if (src_handle > 0) releasebuffer_handle(src_handle);
+    const bool src_ok = (src_handle != kRgaInvalidHandle);
+    if (!src_ok || !canvas_ok) {
+      fprintf(stderr, "[FATAL] RGA import failed (src=%d dst=%d)\n", (int)src_ok, (int)canvas_ok);
+      if (src_ok) releasebuffer_handle(src_handle);
       rga_ok = false;
       break;
     }
@@ -1881,7 +2266,10 @@ bool ComposeFrame(Session* s, const uint8_t* rgb, int w, int h, FrameOut* out) {
       }
     }
     out->rga_improcess = now_ms() - m0;
-    releasebuffer_handle(src_handle);
+    if (!RgaNoRelease()) {
+      RgaTrace("release(src)", (long)src_handle);
+      releasebuffer_handle(src_handle);
+    }
     if (!rga_ok) break;
 
     if (!s->verified) {

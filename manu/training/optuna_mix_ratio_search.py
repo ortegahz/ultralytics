@@ -909,6 +909,18 @@ def run_worker() -> int:
         "--size-weight-large", type=float, default=1.0,
         help="其余目标的 focal 正样本权重。1.0 = 不加权（默认 ⇒ 与旧版逐位一致）。",
     )
+    # 🟢🟢 2026-11-13 15:10：**分类 / 定位 尺寸权重解耦**（周末方案 §5.1）
+    #   --size-weight-small/large        = 分类（focal）侧   ⇒ 主要影响 nano 召回
+    #   --size-weight-small-box/large-box = **定位（偏移回归）侧** ⇒ 主要影响 nano4（4px 中心精度）
+    #   两者都 = 1.0 ⇒ 不产生 obj_weight ⇒ **逐位不变**
+    ap.add_argument(
+        "--size-weight-small-box", type=float, default=1.0,
+        help="微小目标的**定位（sub-pixel 偏移回归）**权重。1.0 = 不加权（默认 ⇒ 逐位不变）。",
+    )
+    ap.add_argument(
+        "--size-weight-large-box", type=float, default=1.0,
+        help="其余目标的定位权重。1.0 = 不加权（默认 ⇒ 逐位不变）。",
+    )
     ap.add_argument(
         "--size-thr-px", type=float, default=16.0,
         help="微小目标的面积阈值（px²，物理像素）。与 NanoBench 的 nano 桶口径一致（16.0）。",
@@ -916,6 +928,67 @@ def run_worker() -> int:
     ap.add_argument(
         "--size-max-side-px", type=float, default=4.0,
         help="微小目标的最长边阈值（px，物理像素）。与 NanoBench 的 nano 桶口径一致（4.0）。",
+    )
+    # 🟢🟢🟢 2026-11-13 17:40：**微小目标 Copy-Paste**（周末方案 §5.2 的第二半）
+    #   动机（实测训练集尺寸分布）：nano 桶（≤4px / ≤16px²）**UAV 仅 4.59% / LQ 0.00%**、
+    #   micro 桶（≤8px / ≤64px²）UAV 16.55% / LQ 5.82%
+    #   ⇒ 「复杂云层 / 地面杂波里的 4~12px 冷目标」**正样本密度极低**。
+    #   · `sw` 只能在**分类损失**上加权；定位侧也已放开（swb 轴）⇒ 但**正样本个数**没变。
+    #   · 本增强**只加正样本、不动任何损失权重** ⇒ 与 sw / swb **正交**的新维度。
+    #   官方 CopyPaste 在检测任务上是**空操作**（依赖分割多边形）⇒ 自己实现
+    #   （见 manu/data/small_copy_paste.py）。
+    #   0.0 = 关闭（默认 ⇒ **逐位不变**）。
+    ap.add_argument(
+        "--cp-prob", type=float, default=0.0,
+        help="微小目标 Copy-Paste 的触发概率（0 = 关闭 ⇒ 逐位不变）。",
+    )
+    ap.add_argument(
+        "--cp-max-px", type=float, default=12.0,
+        help="作为复制源的微小目标最大边长（px，640 尺度）。",
+    )
+    ap.add_argument(
+        "--cp-ctx-px", type=float, default=3.0,
+        help="抠图时在目标框外扩的**上下文边距**（px）：连同局部背景一起贴 ⇒ 局部对比度自洽。",
+    )
+    ap.add_argument(
+        "--cp-feather-px", type=float, default=2.0,
+        help="贴图边缘羽化宽度（px）：线性淡出，避免硬边。",
+    )
+    ap.add_argument(
+        "--cp-per-img", type=int, default=3,
+        help="每张图最多粘贴几个微小目标。",
+    )
+    ap.add_argument(
+        "--cp-min-gap-px", type=float, default=2.0,
+        help="粘贴位置与已有框的最小间距（px）。",
+    )
+    ap.add_argument(
+        "--cp-allow-hot", action="store_true",
+        help="允许把目标贴到「已经是热区」的位置（默认禁止，避免失去凸显意义）。",
+    )
+    # 🟢🟢 2026-11-13：**降尺度粘贴**（把源目标连同上下文整体缩小 ⇒ 直接造 ≤4px 正样本）
+    #   动机：nano 桶（≤4px / ≤16px²）在训练集里几乎为零，而 9~12px 的源目标很多
+    #   ⇒ 把 9~12px 的源缩到 ~4.5~6px（scale=0.5）才能喂到 `nano4` 桶。
+    #   1.0/1.0 = 不缩放（默认 ⇒ **逐位不变**）；min > max ⇒ 自动交换；min = 0 = 不限下界。
+    ap.add_argument(
+        "--cp-scale-min", type=float, default=1.0,
+        help="降尺度粘贴：源目标缩小比例的下界（<1 才生效；默认 1.0 = 不缩放 ⇒ 逐位不变）。",
+    )
+    ap.add_argument(
+        "--cp-scale-max", type=float, default=1.0,
+        help="降尺度粘贴：源目标缩小比例的上界（≤1 才有意义；默认 1.0 = 不缩放 ⇒ 逐位不变）。",
+    )
+    # 🟢🟢 2026-11-13 16:15：**定位侧口径可独立**（与分类侧解耦）
+    #   实测：训练集的 nano 桶（≤4px / ≤16px²）只有 UAV 4.6% / LQ **0.0%**
+    #   ⇒ 定位侧若沿用 nano 口径 ⇒ LQ 批次**零梯度信号** ⇒ swb 轴近乎空转。
+    #   0.0 = 沿用分类侧阈值（默认 ⇒ 逐位不变）；例如 64 / 8 ⇒ 放宽到 micro 口径。
+    ap.add_argument(
+        "--size-thr-px-box", type=float, default=0.0,
+        help="定位侧的面积阈值（px²）。0 = 沿用 --size-thr-px（默认 ⇒ 逐位不变）。",
+    )
+    ap.add_argument(
+        "--size-max-side-px-box", type=float, default=0.0,
+        help="定位侧的最长边阈值（px）。0 = 沿用 --size-max-side-px（默认 ⇒ 逐位不变）。",
     )
     ap.add_argument(
         "--size-img-w", type=float, default=640.0,
@@ -930,6 +1003,36 @@ def run_worker() -> int:
         help="学习率保底：相对各参数组峰值 lr 的下限比例（0=关闭 ⇒ 沿用绝对下限 "
              "ROUTE_B_DEFAULTS['lr_min']=1e-6，行为逐位一致）。"
              "例如 0.10 = 退火到底也保留峰值的 10% ⇒ 阻止卷积核退化为低通平滑。",
+    )
+    # ---- 方向五（2026-11-13 周末）：**分数存盘** + **L2 锚定抛光** ----
+    #   ⚠️ 默认全关 ⇒ 不传这两个参数时**逐位等价旧行为**（本文件所有历史实验不受影响）
+    ap.add_argument(
+        "--save-fracs", type=str, default="",
+        help="epoch 内**分数存盘**（默认空=关闭 ⇒ 逐位等价旧行为）。"
+             "逗号分隔的小数，如 0.5 / 0.25,0.5,0.75 ⇒ 每个 epoch 在这些进度点额外存 "
+             "weights/sub_epoch{E}_{frac}.pt（结构字段与 epoch 权重完全一致，"
+             "含 optimizer/scheduler 状态）⇒ 事后可**离线**扫这些中间点，无须重训。",
+    )
+    ap.add_argument(
+        "--anchor-ckpt", type=str, default="",
+        help="L2 锚点 ckpt 路径（默认空 ⇒ 用 --weights 自身作锚点）。",
+    )
+    # 🟢🟢 2026-11-13 15:25 **EMA 衰减率轴**（周末方案 §3.2）
+    #   动机：`nano` 随步数上升、而 `T3`（盲测泛化）随过拟合单调下降 ⇒ 黄金交叉窗口只有 0.2~0.5 epoch 宽。
+    #   而 YOLO 默认 ema_decay=0.9999（时间常数 ~10k 步）在 5 epoch（8895 步）里**滞后到几乎不更新**
+    #   ⇒ 这里允许把衰减率当作搜索维度（0.999 / 0.9995 / 0.9998），
+    #   存盘时写**影子权重**（参数级 EMA，BN buffer 保持实时值）⇒ 相当于「步级粒度的 SWA」。
+    #   0.0 = 关闭 ⇒ **逐位不变**（存盘仍是实时权重）。
+    ap.add_argument(
+        "--ema-decay", type=float, default=0.0,
+        help="参数级 EMA 衰减率（0 = 关闭 ⇒ 存盘用实时权重，逐位不变）。"
+             "例：0.999 ≈ 最近 ~1000 步的滑动平均（≈0.5 epoch）。",
+    )
+    ap.add_argument(
+        "--anchor-l2", type=float, default=0.0,
+        help="朝锚点的 L2 惩罚系数 λ（默认 0=关闭 ⇒ 逐位等价旧行为）。"
+             "loss += λ · Σ (θ − θ_anchor)² ⇒ 把『微调』限制在锚点的邻域里，"
+             "避免 §142.2 那种『全余弦重训把基线冲掉 3~6 pp』的崩溃。",
     )
     args = ap.parse_args()
 
@@ -1003,6 +1106,59 @@ def run_worker() -> int:
           f"stride={model_stride} unfreeze_b0b4={bool(args.unfreeze_b0b4)} "
           f"offset_init={getattr(args, 'offset_init', 'keep')}", flush=True)
     model.to(device)
+
+    # ---- 参数级 EMA（§3.2）：--ema-decay > 0 才建 ⇒ 默认路径零开销、逐位不变 ----
+    ema_decay = float(getattr(args, "ema_decay", 0.0) or 0.0)
+    ema_state: dict[str, torch.Tensor] = {}
+    if ema_decay > 0.0:
+        ema_state = {n: p.detach().clone().float() for n, p in model.named_parameters()}
+        print(f"[EMA] decay={ema_decay} ⇒ 影子参数 {len(ema_state)} 个（存盘写影子权重）", flush=True)
+
+    def _ema_state_dict() -> dict:
+        """存盘用的 state_dict：EMA 开启时用影子权重替换参数（BN buffer 仍取实时值）。"""
+        st = dict(model.state_dict())
+        if not ema_state:
+            return st
+        with torch.no_grad():
+            for n, p in model.named_parameters():
+                if n in ema_state and n in st:
+                    st[n] = ema_state[n].to(st[n].dtype).clone()
+        return st
+
+    # ---- L2 锚点（λ>0 才建 ⇒ 默认路径零开销、零行为变化）----------------
+    anchor_params: dict = {}
+    anchor_l2 = float(getattr(args, "anchor_l2", 0.0) or 0.0)
+    if anchor_l2 > 0.0:
+        _anchor_path = str(getattr(args, "anchor_ckpt", "") or "") or str(args.weights)
+        _ack = torch.load(resolve_weights(_anchor_path), map_location="cpu")
+        _asd = _ack["model"] if isinstance(_ack, dict) and "model" in _ack else _ack
+        if hasattr(_asd, "state_dict"):
+            _asd = _asd.state_dict()
+        _named = dict(model.named_parameters())
+        for _k, _v in _asd.items():
+            if _k in _named and torch.is_tensor(_v) and _v.dtype.is_floating_point:
+                anchor_params[_k] = _v.detach().to(device=device, dtype=torch.float32)
+        print(f"[ANCHOR-L2] λ={anchor_l2} 锚点={_anchor_path} 锚定张量={len(anchor_params)}/{len(_named)}",
+              flush=True)
+        if not anchor_params:
+            raise RuntimeError("[ANCHOR-L2] 锚点与模型参数名完全不匹配 ⇒ 拒绝训练")
+
+    # ---- 分数存盘点（默认空 ⇒ 逐位等价旧行为）--------------------------
+    save_fracs: list[float] = []
+    for _tok in str(getattr(args, "save_fracs", "") or "").split(","):
+        _tok = _tok.strip()
+        if not _tok:
+            continue
+        try:
+            _f = float(_tok)
+        except ValueError:
+            raise ValueError(f"[SAVE-FRACS] 无法解析：{_tok!r}")
+        if not (0.0 < _f < 1.0):
+            raise ValueError(f"[SAVE-FRACS] 必须是 (0,1) 之间的小数：{_f}")
+        save_fracs.append(_f)
+    if save_fracs:
+        print(f"[SAVE-FRACS] epoch 内分数存盘：{save_fracs}", flush=True)
+
     feat_h = feat_w = args.imgsz // model_stride
     src_ckpt = torch.load(resolve_weights(args.weights), map_location="cpu")
     src_state = src_ckpt["model"] if "model" in src_ckpt else src_ckpt.get("state_dict", src_ckpt)
@@ -1029,6 +1185,34 @@ def run_worker() -> int:
         ds = build_yolo_dataset(
             cfg, data_dict["train"], batch=args.batch, data=data_dict, mode="train", stride=32
         )
+        # 🟢🟢🟢 2026-11-13 17:40：**微小目标 Copy-Paste**（方案 §5.2）
+        #   插在 mosaic + 仿射之后、Format 之前 ⇒ 此时 img 是 640×640 uint8、
+        #   instances.bboxes 是**像素级 xyxy**、cls 是 (N,1) ⇒ 粘贴坐标直接用像素。
+        #   prob=0 ⇒ **连 transform 都不插入** ⇒ 与旧行为逐位不变。
+        if float(getattr(args, "cp_prob", 0.0) or 0.0) > 0.0:
+            from manu.data.small_copy_paste import SmallObjectCopyPaste  # noqa: PLC0415
+
+            _cp = SmallObjectCopyPaste(
+                prob=float(args.cp_prob),
+                max_src_px=float(args.cp_max_px),
+                ctx_px=float(getattr(args, "cp_ctx_px", 3.0)),
+                feather_px=float(args.cp_feather_px),
+                max_per_img=int(args.cp_per_img),
+                min_gap_px=float(args.cp_min_gap_px),
+                # `--cp-allow-hot` = 允许把目标贴到亮度不匹配的落点
+                #   ⇒ 与实现里的「落点背景亮度须与源上下文同量级（0.5×~2.0×）」开关一一对应
+                match_bg=not bool(args.cp_allow_hot),
+                scale_min=float(getattr(args, "cp_scale_min", 1.0)),
+                scale_max=float(getattr(args, "cp_scale_max", 1.0)),
+            )
+            # transforms.transforms = [pre_transform, MixUp, CutMix, Albumentations, HSV, Flip, Format]
+            # ⇒ 插到 index 1 ⇒ 紧跟 pre_transform（mosaic + 仿射）之后、其余增强之前。
+            ds.transforms.transforms.insert(1, _cp)
+            print(f"[CP] {tag:<9} 微小目标 Copy-Paste 开启：prob={args.cp_prob} "
+                  f"max_src_px={args.cp_max_px} feather={args.cp_feather_px} "
+                  f"per_img={args.cp_per_img} allow_hot={bool(args.cp_allow_hot)} "
+                  f"scale=[{getattr(args, 'cp_scale_min', 1.0)}, "
+                  f"{getattr(args, 'cp_scale_max', 1.0)}]", flush=True)
         print(f"[DATA] {tag:<9} 官方 build_yolo_dataset 样本数 = {len(ds):,}", flush=True)
         datasets.append(ds)
     n_lq, n_uav = len(datasets[0]), len(datasets[1])
@@ -1248,6 +1432,7 @@ def run_worker() -> int:
                     module.eval()
 
     global_step = 0
+    last_l2 = 0.0
     vram_peak = 0.0
     t_start = time.time()
     last_weights = None
@@ -1265,6 +1450,10 @@ def run_worker() -> int:
                 flush=True,
             )
         set_frozen_eval(epoch)
+        _save_pts: dict[int, float] = {}
+        for _sf in save_fracs:
+            _it_s = max(1, min(iters_per_epoch - 1, int(round(iters_per_epoch * _sf))))
+            _save_pts[_it_s] = _sf
         ep_loss = ep_hm = ep_off = 0.0
         nb = 0
         lq_seen = uav_seen = 0
@@ -1280,6 +1469,11 @@ def run_worker() -> int:
                 min_radius=args.min_radius, device=device,
                 size_weight_small=args.size_weight_small,
                 size_weight_large=args.size_weight_large,
+                size_weight_small_box=args.size_weight_small_box,
+                size_weight_large_box=args.size_weight_large_box,
+                size_thr_px_box=(args.size_thr_px_box if args.size_thr_px_box > 0 else None),
+                size_max_side_px_box=(args.size_max_side_px_box
+                                      if args.size_max_side_px_box > 0 else None),
                 size_thr_px=args.size_thr_px,
                 size_max_side_px=args.size_max_side_px,
                 img_w=args.size_img_w,
@@ -1296,6 +1490,17 @@ def run_worker() -> int:
                     loss_preds["heatmap"] = preds["heatmap"][:, :, ::native_scale, ::native_scale].contiguous()
                     loss_preds["offset"] = preds["offset"][:, :, ::native_scale, ::native_scale].contiguous()
                 loss, loss_items = criterion(loss_preds, targets)
+                # ---- L2 锚定（λ>0 才生效）⇒ 把微调约束在锚点邻域 ----
+                if anchor_params:
+                    l2_term = torch.zeros((), device=device, dtype=torch.float32)
+                    for _pn, _pp in model.named_parameters():
+                        _ap = anchor_params.get(_pn)
+                        if _ap is not None and _pp.requires_grad:
+                            l2_term = l2_term + ((_pp - _ap) ** 2).sum()
+                    loss = loss + anchor_l2 * l2_term
+                    last_l2 = float(l2_term.detach())
+                else:
+                    last_l2 = 0.0
             if torch.isnan(loss) or torch.isinf(loss):
                 continue
             scaler.scale(loss).backward()
@@ -1306,6 +1511,14 @@ def run_worker() -> int:
             scaler.step(optimizer)
             scaler.update()
             scheduler.step()
+            if ema_state:
+                # ★ 指数移动平均（带 ramp-up：前期用小 decay，避免影子被初值主导）
+                _step = global_step + 1
+                _dec = min(ema_decay, (1.0 + _step) / (10.0 + _step))
+                with torch.no_grad():
+                    for _n, _p in model.named_parameters():
+                        if _n in ema_state:
+                            ema_state[_n].mul_(_dec).add_(_p.detach().float(), alpha=1.0 - _dec)
             global_step += 1
             ep_loss += loss_items["loss_total"]
             ep_hm += loss_items["loss_hm"]
@@ -1332,6 +1545,44 @@ def run_worker() -> int:
                     f"{time.time()-t_start:.0f}s",
                     flush=True,
                 )
+            # ---- 分数存盘（在 epoch 结束前把中间点落盘 ⇒ 事后离线可扫）----
+            if save_fracs and it in _save_pts:
+                _sf = _save_pts[it]
+                _fn = weights_dir / f"sub_epoch{epoch}_{_sf:g}.pt"
+                _st = _ema_state_dict()
+                _st.update(p0_tensors)
+                torch.save(
+                    {
+                        "epoch": epoch,
+                        "sub_epoch_frac": float(_sf),
+                        "model": _st,
+                        "metrics": {"train_loss": ep_loss / max(nb, 1), "l2_anchor": last_l2},
+                        "stride": model_stride,
+                        "no_p2": bool(args.no_p2),
+                        "head_level": str(args.head_level),
+                        "act": str(args.act),
+                        "head_conv": int(args.head_conv) if args.head_conv else 64,
+                        "late_upsample": bool(args.late_upsample),
+                        "head_src": str(args.head_src),
+                        "p2_out_scale": float(args.p2_out_scale),
+                        "hf_skip": bool(getattr(args, "hf_skip", 0)),
+                        "hf_skip_src": str(getattr(args, "hf_skip_src", "b1") or "b1"),
+                        "hf_skip_channels": int(getattr(args, "hf_skip_channels", 1) or 1),
+                        "imgsz": args.imgsz,
+                        "p0_kwargs": p0_kwargs,
+                        "optimizer": optimizer.state_dict(),
+                        "scheduler": scheduler.state_dict(),
+                        "global_step": global_step,
+                        "finetune": {
+                            "route": "mix_ratio_search",
+                            "mix_spec": args.mix_spec,
+                            "anchor_l2": anchor_l2,
+                            "sub_epoch_frac": float(_sf),
+                        },
+                    },
+                    _fn,
+                )
+                print(f"[SAVE-FRAC] {_fn}", flush=True)
             if args.max_iters and it >= args.max_iters:
                 print(f"[SMOKE] 达到 max-iters={args.max_iters}，提前结束本 epoch", flush=True)
                 break
@@ -1344,10 +1595,11 @@ def run_worker() -> int:
         ratio = uav_seen / max(lq_seen, 1)
         print(
             f"[EPOCH {epoch}] loss {ep_loss/max(nb,1):.4f} | 实测混样 LQ {lq_seen:,} / UAV {uav_seen:,} "
-            f"= 1:{ratio:.3f}（目标 1:{uav_per_lq:.3f}） | {time.time()-t_ep:.1f}s",
+            f"= 1:{ratio:.3f}（目标 1:{uav_per_lq:.3f}） | {time.time()-t_ep:.1f}s"
+            + (f" | L2锚定 Σ(Δθ)²={last_l2:.6f} (λ={anchor_l2})" if anchor_params else ""),
             flush=True,
         )
-        state = dict(model.state_dict())
+        state = _ema_state_dict()
         state.update(p0_tensors)
         last_weights = weights_dir / f"epoch{epoch}.pt"
         torch.save(
@@ -1480,7 +1732,19 @@ def run_worker() -> int:
         "gate_epoch": gate_epoch,
         "sched_epochs": sched_epochs,
         "size_weight_small": args.size_weight_small,
+        "ema_decay": getattr(args, "ema_decay", 0.0),
+        "size_weight_small_box": getattr(args, "size_weight_small_box", 1.0),
+        "size_weight_large_box": getattr(args, "size_weight_large_box", 1.0),
+        "size_thr_px_box": getattr(args, "size_thr_px_box", 0.0),
+        "size_max_side_px_box": getattr(args, "size_max_side_px_box", 0.0),
         "size_weight_large": args.size_weight_large,
+        "cp_prob": getattr(args, "cp_prob", 0.0),
+        "cp_max_px": getattr(args, "cp_max_px", 12.0),
+        "cp_ctx_px": getattr(args, "cp_ctx_px", 3.0),
+        "cp_per_img": getattr(args, "cp_per_img", 3),
+        "cp_feather_px": getattr(args, "cp_feather_px", 2.0),
+        "cp_scale_min": getattr(args, "cp_scale_min", 1.0),
+        "cp_scale_max": getattr(args, "cp_scale_max", 1.0),
         "size_thr_px": args.size_thr_px,
         "size_max_side_px": args.size_max_side_px,
         "lr_floor_ratio": args.lr_floor_ratio,

@@ -82,6 +82,10 @@ def generate_heatmaps_and_targets(
     device: torch.device | None = None,
     size_weight_small: float = 1.0,
     size_weight_large: float = 1.0,
+    size_weight_small_box: float = 1.0,
+    size_weight_large_box: float = 1.0,
+    size_thr_px_box: float | None = None,
+    size_max_side_px_box: float | None = None,
     size_thr_px: float = 16.0,
     size_max_side_px: float = 4.0,
     img_w: float = 640.0,
@@ -98,8 +102,21 @@ def generate_heatmaps_and_targets(
         stride: downsampling stride (e.g. 4 for P2)
         min_radius: guaranteed minimum Gaussian radius (crucial for 3x3 tiny targets)
         max_objects: max number of point targets tracked per image for offset regression
-        size_weight_small: focal 正样本权重（微小目标）。1.0 = 不加权（默认 ⇒ 逐位不变）
+        size_weight_small: focal（分类/目标性）正样本权重（微小目标）。1.0 = 不加权（默认 ⇒ 逐位不变）
         size_weight_large: focal 正样本权重（其余目标）。1.0 = 不加权
+        size_weight_small_box: **定位侧**（sub-pixel 偏移回归）逐目标权重（微小目标）。1.0 = 不加权
+        size_weight_large_box: 定位侧逐目标权重（其余目标）。1.0 = 不加权
+        size_thr_px_box: 定位侧的面积阈值（px²）。None = 沿用 size_thr_px（逐位不变）
+        size_max_side_px_box: 定位侧的最长边阈值（px）。None = 沿用 size_max_side_px
+
+    🟢🟢 2026-11-13 15:05 新增「分类 / 定位」**解耦**（周末方案 §5.1）：
+       实测 `sw`（size_weight_small）是一把**跷跷板** —— 拉高它 ⇒ nano 召回上去了，
+       但 nano4（4px 严格定位）与官方 T3 同步塌（见台账：sw5.0 家族 nano4 普遍 < 0.6472）。
+       根因：`sw` 只作用在**分类（focal）**损失上 ⇒ 想加 nano 就只能加分类权重，
+       而**定位（偏移回归）梯度**没法单独加强 ⇒ 4px 中心精度与泛化被牺牲。
+       ⇒ 这里新增**定位侧**逐目标权重 `size_weight_*_box`（与分类侧独立）
+         ⇒ 可以 sw_cls=5.0 + sw_box=5.0（两头都加强）或 sw_cls=3.8 + sw_box=5.0（**破跷跷板**）。
+       ⚠️ 两者都 = 1.0 时**不产生 obj_weight** ⇒ 整条分支不执行 ⇒ **逐位不变**。
         size_thr_px: 微小目标的面积阈值（px²），与 NanoBench 的 nano 桶口径一致
         size_max_side_px: 微小目标的最长边阈值（px），与 NanoBench 的 nano 桶口径一致
         img_w / img_h: 原始图像的物理尺寸（px）；归一化框 × 该尺寸 = 物理像素尺寸
@@ -126,6 +143,18 @@ def generate_heatmaps_and_targets(
     weight_map = None
     if use_size_weight:
         weight_map = torch.ones((batch_size, 1, H, W), dtype=torch.float32, device=device)
+    # 🟢 2026-11-13 15:05：定位侧（box）逐目标权重（默认关闭 ⇒ 逐位不变）
+    use_box_weight = (abs(size_weight_small_box - 1.0) > 1e-12
+                       or abs(size_weight_large_box - 1.0) > 1e-12)
+    obj_weight = None
+    if use_box_weight:
+        obj_weight = torch.ones((batch_size, max_objects), dtype=torch.float32, device=device)
+    # 🟢 2026-11-13 16:10：**定位侧阈值可独立**（默认 None ⇒ 沿用分类侧阈值 ⇒ 逐位不变）
+    #   实测：训练集里「nano 桶」(≤4px / ≤16px²) 只有 UAV 4.6% / LQ **0.0%**
+    #   ⇒ 用 nano 口径做定位加权 ⇒ LQ 批次**完全无梯度信号**、UAV 批次几乎无效果
+    #   ⇒ 必须允许把定位侧口径放宽到 micro（≤8px / ≤64px²，UAV 16.6% / LQ 5.8%）才有杠杆。
+    thr_b = size_thr_px if size_thr_px_box is None else size_thr_px_box
+    side_b = size_max_side_px if size_max_side_px_box is None else size_max_side_px_box
 
     if batch_bboxes.numel() == 0:
         return {
@@ -181,6 +210,14 @@ def generate_heatmaps_and_targets(
                 weight_map[b, 0, ct_y_int, ct_x_int] = (
                     size_weight_small if is_tiny else size_weight_large
                 )
+            if obj_weight is not None:
+                # 定位侧权重：与分类侧**独立**（nano4 / 4px 中心精度走这条）
+                w_px = float(boxes[i, 2].item()) * img_w
+                h_px = float(boxes[i, 3].item()) * img_h
+                is_tiny_b = ((max(w_px, h_px) <= side_b + _SIZE_EPS_PX)
+                             or (w_px * h_px <= thr_b + _SIZE_EPS_PX))
+                obj_weight[b, i] = (size_weight_small_box if is_tiny_b
+                                    else size_weight_large_box)
 
     out = {
         "heatmap": gt_heatmap,
@@ -190,6 +227,8 @@ def generate_heatmaps_and_targets(
     }
     if weight_map is not None:
         out["weight_map"] = weight_map
+    if obj_weight is not None:
+        out["obj_weight"] = obj_weight
     return out
 
 
@@ -403,6 +442,7 @@ class RegL1Loss(nn.Module):
         gt_offset: torch.Tensor,
         ind: torch.Tensor,
         mask: torch.Tensor,
+        obj_weight: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """
         Args:
@@ -420,7 +460,20 @@ class RegL1Loss(nn.Module):
         pred_at_obj = torch.gather(pred_offset, dim=1, index=ind_expanded)
 
         mask_expanded = mask.unsqueeze(-1).expand_as(pred_at_obj).float()
-        loss = F.l1_loss(pred_at_obj * mask_expanded, gt_offset * mask_expanded, reduction="sum")
+        if obj_weight is None:
+            # ⚠️ 原路径**逐字保留** ⇒ obj_weight 缺省时逐位不变
+            loss = F.l1_loss(pred_at_obj * mask_expanded, gt_offset * mask_expanded, reduction="sum")
+            num_pos = mask.float().sum()
+            return loss / (num_pos * 2 + 1e-6)
+        # 🟢 2026-11-13 15:05：逐目标加权（微小目标的**定位**梯度可独立放大）
+        # 🔴🟢 2026-11-13 15:40 修：**归一化必须用「计数」而不是「权重和」**
+        #    若按 w.sum() 归一 ⇒ 同一 batch 内权重**全部相同**时数学上完全抵消
+        #    （swb=5.0 ≡ swb=1.0）⇒ 定位侧权重轴变成空转。
+        #    实测症状：swb=1.0 与 swb=5.0 首迭代 loss **逐位相同**（hm 11.5293 / off 0.6533）。
+        #    改用计数归一后与**分类侧 focal**（除以 num_pos）口径一致
+        #    ⇒ swb 与 sw 语义对齐（都放大「正样本」梯度，而不是改写样本间的相对比例）。
+        w = obj_weight.unsqueeze(-1).expand_as(pred_at_obj).float() * mask_expanded
+        loss = (torch.abs(pred_at_obj - gt_offset) * w).sum()
         num_pos = mask.float().sum()
         return loss / (num_pos * 2 + 1e-6)
 
@@ -531,7 +584,8 @@ class HeatmapLoss(nn.Module):
             )
 
         loss_offset = self.offset_loss(
-            preds["offset"], targets["offset"], targets["ind"], targets["mask"]
+            preds["offset"], targets["offset"], targets["ind"], targets["mask"],
+            obj_weight=targets.get("obj_weight"),
         )
 
         total_loss = self.hm_weight * loss_hm + self.offset_weight * loss_offset

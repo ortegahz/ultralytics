@@ -65,7 +65,10 @@ CS_T0043 = "/mnt/data/siping/runs/nogmc_t3/swa/cs_t0043.pt"
 REF = "/mnt/data/siping/runs/nogmc_ref_weekend/reference_frame.json"
 LQ = "/mnt/data/siping/datasets/manu/longquanshan_ft_gmc_median_nogmc"
 UAVD = "/mnt/data/siping/datasets/manu/uav_gmc_median_nogmc"
-BOARD = "root@192.168.0.211"
+BOARD = "root@192.168.0.64"   # 🟢 2026-11-13 14:50：**旧板卡 64**（用户指定）
+#   旧地址 .211 已下线（ping 100% 丢包）⇒ 旧值会让板卡阶段必然超时失败。
+#   访问：ssh -p 22 root@192.168.0.64（密码 ematech / key id_board）
+#   ⚠️ 板卡阶段是**共享资源**：只读预检 + 绝不杀别人的进程（见 board_precheck）
 BOARD_KEY = "-i /home/huangzhe/.ssh/id_board -o ConnectTimeout=10 -o StrictHostKeyChecking=no"
 
 # ---- 基线配方 = trial_0031 的真实配方（memory §110.3，逐项对齐）----
@@ -75,23 +78,31 @@ BASE = dict(
     uf=0, head_src="p3", native_grid=0, mr=1,
     sw=1.0, swl=1.0, thr=16.0, maxside=4.0, lr_floor=0.0,
     hf=0, hfsrc="b1", hfch=1,
+    # 🟢🟢 2026-11-13 15:15：分类/定位**解耦**（方案 §5.1）⇒ 默认 1.0 = 不加权 = 逐位不变
+    swb=1.0, swlb=1.0,
 )
 
 # ---- 基线注册表（2026-11-11 用户裁决：9863 升轨为 Baseline_v2.0）----
 #   trial_0031 → [Status: Superseded / Deprecated Baseline]
 #   trial_0080 (RC2) → [Status: Retired / Offline Historical Reference]
 #   trial_9863 → Baseline_v2.0（Non-GMC / <21 ms 唯一官方基线）
-BASE_V2_CKPT = "/mnt/data/siping/runs/npu20ms_offcal/trials/trial_9863/weights/epoch5.pt"
+BASE_V2_CKPT = '/mnt/data/siping/runs/npu20ms_offcal/trials/trial_1117002/weights/epoch5.pt'
 BASE_V2 = dict(
-    name="Baseline_v2.0", trial=9863, epoch=5, ckpt=BASE_V2_CKPT,
-    nano=0.7086, micro=0.8258, small=0.8574, regular=0.9435, f1=0.889712, nano4=0.6472,
-    t1=0.888086, t1_fp=1526, t2=0.997440, t2_fp=5, t3=0.948489, t3_fp=80,
-    ms_delivery_board=19.306, ms_new_board=22.009, ms_new_board_t31_ref=23.528,
-    recipe="trial_0031 配方 + --size-weight-small 5.0（骨干/头结构与 0031 逐项同图）",
+    name='Baseline_v2.4', trial=1117002, epoch=5, ckpt=BASE_V2_CKPT,
+    nano=0.7204631379962193, micro=0.8349070971672251, small=0.85902000678196, regular=0.9393103448275862, f1=0.8904026831656356, nano4=0.6561909262759924,
+    t1=0.8905731287190729, t1_fp=1457, t2=0.9938320130616193, t2_fp=1, t3=0.9485821744939873, t3_fp=88,
+    ms_delivery_board=19.306, ms_new_board=19.646, ms_new_board_t31_ref=None,
+    recipe='[SB] soup(640001@5,1100296@1) w=0.56',
 )
 BASELINE_REGISTRY = [
-    {"id": "Baseline_v2.0", "trial": 9863, "status": "ACTIVE / OFFICIAL BASELINE",
-     "note": "Non-GMC / <21ms 唯一官方基线；后续所有探索的 Beat-to-Pass 参照"},
+    {"id": "Baseline_v2.3", "trial": 1106580, "status": "ACTIVE / OFFICIAL BASELINE",
+     "note": "2026-11-17 17:54 升轨; 家族 soup:bs640001:w2 n=4 + 种子关 bs640001:w55 + 板卡 19.706ms"},
+    {"id": "Baseline_v2.2", "trial": 610000, "status": "SUPERSEDED / DEPRECATED BASELINE",
+     "note": "2026-11-16 15:09 升轨；后续所有探索的 Beat-to-Pass 参照"},
+    {"id": "Baseline_v2.1", "trial": 69913, "status": "SUPERSEDED / DEPRECATED BASELINE",
+     "note": "被 trial_610000 取代"},
+    {"id": "Baseline_v2.0", "trial": 9863, "status": "SUPERSEDED / DEPRECATED BASELINE",
+     "note": "Non-GMC / <21 ms 历史基线"},
     {"id": "trial_0031", "trial": 31, "status": "SUPERSEDED / DEPRECATED BASELINE",
      "note": "旧交付件（19.306 ms 交付板）；仍作部署链路与时延同图参照"},
     {"id": "trial_0080 (RC2)", "trial": 80, "status": "RETIRED / OFFLINE HISTORICAL REFERENCE",
@@ -280,6 +291,38 @@ def sh(cmd: str, timeout: int = 7200) -> subprocess.CompletedProcess:
 
 
 def train_cmd(trial: int, gpu: int, seed: int, p: dict) -> str:
+    # 🟢 2026-11-13 **可选的三个新旋钮**（默认全关 ⇒ 旧臂命令串**逐字不变**）：
+    #   · anchor_l2  > 0  ⇒ 加 --anchor-l2 / --anchor-ckpt（L2 锚定抛光）
+    #   · save_fracs 非空 ⇒ 加 --save-fracs（epoch 内分数存盘）
+    #   · freeze_bn        ⇒ --freeze-bn {0,1}（抛光臂用 BN eval 固定统计量）
+    _extra = ""
+    if float(p.get("anchor_l2") or 0.0) > 0.0:
+        _extra += f" --anchor-l2 {p['anchor_l2']} --anchor-ckpt {p.get('anchor_ckpt') or p['init']}"
+    if p.get("save_fracs"):
+        _extra += f" --save-fracs {p['save_fracs']}"
+    # 🟢 2026-11-13 16:20：定位侧尺寸口径可独立（swb_thr / swb_maxside）
+    #   0/缺省 ⇒ **不加这两个 flag** ⇒ 旧臂命令串**逐字不变**
+    if float(p.get("swb_thr") or 0.0) > 0.0:
+        _extra += (f" --size-thr-px-box {p['swb_thr']}"
+                   f" --size-max-side-px-box {float(p.get('swb_maxside') or 0.0)}")
+    # 🟢 2026-11-13 15:30：EMA 衰减率轴（方案 §3.2）—— 0/缺省 ⇒ **不加 flag** ⇒ 旧臂命令串逐字不变
+    if float(p.get("ema_decay") or 0.0) > 0.0:
+        _extra += f" --ema-decay {p['ema_decay']}"
+    # 🟢🟢🟢 2026-11-13 17:40：微小目标 Copy-Paste（方案 §5.2）—— 0/缺省 ⇒ **不加 flag** ⇒ 旧臂命令串逐字不变
+    if float(p.get("cp_prob") or 0.0) > 0.0:
+        _extra += (f" --cp-prob {p['cp_prob']}"
+                   f" --cp-max-px {p.get('cp_max_px', 12.0)}"
+                   f" --cp-ctx-px {p.get('cp_ctx_px', 3.0)}"
+                   f" --cp-feather-px {p.get('cp_feather_px', 2.0)}"
+                   f" --cp-per-img {int(p.get('cp_per_img', 3))}"
+                   f" --cp-min-gap-px {p.get('cp_min_gap_px', 2.0)}")
+        # 🟢🟢 2026-11-13：**降尺度粘贴**（造 ≤4px 正样本）
+        #   只有 scale < 1 才加这两个 flag ⇒ 旧 cp 臂的命令串**逐字不变**
+        #   ⚠️ 用 `is not None` 判缺省（不能写 `or 1.0`）⇒ 否则 scale_min=0（不限下界）会被吞成 1.0
+        _smin = float(p.get("cp_scale_min") if p.get("cp_scale_min") is not None else 1.0)
+        _smax = float(p.get("cp_scale_max") if p.get("cp_scale_max") is not None else 1.0)
+        if _smin < 1.0 or _smax < 1.0:
+            _extra += f" --cp-scale-min {_smin} --cp-scale-max {_smax}"
     return (
         f"cd {REPO} && export PYTHONPATH=. && {PY} -u manu/training/optuna_mix_ratio_search.py --worker "
         f"--trial-number {trial} --gpu-id {gpu} --output-root {ROOT} "
@@ -287,16 +330,17 @@ def train_cmd(trial: int, gpu: int, seed: int, p: dict) -> str:
         f"--epochs {p['epochs']} --sched-epochs {p['sched']} --batch 32 --imgsz 640 --workers 8 --seed {seed} "
         f"--mix-spec {p['mix']} --lr-scale {p['lr']} --warmup-epochs {p['warmup']} --weight-decay {p['wd']} "
         f"--focal-beta {p['fb']} --offset-weight {p['ow']} --mosaic {p['mosaic']} --scale {p['scale']} "
-        f"--translate {p['translate']} --clip-max-norm {p['clip']} --freeze-bn 0 "
+        f"--translate {p['translate']} --clip-max-norm {p['clip']} --freeze-bn {int(p.get('freeze_bn', 0) or 0)} "
         f"--backbone-lr-scale {p['backbone_lr']} --freeze-backbone-epochs 0 "
         f"--no-p2 1 --head-level p3 --act silu --head-conv 64 --late-upsample 1 "
         f"--unfreeze-b0b4 {p['uf']} --head-src '{p['head_src']}' --p2-out-scale 1.0 "
         f"--train-on-native-grid {p['native_grid']} --min-radius {p['mr']} "
         f"--size-weight-small {p['sw']} --size-weight-large {p['swl']} "
+        f"--size-weight-small-box {p.get('swb', 1.0)} --size-weight-large-box {p.get('swlb', 1.0)} "
         f"--size-thr-px {p['thr']} --size-max-side-px {p['maxside']} "
         f"--lr-floor-ratio {p['lr_floor']} "
         f"--hf-skip {p['hf']} --hf-skip-src {p['hfsrc']} --hf-skip-channels {p['hfch']} "
-        f"--reference-frame {REF} --skip-gate > {ROOT}/logs/NANO_{trial}.log 2>&1"
+        f"--reference-frame {REF} --skip-gate{_extra} > {ROOT}/logs/NANO_{trial}.log 2>&1"
     )
 
 
@@ -352,6 +396,34 @@ def _merge_disk_ledger(led: dict) -> None:
     dw = list(disk.get("waves") or [])
     mw = list(led.get("waves") or [])
     led["waves"] = list(dict.fromkeys(dw + mw))
+
+    # 2026-11-17 18:10: 基线段必须单调(升轨后不被并发写覆盖)
+    #   现象: 17:54 升轨把 baseline_v2 写成 trial_1106580, 但汤通道/门禁通道随后用
+    #         旧内存态回写台账(_merge_disk_ledger 只合并 arms/rounds/waves)
+    #         => 新基线被悄悄回滚成 610000 => 台账与代码常量不一致。
+    #   修法: baseline_v2 取 promoted_at 更晚的那个; baseline_registry 按 id 合并。
+    d_base = disk.get("baseline_v2") or {}
+    m_base = led.get("baseline_v2") or {}
+    if str(d_base.get("promoted_at") or "") > str(m_base.get("promoted_at") or ""):
+        led["baseline_v2"] = d_base
+    # 🟢🟢 2026-11-18 09:25 —— **登记表允许「退役 id」**（防基线名通胀留下的垃圾条目复活）
+    #   事故：11-17 深夜守望把同一份权重（trial_1117002）反复升轨 82 次 ⇒ registry 89 条
+    #         （Baseline_v2.4 ~ v2.86 全是同一权重）⇒ 基线名通胀到 v2.86，registry 被刷屏。
+    #   修法：台账里存 `registry_retired_ids`（被折叠掉的 id 列表）⇒ 合并时**双方都跳过**这些 id
+    #        ⇒ 清理只做一次，且不会被任何常驻进程写回时复活。
+    _retired = set(disk.get("registry_retired_ids") or []) | set(led.get("registry_retired_ids") or [])
+    _reg = {}
+    for x in (disk.get("baseline_registry") or []) + (led.get("baseline_registry") or []):
+        if isinstance(x, dict) and x.get("id") and x["id"] not in _retired:
+            _reg[x["id"]] = x
+    if _reg:
+        # 顺序: 当前基线(ACTIVE)排最前, 其余保持插入序
+        _bt = int((led.get("baseline_v2") or {}).get("trial") or 0)
+        _items = list(_reg.values())
+        _items.sort(key=lambda x: 0 if int(x.get("trial") or 0) == _bt else 1)
+        led["baseline_registry"] = _items
+    if _retired:
+        led["registry_retired_ids"] = sorted(_retired)
 
 
 def save_ledger(led: dict) -> None:
@@ -558,6 +630,49 @@ GATE_EPOCH_K = 3
 NANO_FLOOR = BASE_V2["nano"]  # Beat-to-Pass 下限（默认 Baseline_v2.0 / trial_9863）
 
 
+# 🟢🟢 2026-11-13 14:45 **亚 epoch 密集存盘**（周末方案 §3）：支持「分数 epoch」
+#   训练端 `--save-fracs 0.25,0.5,0.75` ⇒ 额外落盘 `weights/sub_epoch{E}_{frac}.pt`
+#   （该能力**训练脚本里早已实现**，只是搜索空间从没启用过 ⇒ 现在把评测/门禁/台账接上）
+#   台账键：整数 epoch → '4'；分数 epoch → '2.5'（与权重文件名一一对应）
+FRAC_MIN_EPOCH = 2            # 只在 ep≥2 之后取亚 epoch（ep1 的模型还没成型）
+
+
+def epoch_ckpt_name(epoch) -> str:
+    """epoch → 权重文件名：整数 4 → 'epoch4.pt'；分数 2.5 → 'sub_epoch2_0.5.pt'。"""
+    try:
+        f = float(epoch)
+    except (TypeError, ValueError):
+        return f"epoch{epoch}.pt"
+    if abs(f - round(f)) < 1e-9:
+        return f"epoch{int(round(f))}.pt"
+    ep = int(f // 1)
+    return f"sub_epoch{ep}_{f - ep:g}.pt"
+
+
+def epoch_key_str(epoch) -> str:
+    """epoch → 台账/门禁目录键：整数 → '4'；分数 → '2.5'。"""
+    try:
+        f = float(epoch)
+    except (TypeError, ValueError):
+        return str(epoch)
+    return str(int(round(f))) if abs(f - round(f)) < 1e-9 else f"{f:g}"
+
+
+def frac_list(save_fracs) -> list[float]:
+    """把 params['save_fracs']（'0.25,0.5'）解析成小数列表（非法值静默丢弃）。"""
+    out: list[float] = []
+    for tok in str(save_fracs or "").split(","):
+        tok = tok.strip()
+        if not tok:
+            continue
+        try:
+            f = float(tok)
+        except ValueError:
+            continue
+        if 0.0 < f < 1.0:
+            out.append(f)
+    return out
+
 def phase_nanobench(arms: list, epochs: list[int], gpu_of: dict) -> None:
     sys.path.insert(0, REPO)
     from manu.pipeline.npu import route2_acceptance as RA  # noqa: PLC0415
@@ -610,6 +725,45 @@ def phase_nanobench(arms: list, epochs: list[int], gpu_of: dict) -> None:
             log(f"[{trial}] ep{ep} F1={res['f1']:.6f} nano={res['nano']:.4f} "
                 f"nano@4px={res['nano4']:.4f} micro={res['micro']:.4f} regular={res['regular']:.4f}")
             save_ledger(led)
+        # 🟢🟢 2026-11-13 14:45：**亚 epoch 读数**（周末方案 §3）
+        #   整数 epoch 的采样粒度太粗（nano 随步数升、T3 随过拟合降 ⇒ 黄金窗口常只有 0.2~0.5 epoch 宽）
+        #   ⇒ 训练端存了 `sub_epoch{E}_{frac}.pt` 的臂，这里把它们的 NanoBench 读数也写进台账。
+        _fr = frac_list(p.get("save_fracs"))
+        if _fr:
+            # 与整数 epoch 用**同一批 epoch**（调用方给的 epochs 列表）⇒ 口径一致
+            for _ep in sorted({int(e) for e in epochs}):
+                if _ep < FRAC_MIN_EPOCH:
+                    continue
+                for _sf in _fr:
+                    _name = f"sub_epoch{_ep}_{_sf:g}.pt"
+                    _ck = f"{ROOT}/trials/trial_{trial}/weights/{_name}"
+                    if not os.path.isfile(_ck):
+                        continue
+                    _key = f"{_ep + _sf:g}"
+                    if _key in traj:
+                        continue
+                    _pkl = f"{RUNS}/tiny_ref/nano_{trial}_ep{_key}.pkl"
+                    if not RA.build_cache(_ck, _pkl, gpu_of.get(trial, 0), extra="--no-peak-attrs"):
+                        traj[_key] = {"error": "cache_fail"}
+                        continue
+                    try:
+                        _res = _nb_pool().submit(_nb_worker, (_pkl, f"n{trial}_ep{_key}")).result()
+                    except Exception as e:  # noqa: BLE001
+                        log(f"[{trial}] ep{_key} 进程池失败（{type(e).__name__}）⇒ 退回线程内直算")
+                        _res = _nb_inline(_pkl, f"n{trial}_ep{_key}")
+                    if not _res:
+                        traj[_key] = {"error": "nanobench_fail"}
+                        continue
+                    traj[_key] = {
+                        "f1": _res["f1"], "th": _res["th"], "fp": _res["fp"], "fn": _res["fn"],
+                        "nano": _res["nano"], "micro": _res["micro"], "small": _res["small"],
+                        "regular": _res["regular"],
+                        "nano4": _res["nano4"], "micro4": _res["micro4"], "f1_4": _res["f1_4"],
+                        "cache": _pkl, "sub_epoch_frac": float(_sf),
+                    }
+                    log(f"[{trial}] ep{_key}(亚) F1={_res['f1']:.6f} nano={_res['nano']:.4f} "
+                        f"nano@4px={_res['nano4']:.4f}")
+                    save_ledger(led)
         save_ledger(led)
 
     with ThreadPoolExecutor(max_workers=NANO_BENCH_WORKERS[0]) as ex:
@@ -666,7 +820,18 @@ def pick_epoch(traj: dict, nano_min: float, nano4_min: float | None = None,
       ③ 否则退回「nano 过线的里 F1 最高者」；
       ④ 再否则取 nano 最高者。
     """
-    cands = [dict(v, epoch=int(k)) for k, v in traj.items() if "f1" in v]
+    # 🟢 2026-11-13 14:45：键可以是分数 epoch（'2.5'，亚 epoch 存盘）⇒ 不能 int(k)
+    cands = []
+    for k, v in traj.items():
+        if "f1" not in v:
+            continue
+        try:
+            _f = float(k)
+        except (TypeError, ValueError):
+            continue
+        _ep = int(round(_f)) if abs(_f - round(_f)) < 1e-9 else _f
+        cands.append(dict(v, epoch=_ep, epoch_key=epoch_key_str(_f),
+                           ckpt=epoch_ckpt_name(_f)))
     if not cands:
         return None, "none"
     ok = [c for c in cands if c["nano"] >= nano_min]
@@ -683,9 +848,11 @@ def pick_epoch(traj: dict, nano_min: float, nano4_min: float | None = None,
 # ============================================================================
 # ⑤ 官方三轨门禁（GMC 语义）
 # ============================================================================
-def run_official_gate(trial: int, epoch: int, gpu: int) -> dict:
-    w = f"{ROOT}/trials/trial_{trial}/weights/epoch{epoch}.pt"
-    outd = f"{ROOT}/gate/NANO_{trial}_ep{epoch}_official"
+def run_official_gate(trial: int, epoch, gpu: int) -> dict:
+    # 🟢 2026-11-13 14:45：epoch 可能是分数（亚 epoch）⇒ 用统一解析拿权重文件名
+    _ek = epoch_key_str(epoch)
+    w = f"{ROOT}/trials/trial_{trial}/weights/{epoch_ckpt_name(epoch)}"
+    outd = f"{ROOT}/gate/NANO_{trial}_ep{_ek}_official"
     rp = f"{outd}/gate_report.json"
     reuse = False
     if os.path.isfile(rp):
@@ -823,13 +990,50 @@ def phase_gate(arms: list, gpu_of: dict) -> None:
 # ============================================================================
 # ⑥⑦ 导出 + 一次板卡会话
 # ============================================================================
-def clean_board_residue() -> None:
-    """测速前清掉板卡上的残留 NPU 进程（3 个上下文越 P=2 上限 ⇒ IOMMU page fault + 掉线）。"""
+def board_precheck() -> tuple[bool, str]:
+    """板卡**只读**占用预检（🔴 绝不杀任何进程 —— 板卡是共享资源）。
+
+    2026-11-13 改口径：旧实现会在测速前 `pkill -9` 一批通用进程名
+    （e2e_par2_demo|e2e_par_demo|e2e_demo|rknn_heatmap_smoke）
+    ⇒ **会杀掉板卡上别人的 NPU 任务**（用户明确告知板卡上有别的任务在跑）。
+    ⇒ 改成：① 只读地看 load / NPU 进程数 / 根分区余量；② 有占用就**跳过**测速并记录原因。
+    返回 (可测, 说明)。
+    """
     cmd = (f"ssh {BOARD_KEY} {BOARD} "
-           "\"for p in e2e_par2_demo e2e_par_demo e2e_demo rknn_heatmap_smoke; do pkill -9 -f \\$p 2>/dev/null; done; "
-           "sleep 1; ps -eo pid,etime,args | grep -E '[r]knn_|[e]2e_' || echo '[CLEAN] 无残留进程'\"")
-    r = sh(cmd, timeout=120)
-    log(f"[board] 残留清理 ⇒ {(r.stdout or '').strip()[-200:]}")
+           "\"awk '{print \\$1}' /proc/loadavg; "
+           "ps -eo cmd | grep -E '[r]knn|[e]2e_|[m]easure_hm_speed' | wc -l; "
+           "df -m / | tail -1 | awk '{print \\$4}'\"")
+    r = sh(cmd, timeout=60)
+    txt = (r.stdout or "").strip()
+    parts = [x for x in txt.splitlines() if x.strip()]
+    if len(parts) < 3:
+        return False, f"预检读不到（板卡不可达/输出异常）：{txt[-160:]!r}"
+    try:
+        load = float(parts[0].strip())
+        nproc = int(parts[1].strip())
+        free_mb = int(parts[2].strip())
+    except Exception:  # noqa: BLE001
+        return False, f"预检解析失败：{txt[-160:]!r}"
+    if load > 1.0:
+        return False, f"板卡忙（load1={load:.2f} > 1.0）⇒ 跳过测速（不打扰别人的任务）"
+    if nproc > 0:
+        return False, f"板卡有 {nproc} 个 NPU 相关进程在跑 ⇒ 跳过测速（不打扰别人的任务）"
+    if free_mb < 400:
+        return False, f"板卡根分区余量仅 {free_mb} MB（<400）⇒ 跳过（避免上传把盘撑爆）"
+    return True, f"板卡空闲（load1={load:.2f}，NPU 进程 0，余量 {free_mb} MB）"
+
+
+def clean_board_residue() -> None:
+    """🔴 只读地**报告**板卡残留（2026-11-13 起不再 pkill —— 板卡是共享资源）。
+
+    旧实现会 `pkill -9` 一批通用进程名 ⇒ 会杀掉**别人**的 NPU 任务（实测板卡上有别的任务）。
+    ⇒ 现在只列出来，由 board_precheck 决定「跳过测速」还是「照常测」。
+    """
+    cmd = (f"ssh {BOARD_KEY} {BOARD} "
+           "\"ps -eo pid,etime,args | grep -E '[r]knn_|[e]2e_' | head -8 || true; "
+           "echo '[BOARD] 残留检查完成'\"")
+    r = sh(cmd, timeout=60)
+    log(f"[board] 残留检查（只读，不 kill）⇒ {(r.stdout or '').strip()[-300:]}")
 
 
 def phase_board(arms: list) -> None:
@@ -843,8 +1047,9 @@ def phase_board(arms: list) -> None:
         best = st.get("picked")
         if not best:
             continue
-        name = f"n{trial}_ep{best['epoch']}"
-        ck = f"{ROOT}/trials/trial_{trial}/weights/epoch{best['epoch']}.pt"
+        # 🟢 2026-11-13 14:45：分数 epoch ⇒ 用统一解析拿权重文件名（否则板卡导出找不到 ckpt）
+        name = f"n{trial}_ep{epoch_key_str(best['epoch'])}"
+        ck = f"{ROOT}/trials/trial_{trial}/weights/{best.get('ckpt') or epoch_ckpt_name(best['epoch'])}"
         rknn, stride = RA.export_rknn(ck, name)
         if rknn:
             board_arms.append((name, rknn, stride))
@@ -853,6 +1058,11 @@ def phase_board(arms: list) -> None:
         save_ledger(led)
     if not board_arms:
         log("[board] 无候选臂 ⇒ 跳过")
+        return
+    ok, why = board_precheck()
+    log(f"[board] 占用预检 ⇒ {why}")
+    if not ok:
+        log(f"[board] 跳过板卡测速（{why}）—— 不阻塞本轮结论")
         return
     clean_board_residue()
     ms_map = RA.board_measure(board_arms)

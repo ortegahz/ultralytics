@@ -29,7 +29,7 @@ PY_RKNN = "/home/huangzhe/anaconda3/envs/rknn/bin/python"
 RC2 = "/mnt/data/siping/runs/nogmc_weekend/trials/trial_0080/weights/epoch8.pt"
 CALIB = f"{RUNS}/_chain_test/calib_nogmc_train_server.txt"
 WORK = f"{RUNS}/speed_search"
-BOARD = "root@192.168.0.211"
+BOARD = "root@192.168.0.64"   # 🟢 2026-11-13：**旧板卡 64**（.211 已下线）
 BOARD_DIR = "/root/hm_speed"
 KEY = "-i /home/huangzhe/.ssh/id_board -o ConnectTimeout=10 -o StrictHostKeyChecking=no"
 

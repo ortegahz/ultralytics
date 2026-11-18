@@ -1,3 +1,4 @@
+
 """六项判据全盘复算审计（只读）。
 
 🟢 2026-11-12 15:30 新增（§152.1）：回答「有没有更好的模型」的唯一权威口径。
@@ -26,16 +27,19 @@ import re
 ROOT = "/mnt/data/siping/runs/npu20ms_offcal"
 GATE_DIR = f"{ROOT}/gate"
 LEDGER = "/mnt/data/siping/runs/npu20ms/nano_search/nano_search_ledger.json"
-NAME_RE = re.compile(r"^NANO_(\d+)_ep(\d+)_official$")
+# 🟢 2026-11-13 14:45：epoch 可能是**分数**（亚 epoch 存盘，方案 §3）⇒ 允许小数
+NAME_RE = re.compile(r"^NANO_(\d+)_ep(\d+(?:\.\d+)?)_official$")
 
 BASE = {
-    "nano": 0.708648393194707,
-    "nano4": 0.6472117202268431,
-    "f1": 0.8897117275427806,
-    "t1": 0.88808649190182,
-    "t3": 0.9484893511639424,
-    "t2_fp": 5,
+    "nano": 0.7204631379962193,
+    "nano4": 0.6561909262759924,
+    "f1": 0.8904026831656356,
+    "t1": 0.8905731287190729,
+    "t3": 0.9485821744939873,
+    "t2_fp": 1,
 }
+
+
 CRIT = ["nano", "nano4", "f1", "t1", "t2fp", "t3"]
 
 
@@ -66,7 +70,7 @@ def collect(ledger_path: str = LEDGER, gate_dir: str = GATE_DIR) -> list[dict]:
         m = NAME_RE.match(os.path.basename(d))
         if not m:
             continue
-        trial, ep = int(m.group(1)), int(m.group(2))
+        trial, ep = int(m.group(1)), m.group(2)   # ep 保持字符串（可能是 '2.5'）
         rp = os.path.join(d, "gate_report.json")
         if not os.path.isfile(rp):
             continue
@@ -90,14 +94,61 @@ def collect(ledger_path: str = LEDGER, gate_dir: str = GATE_DIR) -> list[dict]:
     return rows
 
 
-def judge(r: dict) -> tuple[int, list[str]]:
+_BASE_CACHE: dict = {}
+
+
+def live_base(led: dict | None = None) -> dict:
+    """当前基线的判据口径 = **台账 `baseline_v2`** 的精确读数（升轨后自动跟着新基线走）。
+
+    🟢🟢 2026-11-16 09:55 修根因：升轨后 `BASE` 常量虽会被回填，但**已在跑的守望进程**
+      内存里仍是旧常量 ⇒ 判据口径停留在旧基线（浪费算力 + 可能把「不如新基线」的臂
+      当成候选）。⇒ 判据统一走 `live_base()`；台账读不到时退回常量。
+    """
+    if led is None:
+        try:
+            st = os.stat(LEDGER)
+            key = (st.st_mtime_ns, st.st_size)
+            if _BASE_CACHE.get("key") == key:
+                return dict(_BASE_CACHE["val"])
+            led = json.load(open(LEDGER, encoding="utf-8"))
+            _BASE_CACHE["key"] = key
+        except Exception:  # noqa: BLE001
+            return dict(BASE)
+    b = led.get("baseline_v2") or {}
+    out = dict(BASE)
+    # 🟢 台账 baseline_v2 的数值可能是**截断**的（常量回填时就是 6 位小数）
+    #   ⇒ 优先取基线臂在台账里的**精确读数**（picked/official），再退回 baseline_v2。
+    st = (led.get("arms") or {}).get(str(b.get("trial"))) or {}
+    pk = st.get("picked") or {}
+    of = st.get("official") or {}
+    for k in ("nano", "nano4", "f1"):
+        v = pk.get(k)
+        if v is None:
+            v = b.get(k)
+        if v is not None:
+            out[k] = float(v)
+    for k in ("t1", "t3"):
+        v = of.get(k)
+        if v is None:
+            v = b.get(k)
+        if v is not None:
+            out[k] = float(v)
+    if of.get("t2_fp") is not None:
+        out["t2_fp"] = int(of["t2_fp"])
+    elif b.get("t2_fp") is not None:
+        out["t2_fp"] = int(b["t2_fp"])
+    return out
+
+
+def judge(r: dict, base: dict | None = None) -> tuple[int, list[str]]:
+    B = base if base is not None else live_base()
     flags = [
-        (r["nano"] is not None and r["nano"] >= BASE["nano"]),
-        (r["nano4"] is not None and r["nano4"] >= BASE["nano4"]),
-        (r["f1"] is not None and r["f1"] >= BASE["f1"]),
-        (r["t1"] >= BASE["t1"]),
-        (r["t2_fp"] <= BASE["t2_fp"]),
-        (r["t3"] >= BASE["t3"]),
+        (r["nano"] is not None and r["nano"] >= B["nano"]),
+        (r["nano4"] is not None and r["nano4"] >= B["nano4"]),
+        (r["f1"] is not None and r["f1"] >= B["f1"]),
+        (r["t1"] >= B["t1"]),
+        (r["t2_fp"] <= B["t2_fp"]),
+        (r["t3"] >= B["t3"]),
     ]
     miss = [n for n, ok in zip(CRIT, flags) if not ok]
     return 6 - len(miss), miss
@@ -120,30 +171,51 @@ def main() -> None:
 
     full = [r for r in rows if r["npass"] == 6]
     print(f"===== 六项判据全盘复算审计（{len(rows)} 个 (臂,epoch) 有完整读数）=====")
-    print(f"基线 = Baseline_v2.0 / trial_9863 ep5；判过口径 `>=`")
+    try:
+        import manu.pipeline.npu.nano_search as _ns
+        _bn = getattr(_ns, "BASE_V2", None) or {}
+    except Exception:
+        _bn = {}
+    # 🟢🟢 2026-11-18 10:10 修**基线标签取不到**：`nano_search.BASE_V2` 导入失败 ⇒ 打印「基线 = (未知)」
+    #   ⇒ 晨报头部看不到当前基线是谁。修法：优先读台账 `baseline_v2`（权威），再退回常量。
+    if not _bn.get("name"):
+        try:
+            with open(a.ledger, encoding="utf-8") as _fh:
+                _b2 = (json.load(_fh) or {}).get("baseline_v2") or {}
+            _bn = {"name": _b2.get("name"), "trial": _b2.get("trial"), "epoch": _b2.get("epoch")}
+        except Exception:  # noqa: BLE001
+            pass
+    _bl = (f"基线 = {_bn.get('name')} / trial_{_bn.get('trial')} ep{_bn.get('epoch')}；判过口径 `>=`"
+           if _bn.get("name") else "基线 = (未知)；判过口径 `>=`")
+    _btrial = int(_bn.get("trial") or 0)
+    print(_bl)
     print(f"六项全过：**{len(full)}** 个")
     for r in full:
-        tag = "  ← 基线本体" if r["trial"] == 9863 else "  🔴 **新候选（可升轨）**"
+        # 🟢🟢 2026-11-18 10:10 修**「基线本体」标记硬编码 9863** ⇒ 现在会把基线臂自己标成「新候选」
+        tag = ("  ← 基线本体" if r["trial"] == _btrial else "  🔴 **新候选（可升轨）**")
         print(f"  ✔ trial={r['trial']} ep={r['ep']} seed={r['seed']} "
               f"nano={r['nano']:.6f} nano4={r['nano4']:.6f} f1={r['f1']:.6f} "
               f"t1={r['t1']:.6f} t2fp={r['t2_fp']} t3={r['t3']:.6f}{tag}")
     print()
     print(f"--- 最接近候选榜 TOP {a.top}（按过项数，同项按 nano 排）---")
+    _B = live_base()   # 🟢 判据/差距一律跟台账当前基线走（不用可能过期的模块常量 BASE）
     for r in rows[: a.top]:
         gaps = []
-        if r["nano"] < BASE["nano"]:
-            gaps.append(f"nano{r['nano'] - BASE['nano']:+.6f}")
-        if r["nano4"] < BASE["nano4"]:
-            gaps.append(f"nano4{r['nano4'] - BASE['nano4']:+.6f}")
-        if r["f1"] < BASE["f1"]:
-            gaps.append(f"f1{r['f1'] - BASE['f1']:+.6f}")
-        if r["t1"] < BASE["t1"]:
-            gaps.append(f"t1{r['t1'] - BASE['t1']:+.6f}")
-        if r["t2_fp"] > BASE["t2_fp"]:
-            gaps.append(f"t2fp+{r['t2_fp'] - BASE['t2_fp']}")
-        if r["t3"] < BASE["t3"]:
-            gaps.append(f"t3{r['t3'] - BASE['t3']:+.6f}")
-        star = "★" if r["ep"] != r["picked_ep"] else " "
+        if r["nano"] < _B["nano"]:
+            gaps.append(f"nano{r['nano'] - _B['nano']:+.6f}")
+        if r["nano4"] < _B["nano4"]:
+            gaps.append(f"nano4{r['nano4'] - _B['nano4']:+.6f}")
+        if r["f1"] < _B["f1"]:
+            gaps.append(f"f1{r['f1'] - _B['f1']:+.6f}")
+        if r["t1"] < _B["t1"]:
+            gaps.append(f"t1{r['t1'] - _B['t1']:+.6f}")
+        if r["t2_fp"] > _B["t2_fp"]:
+            gaps.append(f"t2fp+{r['t2_fp'] - _B['t2_fp']}")
+        if r["t3"] < _B["t3"]:
+            gaps.append(f"t3{r['t3'] - _B['t3']:+.6f}")
+        _pe = r.get("picked_ep")
+        # 🟢 ep 现在是字符串（可能是 '2.5'）⇒ 与 picked_ep 按数值比较
+        star = "★" if (_pe is None or abs(float(r["ep"]) - float(_pe)) > 1e-9) else " "
         print(f" {r['npass']}/6{star} t={r['trial']:<6} ep={r['ep']:<3} "
               f"sw={r['sw']} swl={r['swl']} lrf={r['lrf']} mix={r['mix']} "
               f"init={r['init']} | " + (" ".join(gaps) if gaps else "全过"))

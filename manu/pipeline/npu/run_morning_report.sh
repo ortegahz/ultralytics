@@ -120,6 +120,59 @@ PYEOF4
   echo "（各轮实际训练臂数：'训练 N 臂' 行，末轮应是缩过的小数）"
   grep -nE "训练 [0-9]+ 臂" $W/adaptive.log | tail -8
   echo
+  echo "--- ③e 🟢🟢 §156 周末满载三轴（warm 抛光 / 臂内细粒度 SWA / 跨臂汤已证伪）---"
+  echo "（① warm 抛光臂：台账里 params.warm_key 非空的臂；六项对 Baseline_v2.0）"
+  $PY - <<'PYEOF6' 2>&1 | tail -26
+import json
+led = json.load(open("/mnt/data/siping/runs/npu20ms/nano_search/nano_search_ledger.json"))
+arms = led.get("arms") or {}
+B = dict(nano=0.708648393194707, nano4=0.6472117202268431, f1=0.8897117275427806,
+         t1=0.888086, t2fp=5, t3=0.948489)
+rows = []
+for t, st in arms.items():
+    p = st.get("params") or {}
+    if not p.get("warm_key"):
+        continue
+    pk = st.get("picked") or {}
+    of = st.get("official") or {}
+    rows.append((int(t), p.get("warm_anchor"), pk.get("nano"), pk.get("nano4"), pk.get("f1"),
+                 of.get("t1"), of.get("t2_fp"), of.get("t3"), st.get("picked_epoch"), p.get("warm_key")))
+def six(r):
+    ok = []
+    for v, k, ge in ((r[2],"nano",1),(r[3],"nano4",1),(r[4],"f1",1),(r[5],"t1",1),(r[6],"t2fp",0),(r[7],"t3",1)):
+        if v is None:
+            continue
+        ok.append(v >= B[k] if ge else v <= B[k])
+    return sum(ok), len(ok)
+print("    warm 抛光臂总数 = %d" % len(rows))
+rows.sort(key=lambda r: (-six(r)[0], -(r[2] or 0)))
+for r in rows[:16]:
+    n, m = six(r)
+    print("    %-6d 锚=%-9s ep=%-4s nano=%.6f nano4=%.6f f1=%.6f t1=%s t2fp=%s t3=%s ⇒ 过 %d/%d  [%s]" % (
+        r[0], r[1], r[8], r[2] or 0, r[3] or 0, r[4] or 0, r[5], r[6], r[7], n, m, r[9]))
+PYEOF6
+  echo "（② 臂内细粒度 SWA 扫描（零训练）：fine_swa_report.json）"
+  $PY - <<'PYEOF7' 2>&1 | tail -28
+import json, os
+p = "/mnt/data/siping/runs/npu20ms/nano_search/fine_swa_report.json"
+if not os.path.isfile(p):
+    print("    fine_swa_report.json 尚未生成（扫描器还没产出候选）")
+else:
+    rep = json.load(open(p))
+    cands = rep.get("candidates") or []
+    tri = [c for c in cands if c.get("triad")]
+    sixok = [c for c in cands if (c.get("gate") or {}).get("six_ok")]
+    print("    候选 = %d ｜ triad = %d ｜ **六项全过 = %d**" % (len(cands), len(tri), len(sixok)))
+    for c in sorted(cands, key=lambda c: -(c.get("nano") or 0))[:14]:
+        g = c.get("gate") or {}
+        print("    trial=%-6s 成员=%-14s 权重=%-18s nano=%.6f nano4=%.6f f1=%.6f t1=%s t2fp=%s t3=%s six=%s" % (
+            c.get("trial"), "+".join("ep%d" % m for m in (c.get("members") or [])),
+            str(c.get("weights")), c.get("nano") or 0, c.get("nano4") or 0, c.get("f1") or 0,
+            g.get("t1"), g.get("t2_fp"), g.get("t3"), g.get("six_ok")))
+PYEOF7
+  echo "（③ 跨臂 Model Soup：🔴 已实测证伪（2026-11-13 13:33~13:41，7 对全崩，nano 0.62~0.70 < 基线 0.7086））"
+  grep -aE "s_9863|s_12053" /tmp/soup_pairs.log 2>/dev/null | tail -8
+  echo
   echo "--- ④ adaptive.log 尾部 60 行 ---"
   tail -60 $W/adaptive.log
   echo
@@ -163,7 +216,23 @@ PYEOF2
   echo "--- ⑦ 升轨候选清单 ---"
   $PY manu/pipeline/npu/promote_candidate.py --list 2>&1 | head -60
   echo
-  echo "--- ⑧a 板卡同会话实测（旧板 192.168.0.64 / evm3588，2026-11-12 16:40）---"
+  echo "--- ⑧a-0 板卡 T4 自动测速（**六项全过候选的权威时延**，board_measure_auto/measured.json）---"
+  $PY - <<'PYEOF3'
+import json, os
+p = "/mnt/data/siping/runs/npu20ms/board_measure_auto/measured.json"
+if not os.path.isfile(p):
+    print("（尚无自动测速产物）")
+else:
+    d = json.load(open(p))
+    lim = 19.989
+    for k, v in sorted(d.items()):
+        ms = v.get("ms")
+        ok = "PASS" if (ms is not None and ms <= lim) else "FAIL"
+        print("  %-12s ms=%-8s %s  (limit=%.3f)  %s" % (
+            k, ms, ok, lim, v.get("all_ms", "")))
+PYEOF3
+  echo
+  echo "--- ⑧a 板卡同会话实测（旧板 192.168.0.64 / evm3588，2026-11-12 16:40，历史参考）---"
   grep -aE "@@SUMMARY@@" /mnt/data/siping/runs/npu20ms/board_measure_20261112_old64/hm_speed_results.txt 2>/dev/null || echo "（无板卡会话文件）"
   echo "（对照：新板 192.168.0.211 同会话 = t31 23.528 / n9863 22.009 ms）"
   echo

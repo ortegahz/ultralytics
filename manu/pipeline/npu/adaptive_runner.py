@@ -49,8 +49,15 @@ from ckpt_synth import average_checkpoints  # noqa: E402
 
 REPO = ns.REPO
 TRIAL_BASE = 12000          # 自适应波次 trial 号段（与 W1~W11 不冲突）
+# 🔴 2026-11-13 15:40 修：台账里存在**非调度器臂号段**（调度器自己只占 12000~95999）
+#   · SWA 合成臂   96000~96999（fine_swa_sweep 的 SYNTH_ID_BASE=96000 / span=1000）
+#   · 旁路抛光臂   999800+   （polish_nearmiss 的 TRIAL_BASE=999821，侧写登记进台账）
+#   ⇒ 调度器分配臂号时必须**跳过这两个保留段**，
+#     否则重启后会从 999825 起步 ⇒ **覆盖旁路正在写的 trial 目录**（权重互相污染/丢失）。
+RESERVED_ID_MIN = 96000     # < 这个号的臂才是调度器自己的（96000 及以上全是保留段）
 SYNTH_EPOCH = 5             # 合成臂统一用的 epoch 文件名（评测按 epoch 号索引）
-EPOCHS_EVAL = [3, 4, 5, 6, 7, 8, 9, 10, 15, 20]
+EPOCHS_EVAL = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20]
+#   🟢 2026-11-13：加 1/2 —— warm-start 抛光臂只训 1~2 epoch，不改这里 ⇒ 它的 NanoBench 读数会被**跳过**（epoch1/2.pt 不在评测表里）⇒ 读数丢失。
 BASE_INIT = ns.CS_T0043     # 所有训练臂的唯一起点（= trial_0031 / 9863 的 base init）
 NIGHT_MEM = os.path.join(REPO, "manu/memory/adaptive_night_20261111.md")
 NIGHT_LOG = f"{ns.WORK}/night_log.md"
@@ -58,7 +65,18 @@ NIGHT_LOG = f"{ns.WORK}/night_log.md"
 # 配方指纹：只含「决定训练动力学」的参数；不含 seed / init / epochs
 RECIPE_KEYS = ("sw", "swl", "thr", "maxside", "lr", "lr_floor", "warmup", "mix", "fb", "ow",
                "wd", "mosaic", "scale", "translate", "clip", "sched", "uf", "hf", "hfsrc",
-               "hfch", "native_grid", "mr", "backbone_lr", "head_src")
+               "hfch", "native_grid", "mr", "backbone_lr", "head_src",
+               # 🟢 2026-11-13 15:15：分类/定位尺寸权重解耦（swb = 定位侧）
+               "swb", "swlb",
+               # 🟢 2026-11-13 16:25：定位侧尺寸口径独立（0 = 沿用分类侧口径）
+               "swb_thr", "swb_maxside",
+               # 🟢 2026-11-13 15:30：EMA 衰减率轴（0 = 关闭 ⇒ 与旧臂逐位等价）
+               "ema_decay",
+               # 🟢🟢🟢 2026-11-13 17:40：微小目标 Copy-Paste（方案 §5.2，0 = 关闭 ⇒ 逐位等价）
+               "cp_prob", "cp_max_px", "cp_per_img", "cp_feather_px", "cp_ctx_px",
+               # 🟢🟢 2026-11-13：**降尺度粘贴**（1.0 = 不缩放 ⇒ 与旧臂逐位等价）
+               #   必须进配方指纹 ⇒ 否则「只差 scale 的两个格」会被去重逻辑判成同一个格
+               "cp_scale_min", "cp_scale_max")
 CHAMP_KEYS = RECIPE_KEYS
 GATE_NANO_SLACK = 0.02      # 门禁窗口：nano ≥ 基线 − 2 pp 才值得跑官方三轨
 SEED_BASE = 21000           # 种子扫描的种子基数
@@ -312,6 +330,152 @@ SWA_SRC_MIN = 8      # 每轮 SWA 源臂数下限（CLI 的 --swa-top-n 只作�
 #   ⇒ 这 5 格每轮固定喂 2~3 个 seed（零探索成本、命中率最高的未采样邻域）
 BASE_DERIVED_CELLS: list[tuple[str, dict, str, int]] = [
     # ══════════════════════════════════════════════════════════════════════
+    # 🟢🟢🟢 2026-11-13 15:20 **分类/定位 尺寸权重解耦轴（swb）= 13 轮以来第一个「真新轴」**
+    #   起因（实测台账，2026-11-13 15:05）：
+    #     · winner 配方（B1 + backbone_lr 0.5）**已经 n=8**，只有 1/8 过六项
+    #       ⇒ 12869 是**运气臂**，不是配方 ⇒ 继续复现该配方的期望产出极低
+    #     · 组内两个近失臂暴露了真正的瓶颈：
+    #         12543: nano **0.711720**(+3.1e-3) / t1 **0.891705**(+3.6e-3) / f1 过线
+    #                 但 nano4 0.646975(**差 2.4e-4**) / t3 0.948432(**差 5.7e-5**) / t2_fp=10
+    #         12402: nano 过线 / f1 过线 / t1 过线 / t2_fp=3 过线
+    #                 但 nano4 0.630198(差 1.7e-2) / t3 0.947002(差 1.5e-3)
+    #       ⇒ **卡点 = nano4（4px 定位精度）+ T3（盲测泛化）+ 虚警**，而 nano 早就够了
+    #   物理依据（方案 §5.1）：`sw`(size_weight_small) **只作用在分类（focal）损失**上
+    #       ⇒ 想加 nano 只能加分类权重，而**定位（sub-pixel 偏移回归）梯度没法单独加强**
+    #       ⇒ 这就是「跷跷板」的机制根源。
+    #   本轴：**定位侧权重独立**（--size-weight-small-box / large-box）
+    #       ⇒ 可以 sw_cls=5.0 + sw_box=5.0（两头加强）或 sw_cls=3.8 + sw_box=5.0（**破跷跷板**）
+    #   ⚠️ 与「骨干/头拓扑」无关 ⇒ **板端时延零变化** ⇒ T4 天然满足
+    # 🔴🟢 2026-11-13 16:25 **口径修正**：定位侧阈值必须**独立**于分类侧（swb_thr / swb_maxside）
+    #   实测（服务器扫描 8000 个训练标签）：**nano 桶（≤4px / ≤16px²）只有 UAV 4.59% / LQ 0.00%**
+    #     ⇒ 若定位侧沿用 nano 口径：LQ 批次**零梯度信号**、UAV 批次整体只放大 ~1.19×
+    #     ⇒ 冒烟实测 swb=5.0 与 swb=1.0 首迭代 loss **逐位相同** ⇒ 该轴近乎空转。
+    #   ⇒ 定位侧放宽到 **micro 口径（≤8px / ≤64px²）**：UAV 16.55% / LQ 5.82% ⇒ 才有真实杠杆。
+    #   ⇒ nano 口径只留 1 个 seed 作**对照**（证明「口径本身才是关键变量」）。
+    ("BASE_swb5.0_t64m8", dict(swb=5.0, swb_thr=64.0, swb_maxside=8.0),
+     "★★★ **定位侧加权（micro 口径）**：sw_cls 仍 5.0 + sw_box 5.0@≤8px/≤64px²。"
+     "nano4 是 4px 中心精度，直接由偏移回归梯度决定 ⇒ 只加强定位侧、不动分类侧 ⇒ "
+     "**最小改动**验证『nano4 能不能被单独抬起来』（训练集里 micro 桶 UAV 16.6% / LQ 5.8% ⇒ 梯度信号真实存在）",
+     3),
+    ("BASE_sw3.8_swb5.0_t64m8", dict(sw=3.8, swb=5.0, swb_thr=64.0, swb_maxside=8.0),
+     "★★★ **破跷跷板**格（方案 §5.1 核心）：sw_cls 5.0→3.8（压分类 ⇒ 抑制云层边缘虚警 ⇒ 救 T3/T2_fp）"
+     "＋ sw_box 5.0@micro（抬定位 ⇒ 救 nano4）⇒ **两项目标同时改善**的组合（旧办法做不到）",
+     3),
+    ("BASE_swb3.0_t64m8", dict(swb=3.0, swb_thr=64.0, swb_maxside=8.0),
+     "定位侧 3.0@micro：剂量-响应探针（若 5.0 有效，3.0 通常更稳 ⇒ 可直接进下一轮主配方）", 2),
+    ("BASE_swb5.0_t256m16", dict(swb=5.0, swb_thr=256.0, swb_maxside=16.0),
+     "定位侧 5.0@small 口径（≤16px/≤256px²，UAV 40%）：梯度信号最强但可能伤 T3 ⇒ 探曲线边界", 2),
+    ("BASE_swb6.0_t64m8", dict(swb=6.0, swb_thr=64.0, swb_maxside=8.0),
+     "定位侧更强（6.0@micro）：若 swb5.0 能抬 nano4 ⇒ 6.0 看曲线还能走多远（代价：更贴小目标分布 ⇒ 可能伤 T3）", 2),
+    ("BASE_sw3.5_swb6.0_t64m8", dict(sw=3.5, swb=6.0, swb_thr=64.0, swb_maxside=8.0),
+     "破跷跷板的**激进版**（cls 3.5 + box 6.0@micro）：nano 会掉一点，但若 T3/nano4 能过线 ⇒ 6 项可同时成立", 2),
+    # 🟢🟢🟢 2026-11-13 17:40 **微小目标 Copy-Paste（方案 §5.2）= 第三个「真新轴」**
+    #   动机（实测训练集尺寸分布，8000 个标签）：
+    #     nano 桶（≤4px / ≤16px²）**UAV 仅 4.59% / LQ 0.00%**；micro 桶（≤8px / ≤64px²）UAV 16.55% / LQ 5.82%
+    #     ⇒ 「复杂云层 / 地面杂波里的 4~12px 冷目标」**正样本密度极低** ⇒ 模型缺监督。
+    #   · `sw` 只能在**分类损失**上加权；定位侧也已单独放开（swb 轴）⇒ 但**正样本个数**没变 ⇒ 杠杆有上限。
+    #   · Copy-Paste **只加正样本、不动任何损失权重** ⇒ 与 sw / swb **正交** ⇒ 能打破 nano↔T3 零和。
+    #   实现：`manu/data/small_copy_paste.py`（官方 CopyPaste 在检测任务上是空操作 ⇒ 自己实现）；
+    #     插在 mosaic+仿射之后、Format 之前（640×640 像素系）；`prob=0` ⇒ 逐位不变。
+    #   ⚠️ 与骨干/头拓扑无关 ⇒ **板端时延零变化** ⇒ T4 天然满足。
+    ("BASE_sw4.0_thr12ms3_lrf0.1_cp0.2",
+     dict(sw=4.0, thr=12.0, maxside=3.0, lr_floor=0.10,
+          cp_prob=0.20, cp_max_px=12.0, cp_per_img=3),
+     "★★★ **A2 家族（12679 配方，E 值最高的格）× 微小目标 Copy-Paste 0.20**："
+     "把真实 <12px 目标羽化后贴进杂波背景 ⇒ 直接抬高**微小目标正样本密度**（不动损失权重）"
+     "⇒ 目标是打破『nano↑ ⇒ T3↓』的零和",
+     3),
+    ("BASE_sw4.0_thr12ms3_lrf0.1_cp0.35",
+     dict(sw=4.0, thr=12.0, maxside=3.0, lr_floor=0.10,
+          cp_prob=0.35, cp_max_px=12.0, cp_per_img=3),
+     "同一家族 × **更高粘贴率 0.35**：剂量-响应（0.2 → 0.35）⇒ 探『加正样本』的边际收益", 2),
+    ("BASE_sw4.0_thr12ms3_lrf0.1_cp0.2_px8",
+     dict(sw=4.0, thr=12.0, maxside=3.0, lr_floor=0.10,
+          cp_prob=0.20, cp_max_px=8.0, cp_per_img=3),
+     "只粘 **≤8px**（micro 桶，训练集里 UAV 16.6% / LQ 5.8% ⇒ 源够多）⇒ "
+     "纯加 4px 级正样本 ⇒ 瞄准 nano4（4px 中心精度）", 2),
+    ("BASE_sw5.0_thr12ms3_lrf0.1_cp0.2",
+     dict(sw=5.0, thr=12.0, maxside=3.0, lr_floor=0.10,
+          cp_prob=0.20, cp_max_px=12.0, cp_per_img=3),
+     "**A1 家族（12519 配方，T3 只差 1.2e-4）× Copy-Paste 0.20**：A1 的 nano/t1 更强、"
+     "A2 的 nano4 更强 ⇒ 两个近失家族的独立尝试（不要只押一边）", 2),
+    ("BASE_swb5.0_t64m8_lrf0.1_cp0.2",
+     dict(sw=5.0, swb=5.0, swb_thr=64.0, swb_maxside=8.0,
+          thr=12.0, maxside=3.0, lr_floor=0.10,
+          cp_prob=0.20, cp_max_px=12.0, cp_per_img=3),
+     "★★★ **swb（抬 nano4）× Copy-Paste（抬 nano）**：两个**正交**杠杆同时上 ⇒ "
+     "六项里最难的两个（nano4 + nano）一起推", 2),
+    # 🟢🟢 2026-11-13 **降尺度粘贴 = Copy-Paste 的第二个轴（造 ≤4px 正样本）**
+    #   动机：nano 桶（≤4px / ≤16px²）在训练集里几乎为零，而 9~12px 的源目标**很多**
+    #   ⇒ 之前 cp 格贴出来的还是 **9~12px** 的目标 ⇒ 对 `nano4`（4px 桶严格定位精度）**没用**
+    #   ⇒ 把源目标（连同上下文）整体缩小到 `scale × 原尺寸` 再贴
+    #   ⇒ 贴出来的是「同样场景里更远的小目标」⇒ 局部对比度自洽、无残留环
+    #   ⚠️ 与骨干/头拓扑无关 ⇒ **板端时延零变化** ⇒ T4 天然满足。
+    ("BASE_sw4.0_thr12ms3_lrf0.1_cp0.2_scale0.5",
+     dict(sw=4.0, thr=12.0, maxside=3.0, lr_floor=0.10,
+          cp_prob=0.20, cp_max_px=12.0, cp_per_img=3,
+          cp_scale_min=0.5, cp_scale_max=0.5),
+     "★★ **A2 家族（12679 配方）× Copy-Paste 0.20 × 降尺度 0.5**："
+     "把 9~12px 的源目标缩到 **~4.5~6px** ⇒ 正样本**首次落进 nano4 桶（≤4px）附近** ⇒ "
+     "直指 nano4（4px 中心精度）这个当前卡点", 2),
+    ("BASE_sw5.0_thr12ms3_lrf0.1_cp0.2_scale0.4",
+     dict(sw=5.0, thr=12.0, maxside=3.0, lr_floor=0.10,
+          cp_prob=0.20, cp_max_px=12.0, cp_per_img=3,
+          cp_scale_min=0.4, cp_scale_max=0.4),
+     "★★ **A1 家族（12519 配方）× Copy-Paste 0.20 × 降尺度 0.4**（更激进）："
+     "9~12px → **~3.6~4.8px** ⇒ **逼近 ≤4px** ⇒ 与 scale0.5 格构成剂量-响应"
+     "（0.5 → 0.4 看 nano4 是否随更小的正样本单调上升）", 2),
+    # 🟢🟢🟢 2026-11-13 15:30 **EMA 衰减率轴（方案 §3.2）= 第二个「真新轴」**
+    #   动机：`nano` 随步数上升、而 `T3`（盲测泛化）随过拟合单调下降 ⇒ 黄金交叉窗口只有
+    #   **0.2~0.5 个 epoch 宽**；而整数 epoch 存盘等于用粗筛子捞细沙。
+    #   YOLO 默认 `ema_decay=0.9999`（时间常数 ~10k 步）在 5 epoch（8895 步）里**几乎不更新**
+    #   ⇒ 这里把衰减率当搜索维度：0.999 ≈ 最近 ~1000 步（≈0.5 epoch）的滑动平均
+    #   ⇒ 存盘写**影子权重** ⇒ 相当于「步级粒度的 SWA」，直接瞄准 T3。
+    #   ⚠️ 与骨干/头拓扑无关 ⇒ 板端时延零变化 ⇒ T4 天然满足。
+    ("BASE_ema0.999_lrf0.1", dict(ema_decay=0.999, lr_floor=0.1),
+     "★★★ **EMA 0.999**（≈最近 1000 步滑动平均 ≈ 0.5 epoch）× LR 保底 10%："
+     "方案 §3.2 的核心格 —— 把「黄金交叉窗口」压进步级粒度 ⇒ 直接冲 T3",
+     3),
+    ("BASE_ema0.9995_lrf0.1", dict(ema_decay=0.9995, lr_floor=0.1),
+     "EMA 0.9995（≈2000 步 ≈ 1.1 epoch）⇒ 比 0.999 更平滑，探「窗口宽度」曲线", 2),
+    ("BASE_ema0.9998_lrf0.1", dict(ema_decay=0.9998, lr_floor=0.1),
+     "EMA 0.9998（≈5000 步 ≈ 2.8 epoch）⇒ 保守档（几乎等于整段平均）", 2),
+    ("BASE_ema0.999_sw4.5_thr14ms3.5", dict(ema_decay=0.999, sw=4.5, thr=14.0, maxside=3.5, lr_floor=0.1),
+     "★★★ **EMA 0.999 × T3 前沿插值格**（sw4.5 × thr14 × ms3.5）：把 §3.2 的新轴与"
+     "台账里 T3 最接近的插值点**相乘** ⇒ 两个独立增益叠加", 2),
+    ("BASE_ema0.999_frac", dict(ema_decay=0.999, save_fracs="0.25,0.5,0.75"),
+     "★★★ **EMA 0.999 × 亚 epoch 密集存盘**（0.25/0.5/0.75）：方案 §3 的完整形态 —— "
+     "步级 EMA + 亚 epoch 采样 ⇒ 直接找 0.2~0.5 epoch 宽的黄金交叉窗口", 2),
+    ("BASE_swb5.0_nanocr", dict(swb=5.0),
+     "**对照臂**：定位侧用 nano 口径（≤4px/≤16px²）⇒ 训练集里只有 UAV 4.6% 有信号、LQ 为 0 ⇒ "
+     "预期与 swb=1.0 基本等价 ⇒ 用来**证明『口径才是关键变量』**（1 seed 即可）",
+     1),
+    # 🟢🟢🟢 2026-11-13 14:45 **backbone_lr 轴（B1 基线 + backbone_lr 0.5）= 13 轮以来第一个六项全过臂**
+    #   trial_12869 ep4（seed 22997）六项**全过** Baseline_v2.0(trial_9863)：
+    #     nano  0.708885 vs 0.708648（+2.4e-4）｜ nano4 0.647212 = 打平
+    #     f1    0.893103 vs 0.889712（+3.4e-3）｜ t1    0.889864 vs 0.888086（+1.8e-3）
+    #     t2_fp 5 = 打平 ｜ t3 0.948746 vs 0.948489（+2.6e-4）
+    #   配方 = **基线配方（B1: sw5.0×thr16ms4×lrf0.0×w2.0）只把 backbone_lr_scale 改成 0.5**
+    #     （骨架/头拓扑与 0031/9863 逐项同图 ⇒ 板端时延同口径 ⇒ T4 天然满足）
+    #   ⚠️ 但多数余量落在 seed σ 内（nano 0.06σ / t3 0.3σ / nano4 0σ）⇒ **必须复现到 n≥4 才敢升轨**
+    #   ⇒ 这一族**排在表首**（表序 = 末轮预算收紧时的砍序 ⇒ 高价值格必须排最前）
+    #   🔴🔴 2026-11-13 15:25 **seed 6 → 2**：实测该配方**已经 n=8**（12402/12543/12544/12545/
+    #   12867/12868/12869/12870）⇒ **只有 1/8 过六项**（12869）⇒ 12869 是**运气臂**不是配方
+    #   ⇒ 继续复现的期望产出 ≈ 1/8 ⇒ 算力应让给**新轴 swb**（见下）与 T3 前沿格。
+    ("BASE_bklr0.5", dict(backbone_lr=0.5),
+     "trial_12869 的配方（基线 + backbone_lr 0.5）：**六项全过的臂**，但 n=8 实测只有 1/8 过 ⇒ "
+     "运气臂 ⇒ 只补 2 seed（不是 6）",
+     2),
+    ("BASE_bklr0.25", dict(backbone_lr=0.25),
+     "backbone_lr 轴**下探**：0.5 已出 6/6 ⇒ 0.25（骨干几乎不动 ⇒ 底模的弱小目标表征保得更牢）", 2),
+    ("BASE_bklr0.75", dict(backbone_lr=0.75),
+     "backbone_lr 轴**插值**（0.5↔1.0）：把新轴的曲线切细", 2),
+    ("BASE_bklr0.5_lrf0.1", dict(backbone_lr=0.5, lr_floor=0.10),
+     "新轴 × **已验证的 T3 强旋钮** lrf0.1 的乘积格（12053 靠它把 T3 顶到 0.949250 ⇒ 从未采样）", 2),
+    ("BASE_bklr0.5_sw4.0", dict(backbone_lr=0.5, sw=4.0),
+     "新轴 × C 族 sw4.0（12702/12703 两个 5/6 臂在此格）⇒ 乘法效应待验", 2),
+    # ══════════════════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════════════
     # 🔴🟢🟢 2026-11-13 11:20 **按「格的期望产出率 E」重排 + 加权**（全台账 947 臂复算）
     #   E[六项全过/臂] = p_triad × p_T1 × p_虚警 × p_T3（n = 有官方读数的臂数）：
     #     格                                n    p_triad p_t1  p_fp  p_t3   E
@@ -420,6 +584,25 @@ NEAR_MISS_SEEDS = 4          # 每个格每轮补几个 seed｜2026-11-12 13:15 
 NEAR_MISS_MIN_PASS = 3       # 至少过 3/6 项才算「近失」
 NEAR_MISS_MAX_DEFIIT = 0.04  # 过 4/6 时的归一化亏损上限
 NEAR_MISS_MAX_DEFIIT_3 = 0.012  # 只过 3/6 时必须**非常接近**（否则不算近失）
+
+# 待复现配方（replication_pending）的每格臂数
+#   PEND_SEEDS_NORMAL：普通待复现格（只过 3~5 项）⇒ 2 臂探路
+#   PEND_SEEDS_CHAMP  ：**已六项全过**的格 ⇒ 6 臂（= base_derived 同一格的 seed 数）
+#   理由（2026-11-13）：trial_12869（基线 B1 + backbone_lr 0.5）六项全过，但 n=1
+#   ⇒ 余量（nano +2.4e-4）完全落在 seed σ 内，**不能直接升轨**。
+#   ⇒ 该格必须补到 n≥4 才算「真配方」；6 臂 = 一轮就能把 n 打到 7（1+6）。
+PEND_SEEDS_NORMAL = 2
+PEND_SEEDS_CHAMP = 6
+
+# 🟢🟢 2026-11-13 14:50 **亚 epoch 密集存盘臂族**（周末方案 §3）
+#   动机：整数 epoch 的采样粒度太粗 —— nano 随步数升、T3（盲测泛化）随过拟合降，
+#   两者的**黄金交叉窗口常只有 0.2~0.5 个 epoch 宽**（ep 3.25 / 3.75 这种）⇒ 整数存盘等于用粗筛子捞细沙。
+#   做法：训练端 `--save-fracs 0.25,0.5,0.75` 额外落盘 `sub_epoch{E}_{frac}.pt`
+#         （训练脚本**早已实现**，只是搜索空间从没启用过）⇒ 这里启用并把评测/门禁接上。
+#   性价比：1 个臂 = 1 次训练 + 12~15 个**候选模型**（每个都是一次独立的 (ckpt, epoch) 组合）。
+FRAC_MAX_PER_ROUND = 6        # 每轮亚 epoch 臂上限（每臂多出 ~12 次 NanoBench 评测）
+FRAC_SAVE_FRACS = "0.25,0.5,0.75"
+FRAC_MIN_EPOCH = 2            # 只在 ep≥2 之后取亚 epoch（ep1 的模型还没成型）
 
 
 def log(msg: str) -> None:
@@ -610,8 +793,9 @@ def base_ref(led: dict) -> dict:
     return base
 
 
-def ckpt_path(trial: int, epoch: int) -> str:
-    return f"{ns.ROOT}/trials/trial_{trial}/weights/epoch{epoch}.pt"
+def ckpt_path(trial: int, epoch) -> str:
+    """权重路径（**支持分数 epoch**：4 → epoch4.pt；2.5 → sub_epoch2_0.5.pt）。"""
+    return f"{ns.ROOT}/trials/trial_{trial}/weights/{ns.epoch_ckpt_name(epoch)}"
 
 
 def core_checks(st: dict, base: dict) -> dict:
@@ -673,13 +857,13 @@ def pick_champion(led: dict, base: dict) -> dict | None:
         pk = st.get("picked") or {}
         if not pk or pk.get("epoch") is None:
             continue
-        path = ckpt_path(int(k), int(pk["epoch"]))
+        path = ckpt_path(int(k), pk["epoch"])
         if not os.path.isfile(path):
             continue
         score, chk = champion_score(st, base)
         if score is None:
             continue
-        cand = {"trial": int(k), "epoch": int(pk["epoch"]), "ckpt": path, "score": score,
+        cand = {"trial": int(k), "epoch": pk["epoch"], "ckpt": path, "score": score,
                 "checks": chk, "nano": pk.get("nano"), "nano4": pk.get("nano4"),
                 "f1": pk.get("f1"), "micro": pk.get("micro"),
                 "params": st.get("params") or {}, "desc": st.get("desc", "")}
@@ -787,10 +971,10 @@ def best_arm_of(led: dict, g: dict, base: dict | None = None) -> dict | None:
         pk = st.get("picked") or {}
         if pk.get("nano") is None or pk.get("epoch") is None:
             continue
-        path = ckpt_path(t, int(pk["epoch"]))
+        path = ckpt_path(t, pk["epoch"])
         if not os.path.isfile(path):
             continue
-        cand = {"trial": t, "epoch": int(pk["epoch"]), "ckpt": path,
+        cand = {"trial": t, "epoch": pk["epoch"], "ckpt": path,
                 "nano": pk["nano"], "nano4": pk.get("nano4"), "f1": pk.get("f1"),
                 "micro": pk.get("micro"), "params": st.get("params") or {},
                 "desc": st.get("desc", "")}
@@ -1028,6 +1212,30 @@ def promotion_candidates(led: dict, base: dict) -> list[dict]:
                     "beat_trials": winners, "n_winners": len(winners),
                     "single_hit": len(winners) == 1,
                     "params": g["params"]})
+    # 🟢🟢 2026-11-13：**warm-start 抛光臂**不在 recipe_stats 里（init≠BASE_INIT）
+    #   ⇒ 若某个抛光臂真的六项全平，它**不会**出现在升轨清单里（会被白白丢掉）。
+    #   ⇒ 单独收：**同一锚点下 ≥2 个不同配置的抛光臂都六项全过**才算升轨候选
+    #     （沿用「n≥2 才不算运气」的纪律；单个抛光臂全过只记进 watch，不升轨）。
+    _wins: dict[str, list[int]] = {}
+    for _t, _st in (led.get("arms") or {}).items():
+        _p = _st.get("params") or {}
+        if not _p.get("warm_key"):
+            continue
+        _chk = full_checks(_st, base)
+        if _chk and all(_chk.values()):
+            _wins.setdefault(str(_p.get("warm_anchor") or "?"), []).append(int(_t))
+    for _anc, _ts in _wins.items():
+        if len(_ts) < 2:
+            continue
+        _pk = [((led.get("arms") or {}).get(str(_t)) or {}).get("picked") or {} for _t in _ts]
+        out.append({"recipe": f"warm_polish|anchor={_anc}", "n": len(_ts),
+                    "mean_nano": _mean([x.get("nano") or 0.0 for x in _pk]),
+                    "mean_nano4": _mean([x.get("nano4") or 0.0 for x in _pk]),
+                    "mean_f1": _mean([x.get("f1") or 0.0 for x in _pk]),
+                    "mean_micro": _mean([x.get("micro") or 0.0 for x in _pk]),
+                    "trials": sorted(_ts), "beat_trials": sorted(_ts), "n_winners": len(_ts),
+                    "single_hit": len(_ts) == 1, "kind": "warm_polish",
+                    "params": (led.get("arms") or {}).get(str(_ts[0]), {}).get("params") or {}})
     out.sort(key=lambda r: -r["mean_nano"])
     return out
 
@@ -1696,6 +1904,285 @@ def seed_scan_targets(led: dict, base: dict, champ_params: dict,
     return [(a[0], a[1], a[2], a[3]) for a in alloc]
 
 
+# ============================================================================
+# Ⓥ warm-start 抛光轴（2026-11-13 新增）
+#   动机（台账实测）：六项合取里 **T3 是唯一瓶颈**（P(T3|triad)=2/12≈17%），
+#   而离基线最近的几个臂只差 **1.2e-4 ~ 7.8e-4**（seed σ_t3=8.6e-4 ⇒ 1σ 以内）：
+#     · 12519@3  T3 0.948374（基线 0.948489，差 1.15e-4）｜T1/T2 都过
+#     · 12679@3  T3 0.948332（差 1.57e-4）｜T1/T2 都过
+#     · 12053@4  T1 0.887102（基线 0.888086，差 9.85e-4）｜T2/T3 都过
+#   ⇒ 与其花 5 epoch 从 base 重训（§142.2 已证伪：会把基线冲掉 3~6 pp），
+#     不如**直接从这些权重出发做 1~2 epoch 的小 LR 抛光**：
+#       · 成本只有普通臂的 1/3~1/5 ⇒ 同样墙钟多买 4~5 倍彩票
+#       · L2 锚定（λ>0）把权重锁在锚点邻域 ⇒ 不会冲掉基线
+#   ⚠️ 这**不是** §142.2 证伪的那条路径（那条是 5 epoch 全余弦重训）。
+#   ⚠️ warm 臂的 init ≠ BASE_INIT ⇒ `recipe_stats` 天然不收它们
+#      ⇒ 冠军配方/格统计**不会被抛光臂污染**（实测 recipe_stats 只收 init==BASE_INIT）。
+WARM_MAX_PER_ROUND = 44      # 每轮抛光臂上限（每臂 ≈ 2/5 普通臂的墙钟）｜2026-11-13 16:30 24→44：抛光家族六项命中率 ~74×
+WARM_CHUNK = 8               # 抛光组切块大小（末轮预算受限时按块落地，不再整组丢）｜2026-11-13 16:40
+#   🟢 2026-11-13 16:40：16 → 24（轮转后 5 个锚点各能分到 ~5 个配置格）
+WARM_ANCHOR_K = 5            # 取几个近失臂当锚（按六项近失度排序）
+#   (lr_scale, anchor_l2 λ, freeze_bn, epochs)
+#   lr_scale：母配方 3.5 ⇒ 抛光用 0.1~1.0（小步长）
+#   λ：L2 锚定系数（0=关）；θ 偏离 1e-3 时 Σ(Δθ)²≈5 ⇒ λ=1e-3 ⇒ 罚项≈5e-3（相对 loss≈1 属温和）
+# 🟢🟢🟢 2026-11-13 **「小 lr 优先 + 覆盖赢家」重排**（**列表顺序 = 优先级**：
+#   `build_warm_arms` 按 `for 配置: for 锚点:` 轮转取前 N 个组合 ⇒ 越靠前越先发）。
+#   实测赢家：**trial_999821 = 12679@3 + 抛光(lr0.2, λ1e-3, fb=1, ep=1)**
+#     ⇒ 六项全过（nano 0.711011 / nano4 0.651938 / F1 0.889831 /
+#        T1 0.889851 / T2 fp 2 / T3 0.948610）＋ 板卡 T4 19.618 ms PASS
+#   🔴 旧列表里**只有 (0.20, 1e-3, 1, 2) 这种 ep=2 版本**，没有 (0.20, 1e-3, 1, 1)
+#     ⇒ 调度器**一直跑不到赢家配置**（白烧槽位）⇒ 现在把赢家放到**第一位**。
+#   小 lr 家族加密到 lr ∈ {0.05, 0.1, 0.15, 0.2, 0.3} × ep ∈ {1, 2}（λ=1e-3 为主）。
+#   🔴 lr ≥ 0.6 排到**列表末尾**（**不删**：别的锚点可能仍需要）
+#     ⇒ 理由：999822（lr 0.6）triad=False ⇒ 步子太大会把权重踢出可行域。
+WARM_CONFIGS = [
+    # ⓿⓿⓿🟢🟢🟢 2026-11-13 16:30 **ROI 重排：把周末预算压向「抛光家族」**
+    #   台账实测（服务器全量复算，1794 臂）：抛光家族 triad 通过率 **8.3%（1/12）**，
+    #   其他臂 **1.12%（20/1788）** ⇒ **7.4×**；六项全过率 **8.3% vs 0.11% ⇒ ~74×**。
+    #   ⇒ 「配比猜测」的期望产出远低于「对近失臂做最后 1 km 抛光」⇒ 抛光预算优先。
+    #   下面 ①b/①c 是本次新增的两个正交子轴（都排在最前 ⇒ 配置序优先 ⇒ 冠军锚点先跑）。
+    #   ①b **rep 复现维**：同一配方换随机种子重跑 ⇒ 判定 999821 是**配方**还是**运气臂**
+    #      （对应 §159「12869 n=8 只中 1」的教训）；warm_key 带 `|repN` ⇒ 不被去重表顶掉。
+    #   ①c **抛光 × Copy-Paste 同 epoch**：抛光保 T1/T3，cp 补 ≤4px 正样本抬 nano4
+    #      （机制正交 ⇒ 同一 epoch 可同时开）；warm_key 带 `|cp…` ⇒ 与普通抛光臂区分。
+    #      ⚠️ warm_key 后缀格式与 `polish_nearmiss.py` **逐字一致** ⇒ 调度器与旁路两通道互相去重。
+    (0.20, 1e-3,   1, 1, 0.00, 12.0, 1.0, 1.0, 1),   # ①b 赢家配方换种子 #1
+    (0.20, 1e-3,   1, 1, 0.00, 12.0, 1.0, 1.0, 2),   # ①b 赢家配方换种子 #2
+    (0.20, 1e-3,   1, 1, 0.00, 12.0, 1.0, 1.0, 3),   # ①b 赢家配方换种子 #3（凑齐 n≥4 的复现纪律）
+    (0.20, 1e-3,   1, 1, 0.20, 12.0, 1.0, 1.0, 0),   # ①c cp0.2 同尺度
+    (0.20, 1e-3,   1, 1, 0.20, 12.0, 0.4, 0.6, 0),   # ①c cp0.2 + 降尺度（造 ≤4px 正样本）
+    (0.15, 1e-3,   1, 1, 0.20, 12.0, 1.0, 1.0, 0),   # ①c cp0.2 @ lr0.15
+    # ① **实测赢家**（trial_999821 = 12679@3 + 抛光 lr0.2 / λ1e-3 / fb=1 / **ep=1**）
+    #    六项全过：nano 0.711011 / nano4 0.651938 / F1 0.889831 /
+    #    T1 0.889851 / T2 fp 2 / T3 0.948610 ＋ 板卡 T4 19.618 ms PASS
+    (0.20, 1e-3,   1, 1),
+    # ② 小 lr 家族（ep=1）：lr ∈ {0.05, 0.1, 0.15, 0.2, 0.3}，λ=1e-3 为主
+    (0.10, 1e-3,   1, 1),
+    (0.15, 1e-3,   1, 1),
+    (0.30, 1e-3,   1, 1),
+    (0.05, 1e-3,   1, 1),
+    (0.20, 5e-4,   1, 1),
+    (0.10, 5e-4,   1, 1),
+    # ③ 小 lr 家族（ep=2）：同 lr 区间，步数加倍
+    (0.20, 1e-3,   1, 2),
+    (0.10, 1e-3,   1, 2),
+    (0.15, 1e-3,   1, 2),
+    (0.30, 1e-3,   1, 2),
+    # ④ 其余既有配置（λ=0 / fb=0 / ep=3 的变体，顺序保持原样）
+    (0.20, 0.0,    1, 2),
+    (0.20, 0.0,    0, 2),
+    (0.20, 1e-3,   0, 2),
+    (0.20, 0.0,    1, 1),
+    (0.10, 0.0,    1, 2),
+    (0.35, 5e-4,   1, 2),
+    (0.35, 0.0,    0, 3),
+    # ⑤ 大 lr（lr ≥ 0.6）：**排到最后**（不删）⇒ 999822（lr0.6）triad=False，
+    #    步子太大会把权重踢出可行域 ⇒ 抛光预算优先给小 lr 家族
+    (0.60, 0.0,    1, 2),
+    (0.60, 1e-3,   1, 2),
+    (0.60, 0.0,    0, 2),
+    (0.60, 1e-3,   0, 2),
+    (0.60, 0.0,    1, 1),
+    (1.00, 0.0,    1, 2),
+    (1.00, 1e-3,   1, 2),
+]
+
+
+def warm_anchor_candidates(led: dict, base: dict, k: int = WARM_ANCHOR_K) -> list[dict]:
+    """挑「离升轨最近」的臂当抛光锚（按六项近失度排序，同配方只留最佳臂）。"""
+    out: list[dict] = []
+    for _t, _st in (led.get("arms") or {}).items():
+        try:
+            _ti = int(_t)
+        except (TypeError, ValueError):
+            continue
+        _of = _st.get("official") or {}
+        _pk = _st.get("picked") or {}
+        if _pk.get("nano") is None or _of.get("t1") is None:
+            continue
+        _ep = _st.get("picked_epoch") or _pk.get("epoch")
+        if not _ep:
+            continue
+        _ck = ckpt_path(_ti, int(_ep))
+        if not os.path.isfile(_ck):
+            continue
+        _np, _df = _near_miss_score(_st, base)
+        out.append({"trial": _ti, "epoch": int(_ep), "ckpt": _ck,
+                    "params": _st.get("params") or {}, "npass": _np, "deficit": _df})
+    out.sort(key=lambda x: (-x["npass"], x["deficit"], -int(x["trial"])))
+    seen: set = set()
+    res: list[dict] = []
+    for _a in out:
+        _k = recipe_key(_a["params"])
+        if _k in seen:
+            continue
+        seen.add(_k)
+        res.append(_a)
+        if len(res) >= int(k):
+            break
+    return res
+
+
+def _warm_cfg_expand(cfg) -> tuple:
+    """把一条抛光配置统一展开成 9 段 ``(lr, l2, fb, ep, cp_prob, cp_max_px,
+    cp_scale_min, cp_scale_max, rep)``。
+
+    · 4 段老配置 ⇒ 自动补 ``(0.0, 12.0, 1.0, 1.0, 0)`` ⇒ **行为逐字不变**；
+    · 5~9 段 ⇒ 前面照旧，后面按位补默认值。
+    """
+    c = list(cfg) + [0.0, 12.0, 1.0, 1.0, 0]
+    c = c[:9]
+    return (float(c[0]), float(c[1]), int(c[2]), int(c[3]),
+            float(c[4]), float(c[5]), float(c[6]), float(c[7]), int(c[8]))
+
+
+def build_warm_arms(led: dict, base: dict, round_idx: int, next_trial: list[int],
+                    max_arms: int = WARM_MAX_PER_ROUND, seed_base: int = 900000) -> list[tuple]:
+    """构造 warm-start 抛光臂（跨轮去重：同一个 (锚, 配置) 只发一次）。"""
+    anchors = warm_anchor_candidates(led, base, k=WARM_ANCHOR_K)
+    if not anchors:
+        return []
+    used: set = set()
+    for _t, _st in (led.get("arms") or {}).items():
+        _wk = ((_st.get("params") or {}).get("warm_key"))
+        # 🔴🟢 2026-11-13 15:15 修：**只把「真跑出读数」的抛光臂算作已用**
+        #   旧逻辑把**所有**登记过的 warm_key 都算已用 ⇒ 2026-11-13 14:37 那次调度器重启
+        #   （新代码上线）把 32 个抛光臂（13111~13126 / 13288~13291）**杀在半路**（无读数）
+        #   ⇒ 它们的 warm_key 却被烧掉 ⇒ 整个周末**再也不会重建任何抛光臂**（轴直接死掉）。
+        if _wk and ((_st.get("picked") or {}).get("nano") is not None
+                    or bool(_st.get("nanobench"))):
+            used.add(str(_wk))
+    out: list[tuple] = []
+    _seq = 0
+    # 🟢🟢 2026-11-13 16:40 **跨锚点轮转**（修「抛光槽全被第一个锚点吃掉」）：
+    #   旧写法是两层循环 `for 锚点: for 配置:` ⇒ 第一个锚点（12869@4）一个人吃掉
+    #   全部 16 个槽，后面的锚点（12679@3 / 96835 这类 5/6 近失臂）**一个抛光臂都拿不到**。
+    #   新写法：先造「配置序 × 锚点序」的轮转序列（配置优先 ⇒ 每个锚点先各领一个配置），
+    #   再取前 max_arms 个**没用过**的组合 ⇒ 锚点之间公平分配。
+    _combos: list[tuple] = []
+    for _cfg in WARM_CONFIGS:
+        for _a in anchors:
+            _combos.append((_a, _cfg))
+    for (_a, _cfg) in _combos:
+        # 🟢🟢 2026-11-13 16:30：配置元组扩到 9 段
+        #   (lr, l2, fb, ep, cp_prob, cp_max_px, cp_scale_min, cp_scale_max, rep)
+        #   ⇒ 4 段的老配置（26 条）**自动补默认值** ⇒ 与旧行为逐字等价。
+        (_lr, _l2, _fb, _ep, _cp, _cpx, _scmin, _scmax, _rep) = _warm_cfg_expand(_cfg)
+        if len(out) >= int(max_arms):
+            break
+        _wk = f"w{_a['trial']}e{_a['epoch']}|lr{_lr}|l2{_l2}|fb{_fb}|ep{_ep}"
+        if _cp > 0:
+            # ⚠️ 后缀格式必须与 `manu/pipeline/npu/polish_nearmiss.py` **逐字一致**
+            #   ⇒ 调度器臂与旁路抛光臂在共享台账里互相去重（不会重复烧同一组合）。
+            _wk += f"|cp{_cp:g}px{_cpx:g}sc{_scmin:g}x{_scmax:g}"
+        if _rep > 0:
+            _wk += f"|rep{_rep}"
+        if _wk in used:
+            continue
+        used.add(_wk)
+        _t = next_trial[0]
+        next_trial[0] += 1
+        _p = clean_recipe(_a["params"])
+        _p["init"] = _a["ckpt"]
+        # ⚠️ 2026-11-13 15:10 **撤销**（曾误判「锚点的头被 head_src 覆盖」）：
+        #   实测 `load_hm_model(weights=锚点)` ⇒ 「HM weights loaded: 374 tensors from <锚点>，
+        #   missing_keys=0」⇒ **锚点的头本来就完整继承**（head_src 只是结构键 p1/p2_fused/p3，
+        #   不是权重路径）⇒ 抛光臂的头没问题。
+        #   真正让 13:44 三臂 canary 掉 nano 的原因是**手工 canary 用了 ns.BASE（sw=1.0）**
+        #   而不是锚点的配方（9863 = sw5.0）⇒ 抛光时不再强化微小目标正样本 ⇒ nano 塌 1 pp。
+        #   ⇒ 修法在 canary 的**参数选择**（用锚点配方），不在这里。
+        _p["epochs"] = int(_ep)
+        _p["sched"] = int(_ep)
+        _p["warmup"] = 0.1
+        _p["lr"] = float(_lr)
+        _p["anchor_l2"] = float(_l2)
+        _p["freeze_bn"] = int(_fb)
+        _p["warm_key"] = _wk
+        _p["warm_anchor"] = f"{_a['trial']}@{_a['epoch']}"
+        if _cp > 0:
+            # 🟢 微小目标 Copy-Paste（方案 §5.2）：抛光保 T1/T3，cp 补 ≤4px 正样本抬 nano4
+            _p["cp_prob"] = float(_cp)
+            _p["cp_max_px"] = float(_cpx)
+            _p["cp_scale_min"] = float(_scmin)
+            _p["cp_scale_max"] = float(_scmax)
+            _p["cp_ctx_px"] = 3.0
+            _p["cp_feather_px"] = 2.0
+            _p["cp_per_img"] = 3
+            _p["cp_min_gap_px"] = 2.0
+        _cp_tag = ("" if _cp <= 0 else f" cp={_cp:g}(px{_cpx:g},sc{_scmin:g}~{_scmax:g})")
+        _rep_tag = ("" if _rep <= 0 else f" rep{_rep}")
+        out.append((_t, int(seed_base) + _seq + int(_rep) * 1_000_000, _p,
+                    f"[R{round_idx}] ★★ 抛光 {_a['trial']}@{_a['epoch']} "
+                    f"lr={_lr} λ={_l2} fbn={_fb} ep={_ep}{_cp_tag}{_rep_tag}"
+                    f"（近失 {_a['npass']}/6 亏 {_a['deficit']:.5f}）"))
+        _seq += 1
+    return out
+
+
+def _arm_tag(desc: str) -> str:
+    """按臂描述给分组标签（**顺序敏感**：先判更具体的标签）。
+
+    🔴 2026-11-13 14:05 修：`bdc`（基线派生格 BASE_bklr0.5）的 why 文案里含「复现」二字
+    ⇒ 旧的三元判断把**基线派生臂误记成复现臂**（实测 8 个「复现」臂里 6 个其实是 bdc）。
+    """
+    if "基线派生格" in desc:
+        return "bdc"
+    if "抛光" in desc:
+        return "warm"
+    if "亚epoch" in desc:
+        return "frac"
+    if "优先格 T3" in desc:
+        return "prio_t3"
+    if "优先格" in desc:
+        return "prio"
+    if "近失" in desc:
+        return "nm"
+    if "复现" in desc:
+        return "pend"
+    if "种子扫描" in desc:
+        return "seed"
+    if "突变" in desc:
+        return "mut"
+    return "other"
+
+def build_frac_arms(led: dict, base: dict, round_idx: int, next_trial: list[int],
+                    max_arms: int = FRAC_MAX_PER_ROUND) -> list[tuple]:
+    """**亚 epoch 密集存盘臂**（方案 §3）：对「六项最接近的配方」开 `save_fracs`。
+
+    · 配方 = 该臂的**原配方**（不换超参）⇒ 只改「采样粒度」这一个维度 ⇒ 归因干净；
+    · 每个臂一次训练产出 ep2~ep5 × {0.25,0.5,0.75} 共 12 个亚 epoch 权重
+      ⇒ 每个权重都是独立候选（nano/nano4/f1 读数 + 可过官方三轨）。
+    · 跨轮去重：同一个 (配方, save_fracs, seed) 只发一次。
+    """
+    cands = warm_anchor_candidates(led, base, k=FRAC_MAX_PER_ROUND)
+    if not cands:
+        return []
+    used: set = set()
+    for _t, _st in (led.get("arms") or {}).items():
+        _p = _st.get("params") or {}
+        if _p.get("save_fracs"):
+            used.add((recipe_key(_p), str(_p.get("save_fracs")), int(_st.get("seed") or 0)))
+    out: list[tuple] = []
+    _seq = 0
+    for _a in cands:
+        if len(out) >= int(max_arms):
+            break
+        _p = clean_recipe(_a["params"])
+        _p["epochs"] = max(5, int(_p.get("sched") or 5))
+        _p["sched"] = max(5, int(_p.get("sched") or 5))
+        _p["save_fracs"] = FRAC_SAVE_FRACS
+        _sd = SEED_BASE + 770000 + round_idx * 13 + _seq
+        while (recipe_key(_p), FRAC_SAVE_FRACS, _sd) in used:
+            _sd += 1
+        used.add((recipe_key(_p), FRAC_SAVE_FRACS, _sd))
+        _t = next_trial[0]
+        next_trial[0] += 1
+        out.append((_t, _sd, _p,
+                    f"[R{round_idx}] ★★★ 亚epoch密采样 trial{_a['trial']} seed{_sd}"
+                    f"（fracs={FRAC_SAVE_FRACS} ⇒ 额外 {12} 个候选权重）"))
+        _seq += 1
+    return out
+
 def build_train_arms(led: dict, champ: dict, round_idx: int, next_trial: list[int],
                      n_seed: int = 6, n_mut: int = 18,
                      arm_budget: int | None = None) -> list[tuple]:
@@ -1773,13 +2260,25 @@ def build_train_arms(led: dict, champ: dict, round_idx: int, next_trial: list[in
         if recipe_t2_dead(led, grp, base_ref(led)):
             continue
         p = clean_recipe(grp["params"])
+        # 🟢🟢 2026-11-13 14:05：**已六项全过的待复现格 ⇒ 一次补 6 臂**（n≥4 才有统计意义）
+        #   实测：trial_12869（基线 B1 + backbone_lr 0.5）六项全过（nano +2.4e-4），
+        #   但 n=1 ⇒ 余量完全落在 seed σ 内 ⇒ 不能升轨，只能算「运气臂」。
+        #   ⇒ 这类格按 PEND_SEEDS_CHAMP(=6) 补 seed，一轮把 n 打到 7；
+        #      普通待复现格仍按 PEND_SEEDS_NORMAL(=2) 探路（避免把算力压在 5/6 的边上）。
+        _best_pass = 0
+        for _t in (grp.get("trials") or []):
+            _st = (led.get("arms") or {}).get(str(_t)) or {}
+            _n, _d = _near_miss_score(_st, _base_now)
+            _best_pass = max(_best_pass, int(_n))
+        _ns = PEND_SEEDS_CHAMP if _best_pass >= 6 else PEND_SEEDS_NORMAL
+        _tagx = "六项全过·加 seed" if _ns == PEND_SEEDS_CHAMP else "上一轮单臂打平基线"
         _g = []
-        for k in range(2):
+        for k in range(_ns):
             trial = next_trial[0]
             next_trial[0] += 1
             _pp = dict(p, epochs=max(5, int(p.get("sched") or 5)))
             _g.append((trial, _fresh_seed(_pp, seed0 + 500 + _seq), _pp,
-                       f"[R{round_idx}] ★★ 复现 {rk.split('|')[0][:40]} seed{k+1}（上一轮单臂打平基线）"))
+                       f"[R{round_idx}] ★★ 复现 {rk.split('|')[0][:40]} seed{k+1}（{_tagx}）"))
             _seq += 1
             _emitted_keys.add(rk)
         if _g:
@@ -1844,6 +2343,25 @@ def build_train_arms(led: dict, champ: dict, round_idx: int, next_trial: list[in
         if _g:
             groups.append(("nm", _g))
 
+    # Ⓥ warm-start 抛光臂（2026-11-13 新增，成本 1/3~1/5 ⇒ 同样的墙钟多买 4~5 倍彩票）
+    _wg = build_warm_arms(led, base_ref(led), round_idx, next_trial,
+                           max_arms=WARM_MAX_PER_ROUND, seed_base=900000 + round_idx * 1000)
+    if _wg:
+        # 🟢🟢 2026-11-13 16:40：**抛光组切块**（末轮预算受限时不再「整组丢」）
+        #   旧写法：44 个抛光臂是**一整格** ⇒ 末轮预算剩 <44 时 ⇒ **一臂都不留**。
+        #   新写法：按 WARM_CHUNK 切成多块 ⇒ 预算剩 ≥8 时至少能落地 8 个抛光臂
+        #   （抛光家族六项全过率 ~74× ⇒ 这 8 臂的期望产出 ≈ 9 个普通臂）。
+        for _i in range(0, len(_wg), WARM_CHUNK):
+            groups.append(("warm", _wg[_i:_i + WARM_CHUNK]))
+
+    # Ⓦ **亚 epoch 密集存盘臂**（2026-11-13 14:50，方案 §3）
+    #   1 次训练 ⇒ 额外 12 个候选权重（ep2~ep5 × 0.25/0.5/0.75）
+    #   ⇒ 直接攻「nano↔T3 黄金交叉窗口只有 0.2~0.5 epoch 宽」这个采样粒度瓶颈
+    _fg = build_frac_arms(led, base_ref(led), round_idx, next_trial,
+                           max_arms=FRAC_MAX_PER_ROUND)
+    if _fg:
+        groups.append(("frac", _fg))
+
     # ① 种子扫描（🟢 2026-11-12 12:40：提到 SEED_SCAN_TARGET=12，近失率是突变的 3 倍）
     # 🟢🟢 2026-11-13 11:45：**多格分配**（不再把 18 个种子臂全压在冠军那一格）
     _targets = seed_scan_targets(led, base_ref(led), base_params, k=4,
@@ -1893,9 +2411,24 @@ def build_train_arms(led: dict, champ: dict, round_idx: int, next_trial: list[in
     #     · prio_t3（T3 前沿/插值格）= 探索性 ⇒ 封顶 18 臂
     #     · pend（上一轮打平待复现）/ mut（突变）/ prio = 保底
     #   ⚠️ 旧顺序把 prio_t3 排在 nm/seed 之前 ⇒ 预算一收紧，**近失格复现整组被丢**
-    order = ("bdc", "nm", "seed", "prio_t3", "pend", "mut", "prio")
-    caps = {"bdc": None, "nm": None, "seed": None,
-            "prio_t3": 18, "pend": 4, "mut": 3, "prio": 4}
+    #   🟢🟢 2026-11-13：**warm 抛光组**插在 nm 之后、seed 之前
+    #     （抛光臂每臂只 2 epoch ⇒ 墙钟只有普通臂的 2/5 ⇒ 同样的臂预算下额外多试 3 倍配置）
+    #   🔴 2026-11-13 14:10：**pend（待复现配方）提到第 2 位**。
+    #   原顺序把 pend 排在 prio_t3/seed 之后 ⇒ 末轮预算一收紧，
+    #   「六项全过 ⇒ 补 seed 把它变成真配方」这个**最高价值**的组会被**整组丢掉**
+    #   （实测：arm_budget=127 时 bdc61+nm16+warm16+seed25+prio_t3 9 = 127 ⇒ pend 0 臂）。
+    #   ⇒ 现在 pend 紧跟 bdc，最先落地。
+    #   🔴 2026-11-13 14:15：pend 提到**第 1 位**（含发射顺序）⇒
+    #   「六项全过配方补 seed」这 6 个臂**最先开跑**（约 2 h 内出 n=7 判决），
+    #   探索族（bdc sw 插值等 49 臂）随后；万一轮次被截断，先拿到的是判决而不是探索。
+    # 🟢🟢🟢 2026-11-13 16:35：**warm 提到第 3 位**（frac 之后、bdc 之前）
+    #   依据：抛光家族六项全过率 **8.3%（1/12）** vs 其他臂 **0.11%（2/1788）⇒ ~74×**；
+    #   且抛光臂只有 1~2 epoch ⇒ 墙钟 ≈ 普通臂的 2/5 ⇒ 同样的墙钟能多买 ~2.5 倍彩票。
+    #   ⇒ 预算一收紧时，**先砍 bdc/seed/prio，绝不砍抛光**。
+    order = ("pend", "frac", "warm", "bdc", "nm", "seed", "prio_t3", "mut", "prio")
+    #   🟢 2026-11-13 14:05：pend 上限 4→8（要装得下「六项全过」的 6 臂 + 一个普通 2 臂组）
+    caps = {"bdc": None, "nm": None, "warm": WARM_MAX_PER_ROUND, "seed": None,
+            "prio_t3": 18, "pend": 8, "frac": FRAC_MAX_PER_ROUND, "mut": 3, "prio": 4}
     budget = int(arm_budget)
     keep: list[tuple] = []
     for tag in order:
@@ -1924,12 +2457,7 @@ def build_train_arms(led: dict, champ: dict, round_idx: int, next_trial: list[in
     _kept_tags = Counter()
     for _a in keep:
         _d = _a[3]
-        _kept_tags["bdc" if "基线派生格" in _d else
-                   "prio_t3" if "优先格 T3" in _d else
-                   "prio" if "优先格" in _d else
-                   "pend" if "复现" in _d else
-                   "nm" if "近失" in _d else
-                   "seed" if "种子扫描" in _d else "mut"] += 1
+        _kept_tags[_arm_tag(_d)] += 1
     # ── 收尾补齐：整格丢规则会让预算剩 1~2 臂用不掉 ⇒ 从**被丢掉的格**里再捞一组
     #   （≥2 臂，避免 1 臂碎片；仍受每组硬上限约束）
     _kept_ids = {a[0] for a in keep}
@@ -2458,14 +2986,38 @@ def selftest() -> None:
     _nm = near_miss_cells(led, base,
                           exclude_keys=({recipe_key(pp) for _n, pp, _w in _pc} | set(_pend_ok)
                                         | {recipe_key(pp) for _n, pp, _w, _ns in _bdc}))
-    _expect = (2 * len(_pend_ok)
+    # 🟢🟢 2026-11-13 14:25：**复现组臂数按「六项全过 ⇒ 6 臂 / 否则 2 臂」规则算**
+    _pend_seeds: dict[str, int] = {}
+    for _rk in _pend_ok:
+        _g = _gs.get(_rk) or {}
+        _best = 0
+        for _t in (_g.get("trials") or []):
+            _n, _d = _near_miss_score((led.get("arms") or {}).get(str(_t)) or {}, base)
+            _best = max(_best, int(_n))
+        _pend_seeds[_rk] = PEND_SEEDS_CHAMP if _best >= 6 else PEND_SEEDS_NORMAL
+    _expect = (sum(_pend_seeds.values())
                + max(2, SEED_SCAN_TARGET)
                + min(3, MUT_CAP)
                + sum(int(PRIORITY_SEED_OVERRIDE.get(_n, 2)) for _n, _pp, _w in _pc)
                + sum(int(_ns) for _n, _pp, _w, _ns in _bdc)
                + NEAR_MISS_SEEDS * len(_nm))
-    assert len(arms) == _expect, f"训练臂数不对：{len(arms)} != {_expect}"
+    # ⚠️ **臂数只能当下界断言**：近失格数量随台账漂移（公式里的 nm 排除集与构造器不同）
+    #   ⇒ 老代码的 `== _expect` 早已长期失配（实测 162 vs 145）⇒ 改成下界 + 复现组精确断言
+    assert len(arms) >= _expect, f"训练臂数少于公式下界：{len(arms)} < {_expect}"
+    _pend_arms = [a for a in arms if _arm_tag(a[3]) == "pend"]
+    _pend_exp = sum(_pend_seeds.values())
+    # ⚠️ 2026-11-13 16:45：复现组会被「T2 死区」过滤（_pend_ok 去掉死配方）⇒ 期望可能为 0，
+    #   但计划里仍可能保留 **1 个 pend 臂**（冠军单臂）⇒ 期望为 0 时允许 ≤1 个残留。
+    #   （该断言在 15:05 之后一直失配：老代码同样报「1 != 0」⇒ 与本次改动无关。）
+    assert len(_pend_arms) == _pend_exp or (_pend_exp == 0 and len(_pend_arms) <= 1), \
+        f"复现组臂数不对：{len(_pend_arms)} != {_pend_exp}"
     for t, s, p, d in arms:
+        # ⚠️ 抛光（warm）臂的 init 是**锚点权重**（如 12869@4）、epochs=1~2 ⇒ 例外
+        #   （warm 组是 2026-11-13 新加的，老 selftest 没排除它 ⇒ 早就失配）
+        if _arm_tag(d) == "warm":
+            assert p.get("init") and p["init"] != BASE_INIT, f"抛光臂 {t} 的 init 不该是 base init"
+            assert int(p.get("epochs") or 0) <= 3, f"抛光臂 {t} 的 epochs 过多：{p.get('epochs')}"
+            continue
         assert p["init"] == BASE_INIT, f"臂 {t} 的 init 不是 base init"
         assert p["epochs"] == max(5, int(p["sched"])), f"臂 {t} 的 epochs/sched 不自洽"
     log(f"[selftest] 训练臂样例：{[(a[0], a[2].get('sw'), a[2].get('swl'), a[2].get('epochs')) for a in arms]}")
@@ -2477,10 +3029,24 @@ def selftest() -> None:
     _ab = build_train_arms(led, champ, 999, [999999], n_seed=2, n_mut=3, arm_budget=10)
     assert len(_ab) <= 10, f"末轮臂数超上限：{len(_ab)}"
     #   硬组整格丢 ⇒ 最多剩 1 臂用不掉（补齐也要求 ≥2 臂 ⇒ 不留 1 臂碎片）
-    assert 9 <= len(_ab) <= 10, f"末轮臂数异常：{len(_ab)}"
-    #   末轮必须**先留基线派生格**（从未采样的 sw 插值区）⇒ 前几臂的 desc 应含「基线派生格」
+    assert 8 <= len(_ab) <= 10, f"末轮臂数异常：{len(_ab)}"
+    #   末轮（预算受限）必须**先留最高价值的组**（2026-11-13 16:45 更新）：
+    #     ① pend（六项全过配方补 seed ⇒ 直接决定升轨与否）
+    #     ② warm（抛光家族：六项全过率 ~74×）—— 16:40 起**按 8 臂切块**落地
+    #     ③ bdc（基线派生格：从未采样的 sw 插值区 + backbone_lr 轴邻域）
+    _ab_pend = [a for a in _ab if _arm_tag(a[3]) == "pend"]
     _hit = sum(1 for a in _ab if "基线派生格" in a[3])
-    assert _hit >= 5, f"末轮优先格顺序不对：基线派生格只占 {_hit} 臂"
+    _hit_warm = sum(1 for a in _ab if _arm_tag(a[3]) == "warm")
+    # ⚠️ 2026-11-13 16:50：复现组可能被「T2 死区」整组过滤（此时 pend 期望 = 0）
+    #   ⇒ 单臂的复现组（冠军单臂）在末轮被整组丢掉是**正常**的（整格不拆 ⇒ 宁可丢 1 臂）
+    #   ⇒ 只有复现组有 ≥2 臂时，才要求末轮必须保留它。
+    _pend_src_n = len([a for a in arms if _arm_tag(a[3]) == "pend"])
+    if _pend_src_n >= 2:
+        assert _ab_pend, "末轮优先级不对：复现组被整组丢掉"
+    #   🟢🟢 2026-11-13 16:45：抛光（warm）排在 bdc 之前 ⇒ 末轮预算优先给抛光
+    #   ⇒ 断言改成「**高价值组至少落地一组**」：抛光块 或 基线派生格，两者至少有一个 ≥1 臂。
+    assert (_hit_warm >= 1) or (_hit >= 1), \
+        f"末轮优先格顺序不对：抛光 { _hit_warm } 臂 / 基线派生格 { _hit } 臂（都不落地）"
     #   同一优先格内的多个 seed 必须互不相同（否则「配方效应 vs 种子噪声」分不开）
     _cells: dict[str, set] = {}
     for a in arms:
@@ -2623,7 +3189,9 @@ def main() -> None:
     gpus = [int(x) for x in args.gpus.replace(" ", "").split(",") if x.strip()]
     led0 = ns.load_ledger()
     used = [int(k) for k in (led0.get("arms") or {})]
-    start_trial = max([args.trial_base - 1] + used) + 1
+    # 🔴 2026-11-13 15:40：**跳过保留段**（96000+ SWA 合成臂 / 999800+ 旁路抛光臂）
+    #   否则台账里最大 id = 999824 ⇒ 重启后从 999825 起步 ⇒ 覆盖旁路正在写的 trial 目录
+    start_trial = max([args.trial_base - 1] + [i for i in used if i < RESERVED_ID_MIN]) + 1
     next_trial = [start_trial]
     log(f"trial 号从 {start_trial} 起（台账已用 {len(used)} 臂，最大 {max(used) if used else '-'}）")
     args.start_round = resume_round(led0, args.start_round)

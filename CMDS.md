@@ -434,3 +434,25 @@ python manu/evaluation/diag_zongheng_fast_movers.py \
 
 # 同阈值逐序列对比（跟踪档 vs 单帧档）
 python manu/evaluation/cmp_zongheng_tracked_vs_single.py <single_frames> <tracked_frames>
+
+# ============================================================================
+# 本机 → 服务器 upload（2026-11-16 新增）
+# 大件产物已外迁 workspace/cache ⇒ upload 传输量 60 GB → 82.5 MB
+# 详见 manu/memory/memory.md §174 与 workspace/cache/README.md
+# ============================================================================
+
+# 预览（默认 dry-run，不落盘）
+DRY_RUN=1 bash manu/videos/upload_to_server.sh
+
+# 真传（排除项写死；默认不带 --delete ⇒ 服务器上已有的数据不会被删）
+DRY_RUN=0 bash manu/videos/upload_to_server.sh
+
+# 真传并允许删除服务器侧多余文件（🔴 危险，确认后再用）
+ALLOW_DELETE=1 DRY_RUN=0 bash manu/videos/upload_to_server.sh
+
+# ⚠️ 手工 rsync 时必须自己带上这些排除项，否则会抹掉服务器自己的 30 GB runs/：
+#   --exclude=/runs --exclude=/manu/pipeline/npu/out --exclude=/manu/pipeline/npu/results
+#   --exclude=/manu/pipeline/npu/build --exclude=/manu/pipeline/npu/.demo-build
+#   --exclude=/manu/pipeline/npu/.demo-build-mobilenet
+#   --exclude='/manu/pipeline/npu/convert/*.rknn'
+#   --exclude=/manu/pipeline/opencl/board/out --exclude=/manu/pipeline/opencl/board/.bench_bmp

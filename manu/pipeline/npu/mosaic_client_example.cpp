@@ -54,7 +54,9 @@
 // 默认值：板卡上零参数直接跑。换自己的路径就覆盖对应的那一个（位置参数）。
 // ---------------------------------------------------------------------------
 static const char* kFrameDir  = "/mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324";
-static const char* kModel     = "/mnt/manu/ptq/models/p0_off_A_none.rknn";
+// 模型默认从**板卡 tmpfs** 读（交付目录在 NFS soft 挂载上，6.3 MB 直读会被读坏）。
+// 先 `cat <交付目录>/models/p0_off_A_none.rknn > /tmp/p0_off_A_none.rknn` 再跑。
+static const char* kModel     = "/tmp/p0_off_A_none.rknn";
 static const char* kKernelDir = "/mnt/manu/mosaic_sdk/runtime/kernels";
 // 21 帧 = GMC 的一个完整历史窗口。喂不满 21 帧也能出结果（早期帧的历史会被
 // clamp），但**喂满 21 帧才是认证质量的拟合**。

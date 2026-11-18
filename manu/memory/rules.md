@@ -704,11 +704,43 @@
 - ⇒ 处置：两个子 Agent **立即 close**；随后本轮的**嵌入式组「每帧携带 void* 指针」新接口**改造
   **全程主 Agent 单干、不开子 Agent**（该改造是同一文件内的紧耦合改动，本就不适合拆分委派）。
 
+### 17. 🔴🔴🔴【核心铁律十七 · 2026-11-16 用户新增】**服务器路径一律不动；大件产物的备份基准放在 host 侧**
+
+**背景（用户原话，2026-11-16）**：
+> 「服务器上的数据不要动，只清理 host 工程下的数据。」
+> 「服务器的路径都不要动，run 什么的都在 host 上有备份就可以了。」
+
+**铁律正文**：
+
+1. **默认零写入**：不得在服务器上创建 / 修改 / 删除 / 移动任何路径（含符号链接、目录、文件），除非用户**当轮明确授权**；「授权一次」不延续到下一轮。
+2. **只读不算动**：允许的服务器操作 = `ls` / `du` / `stat` / `readlink` / `md5sum` / `date` / `ps` / `find` / `git log` 与 `rsync --dry-run`（dry-run 不发数据、不删文件）。
+3. **同步落点判据（两条，任一命中即禁止）**：① 落点是**软链接**（`rsync -a` 会穿透软链写进其真实目标）；② 落点**实路径落在 harness 活仓库下**（`/mnt/data/siping/runs/npu20ms/nano_search/*`）⇒ 那是在写的别人的活。惯用落点仍是 `/tmp/pycharm_project_10ae9e2e`（**必须确认它是真实目录**）。
+4. **大件产物（`runs/`、板端构建产物）的备份基准 = host 侧** `workspace/cache/ultralytics/runs`；服务器侧不保留副本、不清理、不迁移；host 侧也不得往工程目录塞回产物（承接铁律十五）。
+5. **upload 脚本默认必须安全**：`DRY_RUN=1`（且真加 `--dry-run`）、`ALLOW_DELETE=0`（默认不带 `--delete`）、排除项写死、落点红线守卫（⓪ 落点是软链 **或** 实路径落在 harness 活仓库下 ⇒ exit 2；① **共享**落点的 `runs/` 正在被写 ⇒ exit 2，私有落点则只告警；② 落点布局不符 ⇒ exit 2）；越线需 `FORCE_TARGET=1` / `ALLOW_DELETE=1` 显式放行。
+
+**事故记录（2026-11-16 本轮实测）**：
+
+- 用户看到 `/tmp/pycharm_project_10ae9e2e` 变成软链（指向 `/mnt/data/siping/runs/npu20ms/nano_search/repo`），问「这是你改的吗？」⇒ **查证结论：不是本工程任何一侧做的**。证据链：
+  1. 本机 `~/.codex/sessions/2026/11/16/*.jsonl` 全量 grep 建链命令 ⇒ **零命中**；
+  2. 该路径是 **nano_search harness 的活路径**：harness 自带 30+ 个脚本首行就是 `cd /tmp/pycharm_project_10ae9e2e`；
+  3. 软链 mtime **14:48** 与 harness 重写 `curated_loop.sh`（注释明写「绝对路径指向持久仓库 `$W/repo`，不再依赖会被重启清空的 `/tmp`」）**同一分钟** ⇒ 属 harness 在 13:47 僵死重启后的**自修复**；
+  4. 服务器重启清空 `/tmp` 后该路径消失，harness 的 `scripts/curated_loop.sh` 现报 `cd: /tmp/pycharm_project_10ae9e2e: No such file or directory` ⇒ 与本工程无关。
+- **顺带自查抓到并修掉的自己的隐患**：`manu/videos/upload_to_server.sh` 的 `REMOTE_ROOT` **默认值竟指向 harness 活路径** ⇒ 已加「守卫⓪」：落点是**软链**（或实路径落在 `/mnt/data/siping/runs/npu20ms/nano_search/*` 下）⇒ `exit 2`。实测：`REMOTE_ROOT=/usr/bin/python3` ⇒ 拦下；真实目录落点 ⇒ 放行。
+- **2026-11-16 15:19 终态**：用户重启服务器后**重新 upload** ⇒ `/tmp/pycharm_project_10ae9e2e` 恢复成**真实目录**（86 MB，含 `manu/` `memory/` `ultralytics/`，**无 `runs/`**）⇒ 惯用落点恢复正常工作，`pwd -P` 不再跳转。
+- ⚠️ **副作用提醒**：harness 有 30+ 个脚本首行是 `cd /tmp/pycharm_project_10ae9e2e` ⇒ 现在它们落到**用户刚传的副本**而不是持久仓 `/mnt/data/siping/runs/npu20ms/nano_search/repo`；它们若在此写 `runs/`，**重启即丢**（`/tmp` 是易失盘）。harness 新版 `curated_loop.sh` 已改用绝对路径 `$W/repo` ⇒ 不受影响。
+- ⚠️ `/mnt/data/siping/code/ultralytics` **不可用作本工程落点**：那是别人的老 vanilla 仓（无 `manu/`、无 `memory/`、6.4 G、属主 root/siping）。
+- **教训（软链有两面）**：① **本机**软链会被同步工具**解引用** ⇒ 挡不住同步（见主档 §174.5）；② **服务器侧**软链会让 `rsync -a` **穿透**写进别的作业的活目录 ⇒ 两侧都得查。
+
+
 ## 二、远程服务器集群与挂载环境配置 (Server & Mount Config)
 
 ### 1. 训练/推理服务器连接信息
 - **SSH 登录**：`ssh -p 32222 huangzhe@192.168.99.40`
 - **远端项目代码目录**：`/tmp/pycharm_project_10ae9e2e`
+  ⚠️【2026-11-16 更新 · 铁律十七】该路径**历史上**一度是 **nano_search harness 的活仓库**（30+ 个 harness 脚本首行
+  `cd /tmp/pycharm_project_10ae9e2e`；曾是指向 `/mnt/data/siping/runs/npu20ms/nano_search/repo` 的**软链**）。
+  2026-11-16 15:19 用户重启后重传 ⇒ 已恢复为**真实目录**（86 MB，无 `runs/`）⇒ **仍作惯用 upload 落点**。
+  ⇒ 但每次 upload 前必须确认它是**真实目录**（`upload_to_server.sh` 守卫⓪ 会自动拦下软链形态，exit 2）。
 - **远端数据集根目录**：`/mnt/data/siping/datasets`（包含 `anti-uav`, `manu/uav_gmc_median` 等版本数据集）
 
 ### 1b. RK3588 板卡连接与 NFS 挂载（2026-10-09 实物到手；**2026-10-12 挂载方向反转**；**2026-11-10 换板换 IP**）

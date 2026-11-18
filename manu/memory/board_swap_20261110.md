@@ -120,3 +120,23 @@ ssh ... root@192.168.0.211 'hostname; cat /etc/machine-id; uname -a; \
 # host 侧 NFS 导出表
 cat /etc/exports; cat /proc/fs/nfsd/exports; systemctl is-active nfs-server
 ```
+
+---
+
+## 🔄 2026-11-18 更正：本文件「旧板已作废」的结论**已失效**（两块板并存）
+
+2026-11-18 17:05 实测：`192.168.0.64` / `ematech` **重新上线**，身份 = **原始 EVM3588 实验板**
+（hostname `evm3588`，Ubuntu 20.04.6，内核 5.10.160，**librknnrt 2.3.0**，8 核 7.9 GB，
+`/root` 里 `rknn_mosaic_e2e*` / `mosaic_api_test*` / `psearch/` 全套在，NFS 已挂 `/mnt/manu`）。
+**10-30~11-10 之间产生全部 E2E / 精度对齐 golden 的就是这块板。**
+
+⇒ 本文件 §1「旧板 192.168.0.64 已 No route to host，彻底作废」**不再成立**。
+⇒ 当前是**两块板并存**：
+
+| 板卡 | IP / 口令 | 身份 | 用途 |
+|:--|:--|:--|:--|
+| **EVM3588（原始实验板）** | `192.168.0.64` / `ematech` | Ubuntu 20.04.6 / rknnrt **2.3.0** / NPU 走 **DRM `/dev/dri/renderD129`**（**无 `/dev/rknpu`**） | 全部 E2E + golden + 精度对齐基线 |
+| **Orange Pi CM5（嵌入式同款）** | `192.168.0.211` / `qwe123` | Debian 12 / rknnrt 2.2.0 | §178 的 RGA Oops 复现与 dma-fd 修复验证 |
+
+⚠️ 两块板**不能混用 golden**：位级 golden 只对 EVM3588 成立（OpenCV 4.10 静态 + buildroot 9.3.0 工具链）。
+详见 `memory.md` §179。

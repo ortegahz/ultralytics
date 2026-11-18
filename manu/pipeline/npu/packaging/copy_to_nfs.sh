@@ -630,20 +630,24 @@ BD="${BOARD_DEST:-<board_dest>}"
 echo
 echo "== 板卡运行命令（权威写法：新目录布局）=="
 cat <<EOF
-ssh -p $BOARD_PORT $BOARD '$BD/out/mosaic_api_test \\
+ssh -p $BOARD_PORT $BOARD 'cat $BD/models/p0_off_A_none.rknn > /tmp/p0_off_A_none.rknn \\
+  && md5sum /tmp/p0_off_A_none.rknn \\
+  && $BD/out/mosaic_api_test \\
   --raw-root   /mnt/manu/lq_ir_bmp \\
   --sequence   VIDEO00007_19700101_001324 \\
-  --model      /mnt/manu/ptq/models/p0_off_A_none.rknn \\
+  --model      /tmp/p0_off_A_none.rknn \\
   --kernel-dir $BD/runtime/kernels \\
   --limit 12'
 EOF
 echo
 echo "== 兼容别名（旧命令仍可用，等价写法）=="
 cat <<EOF
-ssh -p $BOARD_PORT $BOARD '$BD/mosaic_api_test \\
+ssh -p $BOARD_PORT $BOARD 'cat $BD/models/p0_off_A_none.rknn > /tmp/p0_off_A_none.rknn \\
+  && md5sum /tmp/p0_off_A_none.rknn \\
+  && $BD/mosaic_api_test \\
   --raw-root   /mnt/manu/lq_ir_bmp \\
   --sequence   VIDEO00007_19700101_001324 \\
-  --model      /mnt/manu/ptq/models/p0_off_A_none.rknn \\
+  --model      /tmp/p0_off_A_none.rknn \\
   --kernel-dir $BD/kernels \\
   --limit 12'
 EOF
@@ -792,6 +796,38 @@ REMOTE
     return 1
   }
 
+  # ---------------------------------------------------------------------------
+  # [0/5] 把 RKNN 模型落板卡 /tmp —— **必须在契约测试 / demo 之前**
+  #
+  # ⚠️ mosaic_contract_test 与 mosaic_api_test **都不传 --model** ⇒ 它们用
+  #    C++ 里的模型内置默认值 = /tmp/p0_off_A_none.rknn（板卡 tmpfs）。
+  #    ⇒ 没有这一步，这两个 gate 在板上必然失败（找不到模型）。
+  # 🔴 模型 6.3 MB，在 NFS **soft 挂载**上直读会被读坏 ⇒ 必须先 cat 到 /tmp。
+  #    md5 对不上 = NFS 传输损坏（同尺寸、不同内容）⇒ 直接 die。
+  # ℹ️ 模型文件不存在（**旧包**没有 models/）⇒ **不 die**，只 warn 并继续。
+  echo
+  echo "  [0/5] 模型落板卡 /tmp（契约测试/demo 用 C++ 内置默认值 /tmp/p0_off_A_none.rknn）"
+  MODEL_SRC="${BOARD_DEST:-$DEFAULT_BOARD_DEST}/models/p0_off_A_none.rknn"
+  MODEL_DST="/tmp/p0_off_A_none.rknn"
+  MODEL_MD5="1a3faf2f9459cad8a389ffa81810234c"
+  model_out="$(ssh_board "bash -s -- '$MODEL_SRC' '$MODEL_DST' '$MODEL_MD5'" 2>&1 <<'REMOTE'
+set -uo pipefail
+export LC_ALL=C
+src="$1"; dst="$2"; want="$3"
+if [ ! -f "$src" ]; then
+  echo "[warn] 交付目录里没有 models/p0_off_A_none.rknn（旧包），契约测试/demo 将因找不到模型而失败"
+  exit 0
+fi
+cat "$src" > "$dst" || { echo "[ERROR] 从交付目录读模型失败：$src" >&2; exit 1; }
+got="$(md5sum "$dst" | cut -d' ' -f1)"
+[ "$got" = "$want" ] || { echo "[ERROR] NFS 传输损坏：模型 md5=$got ≠ 期望 $want（同尺寸、不同内容 = soft 挂载读坏）" >&2; exit 3; }
+echo "[ok] 模型已落板卡 /tmp（$(stat -c%s "$dst") B，md5=$got）"
+REMOTE
+)" || model_rc=$?
+  model_rc="${model_rc:-0}"
+  printf '%s\n' "$model_out" | sed 's/^/     /'
+  [ "$model_rc" = "0" ] || die "模型落板卡 /tmp 失败（退出码 $model_rc）—— ① NFS 传输损坏（md5 对不上）② 从交付目录读模型失败 ③ ssh 到板卡失败"
+
   echo
   echo "  [1/5] 契约测试：mosaic_contract_test --limit 60（先落板卡 /tmp 再执行）"
   rc=0
@@ -818,9 +854,16 @@ REMOTE
   echo
   echo "  [3/5] 最小集成示范：mosaic_client_example <帧目录> <模型> <kernel> 6（先落板卡 /tmp 再执行）"
   rc=0
+  # ⚠️ 模型参数**故意传交付目录里的路径**（不是 /tmp/p0_off_A_none.rknn）：
+  #    run_board_test 会把**指向 .rknn 的参数**自动 cat 到板卡 /tmp 并替换成
+  #    /tmp 副本（函数里的 `case "$a" in *.rknn)`）⇒ soft 挂载直读会被读坏的问题
+  #    由它兜住，而且每次 gate 都重新从交付目录取一次。
+  #    ⚠️ 别「顺手」改成 /tmp：那样 gate 就绕开了交付目录里的模型（验不到交付物
+  #    本身），而且 [0/5] 没把模型落成时 /tmp 里没这个文件 ⇒ 参数原样传给程序 ⇒
+  #    程序只报「找不到模型」，更难定位。
   run_board_test "最小集成示范" "mosaic_client_example" \
     "/mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324" \
-    "/mnt/manu/ptq/models/p0_off_A_none.rknn" \
+    "${BOARD_DEST:-$DEFAULT_BOARD_DEST}/models/p0_off_A_none.rknn" \
     "$BOARD_DEST/runtime/kernels" \
     6 || rc=$?
   [ "$rc" = "0" ] || die "板卡最小集成示范失败（退出码 $rc）—— 疑似 NFS 页缓存损坏（已先落 /tmp + 已 drop_caches 仍失败）或真回归"
@@ -880,12 +923,20 @@ esac
 
 # ---- ③ 不设 LD_LIBRARY_PATH，直接跑最小集成示范 ----------------------------
 echo "  -- ③ 不设 LD_LIBRARY_PATH 跑最小集成示范（证明用的就是板卡自己的库）--"
-# 模型 6.3 MB 在 NFS 上 ⇒ 先落板卡 /tmp（tmpfs），否则从 soft 挂载直读会被读坏
-MODEL="/mnt/manu/ptq/models/p0_off_A_none.rknn"
+# 模型 6.3 MB 随包交付（在交付目录里）⇒ 仍先落板卡 /tmp（tmpfs），
+# 否则从 soft 挂载直读会被读坏
+MODEL="$dest/models/p0_off_A_none.rknn"
 if [ -f "$MODEL" ]; then
-  cat "$MODEL" > "$tmp/p0_off_A_none.rknn" || { echo "[ERROR] 从 NFS 读模型失败" >&2; exit 1; }
+  cat "$MODEL" > "$tmp/p0_off_A_none.rknn" || { echo "[ERROR] 从交付目录读模型失败" >&2; exit 1; }
   MODEL="$tmp/p0_off_A_none.rknn"
-  echo "     [ok] 模型已落板卡 /tmp（$(stat -c%s "$MODEL") B）"
+  m_md5="$(md5sum "$MODEL" | cut -d' ' -f1)"
+  echo "     [ok] 模型已落板卡 /tmp（$(stat -c%s "$MODEL") B，md5=$m_md5）"
+  # 软校验：同尺寸、不同内容 = soft 挂载把内容读坏了（不是模型坏了）。
+  # 客户换成自己的模型时 md5 本来就对不上 ⇒ 只 warn，不 die。
+  [ "$m_md5" = "1a3faf2f9459cad8a389ffa81810234c" ] || \
+    echo "     [warn] md5 与本包自带模型（1a3faf2f9459cad8a389ffa81810234c）不同 ⇒ 可能被读坏，或客户换成了自己的模型"
+else
+  echo "     [warn] 交付目录里没有 models/p0_off_A_none.rknn，跳过模型拷贝（旧包没有自带模型）"
 fi
 "$tmp/mosaic_client_example" \
   "/mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324" \
@@ -921,16 +972,18 @@ rc=0
 # 两条路径都要跑：**push-all 走反压**（关机时 Producer 可能在流控等待里 ⇒ 测的是
 # 「停机信号能不能把 Producer 放出来」），**app-drop 不反压**（相机线程绝不等算法）。
 # 两条都必须是 EXIT=0：不挂起、不死锁、最后一帧不丢。
+# ⚠️ 这里的 --model 同样**故意传交付目录里的路径** ⇒ run_board_test 自动把它
+#    cat 到板卡 /tmp 并替换（`case "$a" in *.rknn)`）⇒ 不要改成 /tmp（理由见 [3/5]）。
 run_board_test "异步模板 push-all" "mosaic_async_client_example" \
   --frames-dir "/mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324" \
-  --model "/mnt/manu/ptq/models/p0_off_A_none.rknn" \
+  --model "${BOARD_DEST:-$DEFAULT_BOARD_DEST}/models/p0_off_A_none.rknn" \
   --kernel-dir "$BOARD_DEST/runtime/kernels" \
   --out "$VERIFY_TMP_DIR/async_gate_pa" --frames 60 --fps 25 --mode push-all --inflight 4 || rc=$?
 [ "$rc" = "0" ] || die "板卡多线程模板(push-all)失败（退出码 $rc）—— 反压关机路径死锁、或模板有回归"
 rc=0
 run_board_test "异步模板 app-drop" "mosaic_async_client_example" \
   --frames-dir "/mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324" \
-  --model "/mnt/manu/ptq/models/p0_off_A_none.rknn" \
+  --model "${BOARD_DEST:-$DEFAULT_BOARD_DEST}/models/p0_off_A_none.rknn" \
   --kernel-dir "$BOARD_DEST/runtime/kernels" \
   --out "$VERIFY_TMP_DIR/async_gate_ad" --frames 60 --fps 25 --mode app-drop || rc=$?
 [ "$rc" = "0" ] || die "板卡多线程模板(app-drop)失败（退出码 $rc）—— 多线程路径死锁、或模板本身有回归"

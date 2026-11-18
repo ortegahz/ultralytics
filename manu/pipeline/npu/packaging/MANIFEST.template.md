@@ -33,6 +33,7 @@
 ├── include/    rknn_api.h, stb_image.h, stb_image_resize.h, stb_image_write.h,
 │               rga/×18, CL/×20
 ├── runtime/kernels/    warp_median_fused.cl, sortnet_generated.inc, gmc_feature_gpu.cl
+├── models/    p0_off_A_none.rknn（**RKNN 模型，随包交付**）
 ├── out/        mosaic_pipeline.o, libmosaic_pipeline.so,
 │               mosaic_api_test, mosaic_client_example,
 │               mosaic_async_client_example,
@@ -47,8 +48,8 @@
 ```
 
 * `mosaic_sdk/` 是 `build/` 的**整树镜像**：源＝包目录下的每个普通文件，
-  目标＝**同名相对路径**（`src/`、`include/`、`runtime/kernels/`、`out/`
-  整树照搬）。
+  目标＝**同名相对路径**（`src/`、`include/`、`runtime/kernels/`、`models/`、
+  `out/` 整树照搬）。
 * 顶层那 5 个**兼容别名是符号链接**（不是副本），分别指向 `out/` 与 `src/npu/`，
   为的是**旧的平铺命令**（`./mosaic_api_test --kernel-dir ./kernels`）继续可用。
 * `out/` 的 6 个产物在交付包里**已预编译**（RK3588 / aarch64），嵌入式组
@@ -58,6 +59,13 @@
   **板卡依赖矩阵**）。库本身以**共享库** `out/libmosaic_pipeline.so` 交付
   （SONAME = `libmosaic_pipeline.so`），五个测试程序用
   `-lmosaic_pipeline` + `-Wl,-rpath,'$ORIGIN'` 链接它 ⇒ 整包可搬、可直接跑。
+* ✅ **本包自带 RKNN 模型** `models/p0_off_A_none.rknn`（6,326,305 B，md5
+  `1a3faf2f9459cad8a389ffa81810234c`）。**它不是第三方依赖**，是我们自己的
+  训练产物 ⇒ 不违反「不带第三方 .so/.a」这条约束。
+  以前包里**一个 .rknn 都没有**，文档却让客户用 `/mnt/manu/ptq/models/…`
+  （**我们内部 NFS 的路径**）⇒ 客户照抄命令必然失败；现已改为包内路径。
+  ⚠️ 模型在 NFS 上是 **soft 挂载**，**板卡直读会被读坏** ⇒ 板上使用前仍须
+  先 `cat` 到板卡 `/tmp`。
 
 <!-- MD5_TABLE:BEGIN -->
 （本段由 `make_build_dir.sh` 自动生成，勿手改）
@@ -214,7 +222,7 @@ const std::string isrc = ocl::read_file(kernel_dir + "/sortnet_generated.inc");
 | `librga.so.2` | 板卡路径 `/usr/lib/aarch64-linux-gnu/librga.so.2`，SONAME `librga.so.2`，`rga_api version 1.10.0_[9]` | **由板卡提供**（本包不带）。其 API 头 `include/rga/*` 已随包交付 |
 | `libOpenCL.so.1` | 板卡路径 `/usr/lib/aarch64-linux-gnu/libOpenCL.so.1`，SONAME `libOpenCL.so.1` | **由板卡提供**（本包不带）。用板卡自己的 OpenCL 驱动库（Mali-G610 / OpenCL 3.0） |
 | OpenCV | 板卡路径 `/usr/lib/aarch64-linux-gnu/libopencv_*.so.406`，**4.6.0** | **由板卡提供**（本包不带）。⚠️ **头与库必须同版本** |
-| 模型 `.rknn` | `{{NFS_ROOT}}/ptq/models/p0_off_A_none.rknn`，6,326,305 B，md5 `1a3faf2f9459cad8a389ffa81810234c` | 可直接用我们这份，也可换他们自己的模型。**换模型的形状约束见下表**（板卡实测） |
+| 模型 `.rknn` | ✅ **本包自带** `models/p0_off_A_none.rknn`，6,326,305 B，md5 `1a3faf2f9459cad8a389ffa81810234c`（fp16，输入 640×640×3，输出 2×[1,1,320,320]） | ✅ **直接用包内这份**（板卡上路径 `/mnt/manu/mosaic_sdk/models/p0_off_A_none.rknn`；⚠️ NFS soft 挂载直读会被读坏 ⇒ 板上使用前先 `cat` 到 `/tmp`），也可换他们自己的模型。**换模型的形状约束见下表**（板卡实测） |
 | 帧数据 | `VIDEO00007_19700101_001324`（640×512 BMP，命名 `frame_%06d.bmp`，共 11,810 帧），本板路径 `/mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324` | 他们自己的相机流（同样须是 640×512 灰度、单通道） |
 
 > **交叉编译器**仍属于对方环境：需要 aarch64 交叉工具链（我们用的是
