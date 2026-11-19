@@ -50,12 +50,22 @@ copy_one() {
   local rel="$1"
   local dstdir="${REMOTE_BASE%/*}/$(basename "$REMOTE_BASE")"
   local base="$(dirname "$rel")"
+  local lsize
+  lsize="$(stat -c %s "$SRC_ABS/$rel")"
   [[ "$base" == "." ]] || ssh $SSH_OPTS "$BOARD" "mkdir -p '$dstdir/$base'"
+  # 🔴 传输完整性门禁：
+  #   裸 `cat | ssh` 的管道退出码 = **最后一个命令**（远端）的状态；本地 `cat` 读失败或
+  #   传输被截断会被完全吞掉 ⇒ 板卡上落一个**静默截断的正式文件**却仍报 [PUB][OK]。
+  #   ⇒ 远端 cat 完先 stat 字节数，与本地 lsize 相等才允许 mv；不等 ⇒ 不 mv
+  #     （.part 留在原地，收口统一清理）⇒ ssh 退出码非 0 ⇒ 判 FAIL。
   if cat "$SRC_ABS/$rel" | ssh $SSH_OPTS "$BOARD" \
-       "cat > '$REMOTE_BASE/$rel.part' && mv -f '$REMOTE_BASE/$rel.part' '$REMOTE_BASE/$rel'"; then
-    echo "[PUB][OK] $rel"
+       "cat > '$REMOTE_BASE/$rel.part' \
+        && rsize=\$(stat -c %s '$REMOTE_BASE/$rel.part') \
+        && [ \"\$rsize\" = '$lsize' ] \
+        && mv -f '$REMOTE_BASE/$rel.part' '$REMOTE_BASE/$rel'"; then
+    echo "[PUB][OK] $rel ($lsize B)"
   else
-    echo "[PUB][FAIL] $rel" >&2
+    echo "[PUB][FAIL] $rel (期望 $lsize B，远端未通过字节数校验)" >&2
     return 1
   fi
 }
@@ -73,7 +83,7 @@ RC=0
 for i in $(seq 0 $((JOBS - 1))); do
   awk -v i="$i" 'NR % '"$JOBS"' == i' "$LIST_TMP" > "$LIST_TMP.b$i"
   [ -s "$LIST_TMP.b$i" ] || continue
-  ( sleep $((30 * i)); xargs -d '\n' -P1 -I{} bash -c 'copy_one "$@"' _ {} < "$LIST_TMP.b$i" ) &
+  ( sleep $((30 * i)); xargs -d '\n' -P1 -I{} bash -c 'set -o pipefail; copy_one "$@"' _ {} < "$LIST_TMP.b$i" ) &
   eval "PID_$i=\$!"
 done
 for i in $(seq 0 $((JOBS - 1))); do
@@ -81,12 +91,28 @@ for i in $(seq 0 $((JOBS - 1))); do
 done
 
 echo "[PUB] ---- 收口对账 ----"
+# 🔴 完整性门禁必须是**独立一步**并检查退出码：
+#   把 `md5sum -c ... && echo PASS || echo FAILED` 塞进远端命令串里，
+#   失败会被 `|| echo` 吞掉 ⇒ ssh 退出码恒为 0 ⇒ 调用方无从察觉（BLOCKING-7）。
 ssh $SSH_OPTS "$BOARD" "
   cd '$REMOTE_BASE' || exit 1
   echo \"[PUB] 板卡侧文件数: \$(find . -type f | wc -l)\"
-  echo \"[PUB] 板卡侧总字节: \$(find . -type f -printf '%s\n' | awk '{s+=\$1} END{print s}')\"
-  if [ -f md5sums.txt ]; then
-    md5sum -c md5sums.txt --quiet && echo '[PUB] md5sum -c 60/60 PASS ✓' || echo '[PUB] md5sum -c FAILED ✗'
-  fi
+  echo \"[PUB] 板卡侧总字节: \$(find . -type f -printf '%s\\n' | paste -sd+ | bc)\"
+  echo \"[PUB] 残留 .part: \$(find . -name '*.part' | wc -l)\"
 "
+MD5_RC=0
+if ssh $SSH_OPTS "$BOARD" "test -f '$REMOTE_BASE/md5sums.txt'"; then
+  ssh $SSH_OPTS "$BOARD" "cd '$REMOTE_BASE' && md5sum -c md5sums.txt --quiet" || MD5_RC=1
+  if [[ $MD5_RC -eq 0 ]]; then
+    echo "[PUB] md5sum -c PASS ✓"
+  else
+    echo "[PUB] md5sum -c FAILED ✗（板卡媒体文件与台账不符）" >&2
+    RC=1
+  fi
+else
+  echo "[PUB] ⚠️ 目标目录没有 md5sums.txt ⇒ 跳过完整性门禁（不是交付包用法）" >&2
+fi
+
+# 收口再清一次 .part 残留（开跑前清过一次，但中途失败的会留在原地）
+ssh $SSH_OPTS "$BOARD" "find '$REMOTE_BASE' -name '*.part' -delete" 2>/dev/null
 exit $RC

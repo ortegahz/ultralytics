@@ -295,3 +295,57 @@ python sdk_track_online_ref.py --cands /tmp/v09/v09_cands.tsv \
 python compare_fused.py --a /tmp/v09/fused_py.tsv --b /tmp/v09/v09_fused.tsv --strict
 ```
 原始 TSV：`manu/memory/cadence_ab_20261119/vid09_align/`。
+
+---
+
+## 8. 🟢 2026-11-19 追加：Δn 口径统一 + 超参搜索 + C++ 落地 + 板卡实跑逐位对齐
+
+> 主档见 `memory.md` **§183**（§183.1~§183.11）。本节只留「时空后处理」视角的要点。
+
+### 8.1 结论一句话
+
+板卡实测 **8.03 fps / Δn 均值 3.11**（源恒定 25 fps）下，**冻结参数走物理帧轴 F1 = 0.00%**
+（`confirm_consec=6` + `confirm_gap_tol=0` 的「逐帧连续」假设把轨迹全杀光）；
+改成 **`confirm_consec=2` + `confirm_gap_tol=6` + `max_age_phys=10` + `r_slope=3.5` + `alpha_decay=1.0`**
+（`match_dist` **保持 16.0** 不动）后，24 序全量复核 **s1 94.69 / s2 94.24 / s3 92.44 / s4 94.77**，
+对比逐帧上限 **95.33** ⇒ **−0.65 pp**，FAR **0.0281** 仍在 0.03 红线内 ⇒ **可接受，已 apply C++**。
+
+### 8.2 引擎侧新增语义（`mosaic_track_fusion.{h,cpp}`）
+
+| 参数 | 含义 | 新默认 |
+|:--|:--|:--|
+| `max_age_phys` | 航迹保留的**物理帧数**（`fid - last_hit_fid > max_age_phys` 即销毁） | 10 |
+| `r_slope` | 每多跳 1 帧，关联半径放宽 `r_slope` px（`R = R_base + r_slope·(Δn−1)`） | 3.5 |
+| `alpha_decay` | 单帧(40 ms)置信度保留率，按 `Δn` 衰减 | 1.0（不衰减） |
+| `use_physical_frame_id` | 引擎是否吃**物理帧号**（否则按稠密更新计数） | 1 |
+
+配套：`Predict(dt = 0.04·Δn)` 状态外推、乱序守卫（`fid <= last_fid` 丢弃）、
+`mosaic_pipeline` 侧 **`FusionAxisPicker`**（物理帧号优先；迟到帧原样喂由引擎丢弃；
+`id<0` 或同 id 连续 3 次 ⇒ 退回稠密轴）。
+
+### 8.3 板卡实跑逐位对齐（0.64 / OpenCV 4.8 / aarch64）
+
+* 本板**不能跑 4.6 交付包** ⇒ 板上原生重编（g++ 9.4 + `/root/cv480inc` + `/root/mosaic/opencv`）
+  ⇒ `libmosaic_pipeline.so` md5 `96fb8e98…`（已装 `/root/mosaic/`）。
+* **稠密臂**（VIDEO00007 前 400 帧）：1764 候选 / **890** 融合检测；
+  板卡 fused md5 **与 Python 参考同为 `d5af6923…`** ⇒ 逐位一致。
+  （`cands.tsv` md5 `e7f6aef2…`，与 §7.1 记录相同 ⇒ 检测通路未被改动。）
+* **跳帧臂**（按实测 Δn 推 400 次更新，物理帧号 0…1202）：5340 候选 / **1084** 融合检测；
+  `compare_fused.py --strict` **PASS(identical)**（离散 0、数值 0、max\|Δpos\|=0、max\|Δscore\|=0）。
+  ⚠️ 唯一差异是**格式**：板卡 `collect_fused` **不输出空帧**（652 行）而 Python 每帧都写（1203 行）；
+  去掉空帧行后两边 652 行**逐位相同**（检测数都是 1084）。
+* 🛠 新增 `mosaic_track_dump --ids <file>`：每帧的 `client_frame_id` 可指定 ⇒ 板卡上复现跳帧；
+  `cands.tsv` 帧号列随之写物理帧号 ⇒ 可直接喂 `sdk_track_fusion_ref.py --physical-frame-index`。
+
+### 8.4 交付包（4.6 口径，给嵌入式组）
+
+* `out/libmosaic_pipeline.so` md5 **`0baaaaecd12af82606601ce685384e80`**（NEEDED 全 `libopencv_*.so.406`）。
+* 落点：NFS `/run/media/manu/SSD960-LOCAL/nfs/mosaic_sdk`（76 文件）+ `rk3588_app_base/mosaic_sdk/`。
+* 🔴🔴 **版本握手**：`MOSAIC_TRACK_FUSION_VERSION` **1 → 2** ⇒ 嵌入方**必须用新 `mosaic_pipeline.h` 重编**，
+  否则 `mosaic_pipeline_set_track_fusion()` 返回 **`-2`**，融合**静默不生效**（不崩，只是没开）。
+
+### 8.5 待办
+
+* ⬜ 真 th045 底座复跑（服务器现存 24 序缓存是 `cs_t0043`；trial_0080 的 th045 缓存已不存在，需 GPU，本轮未启动）。
+* ⬜ **RT pipeline 参数搜索**（时空后处理/跟踪器寻优）：**等用户 RT 指令**再做。
+* ⬜ 候选池口径（Python 多尺度 merge 池 vs SDK 单尺度 640×512 CCL）：仍未标定。

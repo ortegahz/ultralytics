@@ -133,27 +133,56 @@ def format_frame(frame_idx: int, dets: list[dict]) -> str:
     return " ".join(parts)
 
 
-def run(cands_path: Path, params_path: Path, out_path: Path, img_h: int, seq: str) -> dict:
-    """Run the reference pipeline and write the fused TSV."""
+def run(
+    cands_path: Path,
+    params_path: Path,
+    out_path: Path,
+    img_h: int,
+    seq: str,
+    physical_frame_index: bool = False,
+) -> dict:
+    """Run the reference pipeline and write the fused TSV.
+
+    ``physical_frame_index`` feeds the tracker the CAMERA frame numbers of the
+    candidate stream instead of a dense update counter: the tracker then sees
+    the REAL frame gap (dn) -- the delta-n semantics of the C++ engine.  It is
+    OFF by default, so the legacy dense alignment is untouched.
+    """
     frames = parse_candidates(cands_path)
     params = load_params(params_path)
     records = build_records(frames, seq)
 
-    dets, _res = run_system_sota(records, params, img_h=img_h)
+    dets, _res = run_system_sota(
+        records, params, img_h=img_h, use_physical_frame_index=physical_frame_index
+    )
 
     # `dets` is ordered like `records_sorted` inside `evaluate_sequence_bidirectional`, i.e. sorted
     # by `natural_sort_key(im_name)`.  Map it back to the original frame indices explicitly so the
     # output never depends on the sort order being the identity.
-    order = sorted(range(len(records)), key=lambda i: natural_sort_key(records[i]["im_name"]))
     by_frame: dict[int, list[dict]] = {}
-    for slot, record_idx in enumerate(order):
-        by_frame[int(records[record_idx]["frame_index"])] = list(dets[slot])
+    if physical_frame_index:
+        # `dets` is indexed by the CAMERA frame number and covers EVERY frame of
+        # the axis -- including the frames the detector never delivered, which
+        # carry the interpolated (infilled) detections.  Building the map from
+        # the records instead would drop them.
+        by_frame = {index: list(dets[index]) for index in range(len(dets))}
+    else:
+        order = sorted(range(len(records)), key=lambda i: natural_sort_key(records[i]["im_name"]))
+        for slot, record_idx in enumerate(order):
+            by_frame[int(records[record_idx]["frame_index"])] = list(dets[slot])
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     total_dets = 0
+    # In the physical mode the output axis IS the camera frame number, so EVERY
+    # frame between 0 and the largest one is written (the frames the detector
+    # never delivered may still carry an interpolated detection).  That is the
+    # same axis the C++ engine uses => the two files can be compared directly.
+    if physical_frame_index:
+        axis = range(max((int(f["frame_idx"]) for f in frames), default=-1) + 1)
+    else:
+        axis = (int(frame["frame_idx"]) for frame in frames)
     with out_path.open("w", encoding="utf-8") as handle:
-        for frame in frames:
-            frame_idx = int(frame["frame_idx"])
+        for frame_idx in axis:
             frame_dets = by_frame.get(frame_idx, [])
             total_dets += len(frame_dets)
             handle.write(format_frame(frame_idx, frame_dets) + "\n")
@@ -174,11 +203,24 @@ def main() -> int:
     parser.add_argument("--out", required=True, type=Path, help="Output fused TSV")
     parser.add_argument("--img-h", type=int, default=IMG_H, help=f"Frame height (default: {IMG_H})")
     parser.add_argument("--seq", type=str, default=None, help="Sequence name (default: candidates file stem)")
+    parser.add_argument(
+        "--physical-frame-index",
+        action="store_true",
+        help="feed the tracker the CAMERA frame numbers of the candidate stream (the delta-n "
+             "semantics); off by default (the legacy dense alignment)",
+    )
     args = parser.parse_args()
 
     seq = args.seq if args.seq else args.cands.stem
     try:
-        stats = run(args.cands, args.params, args.out, args.img_h, seq)
+        stats = run(
+            args.cands,
+            args.params,
+            args.out,
+            args.img_h,
+            seq,
+            physical_frame_index=args.physical_frame_index,
+        )
     except (OSError, ValueError) as exc:
         print(f"ERROR: {exc}")
         return 2

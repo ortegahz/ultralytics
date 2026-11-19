@@ -202,6 +202,65 @@ struct OrderedArtifact {
   std::vector<Matx23f> mats;
 };
 
+// ---------------------------------------------------------------------------
+// The FRAME AXIS the track-fusion engine is fed with.
+//
+// The engine's arithmetic (the Kalman step, the association gate, the score
+// decay, the track age) is defined on the axis it is fed with, and there
+// are two of them:
+//
+//   * the DENSE UPDATE COUNTER (0, 1, 2, ...): the gapless sequence the
+//     reference implementation saw -- every frame it processed;
+//   * the CAMERA's PHYSICAL FRAME NUMBER: the REAL frame gap (the physical
+//     frame difference dn), which is what the detector actually delivers
+//     (the board computes ~8 fps out of a 25 fps source, so the gap is ~3).
+//
+// The physical axis is the default.  The caller's frame numbers are only
+// trustworthy when they really CHANGE: a negative id, or the same id three
+// times in a row, means the caller has no usable frame numbers, and the
+// axis falls back to the dense counter (frame by frame, so a later frame
+// with a good id can switch back).
+//
+// The axis must NOT go backwards, so once a physical id has been used the
+// dense counter is lifted ABOVE it: otherwise the first dense frame after
+// a physical one would look like a late frame to the engine and be
+// dropped.  A LATE physical frame (an id below the last one -- the NPU
+// services can finish two frames out of order) goes in AS IS: the engine
+// has its own `fid <= last_fid` guard and drops it, exactly like the
+// Python reference does.
+// ---------------------------------------------------------------------------
+struct FusionAxisPicker {
+  int64_t dense = 0;          // the dense update counter (the legacy axis)
+  int64_t steps = 0;          // the number of frames fed to the engine
+  int64_t last_phys_id = -1;  // the last physical id that was USED
+  int32_t same_id_run = 0;    // the run of IDENTICAL physical ids
+
+  // Returns the axis of the frame whose camera frame number is `id`.
+  int64_t Next(int64_t id, bool use_physical_frame_id) {
+    ++steps;
+    if (!use_physical_frame_id) return dense++;  // LEGACY: the dense counter
+
+    // ---- is the caller's frame id usable? ----
+    bool usable = true;
+    if (id < 0) {
+      usable = false;
+    } else if (id == last_phys_id) {
+      ++same_id_run;
+      // The same id three times in a row: these are not frame numbers.
+      if (same_id_run >= 3) usable = false;
+    } else {
+      same_id_run = 1;
+      // A LATE frame does NOT roll the last id back.
+      if (id > last_phys_id) last_phys_id = id;
+    }
+
+    // The dense counter must stay ABOVE the last physical axis.
+    if (dense <= last_phys_id) dense = last_phys_id + 1;
+    if (usable) return id;  // the late frames go in as they are
+    return dense++;         // the dense fallback
+  }
+};
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -481,16 +540,19 @@ struct MosaicPipeline {
   // PIPELINE-GLOBAL, not per NPU service: the tracks are a property of the
   // SEQUENCE, so two NPU services must not own two sets of tracks.
   //
-  // The engine is fed with a DENSE UPDATE COUNTER (`fusion_updates`), not
-  // with the camera's frame number: the reference implementation sees a
-  // gapless sequence of updates (every frame it processed), and the engine's
-  // own arithmetic (the Kalman step, the age, the confirmation) is defined
-  // on that gapless sequence.  The camera's frame number travels with the
-  // result instead, so the caller can see the physical gap.
+  // The engine is fed with a FRAME AXIS (`fusion_axis`): by DEFAULT the
+  // camera's PHYSICAL frame number, so the engine's arithmetic (the Kalman
+  // step, the association gate, the score decay, the age) runs on the REAL
+  // frame gap (the physical frame difference dn) instead of on a gapless
+  // sequence of updates.  `use_physical_frame_id = 0` falls back to the
+  // legacy DENSE UPDATE COUNTER (0, 1, 2, ...), the gapless sequence the
+  // reference implementation saw.  Either way the camera's frame number
+  // travels with the result, so the caller can see the physical gap.
   std::unique_ptr<mosaic::TrackFusionEngine> fusion;
   MosaicTrackFusionConfig fusion_cfg{};
   std::mutex m_fusion;
-  int64_t fusion_updates = 0;
+  // The frame axis the engine is fed with (see FusionAxisPicker).
+  FusionAxisPicker fusion_axis;
   // The reorder buffer (only used when reorder_window > 0): the frames
   // waiting for their turn, keyed by the camera's frame number.
   std::map<int64_t, std::vector<mosaic::TrackFusionCand>> fusion_pending;
@@ -2180,10 +2242,15 @@ struct MosaicPipeline {
   // Run one update of the engine and publish the frame's online result.
   // The caller holds m_fusion.
   void RunFusionStep(int64_t id, const std::vector<mosaic::TrackFusionCand>& cands) {
-    const int64_t dense = fusion_updates++;
-    fusion->Step(dense, cands.data(), cands.size());
+    // THE FRAME AXIS: the camera's physical frame number by default (so the
+    // engine sees the real frame gap), or the legacy dense update counter.
+    // The picker decides, and it falls back to the dense counter on its own
+    // when the caller's frame numbers are not usable.
+    const int64_t axis =
+        fusion_axis.Next(id, fusion_cfg.use_physical_frame_id != 0);
+    fusion->Step(axis, cands.data(), cands.size());
     std::vector<mosaic::TrackFusionDet> dets;
-    fusion->OnlineFused(dense, &dets);
+    fusion->OnlineFused(axis, &dets);
     TrackedItem ti;
     ti.id = id;
     ti.dets = std::move(dets);
@@ -4291,6 +4358,17 @@ static mosaic::TrackFusionParams ToFusionParams(const MosaicTrackFusionConfig& c
   p.confirm_consec = c.confirm_consec;
   p.confirm_gap_tol = c.confirm_gap_tol;
   p.confirm_trim_prefix = c.confirm_trim_prefix;
+  // The physical-frame-gap knobs (v2).  They are CLAMPED: a caller built
+  // against the v1 header (a smaller struct) leaves garbage here, and the
+  // clamps turn that garbage back into the kernel's defaults instead of an
+  // absurd gate or an absurd track age.
+  {
+    const mosaic::TrackFusionParams d;  // the kernel's defaults
+    p.max_age_phys = (c.max_age_phys >= -1 && c.max_age_phys <= 100000) ? c.max_age_phys
+                                                                        : d.max_age_phys;
+    p.r_slope = (c.r_slope >= 0.0 && c.r_slope <= 100.0) ? c.r_slope : d.r_slope;
+    p.alpha_decay = (c.alpha_decay > 0.0 && c.alpha_decay <= 1.0) ? c.alpha_decay : d.alpha_decay;
+  }
   return p;
 }
 
@@ -4327,6 +4405,12 @@ void mosaic_pipeline_track_fusion_defaults(MosaicTrackFusionConfig* cfg) {
   cfg->confirm_consec = d.confirm_consec;
   cfg->confirm_gap_tol = d.confirm_gap_tol;
   cfg->confirm_trim_prefix = d.confirm_trim_prefix;
+  cfg->max_age_phys = d.max_age_phys;
+  cfg->r_slope = d.r_slope;
+  cfg->alpha_decay = d.alpha_decay;
+  // The camera's PHYSICAL frame number is the axis the engine is fed with:
+  // the engine then compensates the real frame gap (dn).
+  cfg->use_physical_frame_id = 1;
 }
 
 int32_t mosaic_pipeline_set_track_fusion(MosaicPipeline* p, const MosaicTrackFusionConfig* cfg) {
@@ -4335,7 +4419,7 @@ int32_t mosaic_pipeline_set_track_fusion(MosaicPipeline* p, const MosaicTrackFus
   if (!cfg || cfg->enable == 0) {
     p->fusion.reset();
     p->fusion_pending.clear();
-    p->fusion_updates = 0;
+    p->fusion_axis = FusionAxisPicker();
     p->fusion_finalized = false;
     p->fused_frames.clear();
     p->fused_pos = 0;
@@ -4350,22 +4434,25 @@ int32_t mosaic_pipeline_set_track_fusion(MosaicPipeline* p, const MosaicTrackFus
   // tag_mask == 0 would mean "no detections at all", which is never what a
   // caller wants by accident: 0 means ALL the scales (the default).
   if (p->fusion_cfg.tag_mask == 0) p->fusion_cfg.tag_mask = 0x7;
-  if (p->fusion_updates > 0) {
+  if (p->fusion_axis.steps > 0) {
     fprintf(stderr,
             "[warn] the track fusion is (re)enabled after %lld update(s): the tracks of the "
             "frames already processed are lost\n",
-            (long long)p->fusion_updates);
+            (long long)p->fusion_axis.steps);
   }
   p->fusion.reset(new mosaic::TrackFusionEngine(ToFusionParams(p->fusion_cfg)));
-  p->fusion_updates = 0;
+  p->fusion_axis = FusionAxisPicker();
   p->fusion_pending.clear();
   p->fusion_finalized = false;
   p->fused_frames.clear();
   p->fused_pos = 0;
   fprintf(stderr, "[i] track fusion ON: th_base=%.4f th_ground=%.4f sky_ratio=%.3f tags=0x%x "
-                  "reorder_window=%d\n",
+                  "reorder_window=%d physical_frame_id=%d max_age_phys=%d r_slope=%.2f "
+                  "alpha_decay=%.3f confirm_consec=%d confirm_gap_tol=%d\n",
           p->fusion_cfg.th_base, p->fusion_cfg.th_ground, p->fusion_cfg.sky_ratio,
-          p->fusion_cfg.tag_mask, p->fusion_cfg.reorder_window);
+          p->fusion_cfg.tag_mask, p->fusion_cfg.reorder_window, p->fusion_cfg.use_physical_frame_id,
+          p->fusion_cfg.max_age_phys, p->fusion_cfg.r_slope, p->fusion_cfg.alpha_decay,
+          p->fusion_cfg.confirm_consec, p->fusion_cfg.confirm_gap_tol);
   return 0;
 }
 
@@ -4415,6 +4502,17 @@ int32_t mosaic_pipeline_collect_fused(MosaicPipeline* p, int64_t* frame_id, Mosa
   {
     std::lock_guard<std::mutex> lk(p->m_fusion);
     if (p->fused_pos >= p->fused_frames.size()) return -1;  // not flushed yet, or drained
+    // PHYSICAL AXIS: the offline result is indexed by the CAMERA's frame
+    // number, so it is SPARSE -- the frame numbers the camera never
+    // delivered are holes, and a hole holds nothing: skip it, the caller
+    // only sees the frames that carry a result.  (The legacy dense axis
+    // has no holes: every position is returned, empty or not.)
+    if (p->fusion_cfg.use_physical_frame_id != 0) {
+      while (p->fused_pos < p->fused_frames.size() && p->fused_frames[p->fused_pos].empty()) {
+        ++p->fused_pos;
+      }
+      if (p->fused_pos >= p->fused_frames.size()) return -1;
+    }
     idx = (int64_t)p->fused_pos;
     dets = p->fused_frames[p->fused_pos];
     ++p->fused_pos;

@@ -35,6 +35,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import os
@@ -57,6 +58,10 @@ BASE_CACHE = "/mnt/data/siping/runs/nogmc_ref_weekend/uav_cache_base.pkl"
 # 官方 T1(GMC) 语义的冻结基线缓存（auto_epoch_gate_check.py 的默认值）
 #   ⚠️ 2026-11-11 修正：此前误用上面的 no-GMC 缓存当官方基线
 #   ⇒ 基线臂实测 F1=0.900897 ≠ 冻结 headline 0.905736 ⇒ A/B rc=2 ⇒ T1 全臂缺失
+# 🔴 2026-11-18 17:40：门禁缓存分片 4→2（每分片 ~4.5GB ⇒ 4 片=20GB/臂；
+#    3 臂并发 ⇒ 60GB ⇒ 曾把服务器内存打到 22% 可用 ⇒ 今晚按 2 片走，内存减半，
+#    结果完全等价（分片只是把验证集切块，评估时合并）。
+GATE_CACHE_GPUS = os.environ.get("GATE_CACHE_GPUS", "")  # 空 = 用本行默认 2 片
 OFFICIAL_BASE_CACHE = ("/tmp/pycharm_project_10ae9e2e/runs/mixed_ft_route_b/baseline/"
                        "uav_cache_deP0.pkl")
 #   ⚠️ 2026-11-11 修正：此前误用 no-GMC 缓存（nogmc_ref_weekend/uav_cache_base.pkl）
@@ -86,13 +91,13 @@ BASE = dict(
 #   trial_0031 → [Status: Superseded / Deprecated Baseline]
 #   trial_0080 (RC2) → [Status: Retired / Offline Historical Reference]
 #   trial_9863 → Baseline_v2.0（Non-GMC / <21 ms 唯一官方基线）
-BASE_V2_CKPT = '/mnt/data/siping/runs/npu20ms_offcal/trials/trial_1117002/weights/epoch5.pt'
+BASE_V2_CKPT = '/mnt/data/siping/runs/npu20ms_offcal/trials/trial_2020035/weights/epoch5.pt'
 BASE_V2 = dict(
-    name='Baseline_v2.4', trial=1117002, epoch=5, ckpt=BASE_V2_CKPT,
-    nano=0.7204631379962193, micro=0.8349070971672251, small=0.85902000678196, regular=0.9393103448275862, f1=0.8904026831656356, nano4=0.6561909262759924,
-    t1=0.8905731287190729, t1_fp=1457, t2=0.9938320130616193, t2_fp=1, t3=0.9485821744939873, t3_fp=88,
-    ms_delivery_board=19.306, ms_new_board=19.646, ms_new_board_t31_ref=None,
-    recipe='[SB] soup(640001@5,1100296@1) w=0.56',
+    name='Baseline_v3.0', trial=2020035, epoch=5, ckpt=BASE_V2_CKPT,
+    nano=0.7242438563327032, micro=0.83643009442583, small=0.8595286537809427, regular=0.9396551724137931, f1=0.8906832039622916, nano4=0.6609168241965974,
+    t1=0.8909238824339264, t1_fp=1473, t2=0.9931330731766344, t2_fp=4, t3=0.9488855869242199, t3_fp=76,
+    ms_delivery_board=19.306, ms_new_board=19.629, ms_new_board_t31_ref=None,
+    recipe='[SB3] soup(1608003@5:w0.5924,1612001@5:w0.0980,1530006@5:w0.2116,1623003@5:w0.0980)',
 )
 BASELINE_REGISTRY = [
     {"id": "Baseline_v2.3", "trial": 1106580, "status": "ACTIVE / OFFICIAL BASELINE",
@@ -347,12 +352,47 @@ def train_cmd(trial: int, gpu: int, seed: int, p: dict) -> str:
 # ============================================================================
 # 台账
 # ============================================================================
+# 🔴🔴🔴 2026-11-19 14:40 —— **乐观并发：load 时记录每个臂的指纹**（跨进程丢更新的根因修复）
+#   现场事故（2026-11-19 全天反复出现）：
+#     · 14:08 守望扫描到「六项全过臂 15 个」，14:04 是 17 个 ⇒ 读到的台账被**回滚**了；
+#     · 14:18 升轨 v3.0 后，台账出现「baseline_v2 = v3.0，但 registry 里 v3.0 标成 SUPERSEDED」；
+#     · 14:30 重算 474 个臂的 `official.six_ok`，几分钟后又被改回旧值。
+#   根因：`_merge_disk_ledger` 的 arms 合并是 **整臂覆盖**（`merged.update(m_arms)`）⇒
+#     进程 P 在 T0 读到台账、在 T1（可能十几分钟后）写回时，它手上**没改过的臂**也带着 T0 的旧内容
+#     ⇒ **把别的进程在这期间写进去的新内容整臂覆盖掉**（典型 lost update）。
+#     flock 只串行化了「写盘」这一步，**没有保护「读→改→写」这个事务**。
+#   修法（乐观并发 / 三方合并）：
+#     load 时给每个臂算一个指纹（md5 of 规范化 JSON），存到 `_LEDGER_ARM_HASH`；
+#     save 时逐臂比较：
+#       · 指纹没变 ⇒ **本进程没碰过这一臂** ⇒ 用**磁盘版**（可能含别的进程更新的字段）；
+#       · 指纹变了 ⇒ 本进程改过 ⇒ 以**内存版**为准（并保留磁盘上新增的键）。
+#     ⇒ 「我没改过的臂」不再覆盖别人的更新；「我改过的臂」仍然我说了算。
+_LEDGER_ARM_HASH: dict = {}
+
+
+def _arm_hash(arm: dict) -> str:
+    """一个臂的稳定指纹（键排序 + 规范化 JSON）。"""
+    try:
+        blob = json.dumps(arm, sort_keys=True, ensure_ascii=False, default=str)
+    except Exception:  # noqa: BLE001
+        return ""
+    return hashlib.md5(blob.encode("utf-8")).hexdigest()
+
+
 def load_ledger() -> dict:
+    global _LEDGER_ARM_HASH
     if os.path.isfile(LEDGER):
         try:
-            return json.load(open(LEDGER))
+            data = json.load(open(LEDGER))
+            _LEDGER_ARM_HASH = {
+                str(t): _arm_hash(a)
+                for t, a in (data.get("arms") or {}).items()
+                if isinstance(a, dict)
+            }
+            return data
         except Exception as e:  # noqa: BLE001
             log(f"[台账] 读取失败（{e}）⇒ 重建空台账")
+    _LEDGER_ARM_HASH = {}
     return {"arms": {}, "waves": [], "created": time.strftime("%Y-%m-%d %H:%M:%S")}
 
 
@@ -383,9 +423,21 @@ def _merge_disk_ledger(led: dict) -> None:
         return
     d_arms = disk.get("arms") or {}
     m_arms = led.get("arms") or {}
-    if d_arms:
+    if d_arms or m_arms:
         merged = dict(d_arms)
-        merged.update(m_arms)
+        for _tid, _m in m_arms.items():
+            if not isinstance(_m, dict):
+                merged[_tid] = _m
+                continue
+            _d = d_arms.get(_tid)
+            if not isinstance(_d, dict):
+                merged[_tid] = _m
+                continue
+            # 本进程有没有改过这一臂？（指纹 vs load 时的快照）
+            if _LEDGER_ARM_HASH.get(str(_tid)) == _arm_hash(_m):
+                merged[_tid] = _d          # 没改过 ⇒ 用磁盘版（可能含别人的更新）
+            else:
+                merged[_tid] = {**_d, **_m}  # 改过 ⇒ 内存优先，磁盘新增键不丢
         led["arms"] = merged
     d_rounds = {int(r.get("round", 0)): r for r in (disk.get("rounds") or []) if isinstance(r, dict)}
     m_rounds = {int(r.get("round", 0)): r for r in (led.get("rounds") or []) if isinstance(r, dict)}
@@ -876,7 +928,7 @@ def run_official_gate(trial: int, epoch, gpu: int) -> dict:
     else:
         os.makedirs(outd, exist_ok=True)
         cmd = (f"cd {REPO} && export PYTHONPATH=. && {PY} -u manu/training/auto_epoch_gate_check.py "
-               f"--weights {w} --out-dir {outd} --device {gpu} --infer-gpu {gpu} --gpus 1 "
+               f"--weights {w} --out-dir {outd} --device {gpu} --infer-gpu {gpu} --gpus 1 --cache-gpus {gpu},{(gpu+1)%4} "
                f"--baseline-cache {OFFICIAL_BASE_CACHE} > {outd}_gate.log 2>&1")
         r = sh(cmd, timeout=10800)
         if not os.path.isfile(rp):

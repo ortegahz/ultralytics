@@ -242,6 +242,7 @@ TrackFusionEngine::TrackFusionEngine(const TrackFusionParams& params) : params_(
 void TrackFusionEngine::Reset() {
   next_track_id_ = 1;
   num_frames_ = 0;
+  last_step_frame_ = -1;
   active_.clear();
   finished_.clear();
   stitched_.clear();
@@ -271,29 +272,44 @@ void TrackFusionEngine::InitTrackMatrices(Track* t) const {
   t->H[1][1] = 1.0f;
 }
 
-void TrackFusionEngine::Predict(Track* t, int64_t frame_idx) const {
-  // x = F @ x
+void TrackFusionEngine::Predict(Track* t, int64_t frame_idx, int64_t dt) const {
+  // ---- Δn（物理帧间隔）感知的状态转移 ----
+  //   dt == 1：F_dt ≡ t->F、Q_scaled ≡ t->Q ⇒ 与 legacy 逐位一致；
+  //   dt >  1：位置项按 dt 缩放（F_dt[0][2] = F_dt[1][3] = dt），
+  //             过程噪声按 Q_scaled = Q * dt 放大。
+  float Fdt[4][4];
+  std::memcpy(Fdt, t->F, sizeof(Fdt));
+  if (dt > 1) {
+    Fdt[0][2] = (float)dt;
+    Fdt[1][3] = (float)dt;
+  }
+  float Qs[4][4];
+  for (int i = 0; i < 4; ++i) {
+    for (int j = 0; j < 4; ++j) Qs[i][j] = (float)((double)t->Q[i][j] * (double)dt);
+  }
+
+  // x = F_dt @ x
   float nx[4];
   for (int i = 0; i < 4; ++i) {
     double s = 0.0;
-    for (int k = 0; k < 4; ++k) s += (double)t->F[i][k] * (double)t->x[k];
+    for (int k = 0; k < 4; ++k) s += (double)Fdt[i][k] * (double)t->x[k];
     nx[i] = (float)s;
   }
   std::memcpy(t->x, nx, sizeof(nx));
 
-  // P = F @ P @ F.T + Q
+  // P = F_dt @ P @ F_dt.T + Q_scaled
   float fp[4][4];
-  MatMul<4, 4, 4>(t->F, t->P, fp);
+  MatMul<4, 4, 4>(Fdt, t->P, fp);
   float fpt[4][4];
   for (int i = 0; i < 4; ++i) {
     for (int j = 0; j < 4; ++j) {
       double s = 0.0;
-      for (int k = 0; k < 4; ++k) s += (double)fp[i][k] * (double)t->F[j][k];  // (F.T)[k][j] = F[j][k]
+      for (int k = 0; k < 4; ++k) s += (double)fp[i][k] * (double)Fdt[j][k];  // (F.T)[k][j] = F[j][k]
       fpt[i][j] = (float)s;
     }
   }
   for (int i = 0; i < 4; ++i) {
-    for (int j = 0; j < 4; ++j) t->P[i][j] = (float)((double)fpt[i][j] + (double)t->Q[i][j]);
+    for (int j = 0; j < 4; ++j) t->P[i][j] = (float)((double)fpt[i][j] + (double)Qs[i][j]);
   }
 
   t->age += 1;
@@ -304,7 +320,17 @@ void TrackFusionEngine::Predict(Track* t, int64_t frame_idx) const {
 void TrackFusionEngine::Update(Track* t, const float pos[2], double score, int64_t frame_idx) const {
   t->time_since_update = 0;
   t->hits += 1;
-  t->score = 0.65 * t->score + 0.35 * score;
+  // ---- 分数混合：Δn 感知 ----
+  //   alpha_decay == 1.0 ⇒ legacy 公式（逐位一致）；
+  //   否则按「距上次命中的物理帧数」做指数衰减。
+  if (params_.alpha_decay == 1.0) {
+    t->score = 0.65 * t->score + 0.35 * score;
+  } else {
+    int64_t dt_hit = frame_idx - t->last_hit_fid;
+    if (dt_hit < 1) dt_hit = 1;
+    t->score = 0.65 * (t->score * std::pow(params_.alpha_decay, (double)dt_hit)) + 0.35 * score;
+  }
+  t->last_hit_fid = frame_idx;
   t->last_frame = frame_idx;
   t->last_observed_frame = frame_idx;
 
@@ -414,6 +440,13 @@ bool TrackFusionEngine::IsConfirmed(const Track& t) const {
 }
 
 void TrackFusionEngine::Step(int64_t frame_idx, const TrackFusionCand* cands, size_t count) {
+  // ---- 0. 乱序保护 + 物理帧间隔 dt ----
+  //     frame_idx 必须严格递增：frame_idx <= 上一次被接受的帧号 ⇒ 整次忽略
+  //     （状态完全不变）。dt = 本次与上一次的物理帧号之差（首次为 1）。
+  if (frame_idx <= last_step_frame_) return;
+  const int64_t dt = (last_step_frame_ < 0) ? 1 : (frame_idx - last_step_frame_);
+  last_step_frame_ = frame_idx;
+
   if (frame_idx + 1 > num_frames_) num_frames_ = frame_idx + 1;
 
   // ---- 1. 天地分区 + 双层阈值 ----
@@ -484,7 +517,7 @@ void TrackFusionEngine::Step(int64_t frame_idx, const TrackFusionCand* cands, si
   }
 
   // ---- 3. 卡尔曼预测 ----
-  for (Track& t : active_) Predict(&t, frame_idx);
+  for (Track& t : active_) Predict(&t, frame_idx, dt);
 
   std::vector<char> matched_tracks(active_.size(), 0);
   std::vector<char> matched_high(high_x.size(), 0);
@@ -509,7 +542,9 @@ void TrackFusionEngine::Step(int64_t frame_idx, const TrackFusionCand* cands, si
       const size_t r = (size_t)ri[k];
       const size_t c = (size_t)ci[k];
       Track& trk = active_[r];
-      const double gate = std::min(params_.max_match_dist, params_.match_dist + 0.5 * (double)VelocityNorm(trk));
+      const double gate = std::min(params_.max_match_dist,
+                                   params_.match_dist + params_.r_slope * (double)(dt - 1) +
+                                       0.5 * (double)VelocityNorm(trk));
       // numpy: float32 距离 与 Python float 门限比较 ⇒ 门限降到 float32
       if (dists[r * nc + c] <= (double)(float)gate) {
         const float pos[2] = {high_x[c], high_y[c]};
@@ -546,7 +581,9 @@ void TrackFusionEngine::Step(int64_t frame_idx, const TrackFusionCand* cands, si
       const size_t c = (size_t)ci[k];
       const size_t orig = unmatched[r];
       Track& trk = active_[orig];
-      const double gate = std::min(params_.max_match_dist, params_.match_dist + 0.4 * (double)VelocityNorm(trk));
+      const double gate = std::min(params_.max_match_dist,
+                                   params_.match_dist + params_.r_slope * (double)(dt - 1) +
+                                       0.4 * (double)VelocityNorm(trk));
       if (dists[r * nc + c] <= (double)(float)gate) {
         const float pos[2] = {salv_x[c], salv_y[c]};
         Update(&trk, pos, (double)salv_s[c], frame_idx);
@@ -604,6 +641,7 @@ void TrackFusionEngine::Step(int64_t frame_idx, const TrackFusionCand* cands, si
     t.start_frame = frame_idx;
     t.last_frame = frame_idx;
     t.last_observed_frame = frame_idx;
+    t.last_hit_fid = frame_idx;
     t.hits = 1;
     t.age = 1;
     t.time_since_update = 0;
@@ -624,7 +662,10 @@ void TrackFusionEngine::Step(int64_t frame_idx, const TrackFusionCand* cands, si
   // ---- Step D: 淘汰死轨 + 地面静态杂波剔除 ----
   std::vector<Track> surviving;
   for (Track& t : active_) {
-    if (t.time_since_update > params_.max_age) {
+    const bool dead = (params_.max_age_phys >= 0)
+                          ? ((frame_idx - t.last_hit_fid) > params_.max_age_phys)
+                          : (t.time_since_update > params_.max_age);
+    if (dead) {
       const float sky_boundary = (float)((double)params_.img_h * params_.sky_ratio);
       const bool is_in_sky = t.x[1] < sky_boundary;
       if (!is_in_sky && t.hits >= 5 && params_.min_displacement > 0.0) {

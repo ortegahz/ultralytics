@@ -1,0 +1,68 @@
+{
+  "_provenance": {
+    "what": "The delta-n (physical frame gap) working point: the frozen trial_0080 / th045 delivery point plus the parameters the 2026-11-19 random-FPS search found.",
+    "derived_from": "system_sota_longquan_trial0080_delivery_params.json (the frozen th045 point, which is left UNTOUCHED -- it documents the baseline).",
+    "search": "manu/evaluation/rt_fps_jitter_search.py --phase search, 10 sequences x 4 cadence scenarios x 3 seeds, the measured board cadence (memory/cadence_ab_20261119/cad_on.tsv, 8.03 updates/s, dn mean 3.11).",
+    "verification": "manu/evaluation/rt_fps_jitter_search.py --phase eval, ALL 24 sequences x 4 scenarios x 5 seeds, no frame truncation: pooled F1 94.685% (s1, the measured cadence) vs the 24-sequence per-frame ceiling 95.332% => -0.65 pp; FAR 0.0281 vs 0.0245 => still under the 0.030 delivery bound.",
+    "changed_vs_frozen": {
+      "confirm_consec": "6 -> 2",
+      "confirm_gap_tol": "0 -> 6",
+      "max_age_phys": "absent (off) -> 10 physical frames (400 ms)",
+      "r_slope": "absent (0.0) -> 3.5 px per extra physical frame",
+      "alpha_decay": "absent (1.0) -> 1.0 (unchanged: the search found no decay needed)",
+      "match_dist": "16.0 -> 16.0 (UNCHANGED: the search's 4.0 was not better on 24 sequences)"
+    },
+    "why_confirm_gap_tol_matters": "With dn ~ 3.1 the 'must be frame-consecutive' gate (confirm_consec=6 / confirm_gap_tol=0) kills EVERY track (F1 = 0.00%).  Allowing a 7-physical-frame gap restores it.",
+    "delivered_metrics_th045_frozen": {
+      "f1": 0.943909,
+      "recall": 0.9259,
+      "precision": 0.96263,
+      "fp": 4790,
+      "far_per_frame": 0.02899
+    },
+    "delivery_criteria": {
+      "f1_min": 0.88,
+      "recall_min": 0.85,
+      "far_max": 0.03
+    }
+  },
+  "params": {
+    "th_base": 0.45,
+    "th_salvage": 0.06,
+    "th_ground": 0.22,
+    "sky_ratio": 0.6,
+    "min_hits": 3,
+    "max_age": 3,
+    "match_dist": 16.0,
+    "max_match_dist": 24.0,
+    "instant_conf": 0.25,
+    "min_disp": 2.5,
+    "min_track_score": 0.08,
+    "stitch_gap": 6,
+    "infill_gap": 3,
+    "min_hits_infill": 5,
+    "min_rigid_disp": 2.0,
+    "max_rigid_var": 1.0,
+    "min_hits_prune": 4,
+    "dedup_radius": 768.0,
+    "th_deep": 0.0,
+    "min_hits_deep": 3,
+    "min_rigid_disp_sky": -1.0,
+    "hover_vel": 0.0,
+    "hover_infill_gap": 15,
+    "coast_frames": 0,
+    "min_hits_hover": 8,
+    "hover_sky_only": 1,
+    "stitch_long_gap": 0,
+    "stitch_vel_diff": 4.0,
+    "confirm_consec": 2,
+    "confirm_gap_tol": 6,
+    "confirm_trim_prefix": 1,
+    "persist_min_hits": 0,
+    "persist_window": 0,
+    "persist_tol": 4.0,
+    "max_age_phys": 10,
+    "r_slope": 3.5,
+    "alpha_decay": 1.0
+  }
+}

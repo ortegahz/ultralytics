@@ -1201,8 +1201,13 @@ int32_t mosaic_pipeline_set_detect_threshold(MosaicPipeline* p, const double* th
 /* The version of MosaicTrackFusionConfig.  Bumped only when a field is
  * removed or its meaning changes; appending fields at the END keeps the old
  * binaries working (they pass an older, smaller struct -- the caller sets
- * `version` and the library only reads the fields it knows). */
-#define MOSAIC_TRACK_FUSION_VERSION 1
+ * `version` and the library only reads the fields it knows).
+ *
+ * v2 (2026-11-19): appended `max_age_phys` / `r_slope` / `alpha_decay` (the
+ * physical-frame-gap knobs) and `use_physical_frame_id`.  A caller built
+ * against v1 is REJECTED with -2 (the version is checked before the struct is
+ * copied), so the library never reads a field it does not know. */
+#define MOSAIC_TRACK_FUSION_VERSION 2
 
 typedef struct {
   int32_t version; /* must be MOSAIC_TRACK_FUSION_VERSION */
@@ -1252,6 +1257,37 @@ typedef struct {
   int32_t confirm_consec;  /* the consecutive hits that confirm a track       (6) */
   int32_t confirm_gap_tol; /* the extra gap the confirmation tolerates       (0) */
   int32_t confirm_trim_prefix; /* 1 = drop the detections before the confirmation (1) */
+
+  /* THE FRAME AXIS THE ENGINE IS FED WITH.
+   *   1 (the default): the CAMERA's PHYSICAL frame number -- the number the
+   *       caller pushed the frame with (mosaic_pipeline_push_frame()'s
+   *       client_frame_id).  The engine then sees the REAL frame gap (the
+   *       physical frame difference dn): the Kalman step, the association
+   *       gate, the score decay and the track age are all computed in
+   *       physical frames.
+   *   0: the legacy DENSE update counter (0, 1, 2, ...): the gapless
+   *       sequence the reference implementation saw.
+   * The engine falls back to the dense counter ON ITS OWN when the frame
+   * numbers are not usable (a negative id, or the same id three times in a
+   * row), so a caller without real frame numbers keeps working. */
+  int32_t use_physical_frame_id;
+
+  /* ---- the physical-frame-gap (delta-n) knobs, appended in v2 ----
+   *   The detector does not deliver every camera frame (the board computes
+   *   ~8 fps out of a 25 fps source), so the engine has to compensate the
+   *   REAL frame gap:
+   *   max_age_phys : the PHYSICAL frames a track survives without a hit
+   *                  (< 0 = off: the legacy per-update age);
+   *   r_slope      : the pixels the association gate is widened by for
+   *                  every extra physical frame (the gate is
+   *                  match_dist + r_slope * (dn - 1), capped by
+   *                  max_match_dist);
+   *   alpha_decay  : the score retention per physical frame.
+   *   The defaults are the values found by the 2026-11-19 random-FPS
+   *   search (10 / 3.5 / 1.0). */
+  int32_t max_age_phys;
+  double r_slope;
+  double alpha_decay;
 } MosaicTrackFusionConfig;
 
 /* One tracked detection.  `x`/`y` are the NATIVE frame pixels (640x512). */
@@ -1297,7 +1333,15 @@ int32_t mosaic_pipeline_collect_tracked(MosaicPipeline* p, int64_t* frame_id, Mo
  * smoother plus the consecutive-frame confirmation, i.e. the output of the
  * Python reference's `run_system_sota`.  It only exists AFTER
  * mosaic_pipeline_flush(): the smoother needs the whole sequence.
- * `frame_id` receives the frame's index in the sequence (0, 1, 2, ...).
+ * `frame_id` receives the frame's AXIS:
+ *   - `use_physical_frame_id == 1` (the DEFAULT): the CAMERA's PHYSICAL
+ *     frame number -- the same number mosaic_pipeline_collect() returns for
+ *     the same frame.  The offline result is indexed by that number, so it
+ *     is SPARSE (its length is the largest frame number + 1) and the frame
+ *     numbers the camera never delivered carry nothing: they are SKIPPED,
+ *     so the caller only sees the frames that hold a result.
+ *   - `use_physical_frame_id == 0`: the frame's index in the update
+ *     sequence (0, 1, 2, ...), exactly as before.
  * Returns -1 when nothing is left (or before the flush). */
 int32_t mosaic_pipeline_collect_fused(MosaicPipeline* p, int64_t* frame_id, MosaicTrackedDet* out,
                                       int32_t max_out);

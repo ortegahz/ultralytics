@@ -346,6 +346,17 @@ libc.so.6
 
 ---
 
+---
+
+## F0. 🔴🔴 集成前必读：`MOSAIC_TRACK_FUSION_VERSION` 1 → 2（**必须重编 app**）
+
+* 本版 `mosaic_pipeline_set_track_fusion()` 会校验 `cfg.version`；
+  **对不上返回 `-2`**，时空融合**静默不生效**（不崩、只是没开）。
+* ⇒ **必须用本包 `src/npu/mosaic_pipeline.h` 重编 app**；**只换 `.so` 不换头** ⇒ 融合悄悄失效。
+* 新增字段：`max_age_phys` / `r_slope` / `alpha_decay` / `use_physical_frame_id`（默认值见
+  `mosaic_pipeline_track_fusion_defaults()`，唯一真源在 C++ 内核里）。
+* 帧号语义：`mosaic_pipeline_push_frame(..., client_frame_id)` 请传**物理帧号**（丢帧就跳号）。
+
 ## F. 集成步骤（5 步）
 
 ```bash

@@ -689,6 +689,33 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.r
 头文件是 `src/npu/mosaic_pipeline.h`（顶层另有一个指向它的兼容别名），链接的是
 **共享库** `out/libmosaic_pipeline.so`（`-lmosaic_pipeline`）。
 
+### 🔴🔴 升级必读：时空融合 API 的**版本握手**（旧 `.h` 编出来的 app **必须重编**）
+
+本版把 `MOSAIC_TRACK_FUSION_VERSION` 从 **1 抬到 2**（融合配置结构体新增了 3 个 Δn 字段：
+`max_age_phys` / `r_slope` / `alpha_decay`，另加 `use_physical_frame_id`）。
+
+* `mosaic_pipeline_set_track_fusion()` 会**校验** `cfg.version`：
+  **对不上直接返回 `-2`**，融合**静默不生效**（**不崩、不打日志、只是没开**）。
+* ⇒ **必须用本包里的 `src/npu/mosaic_pipeline.h` 重编你的 app**。
+  **只换 `.so` 不换头** ⇒ 融合会悄悄失效，表现是「跟踪结果一直是空的」。
+* 换头之后**顺手检查一下返回值**（一行就够）：
+
+```cpp
+MosaicTrackFusionConfig tf;
+mosaic_pipeline_track_fusion_defaults(&tf);   // 冻结默认值（唯一真源在 C++ 内核里）
+if (mosaic_pipeline_set_track_fusion(p, &tf) != 0) {
+    fprintf(stderr, "打开时空融合失败（多半是 .h 与 .so 版本不匹配）\n");
+}
+```
+
+* **本版默认工作点**（按板卡实测 8.03 fps / Δn≈3.11 标定）：
+  `confirm_consec=2`、`confirm_gap_tol=6`、`max_age_phys=10`、`r_slope=3.5`、`alpha_decay=1.0`、
+  `use_physical_frame_id=1`。
+* ⚠️ **帧号语义**：`mosaic_pipeline_push_frame(p, buf, w, h, client_frame_id)` 的
+  `client_frame_id` 请传**相机的物理帧号**（中间丢帧就跳号）⇒ 引擎据此算 Δn（物理帧间隔），
+  关联门限/存活期/分数衰减都按真实间隔走。
+  传稠密计数器也能跑（退化成 Δn≡1 的老行为，不会错），但**跳帧期间的机动会被门限吃掉**。
+
 ### 最短路径（TL;DR）
 
 **你要写的代码就是下面这几句** —— 配置只有「模型 + kernel + 档位」三个字段：

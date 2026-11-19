@@ -95,6 +95,7 @@ int main(int argc, char** argv) {
   std::string kdir = "/mnt/manu/mosaic_sdk/runtime/kernels";
   std::string seq = "VIDEO00007_19700101_001324";
   std::string prefix = "/tmp/track";
+  std::string ids_path;  // 可选：每帧使用的 client_frame_id（物理帧号）
   int frames = 400;
   int npu_workers = 1;
   int tag_mask = 0x7;
@@ -115,10 +116,13 @@ int main(int argc, char** argv) {
     else if (a == "--reorder-window" && nx) reorder_window = atoi(argv[++i]);
     else if (a == "--fusion" && nx) fusion = atoi(argv[++i]);
     else if (a == "--thr" && nx) thr = atof(argv[++i]);
+    else if (a == "--ids" && nx) ids_path = argv[++i];
     else {
       fprintf(stderr,
               "用法: %s [--dir D] [--model M] [--kernel-dir K] [--seq S] [--out-prefix P]\n"
-              "          [--frames N] [--npu-workers 1] [--tag-mask 7] [--reorder-window 0] [--thr T]\n",
+              "          [--frames N] [--npu-workers 1] [--tag-mask 7] [--reorder-window 0] [--thr T]\n"
+              "          [--ids FILE]   每帧的 client_frame_id（物理帧号），模拟跳帧；\n"
+              "                      不给时用稠密的 0,1,2,...（与 cands400.tsv 口径一致）\n",
               argv[0]);
       return 2;
     }
@@ -127,6 +131,24 @@ int main(int argc, char** argv) {
   std::vector<std::string> paths;
   if (!ListFrames(dir, &paths)) { fprintf(stderr, "[FATAL] %s 下没有 bmp\n", dir.c_str()); return 1; }
   if (frames > 0 && (int)paths.size() > frames) paths.resize((size_t)frames);
+
+  // ---- 可选的物理帧号表：ids[i] 是第 i 个被推帧的 client_frame_id ----
+  // 用来在板卡上复现「跳帧（Δn>1）」的真实节奏：cands.tsv 的帧号列写物理帧号，
+  // 于是板卡的融合引擎走的就是物理帧轴（Δn 语义），和 Python 参考 --physical-frame-index 对齐。
+  std::vector<int64_t> ids;
+  if (!ids_path.empty()) {
+    FILE* fi = fopen(ids_path.c_str(), "r");
+    if (!fi) { fprintf(stderr, "[FATAL] 打不开 ids 文件 %s\n", ids_path.c_str()); return 1; }
+    long long v = 0;
+    while (fscanf(fi, "%lld", &v) == 1) ids.push_back((int64_t)v);
+    fclose(fi);
+    if (ids.size() < paths.size()) {
+      fprintf(stderr, "[FATAL] ids 文件只有 %zu 个编号，但要用 %zu 帧\n", ids.size(), paths.size());
+      return 1;
+    }
+    fprintf(stderr, "[info] 物理帧号表：%zu 个编号，首/末 = %lld / %lld\n", ids.size(),
+            (long long)ids.front(), (long long)ids[paths.size() - 1]);
+  }
 
   MosaicPipelineConfig cfg;
   memset(&cfg, 0, sizeof(cfg));
@@ -173,14 +195,15 @@ int main(int argc, char** argv) {
   size_t n_cands = 0;
   for (size_t i = 0; i < paths.size(); ++i) {
     if (!LoadBmpGray8(paths[i], &w, &h, &gray)) { fprintf(stderr, "[warn] 读不了 %s\n", paths[i].c_str()); continue; }
-    const int64_t id = mosaic_pipeline_push_frame(pipe, gray.data(), (int32_t)w, (int32_t)h, (int64_t)i);
+    const int64_t cid = ids.empty() ? (int64_t)i : ids[i];
+    const int64_t id = mosaic_pipeline_push_frame(pipe, gray.data(), (int32_t)w, (int32_t)h, cid);
     if (id < 0) { fprintf(stderr, "[FATAL] push 失败 last_error=%s\n", mosaic_pipeline_last_error(pipe)); break; }
     ++pushed;
 
     // 检测结果（= 喂给引擎的候选流）
     const int32_t n = mosaic_pipeline_collect(pipe, &fid, dets.data(), (int32_t)dets.size());
     if (n < 0) { fprintf(stderr, "[FATAL] collect 失败\n"); break; }
-    fprintf(fc, "%lld %d", (long long)update_idx, n);
+    fprintf(fc, "%lld %d", (long long)(ids.empty() ? update_idx : cid), n);
     for (int32_t k = 0; k < n; ++k) {
       fprintf(fc, " %.9g %.9g %.9g", (double)dets[k].cx, (double)dets[k].cy, (double)dets[k].peak);
     }

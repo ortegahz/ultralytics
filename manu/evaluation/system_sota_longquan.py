@@ -280,6 +280,13 @@ def build_tracker_config(params: dict, img_h: int) -> dict:
         "img_h": int(img_h),
         "th_deep_salvage": float(params["th_deep"]),
         "min_hits_deep_salvage": int(params["min_hits_deep"]),
+        # The physical-frame-gap (delta-n) knobs.  They are ABSENT from the frozen
+        # th045 params => None / 0.0 / 1.0 => the legacy per-update behaviour, bit
+        # for bit.  Only the delta-n params file turns them on.
+        "max_age_phys": (None if params.get("max_age_phys") is None
+                         else int(params["max_age_phys"])),
+        "r_slope": float(params.get("r_slope", 0.0)),
+        "alpha_decay": float(params.get("alpha_decay", 1.0)),
     }
 
 
@@ -310,7 +317,12 @@ def build_smoother_config(params: dict, img_h: int) -> dict:
     }
 
 
-def run_system_sota(records: list[dict], params: dict, img_h: int = IMG_H) -> tuple[list[list[dict]], dict]:
+def run_system_sota(
+    records: list[dict],
+    params: dict,
+    img_h: int = IMG_H,
+    use_physical_frame_index: bool = False,
+) -> tuple[list[list[dict]], dict]:
     """Run the Anti-UAV system pipeline on the Longquanshan records and apply the consecutive-frame gate.
 
     Returns the (filtered) per-frame detections and the raw system report. The system report holds the
@@ -328,6 +340,7 @@ def run_system_sota(records: list[dict], params: dict, img_h: int = IMG_H) -> tu
         tracker_config=build_tracker_config(params, img_h),
         smoother_config=build_smoother_config(params, img_h),
         match_mode="bbox",
+        use_physical_frame_index=use_physical_frame_index,
     )
     dets = apply_consecutive_confirmation(
         res["bidi_frame_dets"],

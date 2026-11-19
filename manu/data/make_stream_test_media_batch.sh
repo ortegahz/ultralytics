@@ -51,7 +51,9 @@ done
 [[ -f "$SINGLE" ]] || { echo "[FATAL] 单序列脚本不存在: $SINGLE" >&2; exit 2; }
 mkdir -p "$OUT" || exit 2
 LOGDIR="$OUT/_logs"; mkdir -p "$LOGDIR"
-TMPROOT="${TMPROOT:-/tmp/stm_batch_tmp}"; mkdir -p "$TMPROOT"
+# 🔴 临时目录必须与 $OUT **同一文件系统**：否则 `mv` 跨设备会退化成 copy+unlink，
+#    目标路径会以**最终名字**逐字节写入 ⇒ 中途被杀就在官方路径留下半成品（≠ 原子落位）。
+TMPROOT="${TMPROOT:-$(dirname "$OUT")/.tmp_stm_batch}"; mkdir -p "$TMPROOT"
 
 export OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 NUMEXPR_NUM_THREADS=4
 

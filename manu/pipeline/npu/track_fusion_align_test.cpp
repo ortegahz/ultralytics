@@ -79,6 +79,9 @@ void LoadParams(const char* path, mosaic::TrackFusionParams* p) {
     else if (key == "confirm_consec") p->confirm_consec = (int32_t)v;
     else if (key == "confirm_gap_tol") p->confirm_gap_tol = (int32_t)v;
     else if (key == "confirm_trim_prefix") p->confirm_trim_prefix = (int32_t)v;
+    else if (key == "max_age_phys") p->max_age_phys = (int32_t)v;
+    else if (key == "r_slope") p->r_slope = v;
+    else if (key == "alpha_decay") p->alpha_decay = v;
     else {
       fprintf(stderr, "[warn] unknown param key '%s' (ignored)\n", key.c_str());
     }

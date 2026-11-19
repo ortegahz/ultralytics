@@ -98,6 +98,8 @@ class PointKalmanTrack:
         self.start_frame = frame_idx
         self.last_frame = frame_idx
         self.last_observed_frame = frame_idx
+        # Physical frame id of the last successful update (v10.6: the physical-frame age).
+        self.last_hit_fid = int(frame_idx)
         self.hits = 1
         self.age = 1
         self.time_since_update = 0
@@ -111,20 +113,35 @@ class PointKalmanTrack:
             frame_idx: (init_pos.copy(), float(score), True)
         }
 
-    def predict(self, frame_idx: int) -> np.ndarray:
-        self.x = self.F @ self.x
-        self.P = self.F @ self.P @ self.F.T + self.Q
+    def predict(self, frame_idx: int, dt: int = 1) -> np.ndarray:
+        """Advance the state by ``dt`` SOURCE frames (dt == 1 is the legacy per-update step)."""
+        if dt == 1:
+            self.x = self.F @ self.x
+            self.P = self.F @ self.P @ self.F.T + self.Q
+        else:
+            f_dt = self.F.copy()
+            f_dt[0, 2] = np.float32(dt)
+            f_dt[1, 3] = np.float32(dt)
+            self.x = f_dt @ self.x
+            self.P = f_dt @ self.P @ f_dt.T + (self.Q * np.float32(dt))
         self.age += 1
         self.time_since_update += 1
         self.last_frame = frame_idx
         return self.get_pos()
 
-    def update(self, pos: np.ndarray, score: float, frame_idx: int):
+    def update(self, pos: np.ndarray, score: float, frame_idx: int, alpha_decay: float = 1.0):
         self.time_since_update = 0
         self.hits += 1
-        self.score = 0.65 * self.score + 0.35 * float(score)
+        if alpha_decay == 1.0:
+            self.score = 0.65 * self.score + 0.35 * float(score)
+        else:
+            dt_hit = int(frame_idx) - int(self.last_hit_fid)
+            if dt_hit < 1:
+                dt_hit = 1
+            self.score = 0.65 * (self.score * (alpha_decay ** dt_hit)) + 0.35 * float(score)
         self.last_frame = frame_idx
         self.last_observed_frame = frame_idx
+        self.last_hit_fid = int(frame_idx)
 
         y = pos - self.H @ self.x
         S = self.H @ self.P @ self.H.T + self.R
@@ -167,7 +184,17 @@ class OnlineAdaptiveTracker:
         img_h: int = 640,
         th_deep_salvage: float = 0.0,
         min_hits_deep_salvage: int = 3,
+        max_age_phys: Optional[int] = None,
+        r_slope: float = 0.0,
+        alpha_decay: float = 1.0,
     ):
+        # v10.6: the physical-frame (delta-n) knobs.  The defaults reproduce the
+        # legacy per-update behaviour exactly (max_age_phys off, no gate widening,
+        # no score decay), so the frozen delivery numbers are bit-for-bit unchanged.
+        self.max_age_phys = None if max_age_phys is None else int(max_age_phys)
+        self.r_slope = float(r_slope)
+        self.alpha_decay = float(alpha_decay)
+        self.last_step_fid: Optional[int] = None
         self.max_age = max_age
         self.min_hits = min_hits
         self.match_dist = match_dist
@@ -186,6 +213,7 @@ class OnlineAdaptiveTracker:
     def reset(self):
         self.active_tracks.clear()
         self.finished_tracks.clear()
+        self.last_step_fid = None
 
     def step(
         self,
@@ -197,9 +225,16 @@ class OnlineAdaptiveTracker:
         deep_pts: Optional[np.ndarray] = None,
         deep_scs: Optional[np.ndarray] = None,
     ):
+        # 0. Out-of-order guard + the physical step size (delta-n).
+        frame_idx = int(frame_idx)
+        if self.last_step_fid is not None and frame_idx <= self.last_step_fid:
+            return
+        dt = 1 if self.last_step_fid is None else frame_idx - self.last_step_fid
+        self.last_step_fid = frame_idx
+
         # 1. Kalman prediction
         for t in self.active_tracks:
-            t.predict(frame_idx)
+            t.predict(frame_idx, dt)
 
         matched_tracks = set()
         matched_high_dets = set()
@@ -211,9 +246,12 @@ class OnlineAdaptiveTracker:
             row_ind, col_ind = linear_sum_assignment(dists)
             for r, c in zip(row_ind, col_ind):
                 trk = self.active_tracks[r]
-                cur_gate = min(self.max_match_dist, self.match_dist + 0.5 * trk.get_velocity_norm())
+                cur_gate = min(
+                    self.max_match_dist,
+                    self.match_dist + self.r_slope * (dt - 1) + 0.5 * trk.get_velocity_norm(),
+                )
                 if dists[r, c] <= cur_gate:
-                    trk.update(high_pts[c], high_scs[c], frame_idx)
+                    trk.update(high_pts[c], high_scs[c], frame_idx, self.alpha_decay)
                     matched_tracks.add(r)
                     matched_high_dets.add(c)
 
@@ -226,9 +264,12 @@ class OnlineAdaptiveTracker:
             for r_idx, c_idx in zip(r_sub, c_sub):
                 orig_track_idx = unmatched_track_indices[r_idx]
                 trk = self.active_tracks[orig_track_idx]
-                cur_gate = min(self.max_match_dist, self.match_dist + 0.4 * trk.get_velocity_norm())
+                cur_gate = min(
+                    self.max_match_dist,
+                    self.match_dist + self.r_slope * (dt - 1) + 0.4 * trk.get_velocity_norm(),
+                )
                 if dists_salvage[r_idx, c_idx] <= cur_gate:
-                    trk.update(salvage_pts[c_idx], salvage_scs[c_idx], frame_idx)
+                    trk.update(salvage_pts[c_idx], salvage_scs[c_idx], frame_idx, self.alpha_decay)
                     matched_tracks.add(orig_track_idx)
 
         # Step B2 (Phase-A): Track-Gated Deep Salvage.
@@ -253,7 +294,7 @@ class OnlineAdaptiveTracker:
                     trk = self.active_tracks[orig_track_idx]
                     # Conservative gate: no maneuver expansion for deep weak pulses
                     if dists_deep[r_idx, c_idx] <= self.match_dist:
-                        trk.update(deep_pts[c_idx], deep_scs[c_idx], frame_idx)
+                        trk.update(deep_pts[c_idx], deep_scs[c_idx], frame_idx, self.alpha_decay)
                         matched_tracks.add(orig_track_idx)
 
         # Step C: Only UNMATCHED HIGH-CONFIDENCE detections initiate new tracks
@@ -267,7 +308,11 @@ class OnlineAdaptiveTracker:
         # Step D: Cull dead tracks & enforce ground clutter suppression
         surviving = []
         for t in self.active_tracks:
-            if t.time_since_update > self.max_age:
+            if self.max_age_phys is not None:
+                dead = (frame_idx - int(t.last_hit_fid)) > int(self.max_age_phys)
+            else:
+                dead = t.time_since_update > self.max_age
+            if dead:
                 # Track is dying, check if it was a false alarm ground vibration
                 pos = t.get_pos()
                 is_in_sky = pos[1] < self.sky_y_boundary
@@ -750,6 +795,8 @@ def evaluate_sequence_bidirectional(
     size_gate: float = 40.0,
     bbox_conf_min: float = 0.40,
     bbox_dedup_radius: float = 20.0,
+    use_physical_frame_index: bool = False,
+    delivered_frames: Optional[set] = None,
 ) -> Dict[str, Dict[str, float]]:
     if tracker_config is None:
         tracker_config = {
@@ -783,7 +830,20 @@ def evaluate_sequence_bidirectional(
     smoother_config.setdefault("img_h", img_h)
 
     records_sorted = sorted(records, key=lambda r: natural_sort_key(r["im_name"]))
-    num_frames = len(records_sorted)
+
+    # v10.6: the physical-frame time base.  When enabled the tracker/smoother work on the
+    # camera frame NUMBER (r["frame_index"]) instead of the compacted record position, so a
+    # skipped frame is a real time gap.  Frames that carry neither a candidate nor a ground
+    # truth are simply absent from the records -- the physical numbering keeps them in the
+    # output as empty frames, so the frame axis stays aligned with the camera.
+    if use_physical_frame_index:
+        frame_ids = [int(r.get("frame_index", i)) for i, r in enumerate(records_sorted)]
+        if any(b <= a for a, b in zip(frame_ids, frame_ids[1:])):
+            raise ValueError("use_physical_frame_index requires strictly increasing frame ids")
+        num_frames = (max(frame_ids) + 1) if frame_ids else 0
+    else:
+        frame_ids = list(range(len(records_sorted)))
+        num_frames = len(records_sorted)
 
     stats = {
         "baseline": {"tp": 0, "fp": 0, "gt": 0},
@@ -797,7 +857,12 @@ def evaluate_sequence_bidirectional(
     th_deep = float(tracker_config.get("th_deep_salvage", 0.0))
 
     # Pass 1: Run online tracking across all frames
-    for f_idx, r in enumerate(records_sorted):
+    for r_idx, r in enumerate(records_sorted):
+        f_idx = frame_ids[r_idx]
+        if delivered_frames is not None and f_idx not in delivered_frames:
+            # The detector never produced this frame (the NPU was busy): the tracker
+            # does not run on it at all, so the next update is a real physical gap.
+            continue
         pred_pts = np.asarray(r["pred_points"], dtype=np.float32)
         pred_scs = np.asarray(r["pred_scores"], dtype=np.float32)
 
@@ -851,7 +916,8 @@ def evaluate_sequence_bidirectional(
     bidi_frame_dets = smoother.smooth_and_infill(stitched_tracks, num_frames)
 
     # Pass 3: Evaluate metrics
-    for f_idx, r in enumerate(records_sorted):
+    for r_idx, r in enumerate(records_sorted):
+        f_idx = frame_ids[r_idx]
         gt_pts = np.asarray(r["gt_pts"], dtype=np.float32)
         gt_bboxes = np.asarray(r["gt_bboxes"], dtype=np.float32) if "gt_bboxes" in r else None
         pred_pts = np.asarray(r["pred_points"], dtype=np.float32)

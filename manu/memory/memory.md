@@ -17911,6 +17911,8 @@ host `/media/manu/1TB-Volume/workspace/delivery/stream_test_media_th045_pass/` �
   ① <SEQ>_original_1920x1080.mp4      : ffmpeg -f h264 -i <SEQ>.h264 -c copy -movflags +faststart   （像素级无损封装）
   ② <SEQ>_640x512.mp4                : ffmpeg -framerate 25 -i frame_%06d.jpg -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p
   ③ <SEQ>_640x512_lossless_gray.mp4  : ffmpeg -framerate 25 -i frame_%06d.jpg -c:v libx264 -preset medium -qp 0 -pix_fmt gray
+        （⚠️ 交付件**实测 pix_fmt = `yuvj444p`**（全范围 4:4:4）：ffmpeg 的 libx264 不接受 `gray`，自动协商成 4:4:4；
+          ⇒ 体积是 4:2:0 版的 ~3~8 倍（1.58 GB vs 195 MB），**做容量规划别按 4:0:0 估**）
 ```
 
 🔴 **§177.6 的结论依然成立且必须遵守**：640×512 视频**必须以现成 JPG 序列为编码输入**，
@@ -17946,7 +17948,8 @@ host `/media/manu/1TB-Volume/workspace/delivery/stream_test_media_th045_pass/` �
 
 **配套产物**：`verification_report.json`（汇总判定）＋ `verification/<SEQ>.json` × 20（逐序列）
 ＋ `md5sums.txt`（60 条台账）＋ `README_stream_test_media_th045_pass.md`（给嵌入式组的说明书）
-＋ `scripts/` × 4（批量生成 / 批量校验 / 单序列生成 / 单序列校验）。
+＋ `scripts/` × 5（批量生成 / 批量校验 / 单序列生成 / 单序列校验 / **板卡发布**）。
+**交付文件共 88 个 / 12,816,863,903 B（其中 60 个 mp4 = 12,816,759,114 B = 11.94 GiB）**。
 
 ⚠️ **文件名口径变了**：参考交付用别名 `lq_ir_*.mp4`，本批用**真实序列名 `<SEQ>_*.mp4`**，**规格完全不变**。
 嵌入式组脚本若硬编码 `lq_ir_640x512.mp4`，须改成按序列名取。
@@ -17957,7 +17960,7 @@ host `/media/manu/1TB-Volume/workspace/delivery/stream_test_media_th045_pass/` �
 |:--|:--|:--|
 | **A. 元数据** | ffprobe `-count_frames` | 20 条 × 3 件套帧数 **全部 == 源帧数**（合计 125,459）✅ |
 | **B. 原始 mp4 无损性** | 源 `.h264` vs 封装 `.mp4` **像素 hash 序列**全量比对 | **20/20 全等** ✅（判定口径见 §182.6）|
-| **C. 640×512 无损灰度版 vs 参照帧** | **全部帧逐像素** | **maxdiff = 1**（20/20，mean_abs_diff 0.016~0.032、PSNR **64.05~66.66 dB**）✅ |
+| **C. 640×512 无损灰度版 vs 参照帧** | **全部帧逐像素** | **maxdiff = 1**（20/20，mean_abs_diff 0.014~0.0256、PSNR **64.05~66.66 dB**）✅ |
 | **D. 640×512 推流版 vs 参照帧** | 每 50 帧抽样 | maxdiff **20~52**、PSNR **38.29~48.03 dB** ✅（CRF18 正常损耗）|
 | **E. 独立复算** | 原始 mp4 --(OpenCV BMP 链)--> vs 参照帧 | maxdiff **8~11**（JPEG q95 链固有偏差）✅ |
 
@@ -17968,8 +17971,9 @@ host `/media/manu/1TB-Volume/workspace/delivery/stream_test_media_th045_pass/` �
 （`63d95b58085cfdfc4a6646663283d37c` / `dfe12ac9a9271d7c1a4f0d73360f08c5` / `6392ba44dcc9535aa774c88d36d10ef3`）
 **md5 逐字节相同** ⇒ 批量脚本没有引入任何规格漂移。
 
-**落位对账（host ↔ 服务器）**：两侧文件清单（85 个非日志文件）＋ **逐条字节数完全一致**；
-host 侧 `md5sum -c md5sums.txt` **60/60 全过（exit 0）**。
+**落位对账（host ≡ 服务器 ≡ 板卡）**：三处**交付文件各 88 个、逐条字节数完全一致**（12,816,863,903 B）；
+三处 `md5sum -c md5sums.txt` 均 **60/60 PASS**；另 **28** 个非媒体文件（README 1 + 汇总报告 1 + 逐序列报告 20 + 脚本 5 + 台账 1）
+**md5 逐个比对也全一致**。服务器侧另有 `_logs/` 运行日志 22 个（非交付物）。
 
 ### §182.6 🔴🔴 本轮最重要的修正：**framemd5 整段文本判无损 ⇒ 假阴性**
 
@@ -18007,9 +18011,9 @@ host 侧 `md5sum -c md5sums.txt` **60/60 全过（exit 0）**。
 
 | 位置 | 路径 | 状态 |
 |:--|:--|:--|
-| **服务器（权威副本）** | `/mnt/data/mosaic_delivery_20261116/stream_test_media_th045_pass/` | ✅ 107 文件（85 + 22 个 `_logs/`）|
-| **host（已拉回）** | `/media/manu/1TB-Volume/workspace/delivery/stream_test_media_th045_pass/` | ✅ 87 文件（85 + README + `md5sums.txt`）|
-| **板卡可见 NFS** | `/mnt/manu/stream_test_media_th045_pass/` | ⬜ **待发布**（沙箱内 NFS 是 `ro` 挂载，见下）|
+| **服务器（权威副本）** | `/mnt/data/mosaic_delivery_20261116/stream_test_media_th045_pass/` | ✅ **110 文件**（88 交付 + 22 个 `_logs/`）|
+| **host（已拉回）** | `/media/manu/1TB-Volume/workspace/delivery/stream_test_media_th045_pass/` | ✅ **88 文件**（60 mp4 + 20 逐序列报告 + 1 汇总报告 + 5 脚本 + README + `md5sums.txt`）|
+| **板卡可见 NFS** | `/mnt/manu/stream_test_media_th045_pass/` | ✅ **已发布并逐字节对账**（88 文件 / 12,816,863,903 B / md5 60/60 PASS / ffprobe 抽查通过）|
 
 **新增/改动脚本**（均在 `manu/data/`）：
 
@@ -18018,20 +18022,55 @@ host 侧 `md5sum -c md5sums.txt` **60/60 全过（exit 0）**。
 | `make_stream_test_media_batch.sh` | **新增** | 批量驱动；`--jobs N` × 每 ffmpeg `-threads 4`；**原子落位**（先写 `/tmp` 临时目录，三件套齐了再 `mv`）；**续跑校验三个产物都要 ffprobe 帧数一致才算 SKIP**；失败响亮退出 |
 | `verify_stream_test_media_batch.py` | **新增** | 批量校验；**阈值判定不写死 OK**（`--max-lossless-diff 1` / `--max-stream-diff 64` / `--max-rederive-diff 12`）；带 `--classify-only`（不重跑像素比对，只读 per-seq JSON 重新判定）|
 | `pull_stream_test_media.sh` | **新增** | host 侧并行拉回（默认 6 并发）＋ **逐文件字节数对账** |
+| `publish_stream_test_media_to_board.sh` | **新增** | host → **板卡 NFS 发布**：host 侧 NFS 导出根是 `ro` ⇒ 走 `cat 本地文件 \| ssh 板卡 'cat > 目标.part && mv'`；**多通道按铁律错峰 30s 启动**；收口自动 `md5sum -c` |
 | `verify_stream_test_media.py` | **已改** | §182.6 的口径修正（+45/−4 行）|
 | `make_stream_test_media.sh` | **未改** | 保持与 §177 已交付参考件 md5 一致（`f4bdbf089673e8ff55f985be3233eaf4`）|
 
-**踩坑（4 条，都已固化进脚本）**：
+**踩坑（9 条，都已固化进脚本）**：
 
 1. 🔴 **host NFS 导出根只读 ⇒ 服务器不能直写**：`/etc/exports` 只放开 `192.168.0.0/24`，而服务器在 `192.168.99.40` ⇒ NFS 挂载被 ACL 拒绝；
    改 exports 需要 host root（**沙箱内无 sudo**）⇒ 改为 **host 经 SSHFS 并行拉回**。
 2. 🔴 **单条 SSHFS 通道只有 ~7.8 MB/s**（11 GB 要 24 min）⇒ 必须**多通道并行**（6 并发 ≈ **80 MB/s**）⇒ 才有 `pull_stream_test_media.sh`。
 3. 🔴 **原子落位**：原写法直接写交付目录 ⇒ 中途失败会**暴露半成品**；改成先写临时目录、三件套齐了再 `mv`。
 4. 🔴 **续跑校验只查 2 个产物** ⇒ **截断的 lossless 会被静默放过**；改成**三个产物都要帧数一致**才算 SKIP。
+5. 🔴 **板卡 `/tmp` 是 tmpfs、只有 ~3.6 G 可用** ⇒ 十几 GB 交付物**不能**先落板卡 `/tmp` 再 `cp` ⇒ 必须**直写 NFS**（`.part` + `mv`，避免暴露半成品）。
+6. 🔴 **bash 数组不会被 export 给 `bash -c` 子 shell** ⇒ 发布脚本里 `SSH_OPTS=(-F /dev/null ...)` 传进子 shell 后变空
+   ⇒ ssh 退回读系统配置 ⇒ 撞上本机**权限损坏**的 `/etc/ssh/ssh_config.d/20-systemd-ssh-proxy.conf` ⇒ **每一路都断**（`Broken pipe`）。
+   ⇒ 改成**字符串** `SSH_OPTS="-F /dev/null ..."` 才通（**同 §179 的 ssh 坑，一脉相承**）。
+7. 🔴 **交付包里的 `scripts/` 是「生成时刻」的副本，会与仓内最终版脱钩**：本轮审计发现交付包内的
+   `verify_stream_test_media.py` / `verify_stream_test_media_batch.py` 仍是 **§182.6 口径修正前**的版本
+   ⇒ 与**同包内** 20 份 per-seq JSON 里的 `pixel_hashes_match` / `pts_offset` 字段**不是同一套代码**
+   ⇒ 按 README 复现命令重跑会得到 **ok=10 / failed=10**，并把审计字段**全部抹掉**。
+   ⇒ 已用仓内修正版覆盖并三方重发；**发布前必须核对 `scripts/` 与仓内 md5 一致**。
+8. 🔴 **「原子落位」的临时目录必须与输出目录同盘**：`TMPROOT` 原默认 `/tmp/stm_batch_tmp`，而 `$OUT` 在 `/mnt/data/...`
+   ⇒ 实测 `stat -c %d`：`/tmp` = 66306、`/mnt/data` = 2048 ⇒ **跨文件系统** ⇒ `mv` 退化为 copy+unlink
+   ⇒ 目标路径以**最终名字**逐字节写入 ⇒ 中途被杀就在官方路径留半成品（**等于没修**）。
+   ⇒ 已改默认为 `$(dirname "$OUT")/.tmp_stm_batch`（同盘）。
+9. 🔴 **`cat | ssh` 管道会把「本地读失败/传输截断」吞掉**：管道退出码 = **最后一个命令**（远端）的状态；
+   本地 `cat` 读失败 ⇒ 远端落一个 **0 字节**的 `.part` → 照样 `mv` 成**正式文件** ⇒ 脚本还报 `[PUB][OK]`。
+   ⇒ 已在远端 `cat` 之后加**字节数门禁**（`stat -c %s` 与本地 `lsize` 相等才允许 `mv`），并给子 shell 显式 `set -o pipefail`；
+   同理，收口的 `md5sum -c` 必须**独立成一步并检查退出码**（塞进 `&&/||` 链里会被吞掉 ⇒ 退出码恒 0 ⇒ 门禁形同虚设）。
 
 **资源纪律**：编码重活一律**上服务器**（80 核 / 128 GB / 3.2 TB 可用），`--jobs 4` × ffmpeg `-threads 4`；
 实测 **load 峰值 38/80（0.48×nproc）**、**MemAvailable 51~88 GB**，均未越 90% 红线。
 host 侧只做「编辑 + 轻量脚本 + ssh 探针」。
+
+### §182.7.1 🟢 **独立审计发现 7 个 BLOCKING，全部已修**（本轮自查也抓到 1 个数字错）
+
+本节交付完成后跑了 1 个**只读审计 agent**（host 🟢 ⇒ 允许 1 个并发），逐条核对「文档数字 vs 实测」+「脚本正确性」：
+
+| # | 问题 | 性质 | 处理 |
+|:--|:--|:--|:--|
+| 1 | README 写推流版「PSNR 43.6~48.9 dB」，实测 **38.29~48.03 dB** | 文档数字错 | ✅ 已改 README |
+| 2 | §182 落位表 host 写「87 文件」、服务器写「107 文件」，实为 **88 / 110** | 同上 | ✅ 已改 |
+| 3 | §182.5 写「27 个非媒体文件」，实为 **28** | 同上 | ✅ 已改 |
+| 4 | 交付包内 `verify_*` 是**口径修正前**的旧版（见踩坑 7） | **脚本与产物不同源** | ✅ 覆盖 + 三方重发 |
+| 5 | `cat | ssh` 管道截断会被**当成功**（见踩坑 9） | **正确性缺陷** | ✅ 加字节数门禁（已故障注入实测）|
+| 6 | 收口 `md5sum -c` 失败被 `|| echo` 吞掉 ⇒ **退出码恒 0** | **门禁形同虚设** | ✅ 独立成一步并检查退出码 |
+| 7 | 「原子落位」跨文件系统 ⇒ `mv` 退化为 copy ⇒ **非原子**（见踩坑 8） | 设计缺陷 | ✅ TMPROOT 改同盘 |
+
+🔴 **本轮我自己的自查也抓到 1 个数字错**：§182.5 的 lossless `mean_abs_diff` 区间写成 `0.016~0.032`，
+实测是 **`0.014~0.0256`** ⇒ 已改。**教训：入档前把每个数字都回查一遍 per-seq JSON，不要凭印象写。**
 
 ### §182.8 复现命令（铁律九：脚本路径 + 完整可复跑命令）
 
@@ -18060,14 +18099,165 @@ bash pull_stream_test_media.sh \
      /media/manu/1TB-Volume/workspace/delivery/stream_test_media_th045_pass 6
 cd /media/manu/1TB-Volume/workspace/delivery/stream_test_media_th045_pass && md5sum -c md5sums.txt
 
-# ---- 板卡侧发布（沙箱内 NFS 只读，需在 host 终端执行）----
-cp -r /media/manu/1TB-Volume/workspace/delivery/stream_test_media_th045_pass \
-      /run/media/manu/SSD960-LOCAL/nfs/          # 板卡路径 /mnt/manu/stream_test_media_th045_pass/
+# ---- 板卡侧发布（host 直写 NFS 会 ro ⇒ 走 ssh 管道，3 通道错峰 30s）----
+bash manu/data/publish_stream_test_media_to_board.sh \
+     /media/manu/1TB-Volume/workspace/delivery/stream_test_media_th045_pass \
+     root@192.168.0.64 3 stream_test_media_th045_pass
+# 板卡落点：/mnt/manu/stream_test_media_th045_pass/
 ```
 
 ### §182.9 本节导航条目
 
 | § | 标题（简） | 归档文件 | 起始行 |
 |:--|:--|:--|--:|
-| 一百八十二 | 主档 §182 📦 2026-11-19：**`osd_sys_sota_trial0080_th045_20261022` pass 20 序列全集推流素材已交付** —— 选集＝`…/osd_sys_sota_trial0080_th045_20261022/pass/` 20 条（**去 `_F1-*.mp4` 后缀即真实序列名**），**un-pass 4 条排除**；🔴 **pass 集本身是 OSD 视频，只作选集不作输入**，原始视频经 `frames_ir_jpg/manifest.json` 的 `source_video` 溯源到 **`/mnt/data/xxxu/龙泉山/ir/<SEQ>.h264`（裸 H.264 ES，1920×1080/yuvj420p/25fps）**；处理链与 §177 逐字节同规格（crop(320,28,1280,1024)→INTER_AREA 640×512→JPEG q95→BMP，**640×512 必须从 JPG 序列编码不能从 mp4 重裁**）；交付 **60 mp4（20×三件套）/ 125,459 帧 / 83.6 min / 11.94 GiB** + `verification_report.json` + 20 份逐序列报告 + `md5sums.txt` + README + 4 脚本；**五项校验 20/20 全过**（帧数全对、像素 hash 序列全等、lossless maxdiff=1/PSNR 64.05~66.66 dB、推流版 maxdiff 20~52/PSNR 38.29~48.03 dB、独立复算 8~11）；🔴🔴 **口径修正：framemd5 整段文本判无损会假阴性**（裸流 pts 起点=1、`-c copy` 后容器归零 ⇒ 文本差常量偏移；实测 offset 0 有 10 条/−1 有 10 条，旧口径误判 10 条有损，而**像素 hash 序列 20/20 全等**）⇒ 新增 `framemd5_hashes()` 比第 6 列、`pts_offset` 单列审计；001324 三件套与 §177 参考交付 **md5 逐字节相同**；host↔服务器文件清单+字节数一致、`md5sum -c` 60/60 通过 | memory.md | 17870 |
+| 一百八十二 | 主档 §182 📦 2026-11-19：**`osd_sys_sota_trial0080_th045_20261022` pass 20 序列全集推流素材已交付** —— 选集＝`…/osd_sys_sota_trial0080_th045_20261022/pass/` 20 条（**去 `_F1-*.mp4` 后缀即真实序列名**），**un-pass 4 条排除**；🔴 **pass 集本身是 OSD 视频，只作选集不作输入**，原始视频经 `frames_ir_jpg/manifest.json` 的 `source_video` 溯源到 **`/mnt/data/xxxu/龙泉山/ir/<SEQ>.h264`（裸 H.264 ES，1920×1080/yuvj420p/25fps）**；处理链与 §177 逐字节同规格（crop(320,28,1280,1024)→INTER_AREA 640×512→JPEG q95→BMP，**640×512 必须从 JPG 序列编码不能从 mp4 重裁**）；交付 **60 mp4（20×三件套）/ 125,459 帧 / 83.6 min / 11.94 GiB** + `verification_report.json` + 20 份逐序列报告 + `md5sums.txt` + README + 4 脚本；**五项校验 20/20 全过**（帧数全对、像素 hash 序列全等、lossless maxdiff=1/PSNR 64.05~66.66 dB、推流版 maxdiff 20~52/PSNR 38.29~48.03 dB、独立复算 8~11）；🔴🔴 **口径修正：framemd5 整段文本判无损会假阴性**（裸流 pts 起点=1、`-c copy` 后容器归零 ⇒ 文本差常量偏移；实测 offset 0 有 10 条/−1 有 10 条，旧口径误判 10 条有损，而**像素 hash 序列 20/20 全等**）⇒ 新增 `framemd5_hashes()` 比第 6 列、`pts_offset` 单列审计；001324 三件套与 §177 参考交付 **md5 逐字节相同**；**host ≡ 服务器 ≡ 板卡三方逐字节一致（各 88 文件 / 12,816,863,903 B）且三处 `md5sum -c` 均 60/60 PASS**、板卡 ffprobe 抽查帧数/尺寸/格式全对；新增 `publish_stream_test_media_to_board.sh`（host 直写 NFS 是 ro ⇒ 走 ssh 管道直写板卡 NFS，**多通道按铁律错峰 30s**；板卡 `/tmp` 是 tmpfs 仅 3.6G ⇒ 必须直写 NFS 不能中转；踩坑：**bash 数组不会被 export 给 `bash -c` 子 shell** ⇒ ssh 丢 `-F /dev/null` 撞坏系统 ssh_config）；**独立审计 7 个 BLOCKING 全部已修**（README/§182 的 3 处数字错、交付包内 `verify_*` 是口径修正前的旧版、`cat → ssh` 管道截断被当成功 ⇒ 加**字节数门禁**、收口 `md5sum -c` 失败被吞 ⇒ 独立成一步查退出码、「原子落位」TMPROOT 跨文件系统 ⇒ 改同盘；另自查抓到 1 个 mean_abs_diff 数字错 0.016~0.032 ⇒ 实为 0.014~0.0256） | memory.md | 17870 |
 
+---
+
+### §183 🟢 **Δn（物理帧间隔）口径统一 + random-FPS 超参搜索 + C++ 已落地 + 板卡实跑逐位对齐**
+
+> 起因：板卡实测更新节奏是 **8.03 fps / Δn 均值 3.11**（源恒定 25 fps），
+> 而冻结交付参数（`confirm_consec=6` + `confirm_gap_tol=0`）要求「逐帧连续」⇒ 走物理帧轴会**杀光所有轨迹**。
+> 本节把「检测器→跟踪器」的**真实物理帧间隔**纳入跟踪器语义，做完超参搜索并**已 apply 到 C++ 交付库**。
+
+#### §183.1 交付红线与冻结基线（唯一真源）
+
+| 项 | 值 |
+|:--|:--|
+| 冻结 th045 指标 | **F1 94.3909% / R 92.590% / P 96.263% / FP 4790 / FN 9874 / GT 133257 / FAR 0.02899** |
+| 交付红线 | `f1_min 0.88` / `recall_min 0.85` / `far_max 0.03` |
+| 冻结参数 | `th_base 0.45, confirm_consec 6, confirm_gap_tol 0, match_dist 16.0` |
+| 源帧率 | 恒定 **25 fps**（1 帧 = 40 ms），Δn 单位 = 物理帧差 |
+
+#### §183.2 🔵 **th045 文件名 ↔ TSV 逐条对齐（用户点名要核的）**
+
+* `osd_sys_sota_trial0080_th045_20261022/` 下 **24 个 `*_F1-<value>.mp4`**（pass 20 + un-pass 4）
+  与 `per_sequence_hyperparams.tsv` 的 **24 行** **逐条完全一致**；
+* TSV 汇总 = 上面那组冻结指标（与 `system_sota_longquan_trial0080_delivery_params.json`
+  的 `_provenance.delivered_metrics_th_0.45` 吻合）。
+* 逐序对照（脚本 `manu/evaluation/rt_fps_jitter_compare_th045.py`）：**18/24 序差异 ≤ ±0.5 pp**；
+  例外 `VIDEO00036`（官方 17.111 vs 我们 2.050，**底座不同**）、`VIDEO00011 −2.13`、`VIDEO00003 +5.21`、`VIDEO00012 +2.96`。
+* ⚠️ **底座说明**：服务器现存的 24 序缓存是 **`cs_t0043`**（`ms_cache_24seq`），
+  **trial_0080 的 th045 缓存已不存在** ⇒ 真 th045 复跑需 GPU 重算（本轮 GPU 被他人占满，**未启动**）。
+
+#### §183.3 四个 random-FPS 工况（按板卡实测速度跳变缩放）
+
+| 工况 | 构造 | 更新率 | Δn 均值 |
+|:--|:--|:--|:--|
+| **s1** | 板卡实测 Δn 序列 ×1.0 | ~8.0 fps | 3.11 |
+| **s2** | 实测 ×1.5 + σ0.25 | ~5.4 fps | ~4.7 |
+| **s3** | 实测 ×2.0 + σ0.35 | ~4.0 fps | ~6.2 |
+| **s4** | 文档假设（13.9 fps 口径 `{1:35%,2:50%,3:15%}`） | ~13.9 fps | 1.80 |
+
+* 四工况**均注入 8% 相邻帧交换**（模拟乱序），验证 `if (fid <= last_fid) return;` 护栏。
+* 搜索：`manu/evaluation/rt_fps_jitter_search.py`（10 序 × 4 工况 × 3 seed × max-frames 4000 × 4 workers × 2 sweeps）；
+  复核：`--phase eval`（**全 24 序 × 4 工况 × 5 seed、不截帧**）。
+
+#### §183.4 五臂对照表（全量复核，F1 %）
+
+| 臂 | s1 | s2 | s3 | s4 | 备注 |
+|:--|--:|--:|--:|--:|:--|
+| ① 逐帧基准（上限） | **95.33** | | | | FAR 0.0244 |
+| ②a 稠密轴（今天 SDK 的老行为） | 93.78 | 90.70 | 87.43 | 94.97 | 帧号当稠密计数器，Δn 信息全丢 |
+| ②b **物理轴 + 冻结参数** | **0.00** | **0.00** | **0.00** | 68.39 | 🔴 `confirm_gap_tol=0` 把轨迹全杀光 |
+| ③ 物理轴 + 搜索值（`match_dist 4.0`） | 94.49 | 94.02 | 92.39 | 94.65 | 搜索 objective 0.1646 → 0.9354 |
+| ③' **物理轴 + 保守值（`match_dist 16.0`）** | **94.69** | **94.24** | **92.44** | **94.77** | FAR 0.0281（s1） |
+| ⑤ 优化参数逐帧 | 94.70（FAR 0.0435） | | | | |
+
+* **决策：采用 ③' 保守变体** —— 24 序上每个工况都不劣于搜索值，且**不动冻结门限**。
+* **验收结论**：板卡实测节奏（s1）F1 **94.69%** vs 逐帧上限 **95.33%** ⇒ **−0.65 pp（可接受）**；FAR 0.0281 < 0.03 红线。
+* 🔴 **根因（必须记住）**：冻结参数里 `confirm_consec=6 / confirm_gap_tol=0` 是「逐帧连续」假设，
+  在 Δn≈3.1 下**必然 F1=0**；修法是 `confirm_gap_tol=6` + `confirm_consec=2`（允许 7 个物理帧的间隔）。
+
+#### §183.5 C++ 已落地（交付库内）
+
+| 文件 | 改动 |
+|:--|:--|
+| `mosaic_track_fusion.{h,cpp}` | Δn 语义：`max_age_phys`（物理帧判死）/ `r_slope`（每多跳 1 帧放宽关联半径）/ `alpha_decay`（按 Δn 衰减）/ `last_hit_fid` / `Predict(dt=0.04·Δn)` / 乱序守卫 / gate 放宽 / 分数衰减 |
+| `mosaic_pipeline.{h,cpp}` | **`FusionAxisPicker`**（匿名 namespace）：物理帧号优先；迟到帧原样喂（引擎守卫丢弃）；`id<0` 或同 id 连续 3 次 ⇒ 退回稠密；稠密计数器抬到 `last_phys_id+1` 保证单调 |
+| `MosaicTrackFusionConfig` | 末尾追加 `use_physical_frame_id`（默认 1）+ `max_age_phys` + `r_slope` + `alpha_decay`；`ToFusionParams` 对新字段**越界钳制**回默认值 |
+| `MOSAIC_TRACK_FUSION_VERSION` | **1 → 2**（旧 .h 会被 `-2` 拒绝，避免越界读） |
+| 新默认值 | `max_age_phys=10`、`r_slope=3.5`、`alpha_decay=1.0`、`confirm_consec=2`、`confirm_gap_tol=6`、`match_dist=16.0`（**未动**） |
+
+* 引擎日志行已扩充：`[i] track fusion ON: … physical_frame_id=1 max_age_phys=10 r_slope=3.50 alpha_decay=1.000 confirm_consec=2 confirm_gap_tol=6`
+* 参数档：`manu/evaluation/system_sota_longquan_trial0080_delta_n_params.json`（冻结 params + Δn 新值 + provenance）。
+
+#### §183.6 ✅ 逐位回归（双通过）
+
+| 用例 | 结果 |
+|:--|:--|
+| **legacy 稠密**（`v09_cands.tsv` + 冻结参数） | C++ 与 Python 参考 **同为 `93a7d5ec119ce2d52d0745ccccbe9f64`**（= §181.8 交付件 MD5）⇒ legacy 无回归 |
+| **Δn 物理轴**（实测 Δn 序列生成的 65 帧跳帧流 / 191 相机帧） | `compare_fused.py --strict` **PASS(identical)**：191 帧 / 190 检测 / 离散 0 / 数值 0 / max\|Δpos\|=0 / max\|Δscore\|=0 |
+
+#### §183.7 ✅ **板卡实跑逐位对齐（2026-11-19 新增，aarch64 真机）**
+
+板卡 `192.168.0.64`（ematech，**OpenCV 4.8 / glibc 2.31**）。
+🔴 **本板不能直接用 4.6 交付包**（`libopencv_*.so.406` 跑不了）⇒ 在板上**原生重编**（g++ 9.4 + `/root/cv480inc` + `/root/mosaic/opencv`）：
+`/root/build_dn/libmosaic_pipeline.so` md5 **`96fb8e98edad8f06a77da4cc7a4683f9`**（已装到 `/root/mosaic/`，旧件备份 `libmosaic_pipeline.so.bak_dn_*`）。
+
+| 板卡实跑 | 候选 / 融合检测 | 对比 Python 参考 | 结论 |
+|:--|:--|:--|:--|
+| **稠密**（VIDEO00007 前 400 帧，Δn≡1） | 1764 / **890** | md5 **两边同为 `d5af69237d50cf478b540dbe1ead1499`** | ✅ 逐位一致 |
+| **跳帧**（按**板卡实测 Δn 序列**推 400 次更新，物理帧号 0…1202） | 5340 / **1084** | `compare_fused --strict` **PASS(identical)**：离散 0 / 数值 0 / max\|Δpos\|=**0** / max\|Δscore\|=**0** | ✅ 逐位一致 |
+
+* 稠密臂的 `cands.tsv` md5 = **`e7f6aef2…`**，与 §7.1 记录**完全相同** ⇒ 检测通路未被本次改动影响。
+* ⚠️ **唯一的格式差异（非数值）**：板的 `collect_fused` **不输出空帧**，Python 参考每帧都写
+  ⇒ 跳帧臂板卡 652 行 vs Python 1203 行；**去掉空帧行后两边 652 行逐位相同**（检测数两边都是 1084）。
+* 🛠 **新增小工具**：`mosaic_track_dump` 加 `--ids <file>`（每帧的 `client_frame_id`），
+  用来在板卡上复现跳帧（Δn>1）真实节奏；`cands.tsv` 的帧号列随之写**物理帧号**，
+  可直接喂 `sdk_track_fusion_ref.py --physical-frame-index`。
+
+#### §183.8 ✅ 交付包已重出（**4.6 口径**，给嵌入式组）
+
+| 项 | 值 |
+|:--|:--|
+| `out/libmosaic_pipeline.so` md5 | **`0baaaaecd12af82606601ce685384e80`**（NEEDED 全是 `libopencv_*.so.406` ✅） |
+| 交叉编译 | buildroot `aarch64-rockchip-linux-gnu-g++ 9.3.0` + `boardlibs_211/{opencv,boardlibs,rknnrt}` |
+| 落点 | NFS `/run/media/manu/SSD960-LOCAL/nfs/mosaic_sdk`（**76 个文件**）+ `rk3588_app_base/mosaic_sdk/`（同 md5） |
+| 拷贝方式 | `packaging/copy_to_nfs.sh --board root@192.168.0.64`（host NFS 是 ro ⇒ **板卡 /tmp 中转**） |
+
+* 🔴🔴 **交付必读（版本握手）**：`MOSAIC_TRACK_FUSION_VERSION` **1 → 2** ⇒
+  嵌入方的 app **必须用新 `mosaic_pipeline.h` 重编**，否则 `mosaic_pipeline_set_track_fusion()` 返回 **`-2`**，
+  融合**静默不生效**（不会崩，只是没开）⇒ **交付说明里必须点名**。
+* 🛠 **交叉链接坑（4.8 板）**：板卡 OpenCV 4.8 引用 `stat@GLIBC_2.33`，
+  而 buildroot sysroot 的 glibc 只有 libc_nonshared.a 里的**隐藏** `stat`
+  ⇒ 在 host 上链**测试程序**会报
+  `hidden symbol 'stat' in libc_nonshared.a(stat.oS) is referenced by DSO`。
+  4.6 交付包靠 `EXTRA_LIB_DIRS=boardlibs_211/opencv/deps`（里面是导出 `stat@GLIBC_2.33` 的新版 `libc.so.6`）绕开；
+  4.8 板则**直接在板卡上原生编译**（`/root/build_sdk.sh` 同款）最省事。
+
+#### §183.9 复现命令（本轮新增/改动）
+
+```bash
+# ---- 板卡（0.64，4.8 口径）原生重编 + 实跑 ----
+ssh -F /dev/null -p 22 root@192.168.0.64 'bash /root/build_sdk_dn.sh'   # HERE=/root/sdk_dn OUT=/root/build_dn
+ssh -F /dev/null -p 22 root@192.168.0.64 '
+  export LD_PRELOAD=/root/mosaic/libstatcompat.so
+  export LD_LIBRARY_PATH=/root/mosaic/opencv:/root/mosaic:/lib:/lib/aarch64-linux-gnu
+  /root/build_dn/mosaic_track_dump --dir /mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324 \
+    --model /tmp/p0_off_A_none.rknn --kernel-dir /mnt/manu/mosaic_sdk/runtime/kernels \
+    --seq VIDEO00007_19700101_001324 --frames 400 --npu-workers 1 --thr 0.02 --fusion 1 \
+    [--ids /root/gap_ids.txt] --out-prefix /tmp/dn_dense'
+
+# ---- host 侧 Python 参考 + 逐位比对（uav 环境有 scipy）----
+/home/manu/anaconda3/envs/uav/bin/python manu/evaluation/sdk_track_fusion_ref.py \
+  --cands /tmp/dn_board/dn_dense_cands.tsv \
+  --params manu/evaluation/system_sota_longquan_trial0080_delta_n_params.json \
+  --out /tmp/dn_board/dense_py.tsv --seq VIDEO00007_19700101_001324 [--physical-frame-index]
+/home/manu/anaconda3/envs/uav/bin/python manu/evaluation/compare_fused.py \
+  --a /tmp/dn_board/dense_py.tsv --b /tmp/dn_board/dn_dense_fused.tsv --strict
+```
+
+#### §183.10 剩余待办
+
+* ⬜ **真 th045 底座复跑**（GPU 被他人占满，**未启动**）：用 `nogmc_weekend/trials/trial_0080/weights/epoch3.pt`
+  + `longquanshan_ir_gmc_median/images/train` 重建 th045 缓存（服务器 `manu/evaluation/run_trial0080_longquan_eval.sh`）。
+* ⬜ **RT pipeline 参数搜索**（时空后处理 / 跟踪器参数寻优）：**等用户 RT 指令**再做；
+  本轮只做了「Δn 口径统一 + 搜索 + 落地」。
+* ⬜ **候选池口径**仍需重新标定（Python 参考是多尺度 merge 池，SDK 是单尺度 640×512 CCL）—— 见 §180.6，未动。
+
+### §183.11 本节导航条目
+
+| § | 标题（简） | 归档文件 | 起始行 |
+|:--|:--|:--|--:|
+| 一百八十三 | 主档 §183 🟢 2026-11-19：**Δn（物理帧间隔）口径统一 + random-FPS 超参搜索 + C++ 已落地 + 板卡实跑逐位对齐** —— 起因：板卡实测 **8.03 fps / Δn 均值 3.11**（源恒定 25 fps）而冻结参数要求逐帧连续；**th045 24 个 `*_F1-*.mp4` 文件名与 TSV 24 行逐条一致**（汇总 = 冻结指标 F1 94.3909% / FAR 0.02899，红线 f1≥0.88、recall≥0.85、far≤0.03），逐序 18/24 差异 ≤±0.5pp（`VIDEO00036` **底座不同**：服务器现存 24 序缓存是 `cs_t0043`，**trial_0080 的 th045 缓存已不存在**，真复跑需 GPU，本轮未启动）；**四工况** s1 实测×1.0(~8.0fps) / s2 ×1.5+σ0.25(~5.4) / s3 ×2.0+σ0.35(~4.0) / s4 文档(13.9fps)，均含 8% 相邻帧交换；**五臂 F1**：逐帧上限 95.33 / 稠密轴 93.78·90.70·87.43·94.97 / **物理轴+冻结参数 0.00·0.00·0.00·68.39**（`confirm_gap_tol=0` 杀光轨迹）/ 物理轴+搜索值 94.49·94.02·92.39·94.65 / **物理轴+保守值 94.69·94.24·92.44·94.77（FAR 0.0281）** ⇒ **采纳保守变体（`match_dist` 保持 16.0，不动冻结门限）**，s1 **−0.65pp 可接受**；**C++ 已落地**：`mosaic_track_fusion` Δn 语义（`max_age_phys`/`r_slope`/`alpha_decay`/`last_hit_fid`/`Predict(0.04·Δn)`/乱序守卫）+ `mosaic_pipeline` 的 **`FusionAxisPicker`**（物理帧号优先、迟到帧原样喂、连续 3 次同 id 退回稠密）+ `MosaicTrackFusionConfig` 追加 4 字段（越界钳制）+ **`MOSAIC_TRACK_FUSION_VERSION` 1→2**（旧 .h 收 `-2`）；**逐位回归双通过**（legacy 稠密 md5 仍 `93a7d5ec…`；Δn 物理轴 `compare_fused --strict` PASS）；**板卡实跑逐位对齐（本轮新增）**：0.64（OpenCV 4.8）**板卡原生重编** `96fb8e98…` ⇒ 稠密臂 400 帧 1764 候选/890 融合检测，**板卡与 Python 参考 md5 同为 `d5af6923…`**；**跳帧臂**（按实测 Δn 推 400 次更新、物理帧号 0…1202）5340 候选/**1084** 融合检测 ⇒ `compare_fused --strict` **PASS(identical)**（max\|Δpos\|=0、max\|Δscore\|=0；唯一差异是板卡 `collect_fused` 不输出空帧，652 vs 1203 行，去空帧后逐位相同）；**新增 `mosaic_track_dump --ids <file>`**（板卡复现跳帧）；**交付包已重出（4.6 口径）`0baaaaec…`** → NFS `mosaic_sdk`（76 文件）+ `rk3588_app_base/mosaic_sdk`；🔴🔴 **交付必读：版本握手 1→2 ⇒ 嵌入方必须用新 `mosaic_pipeline.h` 重编**，否则 `set_track_fusion` 返回 `-2`、融合静默不生效；🛠 **交叉链接坑**：4.8 板 OpenCV 引用 `stat@GLIBC_2.33`，buildroot sysroot 只有隐藏 `stat` ⇒ host 上链测试程序报 `hidden symbol 'stat' … is referenced by DSO`（4.6 包靠 `boardlibs_211/opencv/deps` 的新版 libc 绕开，4.8 板直接板上原生编译）；剩余：真 th045 底座复跑（GPU 被占）/ RT 参数搜索（等用户指令）/ 候选池口径（未动） | memory.md | 18116 |

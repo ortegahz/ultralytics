@@ -59,6 +59,21 @@ struct TrackFusionParams {
   double th_deep = 0.0;         // 深潜打捞阈值（0 = 关闭）
   int32_t min_hits_deep = 3;    // 深潜打捞所需的最小命中数
 
+  // ---- Pass 1: 物理帧间隔（Δn）感知 ----
+  //     检测器按「源帧号」跳着送更新（板载 ~8fps / 源 25fps ⇒ Δn 均值 3.11），
+  //     所以引擎要按**物理帧间隔**补偿：卡尔曼按 dt 步进、关联门限按 dt 放宽、
+  //     轨迹分数按 dt 衰减。
+  //
+  //     这三个默认值来自 2026-11-19 的 random-FPS 超参搜索
+  //     （manu/evaluation/rt_fps_jitter_search.py，24 序 / 4 工况 / 5 seed）：
+  //     max_age_phys=10（= 400 ms 的物理帧寿命）、r_slope=3.5 px/帧、
+  //     alpha_decay=1.0（实测不需要额外衰减）。
+  //     🔴 冻结的 th045/v1 基线是 legacy 值（max_age_phys 关闭 / r_slope=0 /
+  //     alpha_decay=1），见本文件末尾的说明。
+  int32_t max_age_phys = 10;    // 物理帧龄上限（<0 => legacy：按更新次数判死）
+  double r_slope = 3.5;         // 每多一个物理帧，关联门限放宽的像素数
+  double alpha_decay = 1.0;     // 每个物理帧的分数保持率
+
   // ---- Pass 2: 缝合 / 插补 / 刚性剪枝 ----
   int32_t stitch_gap = 6;       // 允许缝合的最大帧间隔
   double stitch_max_dist = 25.0;// 缝合的空间容差下限
@@ -70,8 +85,14 @@ struct TrackFusionParams {
   double min_rigid_disp_sky = -1.0;  // <0 ⇒ None ⇒ 走 legacy 分支
 
   // ---- Pass 3: 连续帧确认 ----
-  int32_t confirm_consec = 6;      // 连续命中多少帧才算确认
-  int32_t confirm_gap_tol = 0;     // 连续判定允许的额外帧间隔
+  //
+  //     🔴 这两个默认值也来自 2026-11-19 的 random-FPS 搜索：Δn ≈ 3.1 时
+  //     「必须逐帧连续」的判定（confirm_consec=6 / confirm_gap_tol=0）会把
+  //     **所有**轨迹判死（F1 = 0，见 §183）；放宽成「2 次观测 + 容忍 6 个
+  //     物理帧的间隔」后，F1 回到 94.7%（板卡实测节奏）。
+  //     冻结的 th045/v1 基线是 confirm_consec=6 / confirm_gap_tol=0。
+  int32_t confirm_consec = 2;      // 连续命中多少帧才算确认
+  int32_t confirm_gap_tol = 6;     // 连续判定允许的额外物理帧间隔
   int32_t confirm_trim_prefix = 1; // 是否裁掉确认帧之前的检测
 };
 
@@ -139,6 +160,7 @@ class TrackFusionEngine {
     int64_t start_frame = 0;
     int64_t last_frame = 0;
     int64_t last_observed_frame = 0;
+    int64_t last_hit_fid = 0;   // 最近一次**命中**（Update）的物理帧号
     int32_t hits = 1;
     int32_t age = 1;
     int32_t time_since_update = 0;
@@ -150,7 +172,7 @@ class TrackFusionEngine {
   };
 
   void InitTrackMatrices(Track* t) const;
-  void Predict(Track* t, int64_t frame_idx) const;
+  void Predict(Track* t, int64_t frame_idx, int64_t dt) const;
   void Update(Track* t, const float pos[2], double score, int64_t frame_idx) const;
   float VelocityNorm(const Track& t) const;
   double NetDisplacement(const Track& t) const;
@@ -159,6 +181,7 @@ class TrackFusionEngine {
   TrackFusionParams params_;
   int32_t next_track_id_ = 1;
   int64_t num_frames_ = 0;
+  int64_t last_step_frame_ = -1;  // 上一次**被接受**的 Step 的物理帧号（-1 = 无）
   std::vector<Track> active_;
   std::vector<Track> finished_;
   std::vector<Track> stitched_;

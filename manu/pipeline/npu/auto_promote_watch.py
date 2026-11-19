@@ -335,7 +335,11 @@ def run_once() -> None:
     if best is None:
         log("[结论] 无满足「n≥4 + 板卡 T4」的新候选 ⇒ 不动基线")
         return
-    cands.sort(key=lambda c: (not seed_ok(c[0]), -(c[0].get("nano") or 0)))
+    # 🔴 2026-11-19 14:12 **候选同分时的决胜键**：nano 相同（同 soup 族）时
+    #   按 t1 > t3 > nano4 > f1 选最优 ⇒ 同一族里挑「最强的那一票」，而不是碰运气。
+    cands.sort(key=lambda c: (not seed_ok(c[0]), -(c[0].get("nano") or 0),
+                               -(c[0].get("t1") or 0), -(c[0].get("t3") or 0),
+                               -(c[0].get("nano4") or 0), -(c[0].get("f1") or 0)))
     # 🔴🔴 2026-11-18 09:10 修**基线名通胀**（昨夜真实事故）
     #   现象：守望在 6 小时内把**同一个 trial_1117002** 反复升轨 82 次
     #         ⇒ 基线名从 Baseline_v2.4 一路涨到 **Baseline_v2.86** ⇒ registry 89 条垃圾。
@@ -366,8 +370,14 @@ def run_once() -> None:
         _cur = str((ns.load_ledger().get("baseline_v2") or {}).get("name") or "Baseline_v2.0")
     except Exception:
         _cur = "Baseline_v2.0"
-    _mm = re.match(r"Baseline_v2\.(\d+)", _cur)
-    name = "Baseline_v2.%d" % (int(_mm.group(1)) + 1 if _mm else 1)
+    # 🔴 2026-11-19 14:12 **基线命名**：v2.x ⇒ v3.0（v3 代引入 nano4 轴），
+    #   v3.x ⇒ v3.(x+1)。避免 v2 世代与 v3 世代同名冲突。
+    _mm = re.match(r"Baseline_v(\d+)\.(\d+)", _cur)
+    if _mm:
+        _maj, _min = int(_mm.group(1)), int(_mm.group(2))
+        name = ("Baseline_v%d.%d" % (_maj, _min + 1)) if _maj >= 3 else "Baseline_v3.0"
+    else:
+        name = "Baseline_v3.0"
     log(f"[命名] 当前基线 {_cur} => 新基线名 {name}")
     # 🟢🟢 2026-11-17 17:20：**逐个候选试**（种子关/板卡关任一不过就换下一个臂）
     cand = key = nmem = with_board = None
