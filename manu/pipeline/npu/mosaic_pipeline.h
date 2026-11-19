@@ -1173,6 +1173,135 @@ int32_t mosaic_pipeline_set_post_mode(MosaicPipeline* p, int32_t mode);
    one (0.06, 0.08, ...) at run time. */
 int32_t mosaic_pipeline_set_detect_threshold(MosaicPipeline* p, const double* threshold);
 
+/* ===========================================================================
+ * v10.5 -- THE SPATIO-TEMPORAL TRACK FUSION (时空融合后处理).
+ *
+ * WHAT IT IS: the three-pass temporal logic of the reference pipeline
+ * ("osd_sys_sota_trial0080_th045_20261022") as an ADD-ON to the detection
+ * pipeline:
+ *   Pass 1  the online adaptive tracker (Kalman association + two-tier salvage)
+ *   Pass 2  the bidirectional smoother (tracklet stitching, internal-hole
+ *           interpolation, rigid-junk pruning)
+ *   Pass 3  the consecutive-frame confirmation
+ * The C++ kernel lives in src/npu/mosaic_track_fusion.{h,cpp} and is
+ * BIT-IDENTICAL to the Python reference on the same candidate stream
+ * (measured: 400 frames / 1764 candidates / 859 detections, identical MD5 on
+ * Python, x86-64 and aarch64).
+ *
+ * CONTRACT:
+ *  - PURELY ADDITIVE.  No existing struct gains a field, no existing
+ *    function changes its behaviour, MOSAIC_API_VERSION STAYS 10.
+ *  - The fusion runs in the POST stage, right after the back-projection: it
+ *    costs ~10 us per frame on the RK3588 board (measured), i.e. 0.015 % of
+ *    the 123 ms frame period -- it does NOT change the frame rate.
+ *  - OFF by default: a pipeline that never calls
+ *    mosaic_pipeline_set_track_fusion() behaves EXACTLY as before.
+ * =========================================================================== */
+
+/* The version of MosaicTrackFusionConfig.  Bumped only when a field is
+ * removed or its meaning changes; appending fields at the END keeps the old
+ * binaries working (they pass an older, smaller struct -- the caller sets
+ * `version` and the library only reads the fields it knows). */
+#define MOSAIC_TRACK_FUSION_VERSION 1
+
+typedef struct {
+  int32_t version; /* must be MOSAIC_TRACK_FUSION_VERSION */
+  int32_t enable;  /* 1 = on, 0 = off (the same as passing NULL) */
+
+  /* WHICH detections feed the tracker.  bit0 = tag 0 (the native 640x512
+   * tile), bit1 = tag 1 (the 160 px thumbnail), bit2 = tag 2 (the 80 px
+   * thumbnail).  The default (0x7) is ALL THREE: that is the candidate
+   * stream the precision alignment was validated on (the reference merges
+   * the three scales the same way). */
+  int32_t tag_mask;
+
+  /* THE ORDER THE TRACKER SEES THE FRAMES IN.
+   *   0 = ARRIVAL order (the default): the tracker is updated the moment a
+   *       frame's back-projection is done.  Zero added latency.
+   *   >0 = hold up to N frames and feed the tracker in ASCENDING camera-frame
+   *       order.  Needed when npu_workers > 1: two NPU services can finish
+   *       two frames OUT OF ORDER, and a tracker that sees them swapped
+   *       associates the wrong pair.  Costs N frames of latency. */
+  int32_t reorder_window;
+
+  /* ---- the parameters, one by one with the Python reference's params ----
+   * Every field carries the frozen th045/v1 value as its default; see
+   * mosaic_pipeline_track_fusion_defaults(). */
+  double th_base;          /* the sky-region confidence threshold        (0.45) */
+  double th_salvage;       /* the sky-region weak-pulse salvage          (0.06) */
+  double th_ground;        /* the ground-region threshold                (0.22) */
+  double sky_ratio;        /* the sky/ground split = img_h * sky_ratio   (0.60) */
+  int32_t img_h;           /* the frame height the thresholds assume       (512) */
+  int32_t max_age;         /* the UPDATES a track survives without a hit    (3) */
+  int32_t min_hits;        /* the hits before a track is confirmed          (3) */
+  double match_dist;       /* the association gate                         (16.0) */
+  double max_match_dist;   /* the association gate's upper bound           (24.0) */
+  double min_track_score;  /* the score floor of a track                   (0.08) */
+  double instant_conf;     /* the score that confirms a track at once      (0.25) */
+  double min_displacement; /* the static-junk filter on the ground         (2.5) */
+  double th_deep;          /* the deep-salvage threshold (0 = off)         (0.0) */
+  int32_t min_hits_deep;   /* the hits the deep salvage needs                (3) */
+  int32_t stitch_gap;      /* the largest gap two tracklets may be stitched across (6) */
+  double stitch_max_dist;  /* the spatial tolerance of a stitch            (25.0) */
+  int32_t infill_gap;      /* the largest internal hole that may be filled   (3) */
+  int32_t min_hits_infill; /* the hits before a track may be filled           (5) */
+  double min_rigid_disp;   /* the displacement of a rigid-junk point         (2.0) */
+  double max_rigid_var;    /* the coordinate variance of a rigid-junk point  (1.0) */
+  int32_t min_hits_prune;  /* the observations before the pruning starts      (4) */
+  double min_rigid_disp_sky; /* <0 = None (the legacy branch)               (-1.0) */
+  int32_t confirm_consec;  /* the consecutive hits that confirm a track       (6) */
+  int32_t confirm_gap_tol; /* the extra gap the confirmation tolerates       (0) */
+  int32_t confirm_trim_prefix; /* 1 = drop the detections before the confirmation (1) */
+} MosaicTrackFusionConfig;
+
+/* One tracked detection.  `x`/`y` are the NATIVE frame pixels (640x512). */
+typedef struct {
+  int32_t track_id; /* the track's id (stable for the track's life) */
+  float x;          /* the centroid x */
+  float y;          /* the centroid y */
+  double score;     /* the track's score */
+  int32_t infilled; /* 1 = a SYNTHESISED (interpolated) frame, not an observation */
+} MosaicTrackedDet;
+
+/* Fill `cfg` with the frozen th045/v1 defaults.  Call it FIRST, then change
+ * the fields you care about:
+ *     MosaicTrackFusionConfig cfg;
+ *     mosaic_pipeline_track_fusion_defaults(&cfg);
+ *     cfg.th_base = 0.48;
+ *     mosaic_pipeline_set_track_fusion(p, &cfg);
+ * Safe on NULL. */
+void mosaic_pipeline_track_fusion_defaults(MosaicTrackFusionConfig* cfg);
+
+/* Turn the spatio-temporal track fusion ON (or OFF).
+ * `cfg` == NULL => OFF.  `cfg->enable == 0` => OFF.
+ * Returns 0 on success, -1 on a NULL pipeline, -2 on a wrong version.
+ * The engine is (re)created, so the tracked output starts from scratch: call
+ * it BEFORE the first push, otherwise the tracks of the frames already in
+ * flight are lost.
+ * OFF by default: a pipeline that never calls this behaves exactly as before. */
+int32_t mosaic_pipeline_set_track_fusion(MosaicPipeline* p, const MosaicTrackFusionConfig* cfg);
+
+/* Collect the next frame's TRACKED output (the ONLINE fusion: the confirmed
+ * tracks that were OBSERVED in that frame -- no synthesised frames).
+ * The blocking semantics are the ones of mosaic_pipeline_collect(): it waits
+ * for the next frame that has one, and it returns -1 when the pipeline is
+ * aborted, or flushed and drained.
+ * `frame_id` receives the CALLER'S OWN frame number -- the same number
+ * mosaic_pipeline_collect() returns for the same frame.
+ * The caller MUST drain this queue: the tracked output of a frame that is
+ * never collected stays in memory. */
+int32_t mosaic_pipeline_collect_tracked(MosaicPipeline* p, int64_t* frame_id, MosaicTrackedDet* out,
+                                        int32_t max_out);
+
+/* Collect the next frame's FINAL (offline) fusion result -- the two-pass
+ * smoother plus the consecutive-frame confirmation, i.e. the output of the
+ * Python reference's `run_system_sota`.  It only exists AFTER
+ * mosaic_pipeline_flush(): the smoother needs the whole sequence.
+ * `frame_id` receives the frame's index in the sequence (0, 1, 2, ...).
+ * Returns -1 when nothing is left (or before the flush). */
+int32_t mosaic_pipeline_collect_fused(MosaicPipeline* p, int64_t* frame_id, MosaicTrackedDet* out,
+                                      int32_t max_out);
+
 /* Release the pipeline.  Safe on NULL.  Does NOT flush: call flush() first if
  * the queued frames matter. */
 void mosaic_pipeline_destroy(MosaicPipeline* p);

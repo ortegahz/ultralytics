@@ -25,6 +25,7 @@
 ├── README.md / MANIFEST.md / build_lib.sh / build_demo.sh / copy_to_nfs.sh
 ├── src/
 │   ├── npu/    mosaic_pipeline.cpp/.h, mosaic_core.h, mosaic_post_gpu.h,
+│   │           mosaic_track_fusion.cpp/.h,
 │   │           mosaic_api_test.cpp, mosaic_client_example.cpp,
 │   │           mosaic_async_client_example.cpp,
 │   │           mosaic_contract_test.cpp, rknn_mosaic_e2e.cpp
@@ -95,6 +96,8 @@
 |---|---|---|
 | 库实现 | `src/npu/mosaic_pipeline.cpp` | 库的编译单元 |
 | 公开 ABI | `src/npu/mosaic_pipeline.h` | 客户写代码时 include 它（C ABI） |
+| 时空内核 | `src/npu/mosaic_track_fusion.cpp` | 帧间（时空）后处理内核，独立编译单元；**必须**带 `-ffp-contract=off` 才能与 Python 参考逐位一致 |
+| 时空内核头 | `src/npu/mosaic_track_fusion.h` | 时空后处理的参数结构与引擎声明（库内部使用） |
 | 内部头 | `src/npu/mosaic_core.h` | GMC / RGA / RKNN 胶水层 |
 | 内部头 | `src/npu/mosaic_post_gpu.h` | GPU 后处理路径（头内已内嵌同一份 kernel 源码） |
 | 引擎 | `src/cpp/gmc_stream_ocl.cpp` | GMC/OpenCL 引擎 |

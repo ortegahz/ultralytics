@@ -222,6 +222,9 @@ REQUIRED_FILES=(
   "fetch_board_libs.sh" "known_hosts"
   "src/npu/mosaic_pipeline.cpp" "src/npu/mosaic_pipeline.h"
   "src/npu/mosaic_core.h" "src/npu/mosaic_post_gpu.h"
+  # v10.5: the spatio-temporal track fusion kernel (a separate translation
+  # unit; build_lib.sh compiles it into the .so).
+  "src/npu/mosaic_track_fusion.cpp" "src/npu/mosaic_track_fusion.h"
   "src/npu/mosaic_api_test.cpp" "src/npu/mosaic_contract_test.cpp"
   "src/npu/rknn_mosaic_e2e.cpp" "src/npu/mosaic_client_example.cpp"
   "src/npu/mosaic_async_client_example.cpp"

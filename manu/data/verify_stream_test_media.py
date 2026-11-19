@@ -58,6 +58,31 @@ def framemd5(path, raw=False):
     return sh(cmd).stdout
 
 
+def framemd5_hashes(path, raw=False):
+    """只取 framemd5 的**像素 hash 列**（第 6 字段），与时间戳无关。
+
+    🔴 为什么不能比整段文本：
+    裸 H.264 elementary stream 的 pts 起点常常不是 0，而 `-c copy` 封装进 mp4 后
+    容器会把起始 pts 归零 ⇒ 整段 framemd5 文本差一个常量偏移 ⇒ 整段 md5 不等。
+    实测（VIDEO00009_19700101_003002）：像素 hash 列 665/665 **完全一致**，
+    仅 pts 起点差 1（src 从 1 起、mp4 从 0 起）⇒ 整段文本 md5 不等是**假阴性**。
+    ⇒ 判定「原始 mp4 是否像素级无损」必须比像素 hash 序列；时间戳偏移单列为
+    `pts_offset` 供审计，不作为有损依据。
+    """
+    text = framemd5(path, raw=raw).decode("utf-8", "replace")
+    hashes, pts = [], []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 6:
+            continue
+        pts.append(parts[2])
+        hashes.append(parts[5])
+    return hashes, pts
+
+
 def stream_gray(mp4):
     """按帧顺序流出 gray 原始像素（精确，无 seek 误差）"""
     p = subprocess.Popen(
@@ -163,12 +188,28 @@ def main():
 
     print("=" * 68)
     print("B. 原始 mp4 无损性（framemd5 全量比对 源.h264 vs 封装后.mp4）")
+    ha, pa = framemd5_hashes(args.src_h264, raw=True)
+    hb, pb = framemd5_hashes(args.original_mp4)
     a = hashlib.md5(framemd5(args.src_h264, raw=True)).hexdigest()
     b = hashlib.md5(framemd5(args.original_mp4)).hexdigest()
-    report["framemd5_match"] = (a == b)
-    print(f"  src.h264     framemd5-md5 = {a}")
-    print(f"  original.mp4 framemd5-md5 = {b}")
-    print(f"  -> {'一致（像素级无损）' if a == b else '不一致！'}")
+    report["pixel_hashes_match"] = (ha == hb)
+    report["framemd5_frames_src"] = len(ha)
+    report["framemd5_frames_mp4"] = len(hb)
+    try:
+        report["pts_offset"] = int(pb[0]) - int(pa[0]) if pa and pb else None
+    except (TypeError, ValueError):
+        report["pts_offset"] = None
+    report["framemd5_text_md5_src"] = a
+    report["framemd5_text_md5_mp4"] = b
+    report["framemd5_text_match"] = (a == b)
+    # 判定字段：像素 hash 序列（整段文本 md5 仅作审计参考）
+    report["framemd5_match"] = report["pixel_hashes_match"]
+    print(f"  src.h264     像素hash序列 = {len(ha)} 帧  首帧pts={pa[0] if pa else '?'}"
+          f"  整段md5={a}")
+    print(f"  original.mp4 像素hash序列 = {len(hb)} 帧  首帧pts={pb[0] if pb else '?'}"
+          f"  整段md5={b}")
+    print(f"  pts_offset={report['pts_offset']}")
+    print(f"  -> {'像素级无损（hash 序列全等）' if report['framemd5_match'] else '不一致！'}")
 
     print("=" * 68)
     print("C. 640x512 无损灰度视频 vs BMP（全部帧逐像素）")

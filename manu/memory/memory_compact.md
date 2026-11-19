@@ -1,7 +1,7 @@
 # 红外弱小无人机检测项目 · 精简背景（5 分钟上手卡）
 
-> **用途**：新 Session / 外部模型 5 分钟建立上下文。**详细证据看 `manu/memory/memory.md`（4,675 行主档）**。
-> **更新**：2026-11-16 · **瘦身版**：原 2,166 行全量已归档到 `manu/memory/archive/05_memory_compact_全量_20261022.md`（md5 `eaf91829a58d4abbd499e3d7bc2711a0`，逐字节一致）。
+> **用途**：新 Session / 外部模型 5 分钟建立上下文。**详细证据看 `manu/memory/memory.md`（18,073 行主档）**。
+> **更新**：2026-11-19 · **瘦身版**：原 2,166 行全量已归档到 `manu/memory/archive/05_memory_compact_全量_20261022.md`（md5 `eaf91829a58d4abbd499e3d7bc2711a0`，逐字节一致）。
 > **配套**：方法论 SOP 在 `manu/skills/`（5 个 Skill），**不在本文件重复**。
 
 ---
@@ -3314,3 +3314,68 @@ F1 94.07% → 91.98%。⇒ **0.44 档看最终结论，0.20 档看全量候选**
 - **校验五项全过**：三个 mp4 均 11,810 帧 / 25fps / 472.4 s；原始 mp4 framemd5 = 源（无损）；近无损版 **11,810 帧逐像素 maxdiff=1 / PSNR 65.93 dB**；推流版 PSNR 44.32 dB；板卡端 ffprobe 实测三文件均可解码。
 - 🔴 **落盘通道**：host 沙箱里 NFS **只读** ⇒ 写 NFS 必须**经板卡中转**（`ssh 服务器 'cat f' | ssh 板卡 'cat > /tmp/f'` → 板卡 `cp` 到 `/mnt/manu/`；板卡 NFS 挂载实测 rw）；**板卡无服务器密钥**（`Permission denied (publickey)`）⇒ host 做中转管道、不落 host 盘。三段 md5 全一致。
 - 详见主档 `manu/memory/memory.md` §177（§177.1~§177.9）。
+
+### 178 ★★ 2026-11-18 — 嵌入式板卡「push 帧报错」根因＝**内核 RGA 驱动 Oops**，已根治（改用预分配 dma-buf）
+- **不是应用层 bug**：SDK 每帧用 `importbuffer_virtualaddr()`（虚拟地址）导入画布 ⇒ 内核给该 buffer 打 `RGA_MEM_FORCE_FLUSH_CACHE`
+  ⇒ 作业时 `dma_sync_single_for_device(dev, buffer->phys_addr, size, dir)` 而 `phys_addr` 可为 **0**
+  ⇒ 内核 `phys_to_virt(0)` 刷 cache ⇒ **`Internal error: Oops: 96000146`** ⇒ 进程 + 内核挂掉（与嵌入式组 `log.txt` 同型）。
+- **根治（用户拍板方案二）**：RGA 输入/输出缓冲全部改成**初始化时一次性分配的 dma-buf**
+  （`/dev/dma_heap/system-uncached` + `mmap` + `importbuffer_fd()` ⇒ `wrapbuffer_handle()`），
+  **任何虚拟地址都不再传给 RGA** ⇒ fd 路径走 `rga_mm_map_dma_buffer()`，**不打 FORCE_FLUSH_CACHE** ⇒ 崩溃分支**结构上不可达**。
+- **验收**：同一新库 `MOSAIC_RGA_DMA=0`（强制回虚拟地址）**立刻复现 OOPS #8**；默认（dma-fd）跑 25 帧 SDK 流水线
+  ＋ app 实机 **482 帧全程零 OOPS**，RGA 自检 OK。
+- 详见主档 `manu/memory/memory.md` §178。
+
+### 179 ★★ 2026-11-18 — 换板核对：新板 = **原 EVM3588**（`192.168.0.64` / `ematech`），新 SDK（dma-fd RGA）**全序列精度 100% 逐位相同**
+- **板卡身份实测**：hostname `evm3588`、Ubuntu 20.04.6、内核 5.10.160、`librknnrt` **2.3.0**、7.9 GB / 8 核
+  ⇒ 与 memory 记录的「旧板」一致（**≠ CM5 的 2.2.0**）。
+- **新 SDK 代码（dma-fd RGA）全序列精度对齐 = 100% 逐位相同**。
+- **npu_workers 只能是 1**：2 个 context 会 **NPU soft reset**（见主档 §179.4）。
+- 详见主档 `manu/memory/memory.md` §179。
+
+### 180 ★★ 2026-11-19 — 时空后处理移植完成 ＋ **三端逐位对齐** ＋ 板卡实测「检测器→跟踪器更新间隔」
+- **Python 重写已与库对齐 = 100%**：对照 `scipy.optimize.linear_sum_assignment`（scipy 1.15.3 / numpy 2.2.6），
+  **4854 用例 / 371,058 格点，不一致 0**；反向注入 tie-break bug ⇒ 一致率掉到 **67.49%** ⇒ 用例集对 tie-break 敏感（**不是假一致**）。
+- **三端逐位对齐**：Python 参考 == C++ host == C++ aarch64 板卡（MD5 相同、`max|Δpos|=0`、`max|Δscore|=0`）。
+- **板卡节拍实测**（ematech / `npu_workers=1` / realtime 档 / 源 25 fps）：输出 **8.13 fps**、
+  间隔 mean **123.0 ms** / p95 152.5 / p99 178.4 / max 185.6 ms、**Δn mean 3.04**；
+  **丢帧 0**（丢在**调度层**不是队列溢出）；**结果帧号无乱序**（乱序来自 2 个 NPU worker，本板跑不了）。
+- **瓶颈 = NPU**：`rknn_run` p50/p95/p99/max = 118/121/125/128 ms；GMC 拟合 p50 17~36 ms；后处理 0.58 ms/帧。
+- **加时空后处理的时间成本**：板卡 Pass1 `Step()` mean **9.8 µs**（p99 17.8）、`OnlineFused()` 0.48 µs、`Finalize()` 0.86 ms
+  ⇒ 相对 120 ms/帧的 NPU 耗时**可忽略**。
+- 详见主档 `manu/memory/memory.md` §180 ＋ `manu/memory/spatio_temporal_track_20261119.md`。
+
+### 181 ★★ 2026-11-19 — SDK 接入「时空后处理」完成 ＋ 板卡 A/B（耗时 / 帧率波动 / 检测器→跟踪器更新间隔）
+- **三端逐位对齐（重编后复验，MD5 不变）**：板卡 `mosaic_track_dump`（400 帧 / 1764 候选 / 859 检测）的
+  候选流 / 在线 / 融合三份 TSV 与 Python 参考**逐位一致**（`compare_fused.py --strict` 离散不一致 0 / 数值不一致 0）。
+- **🔴 坑（已修）**：`collect_tracked` 在**融合关闭**时一直阻塞到 flush 才返回 -1 ⇒ A/B 脚本跑挂；
+  修法：等待前先查 `p->fusion`，未开则**直接返回 -1 不阻塞**（锁序 `m_fusion → m_out`）。
+- **A/B**：1:1 推收下融合开/关的 `post_ms_mean` **同为 1.253 ms**（融合在 `post_loop` 内，差 < 0.01 ms）；
+  融合自身 `Step()` mean 8.1 µs / p99 19.8 µs。
+- **独立短视频对齐**：换 `VIDEO00009_19700101_001531`（191 帧）从交付 mp4 解码出 BMP 走完整管线 ⇒
+  6 份产物（Python 参考 ×2 / 板卡离线 / 板卡在线 / 板卡原生 gcc 9.4 / **交付工具链 gcc 9.3 交叉编译**）**MD5 全同**
+  ⇒ 交付 .so 的融合内核已被证明与实测一致；剩下没验的只有 **OpenCV 4.6 的链接口径**。
+- 详见主档 `manu/memory/memory.md` §181。
+
+### 182 ★★ 2026-11-19 — `osd_sys_sota_trial0080_th045_20261022` **pass 20 序列全集**推流素材已交付（原始 mp4 ＋ 640×512）
+- **选集口径（最容易做错）**：`…/osd_sys_sota_trial0080_th045_20261022/pass/` **20** 条（去 `_F1-*.mp4` 后缀即真实序列名），
+  **un-pass 4 条排除**；🔴 **pass 集本身是 OSD 视频，只作选集不作输入**。
+- **原始视频溯源**：经 `frames_ir_jpg/manifest.json` 的 `source_video` 字段
+  ⇒ **`/mnt/data/xxxu/龙泉山/ir/<SEQ>.h264`（裸 H.264 ES，1920×1080 / yuvj420p / 25fps）**；20/20 存在性实测通过。
+- **处理链与 §177 逐字节同规格**（crop(320,28,1280,1024) → INTER_AREA 640×512 → JPEG q95 → BMP）；
+  🔴 **640×512 必须从 JPG 序列编码，不能从 mp4 重裁**（JPEG q95 是全链唯一 lossy 步，带来 ±8~9 灰阶）。
+- **交付**：**60 mp4（20 序列 × 三件套）/ 125,459 帧 / 83.6 min / 11.94 GiB** ＋ `verification_report.json`
+  ＋ `verification/<SEQ>.json` × 20 ＋ `md5sums.txt` ＋ README ＋ `scripts/` × 4；
+  落服务器 `/mnt/data/mosaic_delivery_20261116/stream_test_media_th045_pass/` ＋
+  host `/media/manu/1TB-Volume/workspace/delivery/stream_test_media_th045_pass/`
+  （两侧清单 + 字节数一致、host `md5sum -c` **60/60 通过**）；
+  ⬜ **板卡侧 `/mnt/manu/stream_test_media_th045_pass/` 待发布**（沙箱内 NFS 是 `ro` 挂载，需在 host 终端 `cp -r`）。
+- **校验五项 20/20 全过**（`verification_report.json`：ok=20 failed=0）：帧数全对、**像素 hash 序列全等**、
+  lossless maxdiff=1（PSNR 64.05~66.66 dB）、推流版 maxdiff 20~52（PSNR 38.29~48.03 dB）、独立复算 8~11；
+  001324 三件套与 §177 参考交付 **md5 逐字节相同**。
+- 🔴🔴 **口径修正（本轮最值钱的一条）**：`framemd5` **整段文本** md5 判「无损」会**假阴性** ——
+  裸 H.264 ES 的 pts 起点常为 **1**、`-c copy` 封装进 mp4 后容器把起始 pts 归零 ⇒ 整段文本差一个常量偏移；
+  实测 **pts_offset 0 有 10 条 / −1 有 10 条**，旧口径会**误判 10 条有损**，而**像素 hash 序列 20/20 全等**
+  ⇒ 改为比 framemd5 **第 6 列（像素 hash）**，`pts_offset` 单列审计、不作有损依据。
+  **通用教训：跨容器（裸流 ↔ mp4）比「无损」必须比像素 hash 序列，不能比 framemd5 文本。**
+- 详见主档 `manu/memory/memory.md` §182（§182.1~§182.9）。

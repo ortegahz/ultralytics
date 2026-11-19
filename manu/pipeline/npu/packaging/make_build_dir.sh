@@ -148,6 +148,8 @@ purpose_of() {
     known_hosts)                  echo "板卡主机密钥基线（ssh 严格校验用；板卡换密钥会直接失败，这是故意的）" ;;
     src/npu/mosaic_pipeline.cpp)  echo "库实现（GMC/OpenCL + RGA mosaic + RKNN fp16 + 反投影）" ;;
     src/npu/mosaic_pipeline.h)    echo "**公开 C ABI 头**（集成方写代码时 include 它）" ;;
+    src/npu/mosaic_track_fusion.cpp) echo "时空（帧间）后处理内核实现（独立编译单元，零第三方依赖；**必须**带 -ffp-contract=off 才能与 Python 参考逐位一致）" ;;
+    src/npu/mosaic_track_fusion.h)   echo "时空后处理内核头（参数结构 + 引擎声明，库内部用）" ;;
     src/npu/mosaic_core.h)        echo "库内部核心头（GMC / RGA / RKNN 胶水层 + 后处理三路径）" ;;
     src/npu/mosaic_post_gpu.h)    echo "GPU 后处理路径（OpenCL 局部极大；kernel 已内嵌，**不需要**外置 .cl）" ;;
     src/npu/mosaic_api_test.cpp)  echo "示例 demo 源（只调公开 C ABI）" ;;
@@ -177,6 +179,7 @@ purpose_of() {
 out_note_of() {
   case "$1" in
     out/mosaic_pipeline.o)     echo "编译中间产物（库的 .o）" ;;
+    out/mosaic_track_fusion.o)  echo "编译中间产物（时空后处理内核的 .o）" ;;
     out/libmosaic_pipeline.so) echo "**共享库**（客户链接它；SONAME=libmosaic_pipeline.so；动态链接板卡自带库）" ;;
     out/mosaic_api_test)       echo "示例 demo 可执行文件（给客户的示例）" ;;
     out/mosaic_client_example) echo "**最简集成示范可执行文件**（嵌入方照着抄这份）" ;;
@@ -233,6 +236,10 @@ copy_one() {
 # 库与 demo 的源
 copy_one "$ROOT/mosaic_pipeline.cpp"            "src/npu/mosaic_pipeline.cpp"
 copy_one "$ROOT/mosaic_pipeline.h"              "src/npu/mosaic_pipeline.h"
+# v10.5: the spatio-temporal track fusion kernel (own translation unit; the
+# public C ABI to drive it lives in mosaic_pipeline.h).
+copy_one "$ROOT/mosaic_track_fusion.cpp"        "src/npu/mosaic_track_fusion.cpp"
+copy_one "$ROOT/mosaic_track_fusion.h"          "src/npu/mosaic_track_fusion.h"
 copy_one "$ROOT/mosaic_core.h"                  "src/npu/mosaic_core.h"
 copy_one "$ROOT/mosaic_post_gpu.h"              "src/npu/mosaic_post_gpu.h"
 copy_one "$ROOT/mosaic_api_test.cpp"            "src/npu/mosaic_api_test.cpp"

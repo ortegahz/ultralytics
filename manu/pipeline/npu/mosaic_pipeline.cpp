@@ -56,6 +56,9 @@
 // 所以只能在这里注册，不能让 mosaic_core.h 反向 include（会成环）。
 #include "mosaic_post_gpu.h"
 
+// v10.5: the spatio-temporal track fusion kernel (zero third-party deps).
+#include "mosaic_track_fusion.h"
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -179,6 +182,16 @@ struct ResultItem {
   int64_t id = 0;
   void* cptr = nullptr;   // the CALLER's per-frame pointer (rides with `id`)
   std::vector<mosaic::Comp> comps;
+};
+
+// v10.5: one frame's TRACKED output (the spatio-temporal fusion's answer
+// for that frame).  It rides its own queue, next to (not inside) the
+// detection results: the detection result and the tracked result of the
+// same frame are two DIFFERENT products of the same frame, and a caller may
+// want one, the other, or both.
+struct TrackedItem {
+  int64_t id = 0;  // the CALLER's frame number
+  std::vector<mosaic::TrackFusionDet> dets;
 };
 
 // Per-frame artifacts that must be emitted in FRAME ORDER: the rolling md5
@@ -461,6 +474,34 @@ struct MosaicPipeline {
   MosaicResultCallbackEx cb_ex = nullptr;
   void* cb_user = nullptr;
   std::thread dispatch_thread;
+
+  // ---- v10.5: the spatio-temporal track fusion ---------------------------
+  //
+  // `fusion` is NULL when the fusion is OFF (the default).  The engine is
+  // PIPELINE-GLOBAL, not per NPU service: the tracks are a property of the
+  // SEQUENCE, so two NPU services must not own two sets of tracks.
+  //
+  // The engine is fed with a DENSE UPDATE COUNTER (`fusion_updates`), not
+  // with the camera's frame number: the reference implementation sees a
+  // gapless sequence of updates (every frame it processed), and the engine's
+  // own arithmetic (the Kalman step, the age, the confirmation) is defined
+  // on that gapless sequence.  The camera's frame number travels with the
+  // result instead, so the caller can see the physical gap.
+  std::unique_ptr<mosaic::TrackFusionEngine> fusion;
+  MosaicTrackFusionConfig fusion_cfg{};
+  std::mutex m_fusion;
+  int64_t fusion_updates = 0;
+  // The reorder buffer (only used when reorder_window > 0): the frames
+  // waiting for their turn, keyed by the camera's frame number.
+  std::map<int64_t, std::vector<mosaic::TrackFusionCand>> fusion_pending;
+  // The online per-frame output.
+  std::deque<TrackedItem> tracked_q;
+  std::condition_variable cv_tracked;
+  // The offline (Pass 2 + Pass 3) output: it only exists after the flush.
+  std::vector<std::vector<mosaic::TrackFusionDet>> fused_frames;
+  size_t fused_pos = 0;
+  // The offline passes run ONCE, at the flush.
+  bool fusion_finalized = false;
 
   // ---- the order-sensitive outputs ---------------------------------------
   std::map<long, OrderedArtifact> artifacts;
@@ -2077,6 +2118,12 @@ struct MosaicPipeline {
         post_samples.push_back(backproj_ms);
       }
 
+      // v10.5: the spatio-temporal track fusion (optional, OFF by default).
+      // It runs HERE, right after the back-projection, because this is where
+      // the candidates are: the tracker sees exactly the components the
+      // caller would have collected.
+      FeedFusion(hi.id, comps);
+
       ResultItem ri;
       ri.id = hi.id;
       ri.cptr = hi.cptr;
@@ -2088,6 +2135,63 @@ struct MosaicPipeline {
       }
       cv_out.notify_all();
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // v10.5: feed one frame's detections into the track-fusion engine and
+  // publish that frame's online tracked output.
+  //
+  // The candidates are the CONNECTED COMPONENTS of the back-projection: the
+  // same candidates the precision alignment was run on (the align tool dumps
+  // exactly these, with tag, centroid and peak).
+  // -------------------------------------------------------------------------
+  void FeedFusion(int64_t id, const std::vector<mosaic::Comp>& comps) {
+    std::lock_guard<std::mutex> lk(m_fusion);
+    if (!fusion) return;
+    std::vector<mosaic::TrackFusionCand> cands;
+    cands.reserve(comps.size());
+    for (const mosaic::Comp& c : comps) {
+      if (c.tag < 0 || c.tag > 31) continue;
+      if (!((fusion_cfg.tag_mask >> c.tag) & 1)) continue;
+      mosaic::TrackFusionCand cand;
+      cand.x = c.cx;
+      cand.y = c.cy;
+      cand.score = c.peak;
+      cands.push_back(cand);
+    }
+    if (fusion_cfg.reorder_window > 0) {
+      // HOLD the frame until the buffer is over the window, then release the
+      // OLDEST one: the tracker then sees the frames in ASCENDING camera
+      // frame order even when the NPU stage finished two of them out of
+      // order (which npu_workers > 1 does).
+      fusion_pending[id] = std::move(cands);
+      while ((int)fusion_pending.size() > fusion_cfg.reorder_window) {
+        auto it = fusion_pending.begin();
+        const int64_t rid = it->first;
+        std::vector<mosaic::TrackFusionCand> rc = std::move(it->second);
+        fusion_pending.erase(it);
+        RunFusionStep(rid, rc);
+      }
+    } else {
+      RunFusionStep(id, cands);
+    }
+  }
+
+  // Run one update of the engine and publish the frame's online result.
+  // The caller holds m_fusion.
+  void RunFusionStep(int64_t id, const std::vector<mosaic::TrackFusionCand>& cands) {
+    const int64_t dense = fusion_updates++;
+    fusion->Step(dense, cands.data(), cands.size());
+    std::vector<mosaic::TrackFusionDet> dets;
+    fusion->OnlineFused(dense, &dets);
+    TrackedItem ti;
+    ti.id = id;
+    ti.dets = std::move(dets);
+    {
+      std::lock_guard<std::mutex> lk(m_out);
+      tracked_q.push_back(std::move(ti));
+    }
+    cv_tracked.notify_all();
   }
 
   // -------------------------------------------------------------------------
@@ -3885,6 +3989,21 @@ int32_t mosaic_pipeline_flush(MosaicPipeline* p) {
   // v10.3: the per-frame post-processing samples are final now (the POST thread
   // is joined), so the optional raw dump can happen.
   DumpPostSamples(p);
+  // v10.5: the fusion has stopped feeding (the POST thread is joined), so the
+  // reorder buffer can be released -- in ASCENDING camera-frame order, which
+  // is the order the tracker must see -- and the OFFLINE passes (the
+  // bidirectional smoother and the consecutive-frame confirmation) can run:
+  // they need the WHOLE sequence.
+  {
+    std::lock_guard<std::mutex> lk(p->m_fusion);
+    if (p->fusion && !p->fusion_finalized) {
+      for (auto& kv : p->fusion_pending) p->RunFusionStep(kv.first, kv.second);
+      p->fusion_pending.clear();
+      p->fusion->Finalize(&p->fused_frames);
+      p->fused_pos = 0;
+      p->fusion_finalized = true;
+    }
+  }
   {
     std::lock_guard<std::mutex> lk(p->m_out);
     p->flushed = true;
@@ -3893,6 +4012,10 @@ int32_t mosaic_pipeline_flush(MosaicPipeline* p) {
     // LOST (the waiter evaluated its predicate but had not yet enqueued), and
     // then the dispatch join below never returns.
     p->cv_out.notify_all();
+    // v10.5: the same for the tracked queue -- a collector that waits for a
+    // tracked frame has to be woken when the run is over, or it waits for
+    // the timeout before it sees the end.
+    p->cv_tracked.notify_all();
   }
   // The run is over: one summary line for the three fallback lines, so an
   // operator can see at a glance which one (if any) fired.
@@ -4132,6 +4255,184 @@ int32_t mosaic_pipeline_set_detect_threshold(MosaicPipeline* p, const double* th
   }
   fprintf(stderr, "[i] detect threshold -> %.6f (%d NPU service(s))\n", v, n);
   return 0;
+}
+
+// ---------------------------------------------------------------------------
+// v10.5: the spatio-temporal track fusion -- the public API.
+// ---------------------------------------------------------------------------
+
+// The C++ kernel's defaults ARE the frozen th045/v1 parameters, so the
+// defaults of the C struct are taken FROM the kernel: there is exactly one
+// place where a parameter value is written down.
+static mosaic::TrackFusionParams ToFusionParams(const MosaicTrackFusionConfig& c) {
+  mosaic::TrackFusionParams p;
+  p.th_base = c.th_base;
+  p.th_salvage = c.th_salvage;
+  p.th_ground = c.th_ground;
+  p.sky_ratio = c.sky_ratio;
+  p.img_h = c.img_h;
+  p.max_age = c.max_age;
+  p.min_hits = c.min_hits;
+  p.match_dist = c.match_dist;
+  p.max_match_dist = c.max_match_dist;
+  p.min_track_score = c.min_track_score;
+  p.instant_conf = c.instant_conf;
+  p.min_displacement = c.min_displacement;
+  p.th_deep = c.th_deep;
+  p.min_hits_deep = c.min_hits_deep;
+  p.stitch_gap = c.stitch_gap;
+  p.stitch_max_dist = c.stitch_max_dist;
+  p.infill_gap = c.infill_gap;
+  p.min_hits_infill = c.min_hits_infill;
+  p.min_rigid_disp = c.min_rigid_disp;
+  p.max_rigid_var = c.max_rigid_var;
+  p.min_hits_prune = c.min_hits_prune;
+  p.min_rigid_disp_sky = c.min_rigid_disp_sky;
+  p.confirm_consec = c.confirm_consec;
+  p.confirm_gap_tol = c.confirm_gap_tol;
+  p.confirm_trim_prefix = c.confirm_trim_prefix;
+  return p;
+}
+
+void mosaic_pipeline_track_fusion_defaults(MosaicTrackFusionConfig* cfg) {
+  if (!cfg) return;
+  memset(cfg, 0, sizeof(*cfg));
+  const mosaic::TrackFusionParams d;  // the frozen th045/v1 defaults
+  cfg->version = MOSAIC_TRACK_FUSION_VERSION;
+  cfg->enable = 1;
+  cfg->tag_mask = 0x7;  // all three scales: the validated candidate stream
+  cfg->reorder_window = 0;
+  cfg->th_base = d.th_base;
+  cfg->th_salvage = d.th_salvage;
+  cfg->th_ground = d.th_ground;
+  cfg->sky_ratio = d.sky_ratio;
+  cfg->img_h = d.img_h;
+  cfg->max_age = d.max_age;
+  cfg->min_hits = d.min_hits;
+  cfg->match_dist = d.match_dist;
+  cfg->max_match_dist = d.max_match_dist;
+  cfg->min_track_score = d.min_track_score;
+  cfg->instant_conf = d.instant_conf;
+  cfg->min_displacement = d.min_displacement;
+  cfg->th_deep = d.th_deep;
+  cfg->min_hits_deep = d.min_hits_deep;
+  cfg->stitch_gap = d.stitch_gap;
+  cfg->stitch_max_dist = d.stitch_max_dist;
+  cfg->infill_gap = d.infill_gap;
+  cfg->min_hits_infill = d.min_hits_infill;
+  cfg->min_rigid_disp = d.min_rigid_disp;
+  cfg->max_rigid_var = d.max_rigid_var;
+  cfg->min_hits_prune = d.min_hits_prune;
+  cfg->min_rigid_disp_sky = d.min_rigid_disp_sky;
+  cfg->confirm_consec = d.confirm_consec;
+  cfg->confirm_gap_tol = d.confirm_gap_tol;
+  cfg->confirm_trim_prefix = d.confirm_trim_prefix;
+}
+
+int32_t mosaic_pipeline_set_track_fusion(MosaicPipeline* p, const MosaicTrackFusionConfig* cfg) {
+  if (!p) return -1;
+  std::lock_guard<std::mutex> lk(p->m_fusion);
+  if (!cfg || cfg->enable == 0) {
+    p->fusion.reset();
+    p->fusion_pending.clear();
+    p->fusion_updates = 0;
+    p->fusion_finalized = false;
+    p->fused_frames.clear();
+    p->fused_pos = 0;
+    return 0;
+  }
+  if (cfg->version != MOSAIC_TRACK_FUSION_VERSION) {
+    fprintf(stderr, "[FATAL] track fusion config version %d, expected %d\n", cfg->version,
+            MOSAIC_TRACK_FUSION_VERSION);
+    return -2;
+  }
+  p->fusion_cfg = *cfg;
+  // tag_mask == 0 would mean "no detections at all", which is never what a
+  // caller wants by accident: 0 means ALL the scales (the default).
+  if (p->fusion_cfg.tag_mask == 0) p->fusion_cfg.tag_mask = 0x7;
+  if (p->fusion_updates > 0) {
+    fprintf(stderr,
+            "[warn] the track fusion is (re)enabled after %lld update(s): the tracks of the "
+            "frames already processed are lost\n",
+            (long long)p->fusion_updates);
+  }
+  p->fusion.reset(new mosaic::TrackFusionEngine(ToFusionParams(p->fusion_cfg)));
+  p->fusion_updates = 0;
+  p->fusion_pending.clear();
+  p->fusion_finalized = false;
+  p->fused_frames.clear();
+  p->fused_pos = 0;
+  fprintf(stderr, "[i] track fusion ON: th_base=%.4f th_ground=%.4f sky_ratio=%.3f tags=0x%x "
+                  "reorder_window=%d\n",
+          p->fusion_cfg.th_base, p->fusion_cfg.th_ground, p->fusion_cfg.sky_ratio,
+          p->fusion_cfg.tag_mask, p->fusion_cfg.reorder_window);
+  return 0;
+}
+
+int32_t mosaic_pipeline_collect_tracked(MosaicPipeline* p, int64_t* frame_id, MosaicTrackedDet* out,
+                                        int32_t max_out) {
+  if (!p) return -1;
+  {
+    // The online tracked output only exists while the fusion engine is
+    // enabled. If it is off, `tracked_q` stays empty forever and the wait
+    // below would block until flush: fail fast instead of hanging the caller.
+    std::lock_guard<std::mutex> lk(p->m_fusion);
+    if (!p->fusion) return -1;
+  }
+  TrackedItem ti;
+  {
+    std::unique_lock<std::mutex> lk(p->m_out);
+    for (;;) {
+      if (p->cv_tracked.wait_for(lk, std::chrono::milliseconds(MosaicPipeline::kWaitTimeoutMs),
+                                 [p] { return !p->tracked_q.empty() || p->abort || p->flushed; }))
+        break;
+    }
+    if (p->tracked_q.empty()) return -1;  // aborted, or flushed and drained
+    ti = std::move(p->tracked_q.front());
+    p->tracked_q.pop_front();
+  }
+  if (frame_id) *frame_id = ti.id;
+  const int32_t n = (int32_t)ti.dets.size();
+  if (out && max_out > 0) {
+    const int32_t ncopy = n < max_out ? n : max_out;
+    for (int32_t i = 0; i < ncopy; ++i) {
+      out[i].track_id = ti.dets[i].track_id;
+      out[i].x = ti.dets[i].x;
+      out[i].y = ti.dets[i].y;
+      out[i].score = ti.dets[i].score;
+      out[i].infilled = ti.dets[i].infilled ? 1 : 0;
+    }
+    return ncopy;
+  }
+  return n;
+}
+
+int32_t mosaic_pipeline_collect_fused(MosaicPipeline* p, int64_t* frame_id, MosaicTrackedDet* out,
+                                      int32_t max_out) {
+  if (!p) return -1;
+  std::vector<mosaic::TrackFusionDet> dets;
+  int64_t idx = -1;
+  {
+    std::lock_guard<std::mutex> lk(p->m_fusion);
+    if (p->fused_pos >= p->fused_frames.size()) return -1;  // not flushed yet, or drained
+    idx = (int64_t)p->fused_pos;
+    dets = p->fused_frames[p->fused_pos];
+    ++p->fused_pos;
+  }
+  if (frame_id) *frame_id = idx;
+  const int32_t n = (int32_t)dets.size();
+  if (out && max_out > 0) {
+    const int32_t ncopy = n < max_out ? n : max_out;
+    for (int32_t i = 0; i < ncopy; ++i) {
+      out[i].track_id = dets[i].track_id;
+      out[i].x = dets[i].x;
+      out[i].y = dets[i].y;
+      out[i].score = dets[i].score;
+      out[i].infilled = dets[i].infilled ? 1 : 0;
+    }
+    return ncopy;
+  }
+  return n;
 }
 
 const char* mosaic_pipeline_feature_md5(MosaicPipeline* p) {

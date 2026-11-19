@@ -195,11 +195,17 @@ LIB_CXXFLAGS="-std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter -Wno-unused-fun
 
 echo "== compiling libmosaic_pipeline.so =="
 "$CXX" $LIB_CXXFLAGS -c "$HERE/src/npu/mosaic_pipeline.cpp" -o "$OUT/mosaic_pipeline.o"
+# v10.5: the spatio-temporal track fusion kernel.  It is a SEPARATE translation
+# unit (zero third-party dependencies) and it MUST be compiled with the same
+# $FP_FLAGS: with aarch64's default -ffp-contract=fast the FMA contraction
+# changes the rounding and the result is no longer bit-identical to the
+# Python reference (measured: a different output MD5).
+"$CXX" $LIB_CXXFLAGS -c "$HERE/src/npu/mosaic_track_fusion.cpp" -o "$OUT/mosaic_track_fusion.o"
 
 echo "== linking  libmosaic_pipeline.so =="
 rm -f "$OUT/libmosaic_pipeline.so"
 "$CXX" -shared -Wl,-soname,libmosaic_pipeline.so $RELAX \
-  -o "$OUT/libmosaic_pipeline.so" "$OUT/mosaic_pipeline.o" \
+  -o "$OUT/libmosaic_pipeline.so" "$OUT/mosaic_pipeline.o" "$OUT/mosaic_track_fusion.o" \
   "${LIB_PATHS[@]}" "${RPATH_LINKS[@]}" \
   $OPENCV_LIBS -lOpenCL -lrknnrt -lrga -lpthread -ldl -lm
 
