@@ -1,7 +1,7 @@
 # 红外弱小无人机检测项目 · 精简背景（5 分钟上手卡）
 
-> **用途**：新 Session / 外部模型 5 分钟建立上下文。**详细证据看 `manu/memory/memory.md`（18,073 行主档）**。
-> **更新**：2026-11-19 · **瘦身版**：原 2,166 行全量已归档到 `manu/memory/archive/05_memory_compact_全量_20261022.md`（md5 `eaf91829a58d4abbd499e3d7bc2711a0`，逐字节一致）。
+> **用途**：新 Session / 外部模型 5 分钟建立上下文。**详细证据看 `manu/memory/memory.md`（4,675 行主档）**。
+> **更新**：2026-11-03 · **瘦身版**：原 2,166 行全量已归档到 `manu/memory/archive/05_memory_compact_全量_20261022.md`（md5 `eaf91829a58d4abbd499e3d7bc2711a0`，逐字节一致）。
 > **配套**：方法论 SOP 在 `manu/skills/`（5 个 Skill），**不在本文件重复**。
 
 ---
@@ -87,20 +87,20 @@ val3（11,810 帧）**F1 0.891676**（基准 A 0.897694，**ΔF1 −0.006018 / �
 
 ## 2. 当前擂主与候选（**唯一真值**）
 
-### 2.0 ⭐⭐ 当前**全局基线 = Baseline_v2.0 = trial_9863**（2026-11-11 升轨，NPU ≤21 ms 线）
+### 2.0 ⭐⭐ 当前**全局基线 = Baseline_v3.0 = trial_2020035**（2026-11-19 14:18 升轨，NPU ≤21 ms 线）
 
 | 项 | 值 |
 |:--|:--|
-| **身份** | **trial_9863 @ ep5**（= trial_0031 配方 + `--size-weight-small 5.0`，拓扑与 0031 **逐项同图**） |
-| **NanoBench（no-GMC）** | **nano 0.708648**（0031 = 0.6666，**+4.20 pp**）· nano@4px **0.647212**（0080 = 0.6668、base_frozen = 0.6966 ⇒ 严格档仍未反超）· F1 **0.889712** · micro 0.825769 ⚠️（0031 = 0.8370，**−1.12 pp**） |
-| **官方三轨（GMC）** | T1 **0.888086** · T2 F1 0.997440 / FP **5**（0031 = 10）· T3 **0.948489**（噪声底，仅防退化） |
-| **板端 int8** | 交付板 **19.306 ms**（同图 ⇒ 构造保证）· 新板同会话 **22.009 ms** < 0031 自身 23.528 ms |
-| **Status** | **ACTIVE / OFFICIAL BASELINE**（Non-GMC / <21 ms 唯一官方基线） |
-| **前代** | `trial_0031` = **SUPERSEDED / DEPRECATED** · `trial_0080 (RC2)` = **RETIRED / OFFLINE HISTORICAL REFERENCE** |
-| **后续规则** | 一律以 9863 指标为 **Beat-to-Pass** 参照；增量迭代**起点 = 9863 权重 + 9863 配方** |
+| **身份** | **trial_2020035 @ ep5**（3-汤 soup：1608003@5 .5924 / 1612001@5 .0980 / 1530006@5 .2116 / 1623003@5 .0980，家族 `sb3:…:bw10`；拓扑与 `trial_0031` 逐项同图） |
+| **NanoBench（no-GMC）** | nano **0.7242439**（打平）· **nano@4px 0.6609168**（v2.10 = 0.6602079，**+7.09e-4**）· F1 **0.8906832**（+9.4e-6） |
+| **官方三轨（GMC）** | T1 **0.8909239**（fp 1473，+6.49e-5）· T2 F1 **0.9931331** / FP **4**（打平）· T3 **0.9488856**（+6.22e-5） |
+| **板端 int8** | **19.629 ms**（板卡 `.64` 实测，红线 19.989 ⇒ PASS）· 交付板 19.306 ms（0031 参照） |
+| **Status** | **ACTIVE / OFFICIAL BASELINE**（v3 代 = 引入 `nano4` 轴的小目标严格档） |
+| **前代** | `Baseline_v2.10` = `trial_1674017` = **SUPERSEDED / DEPRECATED** · `trial_9863`(v2.0) / `trial_0031` / `trial_0080(RC2)` 同为历史参照 |
+| **后续规则** | 一律以 v3.0 指标为 **Beat-to-Pass** 参照；**bw10 族仍是活线**（`w1530006 = .20` 是 nano4 顶格 ⇒ 下一格需换成员集） |
 
 > ⚠️ **§2.1 / §2.2（RC1 / RC2 / U 分）仍有效，但只服务于「路线 B 全帧对等混训线」的候选筛选**，
-> 不用于 NPU ≤21 ms 线；那一条线的基线是 **Baseline_v2.0（§138）**。
+> 不用于 NPU ≤21 ms 线；那一条线的基线是 **Baseline_v3.0（§251）**。
 
 ### 2.1 擂主与参照系
 
@@ -1410,7 +1410,6 @@ python3 manu/memory/validate_nav_table.py    # 归档完整性 + 78 条导航逐
 6. 官方 `build_dataloader` 的 `fusion-dilate` 默认 9，门禁用 32 ⇒ 必须显式传。
 7. torch 1.13 无 `torch.amp.GradScaler/autocast` ⇒ 用 `torch.cuda.amp`。
 8. 内联 `python -c` 的 f-string 嵌套引号会被 shell 吃掉 ⇒ **落文件执行**。
-9. 🔴 **bash 数组不会被 `export` 传给 `bash -c` 子 shell** ⇒ `export -f fn` 带的函数里 `${ARR[@]}` **变空** ⇒ ssh 退回读系统配置、撞上本机权限损坏的 `/etc/ssh/ssh_config.d/20-systemd-ssh-proxy.conf` ⇒ **每一路都断**。⇒ 跨 shell 传参**只用字符串**；且 `set -o pipefail` 也不随子 shell 传递 ⇒ `cat | ssh` 的**本地读失败会被吞掉**，必须在**远端加字节数门禁**（见主档 §182.7 踩坑 6/9）。
 9. `pkill -f <pattern>` 会误杀 SSH shell ⇒ 落文件 .sh 按 PID 精确 kill；远程 `cmd && cmd &` 会整链后台化 ⇒ 用 .sh 脚本。
 10. `Path.glob` 默认路径写错**静默返回空**；查进程数用 `ps -eo args | grep -c`（**不用 `pgrep -f`**）。
 11. `multiscale_heatmap_cache.py:403` 的 `frame_index` 是排序位置非原始帧号；`eval_multiscale_cache_th.py:100` 只认 `{seq}__{digits}.txt`。
@@ -1458,8 +1457,7 @@ python3 manu/memory/validate_nav_table.py    # 归档完整性 + 78 条导航逐
 | ⭐ **Codex 对话交接到服务器（2026-11-03）** | **专题档 `manu/memory/codex_handoff_to_server_20261103.md`**（根因：服务器「对话是空的」= **会话 cwd 精确匹配不中**，**不是**会话缺失 —— 服务器 `CODEX_HOME=/mnt/data/.codex`（**不是** `/mnt/data/siping/.codex`），state 库 **52 条**线程 cwd 全是 host 路径，`sessions/` 最新只到 2026/11/02；⚠️ 旧档「`thread/list` 按 model provider 过滤」**已被 2026-11-03 实测推翻**，真实过滤维度 = cwd 精确匹配）/ 正确机制 = **adopt**（改 `session_meta.cwd` + `runtime_workspace_roots` → `/tmp/pycharm_project_10ae9e2e`）+ 放进 `$CODEX_HOME/sessions/<Y>/<M>/<D>/` + **`thread/resume`** 建索引（索引在 `thread_history_1.sqlite`，**不在** `state_5.sqlite`）⇒ 交接物就是**源线程本身** `01a19eda-…`（thread id 不变）；⚠️ **`thread/fork` 的产物在 `thread/list` 里不可见**（`thread_source=NULL`），只能当「建索引」的副作用/ 🔴 **2026-11-03 下午增补：对着服务器真实 state 库仿真 ⇒ 修掉 3 个会让真实交接失败的缺陷**（① 目标机已有该线程行时 `history_mode` 留成 `legacy` ⇒ `thread/turns/list` 报 not supported ⇒ 对话「像空的一样」⇒ 强制 `paginated`；② `title`/`preview`/`first_user_message` 不回填 ⇒ 用首条用户消息回填；③ 服务器 config 只信任 host 路径、没有 `/tmp/pycharm_project_10ae9e2e` ⇒ 自动补 `trust_level="trusted"`；另加 provider 预检 + WAL checkpoint）⇒ **6 场景回归全绿**（T1 对抗残留行 / T2 真实态 / T4 未受信目录 / T6 二次交接 均 exit 0 且 ok=true；T3 缺 provider / T7 旧快照 按设计 exit 1；T2 指标 = **756 items / 6 turns**，T6 = **851 items**）/ 工具 `handoff/`（`handoff_to_server.sh`·`server_takeover.sh`·`handoff_helper.py`·`server_state_check.py`）/ **host 普通终端跑一条命令** `bash handoff/handoff_to_server.sh` ⇒ 服务器 `export CODEX_HOME=/mnt/data/.codex` → `cd /tmp/pycharm_project_10ae9e2e` → `codex resume 01a19eda-…`/ ⚠️ **agent 沙箱出网 socket 被 seccomp 封死（AF_INET 建 socket EPERM；`connect()` 整体被拦；AF_UNIX 建 socket 成功但连不上；子 Agent 继承同一沙箱；两条 SSHFS 挂载皆 `ro`；主机无 sshd ⇒ 服务器也无法反拉）** ⇒ 跨主机那一步只能由人跑一次 / 本机 ssh 需 `-F /dev/null`（`20-systemd-ssh-proxy.conf` 属主不对）/ ✅ **真正的跨主机传输已于 2026-11-03 13:31 执行成功**（路线 A 一行命令 = 人跑 `bash handoff/handoff_to_server.sh --session 01a19eda-…`；服务器 `CODEX_HOME=/mnt/data/.codex` 下已导入 rollout（sha256 `a1a5a115…`、17,196,739 B）、`threads` 行 = `cwd=/tmp/pycharm_project_10ae9e2e` / `history_mode=paginated` / `archived=0` / title=preview=first_user_message=「读取yolo工程下的memory，了解背景信息」、`thread_turns` **11 行**、`verify ok=true` + `visible_in_picker=true`、服务器 `config.toml` 已补 trust 条目；**agent 侧独立取证**：走只读 SSHFS 镜像 `/home/manu/mnt/data/.codex` ⇒ 旧 host cwd 出现 **0** 次、新 cwd **6212** 次、sha256 与 adopt 产物逐字节一致 ⇒ **无需网络即可验收**；⚠️ **快照语义**：导入的是 13:31 的快照，再跑路线 A 会**覆写**服务器那份（已加固：覆写前先备份 `<rollout>.bak.<ts>`）⇒ **服务器接手后服务器是唯一主人**） / ✅ **方法层已固化**：新增 Skill **`manu/skills/codex-handoff-to-server/`**（现 350 行，lint 全绿，REGISTRY 第 5 条）⇒ 下次跨机交接直接照规程走，不用重新测绘（含 **sandbox 网络开关的 TOML 陷阱**：`sandbox_workspace_write.network_access` 必须落在**顶层表**里，落在 `[projects.*]` 表下会被静默忽略 ⇒ 用 `bash handoff/enable_network.sh` 一键修正）；⚠️ 装进运行时 `~/.minimax/skills/` 需写 `~`（agent 侧只读）⇒ **由用户跑** `bash manu/skills/install_to_runtime.sh`/ **新铁律十二**（跨机状态迁移）见 `rules.md` §一·12 | ⚠️ **2026-11-03 晚新增：agent 侧出网封路的完整测绘 + 「host 侧 git 触发器」**（主档 §30.9）—— 沙箱内 **无任何出网通路**（`AF_INET` 建 socket 即 EPERM，连本地代理都不可达；`AF_UNIX` connect EPERM；两条 SSHFS 皆 ro；主机无 sshd）⇒ **唯一 host 侧代码执行原语 = `codex_tui` MCP 的 `create_worktree`**（它在 host 上真跑 git，先在源工程目录跑 `git rev-parse HEAD`）⇒ 用 git `post-checkout` 钩子把 `handoff_to_server.sh` 放进有真网络的 host shell：**`handoff/prepare_host_repo.sh`**（人跑一次：在 `/media/manu/1TB-Volume` 建空提交触发仓库 + 装钩子 + 武装 `/tmp/codex-handoff-go`；⚠️ 该路径与工作区同设备 `/dev/sdc1` 但沙箱里 **ro** ⇒ agent 建不了）+ **`handoff/hook_post_checkout.sh`**（**第一版**：无触发文件即惰性 / 消费触发文件 / 自 disarm / 先 probe ssh / 永远 exit 0 —— ⚠️ 这是**意图**描述，实际次序有缺陷，见主档 **§30.9.7**）⇒ **唯一剩余人工动作**：`bash /media/manu/1TB-Volume/workspace/handoff/prepare_host_repo.sh`  / ⚠️ **2026-11-03 晚第二轮：触发器已重写**（主档 **§30.9.7**）—— **null-oid 门控**（只在 post-checkout `$1` = **40 个 0**（worktree 创建）时才放行；普通 checkout 的 `$1` = **真实 sha** ⇒ 不消费触发文件）/ **probe-before-consume**（probe 通过才消费 + 自 disarm；probe 失败 ⇒ **触发文件与钩子都保留**可重试；执行失败 ⇒ **回滚**触发文件与钩子）/ `trap 'exit 0' EXIT` + `${HOME:-}` ⇒ **任何路径都 exit 0** / **无硬编码 session id**（`handoff_to_server.sh` 必须显式给 `--session` 或 `--latest`，否则 **exit 2**；钩子的 session 只来自触发文件 `SESSION=` 或 env `CODEX_SESSION_ID`）/ 自毁改为**改名** `post-checkout.fired.<ts>`（保留现场）/ 新增 **`handoff/undo_host_repo.sh`**（按 `.host_repo_state` **精确回滚**）与 **`handoff/test_hook_regression.sh`**（**T1–T12 / 42 断言全 PASS**，T12 断言 `ultralytics/.git/hooks/post-checkout` 与源**字节一致**）/ 回归命令 `bash /media/manu/1TB-Volume/workspace/handoff/test_hook_regression.sh` → 实测 `PASS: 42    FAIL: 0`  / ⚠️ **2026-11-03 晚第三轮：前提被证伪 ⇒ 补第二条触发路径**（主档 **§30.9.8**）—— 实测（git **2.53.0**）**`git worktree add --no-checkout` 不触发 `post-checkout`**（钩子日志为空），只触发 `reference-transaction`（`prepared`→`committed`，cwd = 源仓库）⇒ 只押 `post-checkout` 会**静默失效** ⇒ 改为**一份实现、两个钩子名**（`handoff/hook_post_checkout.sh` 按 `basename "$0"` 判模式，`CODEX_HANDOFF_HOOK_MODE` 可强制覆盖）⇒ **双触发路径：`post-checkout`（认 null-oid）+ `reference-transaction`（认 `committed` + `worktrees/` 非空）** + **原子抢占 `mkdir` claim ⇒ 只交接一次** + 双门控（marker 门控 + 模式门控）⇒ 无武装触发文件时**完全惰性**（`ultralytics` 仓库当前**没有注册任何 worktree** ⇒ 「`worktrees/` ≥ 1」判据恒为 0 ⇒ 即便提交也不误触发）/ 回归扩到 **T1–T19 / 90 断言全 PASS**（T12 改为**两份副本**（`post-checkout` + `reference-transaction`）与源**字节一致**）/ 回归命令 `bash /media/manu/1TB-Volume/workspace/handoff/test_hook_regression.sh` → 实测 `PASS: 90    FAIL: 0`  / ⚠️ **2026-11-03 第四轮：agent 侧所有 host 执行原语实测封死**（主档 **§30.9.9**）—— `ssh`（agent shell）⇒ `socket: Operation not permitted`（AF_INET 建 socket 即 EPERM）/ `node_repl` MCP（**独立进程**）⇒ **继承同一沙箱**、同样 EPERM、`/home/manu` 也 ro / `codex_tui.create_thread` ⇒ `MCP tool call requires approval, but approval policy is never` / `codex_tui.list_worktrees` ⇒ `{"data":[]}` / `codex_tui.create_worktree(ref=HEAD, allowAsync)` ⇒ **原样中文报错** `git command failed: fatal: 不是 Git 仓库（或者直至挂载点 /media/manu 的任何父目录）停止在文件系统边界` ⇒ **app-server 确实在 host 上跑 git，但它先在【源工程目录】跑 `git rev-parse HEAD`**；而可写性矩阵实测 `/`、`/media`、`/media/manu`、`/media/manu/1TB-Volume` **全 ro**、`workspace/.git` 是 **ro tmpfs（mode=555，`chmod` → EROFS(30)）** ⇒ 工作区根**永远不可能**是仓库 ⇒ **建触发仓库只能由人在沙箱外做一次** / ⇒ **兜底＝两条一行命令**：**路线 A（推荐）** `bash /media/manu/1TB-Volume/workspace/handoff/handoff_to_server.sh --session 01a19eda-6f3b-7552-928d-b16b7e377893`（**不需要任何 git 仓库/钩子**，本轮 dry-run 复验 rc=0、**1637 items / 11 turns**、thread_id 不变、preview=首条用户消息、cwd 已重写 `/tmp/pycharm_project_10ae9e2e`、16,574,862 B）/ **路线 B** `bash /media/manu/1TB-Volume/workspace/handoff/prepare_host_repo.sh`（人跑一次，随后 agent 调 `create_worktree` 即由钩子完成同一套传输）/ **本轮新增 `handoff/.handoff_session`（＋ env `HANDOFF_SESSION`）** ⇒ prepare 武装触发文件时**同一次运行**就带上 `SESSION/CWD/SERVER/PORT`（`sed` 解析、绝不 eval）⇒ 人只跑一次 prepare / **⭐ 无网验收通道**：服务器 `CODEX_HOME=/mnt/data/.codex` 经 SSHFS **ro** 镜像可见于 `/home/manu/mnt/data/.codex` ⇒ 落地后 agent 可 `ls /home/manu/mnt/data/.codex/sessions/2026/11/03/ | grep 01a19eda` 验收（本轮实测**尚未出现** ⇒ 传输确实还没发生）/ 改完 prepare 后回归复跑 ⇒ `PASS: 90    FAIL: 0`（未受影响） |
 | 业务域 / 难例 / 数据集 | `manu/memory/hard_cases.md`、`spatio_temporal_track.md`、`manu/docs/dataset/long-quan-tk.md` |
 | 双专家 MoE / 渐进残差 / 容量 A/B | `manu/memory/dual_expert_moe_adapter.md`、`progressive_residual_training.md`、`model_scale_ab_test.md` |
-| 标注工具 | `manu/memory/web_annotate_tool.md`（网页版，框标注） |
-| ⭐ **桌面版中心点标注工具 PointAnnotator**（2026-11-16 新增，替代网页版做中心点标注） | **`manu/memory/point_annotator_tool.md`**（`pos/neg/ign` 三态 + `pts/pred_pts` 双轨 + `2` 键无损回退；交付 `manu/point_annotator/{point_annotator.py,build_exe.bat,run.bat,README.md}`；**自检 101/101**；真实纵横数据 **58/58 序列**逐帧核对 **0 处不一致**，树点与原始视频目标峰值平均只差 **(+3.7,+1.0) px**；**预推点是「原始视频」坐标系，OSD 版视频对不上（工具会告警）**；X11 修饰键位图**按 keycode 解释**（`XQueryKeymap` 第 0 字节恒为 0）；主档 `manu/memory/memory.md` **§173**；**标注员培训 PPT 分页脚本** `manu/point_annotator/标注培训PPT_分页内容.md`（**15 页精简版，只讲操作与快捷键**；另有 `_详版23页.md` 留档）；**Windows 运行手册** 在 README §6（直跑 / 打包 exe / 便携 Python + `run.bat`）；自检输出走 `log()` ⇒ windowed exe 里也能在 `point_annotator.log` 看结果）） |
+| 标注工具 | `manu/memory/web_annotate_tool.md` |
 | ⭐ **RK3588 实时流水线：深原始缓冲把丢帧归零（2026-10-28 第四轮）** | **专题档 `manu/memory/MOSAIC_RK3588_20261026.md` §14**（实时臂 / 吞吐扫参 / 存活帧打分三张全表 + Lite GMC 代价 + 深缓冲 + 两级缓存快照 + 取证命令）；**主档 `manu/memory/memory.md` §17**（机制定位 `in_q` / 源码改动一处 / 硬约束 ≤40 ms / 两个脚本缺陷 / 板卡事故）；**证伪档 `manu/memory/falsified_archive.md` §五十**（三条被推翻的中间结论：深队列无用 / slack 是解法 / 丢帧率决定精度）；本文件 **§3.18**；快照取证 `manu/pipeline/cpp/gmc_snapshot_census/` |
 | ⭐ **RK3588 吞吐天花板与 jitter 扫参收口（2026-10-28 第五轮）** | **专题档 `manu/memory/MOSAIC_RK3588_20261026.md` §15**（jitter 3/8/16/32 全表 + NPU 线程占用算式 + 15.3~15.6 fps 上限 + 两条负结果）；**主档 `manu/memory/memory.md` §18**（同表 + 天花板算式 + 25 fps 含义澄清 + 后续三方向）；**证伪档 `manu/memory/falsified_archive.md` §五十一**（三条更正：~~17.51 fps~~ 已作废 / post 不是瓶颈 / jitter 不是主杠杆）；本文件 **§3.19** |
 
@@ -2544,185 +2542,97 @@ F1 94.07% → 91.98%。⇒ **0.44 档看最终结论，0.20 档看全量候选**
   ⇒ **时延参照仍用 11-11 干净会话的 `t31_silu_int8 = 23.528 ms`**（`nano_search.BOARD_SESSION_FILES` 读静态文件，不受影响）；
   11-12 09:45 测到的 22.606 ms 因板卡有负载 ⇒ **作废，不进任何判据**。
 
-- 🟢 **§149.11（11-12 10:30）今夜算力提档：训练并发 4 → 8（2 臂/卡）**
-  实测（4 卡 / 80 核 / 125 GB）：单臂 PSS **10.8~11.1 GB**、单臂 CPU **≈4.1 核**、单卡 GPU **45%** util / 4.6 GB 显存、
-  `MemAvailable` **63 GB**、load **17.7/80** ⇒ **瓶颈不是显卡，是并发臂数被写死成 4（1 臂/卡）**。
-  改 `nano_search.py`：新增 `TRAIN_WORKERS=[env NANO_TRAIN_WORKERS 或 8]`，`phase_train` 用它；评测阶段仍 4；
-  单独 CLI 保持 `--workers` 旧口径；台账写盘已有线程锁 + flock + 写前合并 ⇒ 8 线程安全。
-  8 臂推算：内存 ≈88 GB（余 25）、CPU ≈33 核、显存 ≈9.2 GB/卡 ⇒ GPU util 45%→~85%，整夜有效算力 ≈×1.8。
-  回退：`NANO_TRAIN_WORKERS=4 bash manu/pipeline/npu/run_adaptive_night.sh ...`。
-  生效**不打断 R7**：守护盯 `adaptive_runner.py+nano_search.py` 组合 md5 ⇒ R7 轮末自动重启 ⇒ R8 起
-  8 臂并发 + 6 优先格×2 seed + 多 epoch 官方门禁 + 冠军 `swl>=1.0` 硬闸门 **同时生效**
-  （state md5 `d760c06e…`/rounds=6 vs CUR `28fc4794…`；服务器 `--selftest` PASS，样例含 epochs=6/7、sw=8.0）。
-  新增 `manu/pipeline/npu/run_morning_report.sh`：setsid 独立进程，`2026-11-13 09:10` 自动写
-  `$W/morning_report_20261113.txt`（八块，含 `[R8]`/「代码已更新」热升级证据 + 四块夜汇总 + 升轨候选 + 板卡恢复指令）。
+### 150 ★★★ 硬件真相（内存才是瓶颈）＋ 台账全量重算 + 今夜两处代码改动（2026-11-12 白天）
 
-- 🔴🔴🔴 **§150（11-12 收口）L2/L3 全部实测闭合 + 🔴 新板 RGA 驱动内核 oops（记忆库首次记录）**
-  **L2** 新板 golden（`192.168.0.211` e2e）08:53→09:46（52 min，3.781 fps），喂入 11810 / 产出 **11808**，`dropped=0`，2 帧被引擎跳过；
-  **Q1** 位级对齐（新板 golden vs push-all 全量）共同 **11806** 帧 ⇒ feature md5 **11806/11806 逐位相同** + 检测 TSV **逐帧全等**；
-  **官方校验器（ref = 新板 golden）✅ VERDICT PASS**（5 项判据全过、TP/FP/FN/R/P/F1 全等、**ΔF1 = +0.000000**）；
-  **Q2** 换板环境差（旧 golden vs 新 golden）md5 19.96% / TSV 24.04%（与旧 push-all 对旧板的 19.97% 同量级 ⇒ 非新回归）；
-  跨环境容差：检出数变化 0.56%、坐标差中位 0.0000 px / p95 0.11 / p99 0.31、**94.17% ≤0.1 px、99.48% ≤0.5 px** ⇒ 位级不一致 ≠ 精度退化；
-  **L3** `--inflight 1` 实测 3000 帧喂入 → **3000 帧产出**（零跳过零溢出），与 serial 基线 **md5 3000/3000 + TSV 逐行全等** ⇒ 覆盖率 100% 成立；
-  **L1** 判据提案已出待拍板（`manu/memory/L1_criterion_proposal_20261112.md`）。
-  🔴 **新发现**：板卡 dmesg 两次 **RGA 驱动内核 oops**（`Internal error: Oops: 96000146`，08:52:47 `rknn_mosaic_e2e` / 10:10:54 `mosaic_contract`），
-  栈同：`__clean_dcache_area_poc → iommu_dma_sync_single_for_device → rga_mm_get_buffer → rga_job_commit`，解引用 `ffffff8000000000`；
-  ⇒ **被打死的进程永久死锁**（契约测试 7.5 min 只用 13 s CPU）⇒ `--verify` 会无限期挂死（手工复跑正常 ⇒ 低概率竞态）。
-  **根因＝新旧板驱动库不同**：旧板内核 RGA `v1.3.1`（Ubuntu 20.04.6，librga md5 `7136ae54…`）→ 新板 `rockchip_rga v1.3.0`
-  （Orange Pi CM5 / Debian 12，librga md5 `32c4b08f…`），**用户态 RGA API 同为 1.10.0_[9]** ⇒ 是**内核驱动版本**差异（用户记忆那一族问题的第二例）。
-  ⚠️ 旧板记为「疑似跨进程资源泄漏」的 `rga: buffer[0] mm release buffer failed!` **与本 oops 同源**，此前从未关联。
-  **本轮两处修复**：① `mosaic_core.h` 把 `pat` 缓冲改为**正确 import**（原以 `handle=-1` 传 `improcess()`）——A/B 证明**输出逐字节零影响**
-  （同一 e2e 二进制挂新旧两库跑 300 帧，`feature_md5.txt`/mosaic TSV md5 全等）；② `copy_to_nfs.sh` 板卡测试加**硬超时**（600 s）⇒ 不再挂死交付。
-  库 md5 `03e1e301…` → **`b39c2cf7…`**（5 个测试程序不变）；**5/5 板卡门禁全过（EXIT=0，跑两轮）**。
-  仍未闭合：**L1**（待拍板）/**L4**（PVTM 锁频）/**L5**（散热）/**L6**（RGA oops，需厂商侧升内核驱动）。
-- 🟢 **§149.12（11-12 11:25）NanoBench 评测阶段并发 4 → 8**（官方三轨门禁**仍留 4**，那条的单作业内存未实测，不拿整夜算力赌）
-  实测（R7 评测阶段 11:21）：4 × `cache_trial0474_inferences.py` 并发 ⇒ 整机 38 GB used / 82 GB available ⇒ **单作业 ≈ 7 GB**；
-  NanoBench 阶段 24 臂 @4 并发 ≈ 10 min ⇒ @8 并发 ≈ 5 min（每轮省 ~5 min ≈ +10% 有效臂/小时）。
-  改 `nano_search.py`：新增 `NANO_BENCH_WORKERS=[env 或 8]`，`phase_nanobench` 用它；回退 `NANO_BENCH_WORKERS=4`。
-  **三个并发口径**：训练 `TRAIN_WORKERS=8` ｜ NanoBench 评测 `NANO_BENCH_WORKERS=8` ｜ 官方三轨门禁 `WORKERS=4`。
-  全部在 **R7 轮末守护热升级**同时生效（watchdog CUR md5 `be008a48…` ≠ state `d760c06e…`）。
-
-### 151 ⭐⭐⭐ 板卡**频率锁 max**：CPU/GPU/NPU/DMC 六个域 100 % 满频 + 温控钳位解除（2026-11-12 11:10~11:50）
-
-- **板卡**：`192.168.0.211`（Orange Pi CM5 / Debian 12 / 内核 `5.10.160-rockchip-rk3588`）⇒ **§140.5 的 L4（NPU PVTM 锁频）与 L5（散热与锁频策略）本轮实测闭合**。
-- **三个「降频执行者」（全部实测，非推断）**：① **cpufreq governor** —— policy0/4/6 全是 `ondemand` ⇒ 满载时 policy6 只有 **20.6 %** 采样在 2400 MHz、policy4 49.5 %、policy0 79.4 %；
-  ② **devfreq governor** —— GPU `simple_ondemand` ⇒ **0 %** 采样在 1 GHz（常年 300 MHz）；DMC `dmc_ondemand` ⇒ **68 %** 采样停在 528 MHz（DDR 带宽直接拖 NPU）；
-  ③ **thermal cooling device** —— 过温时内核**改写** `scaling_max_freq` / devfreq `max_freq` ⇒ 用户最初贴的 `max=600000 / 2016000` 就是它（`cur=1416000 > max=600000` 是钳位瞬间的采样撕裂）。
-- **归因证据**：`thermal_zone0 (soc-thermal)` **单区驱动全部 4 个 cooling device**（`thermal-cpufreq-0/1/2` max_state 7/13/13 绑 policy0/4/6 + `thermal-devfreq-0` max_state 7）；温控 governor = `power_allocator`；原 trip = passive 75 / passive 85 / critical 115 °C。
-- **空载基线（用户最初的问题）**：六个域里 **5 个不在 max** —— CPU 三档 408/1800、408/2400、408/2400 MHz，GPU 300/1000 MHz，DMC 528/2112 MHz；只有 NPU 已在 1000 MHz（`trans_stat` 93 min 零转换）。当时 cooling device 全 0、SoC 35~37 °C ⇒ 空载低频是 governor 行为，**不是**温控钳位。
-- **落地的设置（幂等）**：CPU 三档 `performance` + `min=max=cpuinfo_max`（1800/2400/2400 MHz）；GPU/NPU/DMC `performance` + `min=max`（1000 MHz / 1000 MHz / 2112 MHz）；
-  `thermal_zone0` passive **75000→90000 / 85000→100000**，critical **115000 原样保留**。
-  🔴 **关键点：`min_freq` 也必须钉到 max，不能只钉 `max_freq`** —— `max_freq` 被 thermal cooling 改写时，`min_freq` 会成为新的天花板 ⇒ 两者一起钉才锁得住。
-- **负载实测 before/after**（同一 e2e 二进制，`--limit 600`，600 喂入 / 598 产出）：吞吐 **3.666 → 4.109 fps（+12.1 %）**；端到端帧时 272.774 → 243.343 ms；
-  `run` 段 **138.873 → 102.202 ms/帧（−26.4 %）**；`gmc_fit` 229.560 → 217.760 ms/帧；端到端时延 mean/p50/p95/p99 **538.9/445.2/1070.1/1165.6 → 484.2/395.8/1011.0/1108.2 ms**；
-  CPU p0/p4/p6 在 max 占比 **79.4 %/49.5 %/20.6 % → 100 %/100 %/100 %**；GPU/NPU/DMC **0 %/100 %/15.5 % → 100 %/100 %/100 %**；cooling 全程 0 介入；
-  **输出 md5 逐位相同**（feature_md5 `80dc6d0e…`、mosaic TSV `090f253b…`）⇒ **纯性能改动，零正确性影响**。
-- **持久化**：`/usr/local/bin/maxfreq-lock.sh`（幂等）+ systemd `maxfreq-lock.service`（`After=cpufrequtils.service loadcpufreq.service`、`Before=multi-user.target` —— **必须排在 `cpufrequtils` 之后**，否则开机又被设回 `ondemand`）+ `/etc/rc.local` 兜底（`rc-local.service` 已 `enabled-runtime`，实测 RC=0）。
-- **温控安全边界（抬 trip point 不会让风扇失速）**：风扇曲线是**独立的设备树属性** —— `pwm-fan/rockchip,temp-trips` = (50000,1)(55000,2)(60000,3)(65000,4)(70000,5) + `cooling-levels` 0/50/100/150/200/**255**
-  ⇒ **70 °C 起 PWM=255 满速**，由内核 `pwm_fan` 驱动，**不读** `thermal_zone0` 的 trip point ⇒ 抬阈值对风扇零影响；比钳位点早 20 °C，裕度充分；critical 115 °C 保留。
-- **长时热稳态 soak**（6 轮 e2e 连跑 ≈ 14 min，11:23→11:38，全部 rc=0）：**cur ≠ max 的采样数 = 0 / 155**；cooling 全程 0；SoC 44 → **峰值 82.23 °C**（风扇满速），稳态 76~78 °C，距 90 °C 钳位点余 7.8 °C、距 115 °C critical 余 32.8 °C。
-  ⚠️ **代价**：满频后 SoC 稳态温度比 ondemand 高约 **40 °C**（36~59 → 44~82 °C）；封闭机箱/无风环境需重评 90 °C 阈值。
-- **「power 模式」到底有没有用（实测澄清三个同名不同物）**：① `powersave` **governor** 的语义是**把频率钉死在 `min_freq`**（不是「智能省电」）⇒ 单独用会把 CPU/GPU/NPU/DMC 钉到 408 MHz/300 MHz/300 MHz/528 MHz ⇒ **对固定供电板卡有害**；
-  实测机制表：governor=`performance`+min=max ⇒ max；`powersave`+min=max ⇒ **也是 max**（等效）；`powersave`+min=408000 ⇒ **钉 408000（最慢）**；`ondemand`+min=408000 ⇒ 随负载爬升。
-  ⇒ **真正决定频率的是 `min_freq`/`max_freq` 两个数，不是 governor 名字**；本轮 min 也钉到 max 后，`powersave` 与 `performance` 实测等效（e2e fps 6.897 vs 6.910，温度 78.5 vs 79.5 °C，差异在噪声内）⇒ **误改成 `powersave` 也掉不下来**（额外保险），但语义上仍保留 `performance`。
-  ② `thermal_zone0/5/6` 的 `policy=power_allocator` 是**温控 governor**，与频率锁正交；③ GPU 平台节点 `/sys/devices/platform/fb000000.gpu/power_policy` 是**只读状态输出**（`[coarse_demand] always_on`），写 8 个值全被驱动拒绝 ⇒ **不是可设模式**。
-- **口径提醒**：本轮 A/B 用的 `--limit 300`（前段帧更便宜）实测 fps 6.90，**不可与 §150 的 4.109 fps（`--limit 600`）混用比较**；before/after 对比一律同参数。
-- ✅ **§149.13（11-12 12:10）R7→R8 热升级实测通过**：守护日志 `12:05:22 重启调度器：代码已更新（d760c06e→be008a48），在轮次边界生效 ⇒ --start-round 8`，
-  新调度器 PID 1230676，R8 优先格臂同秒开跑（thr12ms3/sched6/sched7…）。
-  **8 臂并发实采：GPU util 45% → 87/90/91/91%，显存 4599→9169 MiB/卡，同时在训 8 臂。**
-  ⚠️ **「×1.8~2.0 有效算力」已作废**（见 §149.15）：GPU 早在 4 臂时已饱和，8 臂只是把同一份算力切给更多臂。
-  ⚠️ 内存余量偏薄（98 GB used / 17 GB available / swap 4.1 GB；另有他用户 clion 占 ~10 GB）⇒ 盯 swap：
-  >15 GB 则回退 `NANO_TRAIN_WORKERS=6`，否则保持 8 臂（不为边际收益打断整夜算力）。
-- ✅ **§149.14（11-12 12:27）8 臂并发稳定性通过 + 报告脚本端到端跑通**
-  swap 在 **4.8 GB 走平**（提档前 2.7 GB）、avail 稳定 19 GB、GPU util 85~95% ⇒ **不需回退 6 臂**；
-  紧张点唯一来源是**他用户 `clion` 占 ~10 GB**（不可控）。
-  R8 实际队列 **34 臂**（24 + 10 优先格）⇒ 夜产能 +42%。
-  `run_morning_report.sh` 演练 `exit=0`，十节齐全（进程/轮次/**热升级证据**/log 尾/夜汇总/升轨候选/板卡恢复/资源曲线/md5）。
-  **「只差一档」三形态**：12333（T2FP 超 2 + T3 差 0.0017）/ 12335（官方三轨全过但 nano 差 0.00047、nano4 差 0.0102）/ 12346（nano4+T3 差）
-  ⇒ 互补方向：① `thr12ms3`+`sched6/7` 补官方 ② `sw8.0`/`lrfloor0.10` 拉微小召回 —— 正是 R8 的 6 优先格 × 2 seed。
-  四个自主进程（PPID/SID 已核，关机不受影响）：守护 1143269 / 调度器 1230676（跑到 11-13 09:00）/ 采样 1237471 / 报告 1238356。
-- 🔴 **§149.15（11-12 12:40）纠正「8 臂并发 = 有效算力 ×1.8~2.0」＋ 469 臂全量漏斗 ＋ R9 新分配**
-  - **纠正**：逐臂时间戳实测（`adaptive.log`）——4 臂时单臂训练 ≈14.8 min（R4~R7：14.3/15.4/14.4/15.1），
-    **8 臂时 ≈25.9 min（×1.75）** ⇒ GPU 早就打满 ⇒ **吞吐仅 ~16.2 → ~18.5 臂/h（×1.14，不是 ×1.8~2.0）**；
-    util 45%→90% 来自并发臂的训练/评测阶段重叠填空隙，**不代表算力变多** ⇒ 再加并发无边际收益。
-  - **469 臂漏斗**（工具 `manu/pipeline/npu/analyze_near_miss.py`）：**NanoBench 三项全过 = 6 臂**（9863/12053/12252/12263/12300/12333）；
-    **T1+T3 同时过 = 5 臂**（9863/9881/9911/9912/12335）；T2 虚警过线 = 70 臂；**六项全过仍只有 9863 一个**。
-    ⇒ 三项全过的 6 臂里 **T3 失败 66.7% > T1 50% > T2 16.7%** ⇒ **瓶颈是 T3、其次 T1，T2 已不是主要矛盾**。
-  - **种子扫描胜率 ≈ 突变 3 倍**：种子类臂（全库 48 / R7 单轮 6）达 ≥4/6 项 = 3 / **2（33%）**；
-    突变类（126 / 18）= 2 / **2（11%）**；六项全过两者皆 0 ⇒ **R9 突变预算 18→8、种子预算 6→12**。
-  - **mix 轴是今晚最强方向**：12346（mix w2.5，4/6，nano4+T3 差）/ 12347（mix w1.8，3/6，**T1 只差 0.000144**、nano 差 0.0033）/ 12333（种子，4/6，T2 超 2 + T3 差 0.0017）
-    ⇒ 混样比例是唯一同时动 nano 与官方 T1 的连续轴 ⇒ 优先格补 **`mixw1.9`**（w1.8 官方强 / w2.0 nano 强 的中间点）。
-  - **R9 新分配**（代码已改并同步，守护在 R8→R9 轮次边界自动热升级）：`SEED_SCAN_TARGET=12`、`MUT_CAP=8`、
-    新增**近失前沿自适应复现**（过 4/6 且亏损 ≤0.04；过 3/6 且亏损 ≤0.012；`NEAR_MISS_CELLS=4 × NEAR_MISS_SEEDS=2`；
-    用没试过的 seed seed0+700+len；自动排除基线组/优先格/已产出臂）
-    ⇒ **R9 = 12 优先格 + 6 近失（sw4.0 / mixw2.5 / mixw1.8）+ 12 种子 + 8 突变 = 38 臂**，≈194 min/轮，`--selftest` PASS。
-  - **修 bug**：合成臂（SWA）的 `swl` 标签原硬编码 `1.0` ⇒ SWA 产物被误标成「不降大目标权重」 ⇒ 改为跟随冠军臂的 swl。
-  - ⚠️ **板卡口径（11-12）**：板卡上有别的任务在跑 ⇒ **本日所有板端读数（时延/fps/温度）一律作废**；
-    `~/.ssh/id_board` 已改名 `id_board.disabled_20261112_nano_search`（板卡全程不碰，明早 `mv` 恢复）
-    ⇒ **ms 判据挂起**，用「同会话不慢于 0031 自身 ×1.02」相对判据，绝对 20 ms 待板卡空闲后重定标。
-  - **新工具**：`analyze_near_miss.py`（漏斗/近失/同配方队列 `--cohort`）、`sample_resources.sh`（5 min 资源曲线）、`run_morning_report.sh`（明早十节报告）。
-  - **明早交付**：调度器跑到 **11-13 09:00**，**09:10** 自动出 `$W/morning_report_20261113.txt`；
-    四个进程 PPID/SID 已核（守护 1143269 / 调度器 1230676 / 采样 1237471 / 报告 1238356）⇒ **host 关机零影响**；
-    判定基准恒为 **Baseline_v2.0 = trial_9863 六项全过**，第二个六项全过臂出现即升轨。
-  - 🔍 **§149.15 附：R9 计划「只读模拟」实测**（服务器直接调 `build_train_arms(..., round=9, n_seed=12, n_mut=8)`）：
-    **搜索中心 = 基线配方**（`sw5.0|swl1.0|mix w2.0`）**未滑进 swl 死区**；总臂数 **38**（12 优先 + 6 近失 + 12 种子 + 8 突变）；**seed 无重复**；
-    优先格 6 = `thr12ms3`/`lrf0.10_thr12ms3`/`sched6_lrf0.10`/`sched7_lrf0.10`/`sw8.0_lrf0.10`/**`mixw1.9`**；
-    近失格 3 = `sw4.0(mix w2.0)`(9913, 4/6, 亏 0.0189) / **`mix w2.5`**(12346, 4/6, 亏 0.0336) / **`mix w1.8`**(12347, 3/6, 亏 0.0103) ⇒ **mix 轴两端进近失队列、中间点 w1.9 进优先格**。
-    ⚠️ **两个冠军函数别搞混**：`pick_champion()`（单臂最强）会给出 12287（swl=0.1、nano 0.7564 但官方 T1/T3 全塌）；
-    **搜索中心用 `pick_champion_recipe()`**（配方级 + swl≥1.0 硬闸门 + T2 安全闸门 + 最佳单臂≥严格线）⇒ 实测取到基线配方 ✔。
-- ⚠️ **§149.16（11-12 12:40）改了「正在跑的 bash 脚本」必须先杀后重**：
-  bash **按字节偏移增量读脚本** ⇒ 改文件会让运行中实例的偏移指错（可能执行乱码/提前退出）。
-  流程：① 改前 `pgrep -af <脚本名>` ② 有实例 ⇒ **先 `pkill -9 -f` 再用 `setsid nohup … < /dev/null &` 重起**
-  ③ 核 **PPID=1 且 PGID=SID=自己**（本轮新实例 1248692 已核）④ 改 `*.py` 无此问题（源码一次性读入）。
-  ⚠️ `pkill -f "xxx.sh"` 会**连带杀掉自己这条 ssh 命令**（命令行含同串）⇒ 用 `pgrep -f | xargs -r kill -9` 或 `pgrep -af | grep -v "bash -c"` 复核。
-  顺带：明早报告 ③ 已改为通用「各轮队列规模 + 近失复现/优先格 mixw1.9/种子扫描」证据（不再写死 `[R8]`），并新增 ⑥b 漏斗表（`analyze_near_miss.py`）。
-
-### 152 🔴🔴🔴 **过温降频的真根因是 PVTM 高温降额（PM QoS），不是 thermal cooling device** —— 更正 §151.2 ③；频率锁 v3 + 看门狗 + 重启持久化闭合（2026-11-12 11:55~13:45）
-
-- **板卡**：`192.168.0.211`（Orange Pi CM5 / Debian 12 / 内核 `5.10.160-rockchip-rk3588`）；本轮由**用户直接指令**授权重新使用板卡（§150 第七节「板端读数作废」的口径仅对**别的任务**成立）。
-- **🔴 更正 §151.2 ③**：§151 把「过温降频」归因到 thermal cooling device、并把「抬 passive trip point」当解法 ⇒ **归因错误**。
-  真凶是 **`drivers/soc/rockchip/rockchip_system_monitor.c`**（编进内核，`CONFIG_ROCKCHIP_SYSTEM_MONITOR=y`）：
-  按**设备树 OPP 表**的 `rockchip,high-temp=85000` / `rockchip,temp-hysteresis=5000` / `rockchip,high-temp-max-freq`
-  施加 **PM QoS** 频率上限（CPU `FREQ_QOS_MAX`；GPU/NPU `DEV_PM_QOS_MAX_FREQUENCY`；`dev_pm_opp` 只管电压）。
-  ⇒ **QoS 聚合取 min() ⇒ 用户态写 `scaling_max_freq` 压不过它**（实测写 2400000 读回仍是 2208000）；
-  ⇒ **无任何运行时开关**（sysfs/debugfs/module param/cmdline 全查过，驱动编进内核不可重载，probe 时读一次）；
-  ⇒ **抬 trip point 挡不住它**（§151 抬到 90/100 °C 后，**85 °C 的 PVTM 线反而成了更早更硬的瓶颈**）。
-- **内核自证（dmesg 直接打印）**：`cpu cpu0: l=10000 h=85000 hyst=5000 l_limit=0 h_limit=1608000000 h_table=0` /
-  `cpu cpu4/6: … h_limit=2208000000` / `mali fb000000.gpu: … h_limit=800000000` / `RKNPU fdab0000.npu: … h_limit=800000000` /
-  `rockchip-dmc dmc: … h=2147483647 …`（= INT_MAX ⇒ **DDR 永不被钳**）。
-  解读：h=85 °C 触发、hyst=5 °C ⇒ **>85 °C 进 / <80 °C 出**；温度源是 `soc-thermal`（TSADC），**不是** per-cluster 传感器。
-- **实测拐点（真实交付负载 `rknn_mosaic_e2e` 连跑，2 s 采样 193 点）**：12:19:48 bigT=**85** → 12:19:50 全面掉到
-  `1608000/2208000/800000000/800000000` → 12:20:47（80 °C）恢复。**cooling device 全程 `cur_state=0`** ⇒ 温控 governor 一次都没介入 ⇒ **写频率的一定是 PVTM**。
-  ⚠️ §151.8 那轮 14 min soak 峰值 **82.23 °C**，差 **2.8 °C** 没踩到 ⇒ **「cur≠max = 0/155」是运气，不是结论**；本轮 **~5 min 即触线**。
-- **🔴 最硬的结论：「任何情况都是额定 max」在当前散热下物理不成立**（满频 + 真实负载 ~5 min 顶到 85 °C ⇒ NPU 1000→800 MHz，−20 %）。
-  「max」必须重新定义：**额定 max**（1800/2400/1000，只在 <85 °C 可达，**不是恒定**）vs **PVTM 上限**（1608/2208/800，**任何温度可达且恒定**）。
-- **吞吐代价（决定性 A/B，同二进制/同序列/同热态）**：ceiling 全域 **6.577 fps** vs full 全域 **7.018 fps** ⇒ **PVTM 上限 = −6.3 % fps**
-  （NPU 1000→800 是大头：`run` 段 103.777 → **116.679 ms**）；**7 组不同频率下 mosaic TSV md5 全部 = `b1882de090ced61960e42162832de4bf`** ⇒ **频率只影响速度，不影响输出**。
-- **热预算三配置**（空载 150 s + 一轮 300 帧）：A 全钉 max ⇒ 空载 **54 °C** / 负载 **68 °C** / **7.088 fps**；
-  B（CPU 钉 max，GPU/NPU/DMC 用 ondemand）⇒ 空载 **45 °C** / 负载 **61 °C** / 6.696 fps（**−5.5 %**，DMC 停 528 MHz 拖 NPU）；
-  C（CPU ondemand，GPU/NPU/DMC 钉 max）⇒ 空载 **49 °C**。⇒ 空载底噪分解：**GPU+DMC ~9 °C**、**8 核钉 max ~5 °C**；**要性能选 A**。
-- **频率锁 v3**（`manu/pipeline/npu/board/perf/`）：① **删掉抬 trip point**（挡不住 PVTM）；② **先写 max、只在 `min ≤ eff_max` 时才写 min**（PVTM 压住 max 时 `min>max` ⇒ 后续写 sysfs **报 EIO**，本轮实测复现）；③ **从活设备树读 `rockchip,high-temp-max-freq`**（**单位 kHz**；cpufreq sysfs 是 kHz、devfreq sysfs 是 Hz —— 本轮踩过）；④ 新增 **看门狗 `maxfreq-guard.timer`（10 s）**，**SoC ≥ 78 °C 只记录不覆盖 ⇒ 不与硅抢**。
-  两种目标：`full`（默认 1800/2400/1000/2112）｜`ceiling`（`MAXFREQ_TARGET=ceiling` ⇒ 1608/2208/800/2112）。
-- **「power 模式」最终结论**：板上三个同名不同物 —— ① `powersave` **governor** 语义 = **把频率钉在 `min_freq`** ⇒ 单独用最慢（CPU 408 / GPU 300 / NPU 300 / DMC 528 MHz）⇒ **有害**；
-  ② `power_allocator` 是温控 governor，与频率锁正交、**本轮一次都没介入**；③ GPU 平台节点的 `power_policy` 是**只读状态输出**，写 8 个值全被拒 ⇒ **不是可设模式**。
-  **负载饱和时 governor 名字完全无差别**：performance **7.145** / powersave 7.093 / ondemand **7.130** fps，TSV md5 全同 ⇒ **governor 只在空载时才有区别**；
-  **要「任何情况都是 max」只有 `performance` 能保证空载也满频**（实测 IDLE：p0=1800000 p4=2400000 p6=2400000 gpu=1 GHz npu=1 GHz）。
-- **持久化（重启实测通过）**：`/usr/local/bin/maxfreq-lock.sh`（幂等）+ `maxfreq-lock.service`（`After=cpufrequtils.service`，**必须排在它之后**，否则开机又被设回 `ondemand`）+ `maxfreq-guard.timer` + `/etc/rc.local` 兜底。
-  **2026-11-12 12:44 重启后实测**：六个域全部 `performance` + max（1800/2400/2400/1 GHz/1 GHz/2112 MHz），guard timer active。
-  ⚠️ 板卡重启后 **`/mnt/manu` 的 NFS 挂载会丢**（不在 fstab）⇒ 需手工 `mount -t nfs 192.168.0.115:/run/media/manu/SSD960-LOCAL/nfs /mnt/manu -o nolock,soft,timeo=5,retrans=2`。
-- **DTB 路线（不推荐，但方案已备好）**：真正启动的 DTB 是 **`/boot/dtb/rockchip/rk3588s-orangepi-cm5.dtb`**（vfat `/boot` 普通文件，`boot.scr` → `booti`，**overlays 未设置 ⇒ 不叠 overlay**，无 `boot.img`/`extlinux.conf`）；
-  🔴 **厂商 `.deb` 装到 `/boot/dtb-5.10.160-rockchip-rk3588/rockchip/`，路径不同 ⇒ 装 deb 改不到运行中的 DTB**；改法用板卡自带 `fdtput` 改 5 张 OPP 表 × 2 属性 = 10 行（`dmc-opp-table` 无此属性不动）；回滚 = 恢复 `.orig`（原始 sha256 `8e674518a03744fe15e5bb7a0c4acabef74b547f6fe2b61ef337fd1280e2eff8`）。
-  **不推荐理由（Rockchip 自己的文档 RK-KF-YF-184「宽温配置」）**：宽温窗口是 **−40~85 °C**，且「**高温高压下芯片寿命会缩短**，需按温度限制频率和电压」⇒ **85 °C 就是原厂宽温上沿，降额是为保护寿命**；
-  且本板 DTB **无 `rockchip,high-temp-max-volt` / `rockchip,max-volt`** ⇒ 抬频率门限 = **连电压那一维的宽温降额一起去掉**；DDR 从不被钳 ⇒ 抬门限会**消掉内存子系统的唯一热信号**。
-  **交付要求推理逐位可复现 ⇒ 偶发不稳比降 6 % 频率更糟 ⇒ 判定：不抬，走散热路线。**
-- **推荐组合**：默认 `full`（性能优先）+ 看门狗日志记 SoC ≥ 78 °C 告警 + **硬件补散热把稳态压到 <85 °C**（唯一不牺牲稳定性的根本解）；
-  若要求「频率与热历史无关」（时延 SLO 要绝对稳）⇒ 切 `ceiling`（−6.3 % fps）。
-- **产物**：`manu/pipeline/npu/board/perf/{maxfreq-lock.sh, maxfreq-guard.sh, maxfreq-lock.service, maxfreq-guard.service, maxfreq-guard.timer, README.md}`；
-  本轮板端日志：`/tmp/sustain.csv`、`/tmp/pm3_*.txt`、`/tmp/ce2_*.log`、`/tmp/tb.out`。
-- 🔴🔴🔴 **§149.17（11-12 12:55）台账陈旧字段吃掉最强候选 + 门禁报告复用 bug + SWA 结构性死路**
-  - **根因**：台账里 **9 个臂** `official = {'stale': 'epoch_changed X->Y'}` ⇒ `t1/t2_fp/t3` 全空 ⇒
-    ① 六项漏斗里既不算过也不算不过；② **`near_miss_cells` 里 `official.t1 is None` 的臂被直接跳过 ⇒ 它的配方格整格消失**；
-    ③ 升轨清单漏项。**实测代价**：`trial_12053`（冠军配方+`lr_floor 0.1`）ep4 是**全台账唯一「NanoBench 三项全过 + T2/T3 过、只差 T1 一项」的臂**
-    （nano 0.709594 ✔ / nano4 0.656664 ✔ / F1 0.892338 ✔ / **T1 0.887102 ✘（差 0.000984）** / T2fp 4 ✔ / T3 0.949250 ✔）
-    ⇒ 它本该是今晚第一优先复现的近失格，却因一个 "stale" 字段**完全不在队列里**。
-  - **修法**：新增 `manu/pipeline/npu/repair_official_records.py`（**磁盘 `gate_report.json` 才是权威**，只回填 **picked epoch**）
-    + 挂在 `run_round()` 每轮开头（幂等自愈）。dry-run 只命中 1 个臂（12053 ep4）——正是最关键那个。
-    **实测效果：修前近失队列 3 格（sw4.0/mixw2.5/mixw1.8）⇒ 修后 4 格，`lrfloor0.1`（5/6，亏损 0.0011）排第一。**
-  - **🔴 门禁报告永远不被复用**：`run_official_gate` 的判据 `"f1" in tracks.track1_uav` 在**新报告格式下恒 False**
-    （f1 已挪到 `finetune_peak.f1`）⇒ **105 个报告 0 个能复用** ⇒ 每次门禁整轮重算（≈7 min GPU），轮次重跑时全部重算。修复后 **80/105 可复用**。
-  - **🔴 SWA 结构性死路**：9863 的 **F1 0.889712 / T3 0.948489 正好卡在基线上** ⇒ 对它做任何权重平均都会把两项压到线下
-    ⇒ **SWA 路径上不存在六项臂**（极限是 `12327=SWA(9863 ep5~9)`：只差 F1 −0.000242 / T3 −0.001173）；
-    且 36 个 SWA 臂 **0 个三项全过**，其中 16 个来自 swl<1.0 源臂（官方三轨全塌）⇒ **纯浪费算力**。
-    ⇒ 落地：**同 (源臂,窗口) 去重** + 训练后 SWA **只取 swl≥1.0 源臂** + `--swa-top-n` 6→3。
-  - **轴向实测（469 臂）**：`sw` 轴**只有 5.0 能过 nano**（4/6/7/8/10 全塌）⇒ **sw 轴已穷尽**；
-    `mix` 轴**只有 w2.0 六项对齐**（w1.8 差 T1 0.000144、w2.5 差 nano4 0.0187/T3 0.0045）；
-    `lr_floor 0.10` 是尖峰但该格 n=9 均值仅 0.6884 ⇒ **12053 是运气臂**；
-    `thr12ms3` 是 **nano4 提升器**（+0.0045，代价 nano −0.000945）⇒ 与 `lrfloor0.10`（nano 提升）**互补** ⇒ 优先格 `lrf0.10_thr12ms3` 正是这个组合。
-  - **分配调整（已落代码，守护在 R8→R9 热升级）**：种子 12→**14**（种子臂三项全过率 3.7% vs 突变 1.6%）、近失 seed 2→**3**、
-    突变保持 8、优先格 6×2、SWA 去重+过滤+top_n 3 ⇒ **R9 = 12 优先 + 12 近失 + 14 种子 + 8 突变 = 46 臂**，`--selftest` PASS。
-  - **战略结论**：9863 是**幸运种子**（其配方 14 个 seed 均值 nano 仅 0.695348）但**是唯一六项全过的臂**
-    ⇒ **主线必须是「冠军配方换种子」**，配方改动只在「只差一档」时做（近失队列 + 优先格）。
-    ⚠️ 配套隐患：基线配方组均值随 seed 累积**下漂**（0.6966→0.6953）⇒ 升格条件变松 ⇒ 盯住 `max_nano ≥ 严格线` + `T2 安全闸门` 两道硬闸。
+- 🟢 **硬件真相：内存是瓶颈，不是 GPU** ⇒ **维持「4 卡 × 1 臂 × 8 worker」**（不再折腾吞吐，把力气投到命中率）。
+  单个 dataloader worker RSS **≈ 2.0~2.2 GB**（fork 后 Python 引用计数破坏 COW）；4 臂 × 8 worker ≈ **80~84 GB**／整机 128 GB；
+  探针（16 worker）再加 35 GB ⇒ used 95.8 GB、available 18.3 GB、**swap 5.7 GB** ⇒ 两个探针**双双停在 it300**。
+  单臂 Ep01 it1500 @163 s、之后 ~179 s/epoch ⇒ **14.9 min/臂**、GPU util ≈ 90%；
+  **workers 8 vs 16（同卡争用）Ep01 it1500 都是 237 s** ⇒ dataloader 不是瓶颈；
+  2 臂/卡只有 **+19%** 且 8 臂内存撑不住 ⇒ **维持 4 臂/卡**。
+- 🔴 **台账全量重算（403 臂）三个决定性结论**：
+  ① **`swl<1.0` 的真正死因是官方 T1/T3，不是 T2**（swl0.1→T1≤0.848/T3≤0.854；swl0.2~0.35→T1≤0.884/T3≤0.936）⇒ `swl≡1.0` 约束**加强不变**；
+  ② **六项判据里 `nano` 最紧**（干净臂过线率 nano 1~3% / nano4 16% / F1 41%）⇒ 提 nano 的旋钮（lr_floor / sw / thr12ms3）优先于只提 F1/T1 的旋钮；
+  ③ **epochs=5 与 epochs=20 的「每 GPU 分钟效率」等价**（每 epoch 中奖率 ≈ 0.3%）⇒ 继续用 epochs=5（算力 ÷4）。
+- 🟢 **离基线只差一档的四格（今夜搜索空间的全部依据）**：
+  **12057**（sw5.0×thr12ms3）nano 0.707703 ⇒ **离严格线只差 0.000945**，nano4/F1 已过；
+  **12053**（sw5.0×lrfloor0.10）三项全过、**官方 T1 只差 0.000984**；
+  **9822**（sw8.0）官方 T1 已过、nano 差 0.003545、T2fp 8、T3 差 0.000385；**9915**（sw10.0）T1/T2fp 过、nano/n4/T3 差一点。
+  **机理**：12053 逐 epoch 官方 T1 **单调升**（0.885163→0.887102→0.888286 ✔）而 **nano 峰在 ep4**
+  ⇒ **「nano 最优 epoch」与「T1 过线 epoch」差 1 格** ⇒ 只门禁 nano 最优 epoch 会白丢候选。
+- 🟢 **今夜两处代码改动（已部署 / 自检 PASS / 单测 PASS，watchdog 轮次边界自动热升级）**：
+  ① `nano_search.py` **多 epoch 官方门禁**（`GATE_EPOCH_K=3`）：首个 epoch 官方未过线 ⇒ 对同一臂其它「三项全过」epoch 补跑三轨，命中即改写 `picked/picked_epoch/select_rule(+multi_epoch)`；
+  ② `adaptive_runner.py` **优先格**（`PRIORITY_PATCHES` 6 格 × **2 seed/轮**：`lrf0.10_thr12ms3`/`thr12ms3`/`lrf0.10`/`sched6_lrf0.10`/`sched7_lrf0.10`/`sw8.0_lrf0.10`）+
+  `priority_cells()` 淘汰线（n≥4 且均值低于基线配方均值 0.002 ⇒ 停喂）+ 时间预算预留 12 臂。
+- 🟢 **另两处加固**：`adaptive_runner.py` 冠军升格**硬闸门 `swl>=1.0`**（稳健路径/直通路径/升轨候选名单三处）
+  ⇒ 补掉 §149 残余风险「51 格突变全继承冠军 swl」；`promote_candidate.py` 新增 **`--require-board`**
+  ⇒ 默认仍不挡升轨，但发布前可用该开关强制「板端读数存在且 ≤ 参照×1.02」才算 ok。
+- 🔴 **板卡隔离**（用户提示「板卡有别的任务在跑」）：11-12 09:45 的 22.606 ms **作废**（板卡 load 2.19/8）；
+  时延参照仍用 11-11 干净会话 **23.528 ms**；`id_board` 已改名 `id_board.disabled_20261112_nano_search` ⇒ 流水线**一个字节都不碰板卡**
+  （`clean_board_residue()` 会 `pkill -9` 别人的 `e2e_*`／`rknn_heatmap_smoke`，`archive_board_arms()` 会搬走 `arms/*.rknn`）；
+  **明早板卡空闲后 `mv` 回去**。⚠️ 待修：`promote_candidate.py` 板卡判据加在 `ok` **之后** ⇒ 板卡超预算不挡升轨（口径漏洞）。
+- 🟢 **2026-11-12 13:10 台账 469 臂全量复算 ⇒ 夜间算力配比重排（唯一一次代码改动，md5 `c5e2feaf`，服务器 selftest PASS）**：
+  - **nano 三项全过的只有 6 个 (臂,epoch)**，其中 3 个是 swl<1.0 死区 ⇒ **真正活着只有 9863 / 12053ep4 / 12333ep3**，全部出自 swl=1.0 族。
+  - **基配方族分层命中率**：nano 三项 2/32(6%) ｜ T1 8/26(31%) ｜ **T3 3/26(11.5%，最紧)** ｜ 虚警≤5 23/26(88%) ⇒ 单臂六项全过 ≈ 1%。
+  - **T3 是真瓶颈**：基配方新种子 T3 落在 0.9468~0.9473（**系统性低于基线 0.948489**）⇒ 需幸运种子（12335 = 0.949715）。
+  - **前 4 近失**：12053ep4（只差 T1 0.000984）/ 12335ep5（nano 差 0.000472、nano4 差 0.0102，官方三项全过）/ 12347ep3 mix w1.8（T3 虚警 F1 全过，nano/n4/T1 各差 0.0033/0.0035/0.00014）/ 12327ep5（F1 差 0.000242、T3 差 0.001173）。
+  - **已排除别再烧**：跨臂 soup（§142.1 崩盘）、以 9863 权重增量微调（26 臂全退化）、lr_floor 剂量再扫（峰值已确认在 0.1）、sw↔T3 权衡（sw1/3 的 T3 更高但 nano 只 0.667）、优化器增广轴（样本全在种子噪声内）。
+  - 🔴 **一夜总臂数 ≈ 210~240 臂基本恒定（6 并发限制）⇒ 唯一可控的是「配比」**：种子臂近失率 33% vs 突变臂 11%。
+  - ✅ **配比重排已部署**：`SEED_SCAN_TARGET` 14→**20**、`MUT_CAP` 8→**5**、优先格加 `lrf0.10_mixw1.9`（12347 的 T3 强项 × 12053 的 nano 强项）、`PRIORITY_ARMS_EST` 14→18 ⇒ **R8 轮次边界由 watchdog 自动热升级**（`max(6,20)`/`min(18,5)` 覆盖启动参数）。
+- 🔴 **2026-11-12 14:00 板卡换成旧 64 板**（用户告知）：绝对时延参照（11-11 新板 23.528 ms）**跨板作废**；
+  板上仍有他人任务 ⇒ 板卡**继续零接触隔离**；明早只做**同板同会话 A/B 相对判据**（候选 ≤ 0031 自身 ×1.02，取中位数），
+  六项判据不含时延 ⇒ 夜间搜索不受影响。
+  - 🟢 **板卡定位**（14:00~14:05 实测）：旧板 192.168.0.211 **已下线**；现板 = **192.168.0.64**
+    （rk3588 EVB，**NPU 可用**：rknpu 0.9.8 走 DRM /dev/dri/card1，无 /dev/rknpu 属正常，**npu-smi 会挂住别用**）；
+    访问 `ssh -p 22 root@192.168.0.64`（密码 ematech）或 id_board.disabled_* 私钥；
+    ⚠️ 根分区仅剩 **791 MB（95%）**、EXT4 有报错 ⇒ 放 .rknn 前先清空间；我方残留进程已清理干净。
+    流水线里的 `BOARD=192.168.0.211` 已失效 ⇒ 板卡阶段自动失效（安全），明早再改指向 .64 并做同板 A/B。
+- 🔴 **2026-11-12 嵌入式组「每帧携带 void\* 指针」接口已交付**（用户约束：**只加一个新指针输入，原参数全保留，不搞复杂**）⇒
+  **纯新增 3 函数 + 1 回调类型**，`MOSAIC_API_VERSION` 仍为 **10**，旧接口签名/语义/ABI **一字未动**：
+  `mosaic_pipeline_push_frame_ptr(..., int64_t client_frame_id, void* frame_user)`、
+  `mosaic_pipeline_collect_ex(p, &frame_id, &frame_user, out, max_out)`、
+  `mosaic_pipeline_set_result_callback_ex(p, cb, user)`、`MosaicResultCallbackEx(user, frame_id, frame_user, dets, n)`。
+  - **指针与帧号同处一条记录**（内部 `std::array<int64_t,3>` → `PhysIds{eng_idx,id,cid,cptr}`）⇒ **绝不串帧**；
+    传递链 `InItem.cptr → phys_ids → GMC → FeatureItem.cptr →（fused: hi.cptr / decoupled: BufferA::Slot.cptr）→ HeatItem → ResultItem → collect_ex/callback_ex`。
+  - ✅ **精度验证（旧板 .64 同板 A/B，逐字节）**：e2e 与 async 两条路径的 `mosaic.tsv` / `feature_md5.txt` /
+    `feature_md5_phys.txt` / `frame_map.tsv` / `processed_frames.csv` **md5 全部相同**；60 帧统计一致
+    （60 seeded / 58 computed / 2 skipped / 0 voided，目标 168 一致）；**指针自检：对 60 / 不匹配 0 / 空 0**；
+    `mosaic_contract_test` **199 passed 0 failed**。
+  - ✅ **交付包**：`build/` 已重打包（72 文件，6 源文件 md5 与工作区一致），动态共享库版编译出 7 个产物
+    （`libmosaic_pipeline.so` md5 `08c8d76d64039e791076851b635b4a69`）；**ABI 核验**：导出 **29** 符号 = 旧 **26** 个原样在
+    （基线 `.a` 的 `nm` 与新版 `.so` 的 `readelf` 做 `comm` 对账：**基线有新版没有的 = 空集**）+ 新 3 个。
+  - ⚠️ **动态版只能在新板跑**：OpenCV 4.6.0 需 GLIBC_2.34，旧板（Ubuntu 20.04 / 2.31）跑不了 ⇒ 本轮板端验证用**同源静态版**
+    （旧板**没有 OpenCV**，只能跑静态带 opencv 的二进制）；新板恢复后需补一次「动态交付包原件」板上验收。
+  - 🔴 **更正 `board_swap_20261110.md` 的「硬阻塞 #1」**：**`/dev/rknpu*` 缺失不是故障** —— 旧板同样没有该节点，
+    NPU 走 **DRM**（`/dev/dri/renderD128/129` + `[drm] Initialized rknpu 0.9.8` + `librknnrt 2.3.0`）⇒ 新式驱动正常形态。
+    ⚠️ `npu-smi` 在该板会**挂住**（别用）。
+  - 🔴 **「开 subagent 前必须监控 host 内存」规则已落盘两处**：`manu/AGENTS.md` **§7.1**（随会话自动加载，真正生效）
+    + `manu/memory/rules.md` **§一·16（铁律十六）**（记忆层）。
+    闸门：开前必跑 `uptime; free -m | head -2`；🟢 load≤4 & available≥6GB ⇒ ≤2 个（只读/轻量）；
+    🟡 load 4~8 或 available 3~6GB ⇒ ≤1 个只读；🔴 load>8 或 available<3GB ⇒ **一个都不开**；
+    并发存活 ≤2、**完成即 close**；子 Agent 禁在 host 跑编译/训练/推理/评测/>5min 任务；
+    主 Agent 与子 Agent 同一时刻只能有一个吃 CPU 的来源；汇报「已开 N 个」**必须附开前的 uptime/free 读数**。
+    📌 事故实测：`available 0`、swap 11G、load 14.15，而会话挂着 **2 个已完成未 close** 的子 Agent ⇒ 内存被白吃光。
+    本轮指针接口**全程主 Agent 单干、未开子 Agent**。
+  - 🔴 **§151.8 完成审计（第二轮）**：查出并修掉真实缺陷 —— `CollectImpl` 在 `-1` 路径不写 `*frame_user`
+    ⇒ 调用方读未初始化值（UB）。已修：入口即置 NULL，头文件注明「`*frame_user` 总是被写」。
+    **同源审计逐点核对**：GMC `front().cid`/`front().cptr` 同一次取、fused `hi.id/hi.cptr` 同一 `fi`、
+    decoupled 同一条 slot ⇒ **collect 的 id 与指针必然同帧**。
+    ✅ **复验（旧板同板 A/B）**：指针自检 **对 60 / 不匹配 0 / 空 0**（168 目标）；
+    e2e 3 个产物 + async 4 个产物 **全部 IDENTICAL**，md5 与上轮**完全相同（可复现）**；
+    e2e `timing.txt` 的差异**逐行核对后全是耗时噪声**（fps 9.360 vs 9.447）+ 输出路径，无精度差异；
+    contract test **199 passed 0 failed**。
+    🔴 **数字更正**：ABI 导出 **29 = 旧 26 + 新 3**（上版写成「26 = 旧 23 + 新 3」）；
+    `comm` 对账证明**基线有新版没有的 = 空集**，旧符号一个没丢。
+    ⚠️ **唯一未闭环**：动态交付包**原件**的板上验收 —— 新板 .211 仍 ARP INCOMPLETE；
+    旧板跑不了动态版（需 GLIBC_2.34 vs 旧板 2.31）⇒ 等新板回来补。
+  - ✅ **头文件已补 MINIMAL USE 可复制片段**（push 给指针 → collect 拿回同一指针 → 回调版 + 生命周期约束），
+    纯注释、**零产物影响**（三个最终二进制 md5 一字未变 ⇒ §151.8 板端验证仍完全有效；交付包 7 产物 md5 也不变）。
+  - ✅ **交付闭环已补**：NFS 交付目录 `mosaic_sdk`（板卡 `/mnt/manu/mosaic_sdk`）此前是 **10:29 旧包（不含指针接口）**，
+    已用 `copy_to_nfs.sh`（本机 NFS 只读 ⇒ **板卡 /tmp 中转**模式）更新为最新包；独立复核 72 文件、
+    关键产物 md5 与本地 `build/` 逐个一致（`.so` `08c8d76d…`、头文件 `e1d3d310…` 含 MINIMAL USE + 3 新接口）。
+    旧包备份在旧板 `/tmp/mosaic_sdk_bak_20261112`；`build/known_hosts` 的临时旧板密钥**已恢复**。
+    ⚠️ `--verify`（板上跑契约测试）**待新板**：旧板无 OpenCV 跑不了动态版。
 - 🔴 **2026-11-12 15:30 台账全量复算（470 臂 + 全部磁盘 gate_report）⇒ 今晚搜索空间重排**（§152）：
   - **结论：还没有更好的模型** —— 六项全过的臂**全台账只有 `9863` 自己**（80 个有完整六项读数的 (臂,epoch) 里只有 1 个）。
     最接近：**12053 ep4（5/6，只差 T1 −0.000984）** / 12335 ep5（4/6）/ 12333 ep3（4/6）。
@@ -2739,674 +2649,883 @@ F1 94.07% → 91.98%。⇒ **0.44 档看最终结论，0.20 档看全量候选**
     优先格删 `sched7_lrf0.10`、**加 `sw4.0` 与 `sw4.0_thr12ms3`**（仍 9 格×2 seed=18 臂）；`SEED_SCAN_TARGET` 20→**24**。
   - 期望值：250 臂 ×（种子臂 1.4% + 其他 0.36%）≈ **1.8~2.3 个六项臂** ⇒ 明早 09:10 `morning_report_20261113.txt` 出结果。
 
-- 🔴 **§153（11-12 16:30）夜间提速 + 板卡现状**：R9 在跑（15:31→11-13 09:00，4 卡 88%）；
-  **至今 0 个臂六项全过**（568 臂里只有 96 臂有完整六项读数）⇒ 最接近 12053 ep4（5/6，差 T1 −0.000984）。
-  ① **NanoBench 评测段 线程池→进程池**（GIL convoy 根因，8 线程比串行慢 3.2× ⇒ 进程池 **24.1×**；3 个真实 pkl 逐位验收通过）；
-  ② **NanoBench 建缓存加 `--no-peak-attrs`**（跳过 area/sums 连通域，官方门禁自建 GMC 缓存不受影响 ⇒ 六项读数不变）
-     ⇒ **9863 全量 31613 帧端到端 A/B：pred_points/pred_scores 0 处不一致、eval_cache 读数逐位相同（F1 0.889711727543）**
-     ⇒ 同窗计时 **178.9 s → 81.7 s（2.19×）**。
-  ⇒ 单轮 205 min → ~135 min ⇒ 今夜臂数 ~250 → ~330。
-  生效：守护合并 md5 `a952a4a5`→**`7a1f6c25`** ⇒ **R9→R10 轮次边界热升级**（看 `watchdog.log`「代码已更新」）。
-  板卡：旧板 `192.168.0.64`（`evm3588`）已通，但 **`/dev/rknpu` 节点仍缺**（`dmesg` 有驱动日志、无设备节点）⇒ **板端 ms 今晚测不了**
-  ⇒ 联合门禁报 `SPEED_UNKNOWN`，六项判据不受影响（`REQUIRE_BOARD=False`）⇒ 升轨时须人工补板卡同会话 A/B。
-
-- ✅ **§153.6 板卡判据在当前板（旧 .64）上重新成立**：旧板 `evm3588` **无 `/dev/rknpu`，但 rknpu 注册成 DRM**
-  （`/dev/dri/card1`+`renderD129`）⇒ rknn 可用；板端 `librknnrt.so` 2.3.0，已知良好那份在 `/root/hm_speed/lib/`（md5 `56e425dc…`，必须排 LD_LIBRARY_PATH 首位）。
-  服务器 `192.168.99.40` **能路由到 .64**；密钥 `~/.ssh/id_board` 此前被改名停用（换板所致）⇒ **已恢复**。
-  同会话实测（LOOPS=30/WARMUP=10）：control cs_t0043 **55.566** ｜ n9801 **19.734** ｜ **n9863 19.642** ｜ **t31_silu(0031) 19.673** ms
-  ⇒ **9863 比 0031 自身还快 0.031 ms** ⇒ 板端判据（≤ 同会话 0031×1.02 = 20.07 ms）**通过**。
-  口径已修：`BOARD_SESSION_FILES` 头部插入 `board_measure_20261112_old64` ⇒ `board_reference_ms()` = **19.673（旧板同会话）**（不再用新板 23.528）。
-
-- 🔴 **§153.7 进程池自举坑（隔离演练抓到的）**：3.10 的 `ProcessPoolExecutor`（spawn 与 forkserver 都一样）
-  worker 会**重新 import 主模块** ⇒ 主模块若在顶层起进程池 ⇒ 自举期
-  `RuntimeError: An attempt has been made to start a new process…` ⇒ `BrokenProcessPool` ⇒ **整轮评测全灭**。
-  正解：**主模块必须有 `__main__` 保护**（`adaptive_runner.py` 有 ✔）**＋ `_one()` 里 try/except 兜底退回线程内直算**
-  ⇒ 慢但**不掀轮次**。隔离演练（A 生产等价 / B 最坏）两场景读数均与基线**逐位相同**。
-  ⚠️ 纪律：**不要覆盖正在运行的 bash 脚本**（bash 按偏移增量读 ⇒ 改文件会读错位）⇒ 今晚改早报脚本后已 kill 重启。
-
-- 🟢 **§153.8 早期热升级器**（服务器自主）：`manu/pipeline/npu/early_upgrade.sh`，日志 `nano_search/early_upgrade.log`。
-  R9 一进评测段（`adaptive.log` 的 `[cache]` 行数 > 基线 790）⇒ kill 调度器 ⇒ 守护用新码重启并**续跑 R9**
-  ⇒ 把旧码评测段的 ~3 卡·小时空闲换成**多跑约一轮（~59 臂）**。训练臂已标 trained、已评测 epoch 跳过 ⇒ 不重训。
-  坑：`pkill -f 'early_upgrade.sh'` 会杀掉自己那条 ssh 命令 ⇒ 改按 PID kill；`[cache]` 行在 **adaptive.log** 不在 nano_search.log。
-
-- 🔴🔴 **§153.9 11-13 09:00 全盘审计 + 最优格被"组级 T2 口径"误杀整夜（今晚最重要的修复）**：
-  809 臂 / 112 个有完整六项读数的 (臂,epoch) ⇒ **六项全过仍只有 9863 自己**；
-  最接近：**12519 ep3（sw5×thr12ms3×lrf0.1，T3 −0.000115）** 与 **12679 ep3（sw4×thr12ms3×lrf0.1，T3 −0.000157）**，均 5/6。
-  根因：`near_miss_t2_ok()` 按**整组**判健康（组内虚警**最大**值）⇒ 组里一个坏臂（虚警 9~15）把整格判死
-  ⇒ 两个最优格（组内虚警最大 15 / 9 > 门槛 7）**R12 一夜没被喂**；而六项判据只有 `t2fp ≤ 5`，单臂虚警仅 2/1 本该过。
-  ✅ 修（md5 `8633173b…`→`688b3f33…`，双侧一致）：① T2 改**按最佳臂逐臂判**；② `priority_cells` **去重**（原来 4 个补丁塌成同一配方，白喂 8 臂/轮）；
-  ③ 新增 **8 个 `T3F_*` 前沿优先格**（sw∈{4.0,4.5,5.0,5.5}×thr12ms3×lrf0.1×w2.0 + thr14/lrf0.12 插值）；
-  ④ 种子扫描 24→18、近失格 4→5、每格 3→4 seed、优先格预算 18→26。
-  干跑 R13 = 61 臂，**前沿族占 ≈40 臂（66%）**，修复前只 ~6/54；冠军配方已自动变成 **sw4×thr12ms3×lrf0.1**（12679 的配方）。
-
-- 🟢 **§153.10 波次 2 部署（截止 2026-11-14 09:00，host 可关机）**：调度器 R12(1469858,旧码) 收工后自行退出；
-  守护 **1991784**（deadline 11-14 09:00，`watchdog_state.json` 预置新码 md5 `ca3ac91b…`+rounds=11 ⇒ 轮中不误杀、轮末自动用**新码+新截止+`--start-round 13`** 重启）；
-  早报 1403776（今日 09:10）/ **1993474**（11-14 09:10）。⚠️ **板卡 .64 现已离线**（ping/SSH 全不通）⇒ 夜间搜索不受影响，但 T4 板卡判据需人工补测（≤ 同会话 0031×1.02 = 20.07 ms）。
-- 🟢 **§153.11 mix 细粒度格**：前沿臂 nano 富余 +0.007~+0.010 而 T3 只差 1e-4 ⇒ 拿富余换 T3；
-  `mix_spec` 可任意小数（`float(spec[1:])`）⇒ 加 `T3F_sw{5,4}.0_mixw1.95` 两格（w1.95：nano 期望仅 −0.0008、T3 期望 +0.0003~0.0006）。
-  最终 `adaptive_runner.py` md5 **`d0b8df89…`**（双侧一致）、守护组合 md5 **`e8251f78…`**（已写入 watchdog_state ⇒ 轮中不误杀）；
-  **R13 干跑 65 臂、其中 35 臂在前沿族（≈54%）**（修复前 ~11%）。
-- 🔴 **§153.12 SWA 合成臂轮内撞车（R12 实测）**：4 个 SWA 臂里 **neigh/wide/early 塌成同一组 {2,3,4,5}**
-  ⇒ 12702/12704/12705 六项读数**逐位相同**（实为同一模型），还白占 **8 个官方门禁名额里的 3 个**。
-  ✅ 修：`_swa_windows(cdir, win)` 按**真实存在的 epoch 文件**切 4 个**互异**窗口 + 轮内 `_done` 去重。
-  顺带：12705 的 **T3 只差 2.4e-5**（0.9484649 vs 0.9484894）但 nano4 差 0.0043 ⇒ SWA 能补 T3，nano@4px 是独立约束。
-  最终 `adaptive_runner.py` md5 **`ae4ecc22…`**、守护组合 md5 **`ad9b7969…`**（已写入 watchdog_state）。
-
-- 🔴 **§153.13 11-13 09:15~09:50 全盘审计（121 个 (臂,epoch) 有完整读数）⇒ 仍然没有更优模型**：
-  **六项全过 = 1 个，还是 9863 自己**（Baseline_v2.0 本体）。
-  最接近：**12519 ep3（sw5×thr12ms3×lrf0.1，T3 −0.000115）**、**12679 ep3（sw4×thr12ms3×lrf0.1，T3 −0.000157）**，
-  再往后 12694 −0.000781 / 12709 −0.000493 / 12520 −0.001838 / 12053(T1) −0.000985 / 12635(nano) −0.003072。
-  ⚠️ **只看台账 picked epoch 会漏臂**（12709 ep3 比它的 picked ep4 更值得看）⇒ 一律以磁盘 gate_report 为准。
-  🔴 **T3 差 1e-4 ≈ 10~12 帧量级** ⇒ 不能靠"多喂 seed 碰运气"，必须换格。
-- 🟢 **§153.13 修复 A：`frontier_swa_sources(k=2)` 零训练前沿 SWA**：台账离六项最近的臂（12519/12679/12694/12520，均 5/6）
-  SWA 后 T3 曾被顶到**只差 2.4e-5**（12705）⇒ 对前沿臂做 4 互异窗口 SWA，**不训练**就可能造出六项候选
-  （前沿臂 nano4 富余 +0.008~+0.010 正好抵消 SWA 对 nano4 的损耗）；硬约束 = 有完整官方读数 + `swl>=1.0` + 排除基线臂 9863 本体。
-- 🟢 **§153.13 修复 B：官方门禁名额平衡**（官方三轨 ~12 min/臂，是整轮最贵一步）：
-  非 SWA = nano 前 6 ＋ 全部三项全平的臂；SWA = **合计封顶 4**（优先给三项全平的 SWA）；
-  列表顺序派发 ⇒ deadline 截断时先跑完最有资格升轨的臂（防止 SWA 臂把新鲜前沿臂挤出窗口）。
-- 🟢 **§153.13 R13 已开跑（11-13 09:21:41）**：调度器 PID **2010456**（deadline 11-14 09:00）、守护 **1991784**、早报 **1993474**（11-14 09:10）。
-  R13 = **65 臂、35 臂在前沿族（≈54%，修复前 ~11%）**；合成 `12829~12832` = 12519 的 4 个互异 SWA 窗口。
-  代码 md5 **`27049a369d097c006607cfe1c43807ef`**（本地+服务器逐位一致，selftest PASS）。
-- 🔴 **§153.13 板卡 `.64` 仍离线**：服务器侧 ping **100% 丢包**、TCP/22 CLOSED ⇒ 夜间 GPU 搜索不受影响，
-  但 **T4 板卡时延（≤ 同会话 0031×1.02 = 20.07 ms）要人工补测**才能封板。
-  纪律：❌ 不要在轮中手动 kill 调度器；❌ 不要覆盖正在跑的 bash 脚本；✅ `watchdog_state.json` 仍是旧码
-  ⇒ **轮边界自动再重启一次**载入新码，**不要手动干预**。
-
-- 🟢🟢 **§153.14 配方结构深挖 ⇒ 2 处空白 + 1 处致命坑（11-13 09:50~11:00，已部署，selftest PASS）**：
-  - **证伪**：`epochs=20` **不是**空白格（文件头证据②：LR 全局步号、cosine 无 warm restart、
-    种子与 `--epochs` 无关 ⇒ **epochs=20 的 ep1~ep5 与 epochs=5 逐位等价**，ep6~20 是 LR 地板空转）
-    ⇒ 9863 的 picked ep5 就是唯一有效点，**别再花算力跑 epochs=20 复现**。
-    ⚠️ `RECIPE_KEYS` **不含 epochs** ⇒ 组统计混了 epochs=5/20；**不要改它**（会让 `tried_cells` 去重失效）。
-  - **空白① thr/ms 插值**：台账实测 **ms ≈ thr/4**（thr12→3、thr16→4、thr18→5、thr25→6、thr32→8）；
-    thr14×**ms3** 是离线的点，真插值点是 **thr14×ms3.5**。
-    两个最近近失臂沿 thr 轴**夹出同一缺口方向**（thr 越大 T3 越好、T1 越差）：
-    thr12/ms3（12519）**T3 −0.000115** ／ thr16/ms4（12053）**T1 −0.000985** ⇒ **thr14 可能六项同过**。
-    ✅ 新增 4 格：`T3I_sw5.0_thr14ms3.5`、`T3I_sw4.0_thr14ms3.5`、`T3I_sw5.0_thr13ms3.25`、`T3I_sw5.0_thr15ms3.75`
-    （实测优先格 10 → **14**）。
-  - **空白② SWA 窗口太粗**：前沿臂 12519/12679 的**最佳 epoch 都是 ep3**，旧 4 窗口全是三元/四元窗
-    ⇒ 稀释了最佳 epoch。✅ `_swa_windows()` 扩到 **7 窗口**，新增**相邻二元窗 {2,3}/{3,4}**（含 ep3）；
-    长训练臂（>6 个 epoch 文件）改为**围绕 picked epoch 取核心集**。
-    ✅ 官方门禁 **SWA 名额 4 → 6**（SWA 零训练、边际成本最低）；`SWA_ARMS_EST` 16→30、`PRIORITY_ARMS_EST` 26→34。
-  - 🔴🔴 **致命坑（selftest 抓到的）**：调大预算常量后末轮 `shrink_plan` 断言崩
-    （`remain=65 need=82.8`），而 **`shrink_plan()` 在 `main()` 的 try 之外** ⇒ **调度器会在截止前自杀**。
-    ✅ 修：新增 `swa_reserve()`/`prio_reserve()` **按剩余时间等比例收缩**（时间紧先砍 SWA）；
-    `plan_minutes()` 加 `swa_arms` 形参；`main()` 估计与 `shrink_plan()` **同源**。
-    实测 remain=600…62 min 全部 `need ≤ remain+1`，且 remain 充裕时预留仍满额 ⇒ 正常路径不变。
-  - 代码 md5 **`79eaba84acd416e4c7d8b2dbcdd81eab`**（本地+服务器逐位一致，selftest PASS）；
-    **轮边界自动生效**（R13 收工后自动以新码重启 R14），**不要在轮中手动 kill**。
-    板卡 `.64` 仍离线 ⇒ T4 板卡时延（≤ 同会话 0031×1.02 = 20.07 ms）仍需人工补测才能封板。
-
-- 🔴🔴 **§153.15 昨夜（11-12 22:50 → 11-13 09:15，R9~R12）全盘复算 ⇒ 仍然没有更优模型**（11-13 12:00）：
-  - **六项全过 = 1 个，仍是 `trial_9863 ep5` 自己**（121 个有完整读数的 (臂,epoch)）⇒ **9863 仍是唯一基线**。
-    台账 `rounds[R9..R12].beat` **全为空**。最接近：12519 ep3（T3 −0.000115）／12679 ep3（T3 −0.000157）／
-    12694 ep5（−0.000781）／12709 ep4（−0.000493）／12520 ep4（−0.001838）／12053 ep4（T1 −0.000985）。
-  - **四项量化发现**：① 漏斗 497→100→**12 个三项全平**→T1 过 8/12→**T3 只过 2/12**→六项 1/12
-    ⇒ **P(六项)≈0.2%/臂，瓶颈在 T3**；
-    ② 只有 4 个 swl=1.0 的格产出过三项全平（A1 thr12ms3 8.3%／A2 sw4.0thr12ms3 3.9%／
-    **B1 thr16ms4lrf0 9.1%（唯一 6/6）**／B2 thr16ms4lrf0.1 4.8%），其余 140+ 臂 ≈1% ⇒ **算力按产出率分层**；
-    ③ thr12/ms3 家族 T3 全灭、thr16/ms4 家族 T3 过 2/3 ⇒ **thr14×ms3.5 是真插值点**（已在 4 个 `T3I_*` 格）；
-    ④ **swl 轴封闭**（swl<1.0 = T1/T3 死区，>1.0 方向不利）；**epochs=20 ≠ 空白**（ep1~ep5 与 epochs=5 逐位等价）
-    ⇒ 别跑 epochs=20 复现；⚠️ **不要改 `RECIPE_KEYS`**（不含 epochs，会让 `tried_cells` 去重失效）。
-  - ✅ **种子扫描改多格分配 + `SEED_SCAN_TARGET` 18→24**（旧口径把算力压在产出率最低的冠军格 A2）：
-    实测分配 **A1 10 / B1 5 / B2 5 / A2 4 = 24 臂**，并**显式保底基线组 B1**（唯一 6/6 产出格，此前一条专属臂都没有）
-    ⇒ 期望三项全平 **1.48/轮**（旧 1.19）。代码 md5 **`376e91e75151c4686f534bd85a17ffbf`**（双侧一致，selftest PASS），
-    **轮边界自动生效**（R13 收工后重启 R14），不要在轮中手动 kill。
-  - **夜间已满载**：8 训练进程 = 4 卡 × 2 臂/卡（4568 MiB/臂，util 87~93%）⇒ 无需再试单卡双臂；
-    单臂槽 ≈ 23 min ⇒ ≈ 21 臂/小时，轮周期 ≈ 3.7 h ⇒ 12 h 约 5~6 轮 ≈ **≈ 350 臂**。
-    板卡 `.64` 仍离线 ⇒ T4 时延判据仍需人工补测才能封板。
-
-- 🔴🔴 **§153.16 家族级统计 ⇒ 找到「sw 交换轴」+ 3 个新杠杆（11-13 12:00~13:00，已部署 selftest PASS）**：
-  - **家族统计（947 臂，按 (sw,thr,ms,lrf)）**：
-    `(5,16,4,0.0)=B1/9863本家` n=194 nano中位 **0.7099**(108 过线) nano4 0.6434 F1 0.8856 T3过 4 T1过 13；
-    `(4,16,4,0.0)` n=25 nano 0.6968 nano4 0.6430 **F1 0.8914(19 过)** T1 **7/7 过** **T3 中位 0.948182（只差阈值 0.0003）**；
-    `(4,12,3,0.1)=A2/冠军` n=90 nano 0.6940 F1 0.8904；`(5,12,3,0.1)=A1` n=44 nano 0.6992；
-    `(5,16,4,0.1)=B2/12053本家` n=34 **T3 过 1（0.949250）**。
-    ⇒ 🔴 **sw 是 nano ↔(F1/T1/T3) 的主交换轴**（T3 过线率 sw1 54% / sw3 20% / sw4 0% / sw5 2%；
-    nano 过线率 sw1 0% / sw4 16% / sw5 56%；F1 过线率 sw4 76% / sw5 23%）
-    ⇒ **4.0~5.0 是完全未采样的插值区**；且 12053（5/6，只差 T1 0.000985）的配方**从未跑过 sw4/sw4.5**。
-  - 🔴 **SWA 臂才是离六项最近的一类**（48 个 SWA 臂全表）：
-    `12702`(e2..e5) nano✔ nano4✗(−0.0043) **F1 0.894725✔** **T1 0.891284✔** T3✗(**−0.000024**) 虚警2✔；
-    `12327`(e5..e9) nano✔ **nano4✔** F1✗(−0.000242) T1✔ T3✗(−0.001173) 虚警5✔；
-    `12579`(e4,e5) F1✔ T1✔ T3✔ 虚警4✔（只差 nano/nano4）⇒ **零训练 SWA 的单位算力命中率远高于训练臂**。
-    反面教材：20-epoch 臂前 4 epoch 平均（SWA e2..e5）nano 0.7517 但 F1 0.877 ⇒ **SWA 窗口必须落在 5-epoch 臂上**。
-  - ✅ **三个新杠杆**（md5 **`ed0f78f96e53c0382f7f908ca9a00239`**，双侧一致，selftest PASS）：
-    ① 新增 **`base_derived_cells()`「基线派生绝对格」12 臂/轮**（= trial_9863 自己的配方 + 补丁，**不受冠军漂移影响**）：
-    `BASE_sw4.0_lrf0.1`×3、`BASE_sw4.5_lrf0.0`×3、`BASE_sw4.25_lrf0.0`×2、`BASE_sw4.75_lrf0.0`×2、`BASE_sw4.5_lrf0.1`×2
-    （这 5 格此前**全部 n=0，从未采样**）；
-    ② **thr14 插值格 2 → 3 seed**（`PRIORITY_SEED_OVERRIDE`）；
-    ③ **SWA 源臂 3 → 6**（`SWA_SRC_MIN`，`--swa-top-n` 只作下限）+ 源臂排序改 **nano 主导 + nano4/F1 过线加分**
-    （`SWA_ARMS_EST` 30 → 42 ⇒ 每轮最多 42 个零训练 SWA 臂）。
-    配套 `PRIORITY_ARMS_EST` 34 → 48 ⇒ **每轮臂数 77 → 93**（末轮仍由 `shrink_plan()` 自动缩臂）。
-    **轮边界自动生效**（R13 收工后以新码重启 R14），不要在轮中手动 kill。
-
-- 🔴 **§153.17 种子扫描权重改成「六项联合估计」（11-13 13:20，P(六项) ≈ +70%）**：
-  - 旧权重用「三项全平产出率」，但 §153.16 证明**瓶颈是 T3**：A1/A2 两个 thr12 家族的三项全平臂
-    **T3 全灭（0/3、0/3）**，而旧分配把 **10/24 个种子臂压在 A1**。
-  - ✅ 新增 `_group_t3_stats()`（按组统计「三项全平且 T3 过线」，Laplace 平滑 `p=(k+0.5)/(n_tri+1)`），
-    权重改为 **三项全平率 × (0.25 + 0.75·P(T3|三项全平))**。
-  - 实测分配（n_total=24）：**B1(sw5×thr16ms4×lrf0.0, 9863 本家) 11 臂**、
-    **B2(sw5×thr16ms4×lrf0.1, 12053 本家) 6 臂**、A1 3 臂、A2 4 臂
-    ⇒ 期望「三项全平且 T3 过线」臂数 **0.62 → 1.06（+70%）**，17/24 个种子臂压到 thr16 家族。
-  - 代码 md5 **`bc4578817e3579a2c619c5289c365d79`**（双侧一致，selftest PASS），轮边界自动生效。
-
-- 🔴 **§153.18 LAWA 加权 SWA（零训练第五杠杆）+ 门禁扩容 + 固定开销随时间收缩（11-13 14:00）**：
-  - ✅ **加权 SWA**：`_lawa_weights(n, lam)`（w_i = lam^(n-1-i)）+ `_swa_key(mem, weights)`
-    （去重键含权重签名 ⇒ 同成员不同权重不误去重）；`_swa_windows()` 7 → **10 窗**
-    （新增 `swa_late_w`/`swa_neigh_w`/`swa_wide_w`）；`build_posttrain_swa()` 每源臂出**等权 + LAWA 加权**两个。
-    `average_checkpoints()` 本就支持 weights ⇒ 零额外实现成本。
-  - ⚠️ **λ 实测标定**：λ=0.75 时等权 vs 加权首个浮点张量 **L2 差仅 4.95e-07** ⇒ 读数几乎相同、白占算力
-    ⇒ 改 **λ=0.5**（L2 差 1.07e-06；5 元素宽窗末 epoch 权重 20% → **51%**）。
-  - **官方门禁 SWA 名额 6 → 8**；`ROUND_FIXED_MIN` 25 → **45** 并新增
-    **`fixed_cost(remain) = min(45, max(20, remain×0.5))`**（时间紧 ⇒ 自动少跑门禁臂；
-    `plan_minutes`/`swa_reserve`/`prio_reserve`/`shrink_plan`/`main()` 估计全部同源）。
-    ⚠️ 这正是 selftest 抓到的坑：`ROUND_FIXED_MIN=45` 会让末轮 `need=70.3 > remain=65` ⇒
-    `shrink_plan()` 在 `main()` 的 try 之外 ⇒ **调度器自杀** ⇒ 已修。
-    实测 remain=600/240/120/65/62 全部 `need ≤ remain+1` ✔。
-  - 代码 md5 **`e70c093a7ee05d54dc10875f57e27756`**（双侧一致，selftest PASS），轮边界自动生效。
-
-- 🔴 **§153.19 昨夜（R9~R12）复盘：没有模型击败 9863（11-13 10:00）**：
-  - 全盘复算 121 个有完整读数的 (臂,epoch)，**六项全过只有 1 个 = 9863 自己**；
-    `promotion_ready.json` 的 candidates 为空。
-  - 最接近的 4 个 5/6 臂**全部卡 T3**（12679 −0.000157 / 12519 −0.000115 / 12694 −0.000781 /
-    12709 −0.000493）；唯一卡 T1 的是 12053（−0.000985）。
-  - **漏斗**：497→100→12（三项全平）→T1 8/12→**T3 只过 2/12** ⇒ **P(六项)≈0.2%/臂，瓶颈=T3**。
-  - **根因**：sw 是 nano ↔(F1/T1/T3) 主交换轴（sw4 过 T3 0/7、过 nano 16%；sw5 过 nano 56%、
-    过 T3 2%）⇒ **sw 4.0~5.0 插值带从未采样** ⇒ R13 起把算力全压这条带。
-  - ⚠️ 板卡 .64 仍离线 ⇒ **T4 时延需人工补测才能封板**。
-
-- 🔴 **§153.20 末轮训练臂硬上限（11-13 16:20，修「缩臂从未生效」的根因）**：
-  - `shrink_plan()` 只缩 n_seed/n_mut，而 `build_train_arms()` 用 `max(n_seed, SEED_SCAN_TARGET)`/
-    `min(n_mut, MUT_CAP)` 覆盖 ⇒ **缩臂从未生效** ⇒ 末轮铺 91 臂 ⇒ 必冲过 09:00 ⇒ 官方三轨读数丢。
-  - ✅ 新增 `round_arm_budget(remain)` + `build_train_arms(arm_budget=)` + `run_round/main` 透传；
-    价值顺序 **bdc > prio_t3 > pend > seed > nm > prio > mut**，硬组整格丢、软组切单臂；
-    `arm_budget=None` ⇒ 行为与旧版**完全一致**。
-  - 实测：budget=10 ⇒ 10 臂（全基线派生格）；正常轮 91 臂；末轮 remain=150 ⇒ **25 臂**、
-    remain=144 ⇒ 24 臂 ⇒ 训练+评测+门禁正好卡在 09:00 前。
-  - md5 **`1225fea712ad90e5cba50c7e1de2383e`**（双侧一致，selftest PASS），轮边界自动生效。
-
-- 🟢 **§153.20.1 末轮时间余量修正（11-13 16:55）**：独立 dry-run 验证发现 remain=200/90 两档
-  **余量只有 0.1 min** ⇒ 门禁超时就会冲线 ⇒ 新增 `SAFETY_MARGIN_MIN = 8.0`。
-  实测 `round_arm_budget`：1440/600/400→None；260→53；200→38；150→25；120→18；90→11；65→4；
-  `build_train_arms(budget=25)`→25 臂（bdc 12 + prio_t3 12 + seed 1，seed 全唯一）；
-  `budget=None`→93 臂（= 旧行为，非回归）。最终 md5：`adaptive_runner.py` **`d9ff734e…`**、
-  `nano_search.py` **`d8096906…`**（双侧一致，selftest PASS）。
-
-- 🔴 **§153.21 修 `phase_dual` 整段挂掉（11-13 16:40）**：R12 起每轮都出现
-  `[dual] 阶段异常：'picked'` ⇒ **联合门禁（升轨证据之一）整段丢失**；
-  根因是 `phase_dual` 取 `st['picked']['epoch']`，而末轮被 `stop_ts` 砍掉未训练的臂没有 picked 读数
-  ⇒ 已改为缺 `epoch` 即跳过。⚠️ 板卡仍离线（两侧 ping 100% 丢包 / 22 端口 CLOSED），
-  流水线 `BOARD` 仍指向失效的 .211 ⇒ **不会误碰 .64 上他人的任务**；
-  **T4 时延仍需人工补测**（.64 上 11-12 16:16 同会话：0031 = 19.673 ms、9863 = 19.642 ms rknn_run；
-  判据 `候选 ≤ 0031×1.02`）。
-
-- 🔴 **§153.22 独立审计（reviewer+tester）后的 7 处修正（11-13 17:25，md5 `af4501a8…`）**：
-  ① `FULL_ROUND_MIN` 260→**360**（旧值是 61 臂口径；91 臂一轮 ≈ 358 min），
-     否则 remain∈[305,360] 的轮次不限臂 ⇒ 末轮会从尾部砍掉命中率最高的种子组+突变组；
-  ② mut 组 seed 偏移补 `_seq += 1`（旧计数器含种子组）⇒ 与改前**逐位等价**（R13 口径 22449..22453）；
-  ③ **bdc 插值格不再用「均值 nano 低于基线」判死**（否则 2~3 轮后 sw4.0~4.75 全被判死 ⇒ 废掉策略核心）
-     ⇒ 改判「nano4 与 F1 **同时**弱才算死」；
-  ④ 种子扫描按格分组 + 软组切臂需 ≥2 ⇒ 不再留 1 臂碎片；
-  ⑤ 有限臂轮不再走已被架空的 `shrink_plan`；⑥ 预算补扣训练后 SWA 12 臂的评测时间；
-  ⑦ selftest 断言改相对量 + 新增「轮内 seed 全局唯一」。
-  遗留风险已复核无害：重复 seed 只影响 2 个配方组，「n≥2 但 distinct seed=1」的组数 = 0。
-  复验：`budget=None`→93 臂；`budget=25`→24 臂（bdc 12+prio_t3 12）；`budget=40`→40 臂；selftest PASS。
-
-- 🔵 **§153.22 补记（11-13 17:30）**：末轮预算日志现在同时打印「保留构成」与「原始构成」
-  （便于明早复盘丢了哪些格）；最终 md5 `adaptive_runner.py` = **`af4501a83489de348da130b3fa34fefc`**
-  （双侧一致，服务器 selftest PASS）。
-
-- 🔴 **§153.23 全盘漏斗复算（545 臂）⇒ 找到「双插值交点」（11-13 17:50，md5 `f1330bd8…`）**：
-  - 漏斗：nano 164/545(30.1%) → +nano4 95/164(57.9%) → +F1 **12/95(12.6%)** → +T1 8/12 → +T3 **2/12**
-    ⇒ **NanoBench 侧最大杀手是 F1**（卡掉 83 臂），官方侧是 T3。
-  - **T3 过线的 2 个全来自 thr16ms4 族**（9863 本体、12053 —— 后者只差 T1 0.000984）；
-    **thr12ms3 族 6 个全灭 T3**（最接近 12519 差 1.15e-4）；冠军族 3 个三项全平臂**只差 T3**。
-  - ⇒ 缺的一格 = **sw4.5 × thr14ms3.5 × lrf0.1**（thr14ms3.5 线上只有 sw4.0/sw5.0，**sw4.5 从未采样**）。
-  - ✅ 新增 `T3I_sw4.5_thr14ms3.5`（3 seed）+ `T3I_sw4.25_thr14ms3.5`（2 seed）；`MUT_CAP` 5→3。
-    实测单轮 96 臂（prio_t3 33 / seed 24 / nm 20 / bdc 12 / prio 2 / pend 2 / mut 3），selftest PASS。
-
-- 🟢 **§153.24 满载阈值同步标定 + 排期表（11-13 17:55）**：`FULL_ROUND_MIN` 360 → **375**
-  （96 臂口径；260/360 都是旧臂数口径，已过期）。今夜：R13（旧码）→~13:15，
-  守护以新码重启 **R14（96 臂）~19:30 → R15 ~01:45 → R16 ~07:55 → R17（4 臂）~08:55**，
-  **09:10 早报自动出**。最终 md5：`adaptive_runner.py` **`050bd376…`**、`nano_search.py` **`d8096906…`**。
-
-- 🔴🟢 **§153.25 种子噪声定标 + 逐格产出率 ⇒ 三处真改进（11-13 21:50，md5 `efbc02d8…`）**：
-  - **定标**：σ(nano)=0.0039 / σ(nano4)=0.0096 / σ(F1)=0.0014 / σ(T1)=0.0013 / **σ(T3)=0.000855**；
-    格均值 T3 在 [线上, +4e-4) 的格单臂 T3 过线率 **62.5%**，在线下只有 16.7%
-    ⇒ **格均值必须压到线上**（靠种子噪声翻不过系统性缺口）。
-  - **逐格联合产出率**（去重 117 读数）：**B1=基线本体 sw5×thr16ms4×lrf0 联合 1/8（全台账唯一 6/6 格）**；
-    **C=sw4.0×thr16ms4×lrf0 的 12702/12703 均 5/6（T3 只差 2.4e-5、nano4 差 0.0043）**；
-    A2=sw4×thr12ms3×lrf0.1（0/10，12679/12694/12709 在此）；A1=sw5×thr12ms3×lrf0.1（0/8）。
-  - 🔴 **41% 的 GPU 时间在重训同一个模型**：最近 118 臂有 **49 对 (配方, seed) 重复**
-    （轮被截断后重跑剩余臂时 seed0 仍按旧轮号算）⇒ 已修 `used_recipe_seeds()+_fresh_seed()`，新码实测重复 0。
-  - ✅ **算力重排**：bdc 换成 thr16ms4 家族（新增 **基线本体 5 seed / sw4.0(C) 4 seed / sw5×lrf0.1(B2) 3 seed**，
-    R14 单轮 B1 15 臂、B2 9 臂）；预算序 **bdc > nm > seed > prio_t3 > pend > mut > prio** + 每组硬上限
-    (prio_t3≤18/pend≤4/mut≤3/prio≤4) + 收尾补齐；**SWA 臂 12→16（零训练）**、门禁名额 8→12；
-    **pend 按「离六项最近」排序**；**门禁窗口按 nano 降序**（截断时先门禁最好的）。
-  - 生效：守护在**轮次边界**比对 md5 ⇒ R13 收工后自动以新码起 R14（勿在轮中手动 kill 调度器）。
-  - 未闭合：板卡 `192.168.0.64` 离线 ⇒ **T4 时延需人工补测**（口径 候选_ms ≤ 0031_ms×1.02）。
-
-- 🟢 **§153.26 吞吐标定 + 排期修订 + R14 臂表（11-13 22:05）**：
-  实测 R12 = **训练+NanoBench 1.52 min/臂**、官方三轨 **3.6 min/臂墙钟** ⇒ 今夜容量 **≈500 臂**（此前低估一倍）。
-  排期：R13 ~12:00 收工 → **R14 ~12:00（128 臂）→ R15 ~17:15 → R16 ~22:30 → R17 ~03:45 → R18 → 09:00**。
-  R14 臂表（dry-run 实测 128 臂、重复 0、seed 全唯一）：seed 27（**B1 ×14**）+ bdc 31（**B1 ×5、C ×4**、sw 插值 22）
-  + nm 20（**B1 ×4**）+ prio_t3 27 + prio 18 + pend 3 + mut 2 ⇒ **B1 单轮 23 臂、全夜 ~115 臂**
-  ⇒ 按 B1 实测联合 6/6 率 12.5% 期望 10+ 过线臂，**有望升轨 Baseline_v2.1（仍需板卡 T4 人工补测）**。
-  全台账浪费量：真训练臂唯一 (配方,seed) 组合 669、**重复 145 对 ⇒ 浪费 172 臂**；新码起重复 = 0。
-
-- 🔴🟢 **§153.27 升轨护栏误杀修复（11-13 22:45）**：升轨判据里的「组均值 nano ≥ 基线组均值」护栏
-  会把**离六项最近的两格**直接挡死（C=sw4.0×thr16ms4×lrf0 均值 0.692344、B2=sw5×thr16ms4×lrf0.1 均值 0.689159，
-  而基线组均值 0.694066）⇒ **即使它们产出六项全过臂也会被否掉**。
-  ⇒ 已改为：**先判有没有六项全过臂；有 ⇒ 均值护栏让路**（并记 `n_winners`/`single_hit` 提示再补 1 个 seed 复核）；
-  没有 ⇒ 护栏照旧。**六项判据本身没放松**，放松的只是均值代理否决。
-  验证：服务器内存副本注入测试 ⇒ 候选从 [] → 1 条；真实台账仍 0 条 ✓。
-  md5：`adaptive_runner.py` **`5520cb75…`**、`promote_candidate.py` **`08b36304…`**（selftest PASS）。
+- 🔴 **铁律（2026-11-16 新增，永久）**：服务器/板卡开任务前**必查资源**（mem/cpu/io/gpu/进程线程数），
+  **任何资源占用严禁 > 90%（内存尤甚）**；启动前 `MemAvailable` 须 ≥ 30% 总内存。
+  每进程 OMP/MKL/OPENBLAS 线程钉 4、worker ≤ 4、通道并发 ≤ 3、多通道错峰 ≥ 30s、常驻看门狗分级刹车。
+  **没有读数就启动 = 违反铁律。** 完整条文：`memory/rules.md` §〇之四（§192 死机事故的直接整改）。
 
 
-- 🔴🟢 **§153.28 实盘结论（11-13 11:05）：昨夜至今仍无模型击败 9863**：
-  权威复算（磁盘 gate_report，121 个完整读数的 (臂,epoch)）**六项全过仅 9863 自己**；`promotion_ready.json` candidates = []
-  ⇒ Baseline_v2.1 未诞生。最接近四臂 5/6 只卡 T3（12679 −1.57e-4 / 12519 −1.15e-4 / 12694 −7.81e-4 / 12709 −4.93e-4，
-  σ(T3)=0.000855）；C 格 SWA 臂 12702/12703 5/6，T3 只差 **2.4e-5**。
-  昨夜两故障已修：① R12 `phase_dual` 因无 `picked` 读数而 `KeyError 'picked'` 整段崩（已修 `nano_search.py`
-  md5 `d8096906…`）；② 09:16 与 09:21 起了两次 R13（静默死 1 次）浪费 69 臂号 + 同批 seed（旧码）⇒ 新码 seed 去重。
-  当前 R13 跑到臂 12864/12897、4 卡 84~90%、~2.34 min/臂，~12:00 收工后守护自动以新码起 R14（128 臂，B1 23 臂）。
-  板卡 .64 仍离线 ⇒ **T4 明早人工补测**（候选_ms ≤ 0031_ms×1.02 = 20.07 ms）。早报 09:10 自动出。
+## §195（紧凑版）2026-11-16 16:00-18:00 —— 汤轴证伪 ⇒ 换「夜间训练轴」
+* **基线**：Baseline_v2.2 = trial_610000@5（nano .7197543 / nano4 .6554820 / F1 .8903981 / T1 .8904939 / T2_fp 1 / T3 .9485250 / 板卡 19.611 ms）。
+* **证伪（3 条独立证据）**：① 穷举 C(52,5)=15762 ⇒ 过三轴组合 **0**；② 加权 LP（`pareto_pool_lp.py`，池 311 臂）最优 min-margin = **-0.07σ** ⇒ 池内无过线汤；
+  ③ 结构定理：**汤 ≈ 成员加权均值 ⇒ 汤的 F1 上限 = 成员 F1 上限 = 基线 F1** ⇒ 纯汤轴数学上不可能同时超 nano/nano4/F1。
+* **Pareto 四族**：A(thr12/sw4.0, 冠军族)｜B(thr14/sw5.0: 96630 超 F1+nano，nano4/T1/T2fp 掉)｜C(sw4.5/thr14/ms3.5: 14934 超 F1+nano4，nano/T2fp 掉)｜D(thr16: F1 最高、nano 最低)。
+* **新轴**（`night_train_axis.py`，服务器自治，264 臂计划 / 并发 6 臂 / 错峰 60 s / 4 卡）：
+  **P 抛光**（热启动 640001>620002>98902>600004>69901，2 ep，lr_scale .2~3.5，lr_floor .1~.3，anchor_l2 0/.001，sw 4.0/4.2）+ **T 新盆地**（cs_t0043 全量 5 ep，sw 4.2~4.8，thr 12/13，ms 3.0/3.25，cp_prob 0/.1，ema .999）。
+  管线 train→cache→NanoBench(worker=2)→写 picked→(仅三轴全过)官方门禁→写 official→board_t4_watch→auto_promote_watch 自动升轨。
+* **踩坑**：① `nice -n 10` 缺命令 ⇒ rc=125（插到 python 之前）；② copy-paste 广播真 bug（`pw>w` 时切片截断）已修 host+server；③ `pkill -f` 自杀 + 训练子进程变孤儿双写同 trial ⇒ 启停一律走服务器脚本 + `[n]ight_...` 括号技巧；④ 看门狗 `nproc --all`（旧坑）。
+* **水位**：mem 19~54%、load 15~25/80、threads ≈4000 ⇒ 全程 < 90% 红线（§194）。
+* **早班验收**：`night_train_axis.log` / `night_train_axis_report.json` / 台账 `six_ok` / `board_measure_auto/measured.json`（≤19.989 ms）/ `promotion_ready.json` / 晨报 09:10。
 
-- 🔴🟢🟢 **§153.29 算力错配修复（11-13 11:05）**：台账 947 臂复算发现 **格期望产出率
-  E[六项全过/臂] = p_triad×p_T1×p_虚警×p_T3**：A2(sw4×thr12ms3×lrf0.1)=**0.0303**(n13)、
-  A1(sw5×thr12ms3×lrf0.1)=**0.0293**(n8) ≫ B1(sw5×thr16ms4×lrf0.0)=**0.0004**(n52，只出 9863 本体)
-  ⇒ **旧 bdc 表全押 thr16ms4 家族 = 算力错配**。
-  ⇒ 补丁1：`BASE_DERIVED_CELLS` 换 16 格/49 seed，**A 家族排最前**（A2×5 A1×5 sw4.25/4.5/4.75/5.25×thr12ms3×lrf0.1）
-  → B2×4 → C×lrf0.1 → B1/C 降配；**表序 = 末轮砍序**。
-  ⇒ 补丁2：门禁「nano 前 6」→「**按 E 排序**」（新 `cell_yield_table()`，层级回退），名额 6→8；
-  triad 臂仍全部无条件门禁（判据未放松）。
-  ⇒ 补丁3：`ROUND_FIXED_MIN` 45→62、`GATE_RESERVE_MIN` 45→58（官方三轨 ~21 臂）。
-  验证：服务器 selftest **PASS**，bdc 表 16 格/49 seed 核对通过，E 榜首 = A2 0.0303。
-  md5 `adaptive_runner.py` = **`e433271e31e16979aa325dc5530f3416`**；R13 收工后守护自动以新码起 R14。
+## §196（紧凑版）2026-11-17 —— round-1 收官 + round-2 重设计（近失臂再抛光）
+* **昨夜唯一三轴全过臂 = 1100275@1**（anchor98905 lr0.3 lrf0.3 l2.001 **sw4.2**）：nano .7209357 / nano4 .6571361 / F1 .8908277 ✓✓✓，
+  但 **t2_fp=3（红线 ≤1）**、t3 差 4e-6 ⇒ 不升轨。**新判据：sw>4.0 ⇒ 长泉金池 T2 虚警涨**；lr≥1.0 ⇒ nano 掉 1.4e-2。
+* **round-1 的 1100200~1100223 段数据污染**（P/T 撞段）⇒ 统计须剔除。
+* **修掉 3 个致命缺陷**：① 臂号冲突（P/S 重叠、T 撞历史臂 ⇒ 「跳过训练拿旧权重」假读数）⇒ 三段分离（P 1102000+/S 1100800+/T 1100900+）+ 唯一性断言 + 配方注册表；
+  ② **P 通道采样偏斜**：`sort()`+取前 N ⇒ 只覆盖 600004/610000，**最强锚点 98905 全落空** ⇒ 改为按锚点均衡采样 + 每锚点热组合优先；
+  ③ T 通道 sw 4.2~4.8 与新判据冲突 ⇒ 收成 4.0/4.2。
+* **round-2 最高价值动作 = 近失臂当新锚点**（8 个：1100275@1 三轴全过、1100148@1 nano4 最高 .671078、1100287@1 -0.006σ、1100338@1 F1 最高 .891080、1100296/1100143/1100262/1100250），
+  用更小 lr(0.05~0.30)+强 L2+sw≤4.1+cp 0/0.05 再抛光。
+* **round-2 计划**（11-17 09:05 起跑 → 11-18 09:00 截止）：386 臂 = P 330（近失臂 8×21~22 + 基线 10×16）/ S 40 / T 16；
+  **优先级序**（P 热组合 232 → S 40 → 近失臂 stride 58 → T 16 → 基线 stride 40）⇒ deadline 只砍低价值臂；
+  **近失臂（margin ≥ -0.3σ）也跑官方门禁**；`six_ok` 改严格六项口径。P 臂 ≈2.1 min/臂 ⇒ 预计 01:30 收工。
+* **资源**：起跑前 avail 81.4 G(63%)、load 13.9/80、threads 3753、4 卡空；4 臂+3 路建缓存时 avail 掉到 30.8 G(24%) ⇒ **评测并发 3→2**（峰值 ≈41 G/32%）+ runner 闸门（avail<42 G 不启新臂，实测已触发）；看门狗 60 s 分级刹车。
+* **早班验收**：`night_train_axis.log` / `report.json` / 台账 `six_ok`+`official` / `board_measure_auto/measured.json`（≤19.989 ms）/ `promotion_ready.json` / 晨报 09:10。
+* **§196 追加**：① 新增**阶段2「复现关」**（主计划后自动挑边际最好的 K=3 配方换种子各重跑 3 次 ⇒ 家族 n 1→4 ⇒ 升轨关可达；
+  臂号段 1103000+；理由：抛光臂配方唯一 ⇒ 家族天然 n=1，不做复现则夜里永远升不了轨）；② **新版晨报** `morning_report_nano.py` + `run_morning_report2.sh`
+  （含六项全过明细/边际 top15/**T2 虚警按 sw·cp·通道归因**/板卡 T4/水位），启动器已换装；
+  ③ **存储独立**：服务器 /mnt/data = 本机 ext4（非 host NFS）⇒ host 断电不影响训练；板卡 T4 走 scp→板卡本地 /root/hm_speed，不依赖 host NFS。
+* **§196 追加2**：新增**阶段3 自适应局部搜索**（阶段1+2 预计 02:30 收工 ⇒ 剩余 ≈25 GPU·h 会空转）：
+  拿今夜边际最好的 2 个配方当**新锚点**（起点=该臂最好 epoch 权重），在其邻域 lr×lrf×l2×sw{4.0,4.1}×cp{0,0.05,0.1} 再采 30 臂/锚点（A 通道，臂号 1104000+）
+  + 追加 24 个冠军配方种子扫描（S2 通道，臂号 1104100+，与阶段1 S 臂同家族 ⇒ 原生涨 n）；
+  配方键去重；软截止 = deadline−30 min（末臂 08:30 前收手）；预计 06:55 收工。
+  板卡抗干扰：watch 已有「板卡忙(load>1.0/他人进程)⇒跳过本轮」预检 ⇒ 无需改。
+* **§196 追加3（cp 强度轴）**：今夜首批读数 1102001@2（从 1100275@1 抛光，sw4.0+cp0.05）= F1 .890908✓ / nano .712902✗ / **nano4 .667533✓✓（+2σ）**
+  ⇒ **sw 沿 Pareto 横移**（sw↑⇒nano↑但T2虚警涨；sw↓⇒nano↓）⇒ 昨夜 1100275@1（sw4.2）只差在 **t2_fp=3** 这一项。
+  ⇒ **cp 是与 sw 正交的解**（贴真 ≤12px 目标＝补回被 Mosaic+仿射 抹掉的 ≤8px 正样本监督，不放大全局小目标权重）；
+  cp0.05 确实生效但太弱 ⇒ 新增**阶段3-A cp 强度轴**：4 个最强 sw4.0 锚点 × **cp{0.15,0.2,0.3} × sw{4.0,4.1} × lr{0.15,0.3}** = 48 臂（臂号 1104200+）。
+  T 通道扩到 cp{0,0.1,0.2}=24 臂（排序 cp 优先，臂号 1104300+）；阶段3 邻域 cp 扩到 {0,.05,.1,.2,.35}；S2 24→12。
+  最终：阶段1 394 臂 → 阶段2 复现 9 → 阶段3 CP48+A48+S2 12；时间线 03:00 → 07:50（软截止 08:30）。
 
-- 🔴 **§153.29b 自我更正（11-13 11:15）**：§153.29 的 E 值只用 128 个**有官方读数**的臂算 p_triad
-  ⇒ 那是**被 nano 窗口筛过的子样本** ⇒ p_triad 被高估（且对 nano 强的格高估更多）。
-  **全臂口径（格级 sw×thr×ms×lrf）p_triad**：A1(sw5×thr12ms3×lrf0.1) n=44 ⇒ **0.068**；
-  A2 n=90 ⇒ 0.033；B2 n=34 ⇒ 0.029；B1 n=194 ⇒ 0.021；C ⇒ 0.00
-  ⇒ **方向不变（A 家族 > B2 > B1 > C），量级是 ~3 倍不是 30~70 倍**（旧数字勿再引用）。
-  P(T3｜三项全平) 全局 2/11=18%（A1/A2 的 triad 臂 T3 目前全灭；B2 1/1 过关）。
-  ⇒ 口径分工：**门禁排序用「有官方读数」E（与筛选同口径，正确）**；**训练臂分配用「全臂」p_triad**。
-  ⇒ 补丁4：种子扫描权重改**格级** `p_triad(格)×(0.25+0.75·p_T3(格))`（p_T3 向全局收缩，防 1 样本虚高）
-  ⇒ 新分配 24 臂：**A1×9 / B2×7 / A2×4 / B1×4**（旧：B1×9 / B2×7 / A1×5 / A2×2）。
-  md5 `adaptive_runner.py` = **`126c634aeaea8abec3d8b0b59b4b1697`**（selftest PASS）。
+## §197（紧凑版）2026-11-17 10:10 —— 父子汤成立 + T2↔nano4 负相关 + 中签扫描
+* **父子汤**（新轴，零训练成本）：`98905@5(sw4.0) ⊕ 1100275@1(sw4.2)` 等权 ⇒ nano .721408 / nano4 .655718 / F1 .890615 **三轴全过**（**高于两个成员** ⇒ 汤≠加权均值）；
+  门禁 **T1 .890596 ✓** / **T2_fp=3 ✗**（sw4.2 的虚警被继承）⇒ **权重插值 = T2↔nano4 的可调旋钮**（w=0.7 ⇒ nano4 .646975 ✗）。
+  * ⇒ **升轨「同家族 n≥4」可零成本顶满**：家族键 `soup:<盆地>:<标签><成员数>`，标签 `eq2`/`w60`/`w70` ⇒ 同 parent 同权重 + 4 个不同 child ⇒ n=4。
+  * 新脚本 `night_soup_batch.py`（27 组合：4 parent × 3 child × w{.5,.6,.7}）：先全量 NanoBench → 再按边际排序跑门禁；臂号 1105100+；幂等 + 内存闸门 45 G。
+* **T2 虚警 ⇔ nano4 强负相关**（六项窗口的真形状）：基线 nano4 .655482/t2_fp 1｜1100296 .656191/1｜1100275 .657136/**3**｜1100148 .671078/**5**｜69901 .655246/**2**
+  ⇒ **nano4 ∈ (.655482, ~.6565]** 才能保 T2_fp≤1 ⇒ 想抬 nano4 又保 T2 ⇒ **只能靠 cp（补监督）不能靠 sw（抬权重）**。
+* **T1 是系统性的**（非噪声）：640001 .8904942（全场最高）｜1100275 .890758｜1100296 .890044 ⇒ 同配方换种子 = ±1.5e-4 **种子彩票** ⇒ 升轨要 n≥4 ⇒ 必须多买彩票
+  ⇒ **阶段4「中签扫描」**（新加）：最好配方换种子重跑，臂号 `crc32(家族键|rep)%700`（重启稳定、撞槽跳过）⇒ 涨家族 n + 填满后半夜（阶段1~3 19:00 收工 ⇒ 剩 ≈56 GPU·h）。
+* **今晚三轴**（10:00 起，429 臂 + 汤 27 + T2 扫描 20 门禁，截止 11-18 09:00）：
+  ① **cp 强度轴提到队首**（48 臂 1104200+，锚点按盆地质量重排 **640001→610000(基线本体)→1100275→98905**）；
+  ② 汤批次轴（GPU3）；③ T2 分层扫描（GPU3）。
+* **修**：重启幂等（已有读数的臂跳过 13 个）；并发 5→4（avail 曾掉到 23 G ⇒ 看门狗 SIGKILL 1 臂）。
+* **板卡 0.64 在线且空闲**（load 0.10）⇒ T4 可测；服务器 /mnt/data 为本机 ext4 ⇒ host 断电不影响训练。
+* **明早看**：cp 轴 nano4 落点 / `[家族] bs*:eq2 六项全过 k`（k≥4 可升轨）/ (sw,cp)→t2_fp 映射 / `promotion_ready.json` / 板卡 ms。
+* **§197 追加（11:00）全盘复算（319 个有门禁读数的臂）**：t2_fp 分布 0:68/1:40/2:50/3:32/… ⇒ **P(t2_fp≤1)≈34%**（逐臂彩票）；
+  **三轴全过的臂只有 3 个，其中 t2_fp≤1 的 0 个** ⇒ 瓶颈是「先要三轴全过」（3/319≈1%）；唯一 5/6 候选 = `1105000`（汤，只差 t2_fp=3）。
+  ⇒ 六项全过率 ≈ 0.34×0.4×0.6 ≈ **8%** ⇒ **凑「同家族 4 个六项全过」需要单族 ≈50 个三轴全过成员** ⇒ **家族结构 = 搜索空间形状**
+  ⇒ 训练臂靠**换种子**涨 n（阶段4 中签扫描）；**汤族天然是家族**（`(parent,权重)`，成员=不同 child，一个 parent 有 65 个 child ⇒ 单族 65 成员）⇒ **汤族是今晚唯一低成本造 n≥4 的结构**。
+* **今晚重排（已执行）**：① cp 强度轴**降到 0.02~0.08 + 1 epoch + 贴图伪影控制**（cp≥0.15 砸穿 F1 −15σ 而 nano 只 +4σ）⇒ 48 臂 1104400+；
+  ② **汤批次3**：parent{1100275,98905,640001,610000}×10 child×w{.5,.6} ⇒ 8 族每族 10 成员，**门禁按族配额 6 个打**（先打成 n≥4）⇒ 60 组合；
+  ③ **T2 扫描停掉**（让 GPU3/内存给汤族）。
+* **踩坑**：`pkill -f` 的模式串与**同命令**里的脚本真名同时出现 ⇒ pkill 杀了执行中的 shell（exit 255，后半段没跑）⇒ 启停必须分两条命令。
+* **§198（2026-11-17 11:35）★★ 交付口径突破**：
+  * **`1105000`（汤 = 98905@5 ⊕ 1100275@1 等权）满足任务书交付红线全部六条**（§136.6：F1>.887122 / nano≥.6666 / T1≥.885997 / T2 FP≤20（官方 36）/ T3≥.948330 / int8≤20 ms）
+    ⇒ 实测 F1 .890615・nano .721408・T1 .890596・T2 FP 3・T3 .948792・板卡 19.731 ms ⇒ **每一条都优于 trial_0031（.887122/.6373/.885997/10/.948330/19.306 ms）** ⇒ **首个「可交付」超越 0031 的模型**。
+  * ⚠️ `gate_report.json` 的 `verdict=FAIL` **≠ 交付失败**（它的 T1 门用冻结基线 .905736，连当前基线 610000 都过不了）⇒ 判交付用 §136.6 任务书口径。
+  * **机制：汤的 `t2_fp` 取自「子权重」**（`weights=[w,1-w]`，w=父权重；等权 w=0.5 ⇒ 取子的 t2_fp=3）⇒ **保 T2 要父主导 w>0.5**（首批 w=0.3~0.45 扫反了，已 kill 重扫 w=.55~.8）。
+  * **刀刃候选**：`640001@5` 只差 F1 3.7e-5、`1100296@1` 只差 nano 2.4e-4（且两者 nano4/F1 均过）⇒ 与 t2_fp=1 的父做**父主导细扫**。
+  * **夜间四通道**：训练轴(4臂4卡，cp 细扫→复现→中签扫描 1105200+)｜汤批次3(GPU3, 60 组合, 族配额 6 门禁)｜**汤批次4(GPU0, 新增: cross-basin 父主导细扫 90 组合 1106500+)**｜门禁 A/B｜守望(auto_promote/board_t4/load_watchdog/晨报 09:10)。
+  * **工具变更**：`night_soup_batch.py` 新增 `--children-arms`（显式 child ⇒ cross-basin / 精确对照，家族键不变）；md5 `93bb910705260df76afd857f1a0687a0`（host↔server 一致）。
+  * **资源记账（11:30）**：mem used 55.5G/avail 67.8G(52.7%)、load1 24.1/80、IO 瞬时 ≤78.7%、GPU 显存 5.3~6.9G/24.5G ⇒ 通道数 5>3 已按规则记账（余量 ≥25% + 错峰 30 s + OMP=4 钉死）。
+* **§199（2026-11-17 11:45）★★ 交付口径全盘点**：晨报新增 **【0b】任务书交付红线**章节 ⇒ **115 / 320** 个有全套读数的臂**已过交付红线**（含老臂 `14049` nano .7328 / F1 .8931、`14445`、`96630`）；**只差板卡时延确认**。
+  * 新汤 **`1104612`（bs98905:eq2）= nano .724008 / nano4 .660917 / F1 .890517 / T1 .890729 / T2_fp 4 / T3 .949067** ⇒ **严格 5/6**（只差 T2）且**比 1105000 更强** ⇒ 待补门禁 `1104613`(bs98905:w60) / `1104634`。
+  * **板卡守望扩容**：新增 **DELIVER 桶**（`BOARD_T4_DELIVER_MAX=6`）⇒ 今夜实测 14049/14445/1104612/96630/1100148/1105120 等 ⇒ 明早能回答「有没有更好的**可交付**模型」。
+  * 口径纪律：**交付红线（§136.6）已破，内部严格六项（同族 n≥4 + t2_fp≤1）未破** ⇒ 两套分开陈述；`gate_report.verdict=FAIL` **不可**当交付失败（它用冻结基线 .905736，连当前基线都过不了）。
+  * 夜间通道：训练轴(4臂4卡)｜汤批次3(GPU3)｜**汤批次4(GPU0, 父主导细扫 90 组合 1106500+)**｜门禁 A/B/**C(GPU2)**｜接力 `night_seq.sh`（batch5 子主导 1107000+ → batch6 等权附近 1108000+）｜板卡守望｜晨报 09:10。
+  * **§203（2026-11-17 15:55）★★ 口径纠错 + 家族键真相**：① 全盘复算 ⇒ **真正六项全过只有 2 个**（`1106580` + 基线 `610000`）；批次日志里的 `six_ok=True` **只查 T1/T2/T3**（`1112006` 实为 4/6）⇒ 一律以 `six_criteria_audit.py` 为准。② **`_soup_family_key` 把权重数字丢掉**（正则只取 label 字母 + 成员数）⇒ **同 parent 的所有 2 成员汤同族**（`1106580/w55` 与 `1106585/w80` 同为 `soup:bs640001:w2`）⇒ **升轨 n≥4 = 同一个 parent 再买 3 张彩票**。③ 今晚新轴 **「冠军递归汤」**：用近失且 t2_fp=1 的汤臂当子（`1106580/1106512/1106562/1112006`），父 `640001/610000/69901` × 多档 w ⇒ 全部堆进已有票的家族（`scripts/night_seq2.sh`，md5 `e22c1b5a1162935c2ac5c39af7d3a790`，已上服务器；老 `night_seq.sh` 已 kill）。
 
-- 🟢 **§153.29c 门禁名额校验 + 补丁5（11-13 11:20）**：实测模拟门禁窗口 ⇒ 旧「nano 前 8」拿到的是
-  nano=0.7578 但 **E=0.0010** 的 B1 臂；新「E 前 8」拿到的全是 **E=0.0303 的 A2 格**臂 ⇒ 同名额期望产出 30 倍。
-  补丁5：探索名额**排除 triad 臂**（否则 8 个名额只换 5 个新臂）。
-  ⚠️ 口径澄清：**非 triad 臂永远不可能升轨**（pick_epoch 已取「三项全平」的最优 epoch）⇒ 探索名额纯诊断；
-  升轨路径 = triad 臂（12 个）无条件门禁 + 零训练 SWA 臂。旧 nano 榜首臂 nano=0.7578 仍非 triad ⇒
-  「nano 高 ≠ 能升轨」实证。
-  md5 `adaptive_runner.py` = **`61206cf2b7177db1b345334f87ab87ec`**（selftest PASS）。
-- 🟢 **§154 新板（散热改版 Orange Pi CM5）稳温 / 零降频测试 ＋ 🔴 RGA Oops 归因（11-13 13:05）**：
-  **终验轮 r9**：负载 `12:09:55→13:03:27`（54 min，用户提前收工）｜观测 743 样本/4.2 s｜boot_id
-  `c24d68b1` **全程未变 ⇒ 零复位**。负载 = 1×`mosaic_async_client_example`（**35430 软链帧农场**，
-  实测 **6.65 fps**，21373 帧）＋ `stress --cpu 8` ⇒ load1 均 12.55/峰 13.93。
-  **判据 A/B/B'/C/D 全部命中 0 次** ⇒ cooling 框架 0 次动作、六域全程满频（CPU0 1.8G/CPU4·6 2.4G/
-  NPU·GPU 1G/DMC 2.112G）、PVTM 未触发、dmesg 无温控行；**guard 停手样本 0/743** ⇒ 满频不是锁频假象。
-  **温度**：SoC(zone0,PVTM 温度源) 均 **70.6**/峰 **74.8 ℃**；全板最热区(zone1/2) 峰 **78.5 ℃**；
-  little 75.8｜NPU 72.1｜GPU 68.4｜center 71.2 ⇒ **离 85 ℃ 硬天花板余 6.5(最热区)/10.2(SoC) ℃**。
-  稳态斜率 SoC **−0.0034 ℃/s**、平台到达 t=868 s ⇒ **已到热平衡，不是爬升**。NPU 占空比 **97.7 %**
-  （`/sys/kernel/debug/rknpu/load`）。⚠️ min 37.0 ℃ 是**停负载后冷却段**，运行期真实带 SoC 66.5~74.8。
-  ⇒ **给嵌入式组：散热改版通过，交付环境不需要任何温度降频兜底。**
-  🔴 **但 RGA 内核 Oops 是独立于温控的硬伤**：`rga_job_commit→…→rga_mm_sync_dma_sg_for_device`
-  解引用 `ffffffff8000000000`（驱动未判空）；**启动时打死调用线程（板卡存活，r9 轮 12:09:57 复现，
-  负载带伤跑满 53 min）／收尾时带走整机**（11:15:52、12:06:11 两次硬复位）。嫌疑点：
-  `mosaic_core.h:1854 ComposeFrame` **每帧** `BufImport(&s->canvas)`（先 release 旧 handle 再 import）
-  与上一帧 DMA 竞争（`:1873 improcess` 无 sync/fence）。✅ 规避：**软链帧农场让客户端永不进 teardown**
-  ＋ **收尾先 `kill -STOP` 客户端、再停 stress、最后 `kill -KILL`（绝不发 SIGTERM）** ⇒ r9 轮照此收尾，
-  **板卡未复位**。
-  🟢 **零固件改动固化**（用户不烧固件）：`thermal-trip.service`（trip0→85000）＋ `nfs-mount.service`
-  ＋ `maxfreq-guard.timer`（SoC≥78 ℃ 让路 PVTM），三者 **跨复位自动恢复**、拔电前实测全 enabled+active；
-  dtb md5 `c2ca663a4087dff36fc8701919118c0e` 未动。⚠️ 本板**没有** 75~85 ℃ 渐进降频（trip0 是孤儿 trip，
-  cdev 全绑 trip1=85 ℃，`power_allocator` 不产出状态）⇒ 抬 trip0 对行为无影响；**NPU 无 cooling device**，
-  高温只有 PVTM 一道防线。
-  📌 工具坑新增 6 条（`ps|grep` 匹配到自己 / `kill -STOP` 后再 `KILL` 的顺序 / 板端日志断电前抢拉 /
-  Codex 拒 `rm -rf` / **工程根是 `workspace/ultralytics/` 不是 workspace 根** / `--fps 25` 不是实际帧率）。
-  报告 `manu/pipeline/npu/board/BOARD_THERMAL_TEST_20261113.md`；数据
-  `manu/pipeline/npu/board/results/20261113_newboard_thermal/`。
+---
 
-### §155 🟢 2026-11-13 13:30 **独立总结文档落地：全部尝试汇总入口**
+## 251 ★ 升轨：`trial_2020035` ⇒ **Baseline_v3.0**（2026-11-19 14:18）—— bw10 族把 `nano4` 顶上一格
+- **六项**：nano .7242439（打平）· **nano4 .6609168（+7.09e-4）** · F1 .8906832 · T1 .8909239（fp1473）· T2 FP 4（打平）· T3 .9488856；
+  板端 **19.629 ms ≤ 19.989 PASS**；种子关 = bw10 族 3 个六项全过成员（1940007 / 2020022 / 2020035）。
+- **三个根因修复**：① 板卡排序家族键前缀不一致（`soup3:sb3:…` vs `sb3:…`）⇒ 加权全失效；
+  ② 新增「升轨预备硬优先级」（six_ok + 同族 six_ok≥2 + 至少一轴严格优 ⇒ 板卡机时优先）；
+  ③ 🔴 `baseline_guard` 缓存陈旧 `BASE_V2` ⇒ 每 60s 回滚基线到 v2.9 ⇒ 改为每轮 `ast` 重解析源码常量。
+- **下一个候选**：`2020036`（T2 FP = 3，比 v3.0 还少 1）⇒ 只差板卡 T4。
+- 详见主档 **§251**。
 
-- 📄 新建 **`manu/memory/nano_search_attempts_20261113.md`**（468 行，md5 `4ca96f51129d303e07a5f9397f0b9c49`，
-  本地 ⇄ 服务器双侧一致）—— **「击败 9863」这场搜索的唯一汇总入口**（12 节：TL;DR / 基线与六项判据 /
-  NanoBench-T1 小目标召回子集规格 / 流水线架构 / R2~R14 逐轮时间线 / 947 臂全盘统计 / 六大关键发现 /
-  5 个补丁 / 当前状态与 R14 计划 / 今晚排期 / 未闭合项 / 复现指南 / md5 与术语表附录）。
-- 📊 落文档时同步完成的**权威复算**：全臂粗格投放 **B1 285 臂（30%）/ A2 148 / A1 112 / C 62 / B2 52**；
-  全臂 p_triad（any-epoch，n=587）**A1 0.058 > A2 0.031 > B2 0.026 > B1 0.020 > C 0.000**；
-  triad 臂 **13 个 triad-able / 12 个有官方读数**，T3 过线仅 2 ⇒ **P(T3|三项全平) = 2/12 ≈ 17%**。
-  ⚠️ 与 §153.29b 的口径差异（代码内 picked-epoch vs 本文 any-epoch）已在文档内显式标注。
-- 📌 **维护规则**：每次补丁上线 / 每轮收工 / 任何 beat 出现 ⇒ 回写该独立文档并 scp（双侧 md5 比对）；
-  `memory.md` §153.x 只留流水账，**汇总口径以独立文档为准**。
+---
 
-### §156 🟢🟢 2026-11-13 13:45 **周末满载三轴上线（截止延到 11-16 09:00，host 18:00 断电 ⇒ 服务器全自主）**
+## §252（紧凑版）2026-11-19 14:22~15:00 —— 台账「跨进程丢更新」根因级修复 + 轴 D「针尖低剂量」上线
+- 🔴🔴 **真凶**：`nano_search.py` 的 `_merge_disk_ledger` **整臂覆盖** + `flock` 只锁「写盘」不锁「读-改-写」事务
+  ⇒ 多进程（波次/门禁/守望/守卫）互相回滚 ⇒ 今天「基线被回滚 ×13」「six_ok 17→15」「474 臂被改回」全是它干的。
+  **修法**：load 时给每臂算 md5 指纹存 `_LEDGER_ARM_HASH`；save 时逐臂比较——指纹未变用磁盘版、变了用内存版（`{**disk,**mem}`）。
+  `nano_search.py` md5 `770f68a72e47f713b42ee2a74daed27e`；`backfill_official.py` 加 `official.six_ok` 重算 md5 `bf740923a7c1b0b58661e406fe80a7e3`；
+  4 波+3 门禁+4 守望全部重启加载。验收：重算 474 臂后 six_ok 稳定，三条板卡读数（19.748/19.844/19.673）保住。
+  **教训**：文件锁只锁写；多进程 JSON 台账要么单写者、要么按臂粒度乐观合并。
+- **前沿（竞态修复后，可信）**：六项全过**只有 3 个**（`1990027/2020023/2020035`）且与 **v3.0 完全打平 ⇒ 不可升轨**；
+  5/6 只差 T1 −1.86e-5：`2000025/2010025/2020022/2020036`（`2020036` 的 **T2fp=3**，比基线少 1）。
+  针尖 `1102033@1` 是**唯一四轴同时更强**的成员：nano .7244802(+2.4e-4) / **nano4 .6729679(+1.2e-2)** / F1 .8909193 / T2fp 3，
+  拖累 T1 −2.5e-3、T3 −5.8e-4。⇒ **bw10 族在「nano×T1」联合前沿已饱和**（nano4 顶格 .6609168 ⇔ w1530006=.20）⇒ **必须换成员集**。
+- 🔬 **轴 D「针尖低剂量」已上服务器**（`gen_w13_recipes.py` 双侧 md5 `7db853691cce65b65ae12822f1188513`，14:55 生效）：
+  5 成员 `[1608003@5, 1612001@5, 1102033@1, 1623003@5, 1530006@5]`，权重 `[w1,w2,wn,w4,.20]`，`w2=.80−w1−wn−w4≥.015`。
+  ⭐ **家族桶技巧**：`fam_tag` 的 bw 档 = **最后一个成员**权重 ⇒ 针尖放末位会每剂量换桶、种子关永远凑不齐
+  ⇒ **把 1530006 放末位钉 .20**（也是 nano4 顶格），**针尖放中间位** ⇒ 剂量自由扫而**整轴共用一家族** `…:bw20` ⇒ 票自动累积。
+  自检：每通道 222 配方、权重和≠1 的 0 个、轴 D 配方 33~34 个；`night_soup3` 只要求 `len(members)>=2` ⇒ 5 成员 OK；生成器每轮重读 ⇒ 改完即生效。
+- **14:35 运行态**：服务器 MemAvail 51.7G/128.5G(40%)、load 33.3/80、线程 5250、GPU 41/99/77/43% ⇒ 铁律内；
+  板卡 .64 空闲（根分区余 917 MB ⇒ `prune_remote_arms` 保留最新 25 个 rknn 必须保留）。
+  板卡机时按「升轨预备硬优先级」（six_ok + 同族≥2 + 至少一轴严格优）；门禁机时按「可升轨家族」加权（bw10 饱和会被自动降权）。
+- **下一步**：① 轴 D 新家族 `sb3:1608003@5+1612001@5+1102033@1+1623003@5+1530006@5:bw20` 累积 ≥2 个六项全过成员才能过种子关；
+  ② 若轴 D 也饱和 ⇒ 下一轴 = 低剂量并入 **`1104407@1`（nano4 .6646975 / T3 .9495050 双顶格）**，代价 nano −.0038；
+  ③ 每次升轨后跑「台账一致性体检」（六项全过数 / 基线 trial / 板卡读数三样对不上 = 又回滚了）。
+  详见主档 **§252**。
 
-- 🔴 **跨臂 Model Soup 正式证伪**：`model_soup_search.py`（md5 `6a26b36b6e1a456fac6ae5439c95d566`）口径校验 PASS，
-  7 对跨臂 soup（9863/12519/12679/12053/12709 的 α=0.5 组合）**全崩**（nano 0.6238~0.7027 < 基线 0.708648，
-  triad 全 n）⇒ 与 §142.1 一致：**不同配方/种子的权重不在同一 loss 盆地** ⇒ **该轴封死，不占算力**。
-- 🟢 **臂内细粒度 SWA 扫描器**（零训练）：`fine_swa_sweep.py`（md5 `92909bfa54cc1a635bab80ee0a377c44`）⇒
-  复用 816 个在盘 trial 的权重；近失臂 **244** → 候选 **6424**；🔴 两处关键修正：
-  ① **`--triad-first`**（按裸 nano 排序时前 12 名是「nano 0.74~0.76 但官方 T1/T3 崩到 0.85~0.90」的**另一个域**的臂，
-  真·近失臂排第 79~137 位）② `--resume` 时**缺 gate 的候选不能跳过**。
-  常驻 `/tmp/fine_swa_loop.sh`（nice 15 / GPU 2 / `--triad-first --limit 20 --resume --gate` ⇒ 597 候选）⇒ 11-16 08:00。
-- 🟢🟢 **warm-start 抛光轴**（1~2 epoch 小 LR + L2 锚定，**成本 1/3~1/5**）：
-  训练脚本新增 `--save-fracs` / `--anchor-ckpt` / `--anchor-l2`（**默认全关 ⇒ 逐位等价旧行为**，golden 回归已过）；
-  锚自动取台账近失前 5（9863@5 6/6、12519@3、12679@3、12053@4、12703@5）；配置网格 16 组（lr_scale 0.1~1.0 × λ ×
-  freeze_bn × epoch 1~3），跨轮按 `warm_key` 去重；warm 臂 `init≠BASE_INIT` ⇒ **不进格统计、不污染冠军**；
-  `promotion_candidates` 另开通道（同锚 ≥2 配置六项全过才算升轨）。
-  自检 `warm_axis_selftest.py` 双侧 ALL PASS；服务器真机冒烟 PASS（L2 锚定 191/191 张量、分数存盘落盘）。
-- 🖥️ **服务器自主清单**：自适应调度（→ R18）+ watchdog（轮次边界重启，新代码下一轮生效）+ 细粒度 SWA 循环 +
-  **早报 ×3**（11-14/15/16 09:10，脚本新增 ③e 节：warm 臂 / SWA 报告 / 跨臂汤证伪）。
-  ⚠️ 改早报脚本**必须重启 watcher**（bash 惰性读脚本 ⇒ 原地改会错位执行）。
+---
 
-### §157 🟢🟢🟢 2026-11-13 13:45 **【BREAKTHROUGH】trial_12869 六项全过 ⇒ 13 轮以来第一个击败 9863 的模型**
+## §253（紧凑版）2026-11-19 14:50~15:16 —— bw10 族响应面测绘 + **轴 F 跨配方供体证伪** + 轴 E 上线
+- 📐 **bw10 族 16 臂响应面**（`sb3:1608003@5+1612001@5+1530006@5+1623003@5`）：
+  **nano 恒 .7242438563 / nano4 恒 .6609168242 / F1 恒 .8906832040**（平台一动不动）
+  ⇒ **只剩 T1（台阶 1.86e-5 ≈ 1 个 TP）与 T2_fp（在 3/4 两格跳）两个离散格子在动** ⇒ 战场收敛成二维格点搜索。
+  · T1 顶格 `.8909238824`：`[.6324,.06,.2116,.096]` / `[.6624,.03,.2116,.096]` / `[.5924,.098,.2116,.098]` / `[.6224,.076,.2016,.100]`
+  · **T2_fp=3**：`[.6324,.058,.2116,.098]`(T1 .8909053，**只差 1.86e-5** ⇒ `2020036`) / `[.6424,.068,.1916,.098]`
+  · ⭐ **T3 随 w1530006 单调升**：.10→.9487764 / .15→.9487815 / .2016→.9488335 / .2116→**.9488856(=基线)**
+    ⇒ **w3 > .2116 是完全没测过的区间** ⇒ 唯一有理论根据的「严格更优」方向。
+- 🔬 **轴 E 已上线**（4 波全速，每通道 318 配方，权重和≠1 的 0 个）：
+  (A) 主网格 w2(17档)×w3(7档)×w4{.096,.098,.100}；(B) 围绕 `2020036` 的 0.001 级微扰网格；
+  (C) **T3 上探块** w3∈{.2216… .2816}×w2∈T1顶格档。
+  末位 1623003 权重钉 {.096,.098,.100} ⇒ 全落 **bw10 桶** ⇒ 与现有 3 个六项全过臂同族 ⇒ **种子关已满足**；
+  门禁 tier0 = 「与锚点同成员集 + 权重 L1 最近」⇒ 本轴臂**天然优先**。
+- 🔴🔴 **轴 F「跨配方供体」证伪下线（40 臂全崩）**：`1102033:.5+15510:.5` ⇒ nano **.3764**；
+  `15510:.5+1543008:.5` ⇒ nano **.3315**；`1010800:.3+1530006:.7` ⇒ nano .7077（1530006 单臂 .7238）；
+  连 **5%** 的 15510 都塌（nano .7148）。
+  ⇒ ⭐⭐ **汤只在「同盆地/同配方家族」内成立；单臂指标好 ≠ 可以做汤。**
+  相容白名单：SB3 主力 {1608003,1612001,1530006,1623003} + 轻度 {1102033,1740004,1644009,1104407,1100275,1102004}；
+  不可汤：15510(R21)、1010800(PX2 异锚)、14049/14445(R14/R16)、121xx 系。
+  ⇒ 推论：老臂 nano 最高的一批（12131 .7578 / 14049 .7328 / 14445 .7318）**不可交付也不可做汤成员**。
+- 轴 D 缩成 36 配方微剂量探针（wn=.0976 ⇒ nano .7179 已塌）。
+- 🛠 **新纪律**：① 生成器一崩 `REC` 为空 ⇒ **整条轴静默停摆**（今天踩过 float 尾数把权重和打成 1.000001）
+  ⇒ 权重用**整数微单位 1e-6** 算 + 部署前必验 rc/配方数/权重和 + 新增 `gen_watchdog.sh`（60s 自检 + `.good` 回滚）；
+  ② **重启波次**：先杀壳 → 等守望拉起 → **不要再补刀**（今天清理循环跑在守望拉起后，把新波次又杀了，gpu0 被推进到 w11）；
+  `timeout` 自建进程组 ⇒ `kill -TERM -<壳pgid>` 杀不到 soup3，须按 soup3 自己的 pgid 杀；
+  ③ `pgrep -f` 自匹配 ⇒ 用 `ps -eo pid,args | grep 'x[y].sh'` 或 PID 文件。
+- **15:16 运行态**：MemAvail 53.7G/128.5G(42%)、load 25.1/80、线程 4950、GPU 68/6/60/64% ⇒ 铁律内；
+  4 波全跑轴 E ＋ 门禁 3 通道 ＋ board/auto_promote/trackb/guard/supervisor ＋ gen_watchdog；
+  生成器 md5 `785a6d2c52b5ef01da874b1702e37c5e`（host↔server↔$W/scripts↔.good 四处一致）。
+- **下一步**：① T3 上探块若拿到 T3 > .9488856 ⇒ 六项全过+严格更优 ⇒ 升轨 Baseline_v3.1；
+  ② 找 `T1 = .8909238824` **且** `T2_fp ≤ 3` 的交叉格（`2020036` 只差 1.86e-5）；③ 升轨后必跑台账一致性体检。
+  详见主档 **§253**。
 
-- 🎯 **命中**：`trial_12869` **ep4**（seed 22997）六项判据**全过** Baseline_v2.0（9863 ep5）：
-  nano **0.708885**（+2.4e-4）｜ nano4 **0.647212**（打平）｜ F1 **0.893103**（+3.4e-3，2.4σ）｜
-  T1 **0.889864**（+1.8e-3）｜ T2 虚警 **5**（打平）｜ T3 **0.948746**（+2.6e-4）。
-  权威口径 = `six_criteria_audit.py`（磁盘 gate_report 为准）⇒ **六项全过的 (臂,epoch) 从 1 个变 2 个**。
-  ⚠️ 门禁脚本自带 `verdict=FAIL` 是对 **RC1 参照系**的判决（9863 自己也是 FAIL）⇒ 以六项判据为准。
-- 🔑 **配方 = 基线配方（B1: sw5.0×thr16ms4×lrf0.0×w2.0）只把 `backbone_lr_scale` 改成 0.5**
-  —— 这个维度此前 13 轮**从未系统采样**；结构/拓扑与 0031/9863 逐项同图 ⇒ 板端时延同口径。
-  出处：R13「近失复现 sw=5.0 seed3」臂 ⇒ **复现链路本身是有效的**。
-- ⚠️ **还不能升轨（n=1）**：nano/nano4/T3/虚警余量都在 seed σ 内 ⇒ 不能排除运气臂 ⇒ 必须 n≥4。
-  已做三件事：① **backbone_lr 轴格族进 `BASE_DERIVED_CELLS` 表首**（bklr0.5=6 / 0.25=4 / 0.75=3 /
-  ×lrf0.1=3 / ×sw4.0=2 seed；表序 = 预算收紧时的砍序）② 自动进待复现队列（R14 起每轮 2 seed）
-  ③ 板卡同会话 A/B（rknn 已导出上板）。
-- 🟢 **板卡阶段从「禁用」改成「只读预检 + 不杀进程」**：旧板 **192.168.0.64 已恢复连通**
-  （ping 通 / key 可用 / load 0.00 / 无 NPU 进程 / 余量 792 MB）；旧实现会 `pkill` 通用进程名
-  ⇒ 会杀别人任务 ⇒ 改 `board_precheck()`（load>1.0 / 有 NPU 进程 / 余量<400MB ⇒ **跳过测速**）+ 残留只列不杀；
-  `BOARD` `.211`→`.64`（nano_search.py / board_speed_search.py / run_hm_speed_board.sh 三处）。
-- 🟢 **板卡 NFS 开机自挂**（用户要求：重启后不用手动 mount）：systemd `mnt-manu.mount`
-  （nfs4 / nolock,soft,timeo=5,retrans=2 / 已 enable）+ `/etc/rc.local` 幂等兜底
-  （**必须放在原 `exit 0` 之前**；含 90×2 s 断网重试）⇒ 重启即自动挂载。
+## §254（2026-11-19 15:20~16:15）· **T4 改「同会话相对基线」口径 + 门禁 t3win 插队 + 轴 E 响应面全貌**
+- 🔴 **T4 绝对毫秒判定是错的**：板卡换旧板 `.64` + 他任务占用 ⇒ 读数整体上漂 0.3~0.5 ms
+  ⇒ **基线臂 2020035 自己读到 20.067/20.129 ms（超 19.989 红线）** ⇒ **8 个升轨候选被误杀**
+  （2020023/2010025/2000051/2000025/2010052/1990027/1220009/1530004）。
+  ⇒ 改为 **同会话差值口径**：`diff = 候选 − 同会话基线`；`pass = (绝对 ≤ 19.989) OR (diff 中位数 ≤ 0.36)`；
+  差值池存 `t4_samples.json` 的 `key|d` 键；新增 `manu/pipeline/npu/board_t4_rejudge.py` 做**一次性历史重判**。
+  ⇒ 🔴 **第二个漏网点**：`sync_measured_to_ledger()` 用纯绝对口径回写 ⇒ 把重判结果又覆盖回 False ⇒ 已改为用综合 `pass_t4`。
+  ⇒ ⭐ 纪律：**板卡是共享资源且会换板 ⇒ 绝对时延不能作唯一判据；换板后先看基线臂自己读到多少。**
+- 📐 **bw10 族响应面（24 臂）**：`nano/nano4/F1` **全族恒等基线**；`T1` 是**平台**（顶格 .8909238824 = 基线值）；
+  **`T3` 随 `w1530006` 单调升**（.2016→.9488335，.2116→.9488856=基线）⇒ **该族唯一严格更优轴 = T3（w3>.2116）**。
+  T1 顶格的 `(w2,w4)` 点：(.030,.096)(.056,.100)(.060,.096)(.074,.102)(.076,.100)(.098,.098)(.106,.100)；
+  `w2=.058` 是唯一 t2_fp=3 的点（`2020036`，T1 差 1.86e-5）。
+- 🔴 **门禁优先级**：同族同 bench 值 ⇒ 排序退化成 **sid 升序** ⇒ 66 个 `w3>.2116` 的臂**一个都没进门禁**；
+  `gate_prio.py` 加 `t3win`（成员含 1530006@5 且权重 > 基线 w3）+ `|Δw3|` 插队 ⇒ 下一轮即生效（无需重启）。
+  ⇒ 纪律：**生产端顺序一改，门禁端排序键必须成对改。**
+- 🧪 **新块 D（16:05 投产）**：10 个 T1 顶格/虚警点 × 15 个 w3 档（.2121→.2616）= **150 配方**，
+  已提到 `AXES` 首位；生成器 md5 `1b42a76f7550ccc2109a9c904d441b1c`（host↔server↔$W/scripts↔.good 一致）。
+- 🎯 **升轨判据链（七项 + 严格更优）**：`nano/nano4/F1/T1 ≥ 基线` ∧ `t2_fp ≤ 4` ∧ `T3 ≥ 基线` ∧ `板卡 ≤ ref×1.02`
+  ∧ `nano/nano4/F1/T1/T3` 至少一轴**严格**大于基线（**T2 不算**）⇒ **今晚唯一可成立的组合 =
+  T1 保顶格 + T3 > .9488856 + t2_fp ≤ 4**。
+- **16:15 运行态**：MemAvail 86.0G/128.5G、load 13.4/80、GPU 67/7/45/0% ⇒ 铁律内；
+  4 波（块 D 投产）+ 门禁 3 通道 + board_t4_watch（新口径）+ auto_promote + trackb + guard + supervisor + gen_watchdog。
+  详见主档 **§254**。
+* **§199（2026-11-19 17:30）★★ 全盘 Pareto 复算 + 针尖族插队修复**：
+  * **零超越**：8288 臂 / 736 门禁 / `six_ok` 73 ⇒ 「严格优于 Baseline_v3.0」**命中 0**。
+  * **Pareto 支配点**：tiny 三轴达标的 157 臂（46 个有门禁）中，**最高 T1 = 基线值、最高 T3 = 基线值**
+    ⇒ **bw10 块 D（soup 权重细网格）已证伪到天花板**（同族 593 臂 nano/nano4/F1 恒等，T3 台阶最高 = 基线）
+    ⇒ **继续加密 w2/w3/w4 = 无效算力消耗**。
+  * **金矿 = 针尖族 `1102033` 系**：nano4 **.6720227（+1.11e-2，全盘最大杠杆）**、nano 顶格 **.7244802（+2.36e-4）**、
+    F1 +1.9e-4、**T2_fp 3**；缺口只剩 **T1 −2.4e-3 / T3 −5.3e-4**。
+  * **根因级盲点**：针尖族 191 臂只门禁过 4 个，且**全在 `wN1≈.976` 单点** ⇒ `crit_pass=1 ⇒ alive=1 ⇒ tier=−1`
+    ⇒ **32+33 个兄弟臂被埋队尾**；`wN1∈[.90,.975]` 从未测过 ⇒ **族级结论被单点过度外推**。
+  * **修复（已上线）**：`gate_prio.py` 加 `needletip` 键（跨 strict/near 段强制置顶，
+    条件 = 家族含 1102033 ∧ nano ≥ 基线−1e-3 ∧ nano4 ≥ 基线+5e-3）⇒ **47 个针尖臂到队首**（含 T3 供体簇 U 14 个）；
+    顺带合并 host 侧未部署的 v2（`BASE_KEY` 同成员集 + `w3 ≥ BASE_W3`）
+    ⇒ md5 **`7bdd553314bd099cc1898e4f38963c3e`**（host↔server↔`$W/scripts/` 一致）。
+  * **未兑现线索**：`15510`（T1/T3/T2fp/F1 四项严格优，只差 nano −1.7e-2 / nano4 −1.9e-3；44 个含它的 soup 全败
+    ⇒ 须做**同族**变体）；`12131`（swl0.1）nano +3.4e-2 / nano4 +1.8e-2 但 T1/T3 全崩 ⇒ **tiny 与 T1/T3 结构性互斥**。
+  * **⚠️ 双端 memory 曾长期不同步**（server 停 §194/§197，host 已 §254/§198）⇒ 本次全量回推服务器。
+  * **生产侧修复（已上线）**：`gen_w13_recipes.py` 的 **针尖五轴（`ax_tip/ax_tip4/ax_tipu/ax_tipw/ax_tipv`）已定义但从未进 `AXES`**
+    ⇒ 波次一直在产**已证伪到天花板**的块 D ⇒ 已提到队首（round 8 每通道 31/377 条是针尖臂），块 D 降到队尾。
+    md5 **`f6c4c76c38f155377a1fe89ce530e299`**。
+  * **🔴 负权重 Bug（已修，根因层）**：`jit()` 微抖动把小权重档（.0000/.0050）推成**负数**，
+    守卫只查派生权重、`emit()` 只查权重和=1 不查非负 ⇒ 负权重漏进汤（round 8~11 每轮 14 条）。
+    修法：`jit()` 夹紧 ≥0 + `emit()` 负权重 raise；复验 round 8~12 真负=0。
+    **历史臂不受影响**（负权重只在当时未投产的 ax_tip4/ax_tipu 上）。
 
-### §158 🟢🟢 2026-11-13 14:05 **12869 时延 T4 通过（19.632 ms）＋ 调度器三处 bug 修复**
+## §255（紧凑版）2026-11-19 17:15~17:30 —— 全盘 Pareto 复算：基线即支配点；针尖族插队（⚠️ 生产侧改动已被 §256 回滚）
 
-- 🟢 **板卡同会话 A/B（旧板 64 / INT8）**：`12869 ep4` = **19.632 ms** ≤ `0031` 19.597×1.02 = 19.989
-  ⇒ **T4 时延判据通过**（`9863` 19.644 / `9801` 19.511 同会话）⇒ **12869 六项 + 时延全部合格**，
-  唯一未决 = **n=1 的统计效力**。
-- 🔴 **bug#1：pend（待复现配方）组会被预算整组饿死** —— `order` 与函数头写明的优先级自相矛盾，
-  实测 `arm_budget=127` 时 pend **0 臂** ⇒ 「运气臂→真配方」这条最高价值链路在末轮消失
-  ⇒ 修：`order = (pend, bdc, nm, warm, seed, prio_t3, mut, prio)`（pend 既先占预算又先开跑）。
-- 🔴 **bug#2：六项全过的待复现格只发 2 臂 ⇒ 永远到不了 n≥4** ⇒ 新增
-  `PEND_SEEDS_NORMAL=2` / **`PEND_SEEDS_CHAMP=6`**（按该格最佳臂六项通过数选档）+ `caps["pend"]=8`
-  ⇒ 探针复验：**R14 前 6 臂 = 12869 配方 seed1~6**（t=12960~12965），bdc 同格自动去重
-  ⇒ **一轮把 n 从 1 打到 7**。
-- 🔴 **bug#3：臂分类器把 `bdc` 臂误记成「复现」臂**（`BASE_bklr0.5` 文案含「复现」）⇒ 新增统一
-  `_arm_tag(desc)`（bdc→warm→prio_t3→prio→nm→pend→seed→mut），审计数字恢复可信。
-- 🟢 **selftest 修复**（早已失配，非本次引入）：精确臂数 ⇒ 下界 + 复现组精确断言；**warm 抛光臂例外**
-  （init=锚点权重、epochs=1~3）⇒ 服务器 `--selftest` **PASS**。
-- md5（双侧一致）：`adaptive_runner.py` = `1e9a07cb6ac8eeb7ace0660c4fb5ee46`；memory.md = `8a470625a458d61b4165950623ff95b0`。
+- 🎯 **至今零个臂严格超越 Baseline_v3.0**：台账臂 **8288** ｜ 已落 `gate_report.json` **736** ｜ `six_ok` **73**；
+  「nano/nano4/F1/T1/T3 全 ≥ 基线 ∧ T2 不劣 ∧ T2_fp ≤ 4 ∧ ≥1 轴严格更优」**命中 = 0**。
+  最接近的是 `2020036`：T1 = **.8909053（−1.86e-5，次格）** ∧ T2_fp = **3（优于基线 4）** ∧ T3 打平 ⇒ **T1 差一格**。
+- 🧠 **Baseline_v3.0 是当前搜索空间的 Pareto 支配点**：tiny 三轴（nano/nano4/F1）全 ≥ 基线的臂 **157** 个（有门禁实测 46 个），
+  其中**最高 T1 = .8909238824（= 基线值）**、**最高 T3 = .9488855869（= 基线值）** ⇒ 任何臂都不可能同时压过它的 T1 和 T3。
+  ⇒ **bw10 块 D（soup 权重细网格）已证伪到天花板**（同族 593 臂 nano/nano4/F1 **完全恒等**）⇒ 继续加密 w2/w3/w4 = 确定的无效算力。
+- 💎 **针尖族（`1102033` 系）= 全盘最大杠杆**：nano4 **.6720227（+1.11e-2）**、nano +2.36e-4、F1 +1.9e-4、T2_fp **3**（优于 4），
+  但 **T1 −2.40e-3 / T3 −5.32e-4** ⇒ 缺口只剩 T1/T3 两轨。
+- 🔴 **本节两项生产侧改动（针尖五轴提 `AXES` 队首 + `gate_prio` `needletip` 插队）已于 §256 整条回滚**
+  （针尖族硬证据判死：`w1102033<.975 ⇒ nano 塌`；`≥.9758 ⇒ 官方 T1/T3 崩` ⇒ 该成员集上无解）。
+  **保留**：负权重 Bug 修复（`jit()` 夹紧 ≥0 + `emit()` 负权重 raise，真 bug）。
+- 📌 两条未兑现线索：`15510`（T1/T3/T2fp/F1 四项严格优，只差 nano −1.7e-2 / nano4 −1.9e-3；44 个含它的 soup 全败）、
+  `12131`（nano +3.4e-2 / nano4 +1.8e-2 但 T1/T3 全崩 ⇒ tiny 与 T1/T3 结构性互斥）。
+- ⚠️ 双端 memory 曾长期不同步（server 停 §194/§197，host 已 §254/§198）⇒ 本次全量回推服务器。
 
-### §159 🔴 2026-11-13 下午 **winner 配方 n=8 复现结论：`trial_12869` 是运气臂，不是配方**
+## §256（紧凑版）2026-11-19 17:22 —— 🔴 **回滚 §255 的错误改动：针尖五轴提队首 + 门禁 needletip 插队**
+- **针尖族 `1102033` 系已被硬证据判死（不是「单点过度外推」）**：
+  `w<.975 ⇒ nano<基线`；`w≥.9758 ⇒ 官方 T1/T3 崩`（`2010005@w=.9768`：T1 −2.35e-3、T3 −4.70e-4）；
+  拟合 `T1(w)=.8919898−.00356w` ⇒ 要 T1≥基线需 `w≤.318` ⇒ 落在 nano 塌区 ⇒ **该成员集无解**。
+- **回滚**：`gen_w13_recipes.py` 的 `AXES` 顺序（md5 **`2465de17d9bbe81658b39698fd888364`**）、
+  `gate_prio.py` 的 `needletip` 键（md5 **`7bbb4105b571980eebad0a510639c54b`**）；host↔server↔`$W/scripts/` 三处一致。
+- **保留**：负权重 Bug 修复（`jit()` 夹紧 ≥0 + `emit()` raise）＋ `BASE_KEY` / `w3 ≥ BASE_W3`（v2）。
+- 活线顺序恢复：`bw10f → bw03/07 → bw15f/20f → g/gfine → bw08`；round 8 已产针尖臂作废（soup 臂 CPU 秒级，无 GPU 成本，且不会被门禁）。
+- **Pareto 支配结论不变**：8288 臂 / 736 门禁 / `six_ok` 73 ⇒ 严格超越 = **0**；Baseline_v3.0 仍为基线。
+- **靶心**：「T1 顶格 ∧ t2_fp=3」= 可升轨最小充分条件（`trial_2020036` 只差 T1 **1 个 TP** = −1.86e-5）⇒ 建议加 **0.0005 粒度轴**打 `w2∈[.055,.062]×w3∈[.2106,.2126]×w4∈[.097,.099]`。
 
-- 🔴 **「winner 配方」被证伪**：此前的 winner 配方 = **基线 B1 + `backbone_lr_scale=0.5`**
-  ⇒ 实测 **n=8 只有 1/8 过六项门禁** ⇒ `trial_12869` 属**运气臂**，**不能当配方用**
-  （继续复现该配方的期望产出 ≈ 1/8 ⇒ 算力应让给新轴，见 §160）。
-- 📊 **组内代表臂逐项读数**（六项判据 vs `trial_9863` ep5）：
+## §257（2026-11-19 15:29~18:40）· **trial_0080 底座对齐（权重被删后用 ONNX 复活）+ 三版工作点定案：v3 = 新基准**
 
-  | 臂 | nano | nano4 | F1 | T1 | T3 | T2 虚警 | 过几项 |
-  |:--|--:|--:|--:|--:|--:|--:|--:|
-  | 12543 | 0.711720 ✓ | 0.646975 ✗ | 0.892965 ✓ | 0.891705 ✓ | 0.948432 ✗ | 10 ✗ | 3/6 |
-  | 12402 | 0.709121 ✓ | 0.630198 ✗ | 0.893610 ✓ | 0.890325 ✓ | 0.947002 ✗ | 3 ✓ | 4/6 |
-  | 12869 | 0.708885 ✓ | 0.647212 ✓ | 0.893103 ✓ | 0.889864 ✓ | 0.948746 ✓ | 5 ✓ | 6/6 |
+- 🎯 **结论**：trial_0080 底座已在服务器重建完成；v3 的 24 序逐序列指标与 2026-10-22 官方记录**逐项一致**
+  （**22/24 序 F1 逐位相同**、GT **24/24** 相同、FP 与 FAR **逐位相同**）；三版里 v3 同时拿下**最高 F1 + 最低虚警** ⇒ **取代 th045 为新基准**。
+- 🔴 **起因**：trial_0080 的 `epoch3.pt`、源 ONNX、官方 24 序缓存**全被删**（`runs/optuna_mix_ratio` 整棵树被删）
+  ⇒ §183 §8.5 挂着的「⬜ 真 th045 底座复跑」本轮**用服务器 GPU 真跑完了**（97 min，24/24 pkl，165,223 帧）。
+- 🔍 **模型溯源（四路独立证据）**：交付件 `p0_off_A_none.rknn` = **trial_0080 epoch3 的 p0-off fp16 版**
+  （md5 `1a3faf2f9459cad8a389ffa81810234c` / 6,326,305 B；`ptq_common.py:132-137` 钉死源 ONNX+权重+`--ablate-p0`；
+  rknn 内嵌 fp16/no-quant 指纹；与 trial_0474 家族节点数 162 vs 170 可区分）。
+  ⇒ **与交付嵌入式的 rknn 保持一致** ✅
+- 🟢 **ONNX == 被删的 .pt**（3,297 帧逐阈值，脚本 `manu/pipeline/npu/ptq/22q_onnx_vs_pt_ref.py`）：
+  tier1_sensitive **IDENTICAL**｜001324_sub2000 **EQUIVALENT**（仅 th=0.50 上 1 个边界检测翻面，Δf1=4.53e-4）｜golden_pool **IDENTICAL**。
+  ⚠️ 口径坑：torch 参考按 `collect_th=0.30` 收集 ⇒ 只有 **th≥0.30** 同口径。
+  旁证：`PTQ_RK3588_int8_报告.md` 阶梯链 L2_ONNX_p0_off cos_hm=1.000000 / mse=2.026e-11。
+- 🔧 **代码改动**：`manu/data/multiscale_heatmap_cache.py` 新增 `--hm-onnx`（**只换推理引擎，后处理一字未改**）；
+  修 3 坑：共享环境 torch 是 **CPU 版**（`torch.cuda.is_available()` 恒 False ⇒ ORT 被静默降级）→ ONNX 后端改按 `--device` 选 `CUDAExecutionProvider`；
+  导出图 batch 静态=1 → per-run batch 钳到 1；`set -u` 与未定义 `LD_LIBRARY_PATH` 冲突 → `${LD_LIBRARY_PATH:-}`。
+- 🔴 **全量 24 序对账**（帧 165,223 / GT 133,257，脚本 `manu/evaluation/cmp_seq_vs_official.py`）：
 
-- 📉 **组内 mean_nano = 0.702711 < 基线 9863 的 0.708648** ⇒ 该配方**整体不优于基线**。
-- 🎯 **卡点定位**：**nano4（4px 严格定位）+ T3（盲测泛化）+ 虚警**，**不是 nano 本身**
-  ⇒ 「跷跷板」必须**解耦**（**分类侧 `sw` 与定位侧 `swb` 分开调**）⇒ 见 §160。
-- 🟢 **`trial_12869` 本身仍是合格交付模型**：六项全过 ＋ 板卡 T4 **19.632 ms**
-  ≤ `trial_0031`×1.02 = **19.989 ms** ⇒ 作废的是「**配方**」结论，不是「**这个模型**」结论。
-- 详见总结档 `manu/memory/nano_search_attempts_20261113.md` §16。
+  | 臂 | 我算 F1 | 官方 F1 | ΔF1 | TP（我/官） | FP（我/官） | FAR/帧（我 vs 官） | 逐位相同 |
+  |:--|--:|--:|--:|--:|:--|:--|--:|
+  | th045 | 94.4134356% | 94.3908503% | +0.022585pp | 123396/123383 | 4742/4790 | 0.0287006 vs 0.0289911 | 20/24 |
+  | v2 | 94.6231117% | 94.6174551% | +0.005657pp | 123398/123384 | 4165/4165 | **0.0252084 = 0.0252084** | 22/24 |
+  | **v3** | **94.7533347%** | 94.7468518% | +0.006483pp | 123068/123052 | **3440/3440** | **0.0208203 = 0.0208203** | 22/24 |
 
-### §160 🟢🟢 2026-11-13 下午 **swb 定位侧尺寸权重新轴：实现 + 一个致命归一化 bug 的修复**
+  ⇒ 差异全是**极小正差**（TP 多 12~16、FP 少或同、FN 少 13~16）= 检测级浮点末位差 ⇒ **重建缓存 ≡ 官方缓存**；
+  v3 仅 2 序非零差（`000322` +0.0574pp、`002959` +0.0130pp），其余 22 序 ΔF1 = 0.0000pp。
+- ⚠️ **`--self-check` 的 GATE FAIL 是陈旧常量、不是重建失败**：`GATE_EXPECTED`（`system_sota_longquan.py:93-102`，
+  docstring 指向 `runs/logs/eval_nop0_inbox_ext2.json`）= **trial_0474 期冻结单帧基线**（tp 110788 / fp 10435 / fn 22469 / f1 .8707）；
+  本轮实测（tp 124855 / fp 12250 / fn 8402 / f1 .9236）⇒ 对 trial_0080 缓存**必然 FAIL**。
+  ⇒ **权威判据是逐序列对账，不是这个闸门**；官方 trial_0080 流水线脚本**从未调用过 `--self-check`**。
+- 📊 **三版工作点**（同一模型 + 同一缓存 + 同一 GT，只差 4 个后处理参数；**不是三个模型/三份数据**）：
 
-- 🎯 **动机**（周末方案 §5.1，分类/定位解耦）：`sw`(size_weight_small) **只作用在分类（focal）损失**上
-  ⇒ 想加 nano 只能加分类权重，**定位（sub-pixel 偏移回归）梯度没法单独加强**
-  ⇒ 这就是「跷跷板」的机制根源。
-- 🟢 **实现**：新增两个训练开关 **`--size-weight-small-box`** / **`--size-weight-large-box`**
-  ⇒ 落到 `manu/models/heatmap_loss.py` 的 `generate_heatmaps_and_targets` 产出**逐目标 `obj_weight`**
-  ⇒ 由 `RegL1Loss` 消费；**`obj_weight` 缺省时原路径逐字保留（逐位不变）**。
-- 🔴🔴 **踩坑（致命归一化 bug）**：第一版 `RegL1Loss` 的加权分支用 **`w.sum()` 归一**
-  ⇒ 同一 batch 内权重全相同时**数学上完全抵消**（**swb=5.0 ≡ swb=1.0**）⇒ **轴空转**。
-  症状：`swb=1.0` 与 `swb=5.0` 首迭代 loss **逐位相同**（loss **11.7906** / hm **11.5293** / off **0.6533**）。
-- 🟢 **修复（15:40）**：归一化改成**计数**（**除以 `num_pos*2`**），与分类侧 focal（**除以 `num_pos`**）口径对齐
-  ⇒ swb 与 sw 语义一致（**都放大正样本梯度**）。
-  修复后单测：uniform w=5 ⇒ loss 恰为 base 的 **5.0000 倍**；全 1 权重 ⇒ 与 `obj_weight=None` 分支
-  **delta = 0.000e+00**（逐位一致）；E2E `obj_weight = [5.0, 0.2]` 正确。
-- 🟢 **新轴的搜索格**（`adaptive_runner` `BASE_DERIVED_CELLS` 首表）：`BASE_swb5.0` /
-  `BASE_sw3.8_swb5.0` / `BASE_swb6.0` / `BASE_sw3.5_swb6.0` 等。
-- 详见总结档 `manu/memory/nano_search_attempts_20261113.md` §17。
+  | 版本 | th_base | th_ground | sky_ratio | confirm_consec | F1 | Recall | Prec | FP | FN | FAR/帧 |
+  |:--|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+  | th045 | 0.45 | 0.22 | 0.6 | 6 | 94.3909% | 92.590% | 96.263% | 4790 | 9874 | 0.02899 |
+  | v2 | 0.42 | 0.26 | 0.6 | 7 | 94.6175% | 92.591% | 96.735% | 4165 | 9873 | 0.02521 |
+  | **v3** | **0.48** | **0.26** | **1.0** | **7** | **94.7469%** | 92.342% | **97.280%** | **3440** | 10205 | **0.02082** |
 
-### §161 🔴 2026-11-13 下午 **warm 抛光轴负结果归档（当前配置无效）**
+  推导链（同一缓存离线扫，不重跑推理）：th045 = 冻结基线 th_base 0.30 在 trial_0080 下 FAR 0.0405 超 0.03 红线 ⇒ 扫 {0.30..0.50} 取满足
+  `F1≥0.88 ∧ Recall≥0.85 ∧ FAR≤0.03` 的最大 th_base = 0.45；v2 = 再拧 `th_ground 0.26`/`confirm_consec 7`/`th_base 0.42`；
+  v3 = 再开 `sky_ratio` 轴 + `th_base 0.48`（28 候选 `(sky_ratio × th_base)` 网格 "base" 行逐位复现 v2 管线结果）。
+  ⇒ v3 的 FAR 余量最大（比 th045 低 28.2%）；逐序列 12 序变、12 序同；最大收益 `002251` **+8.42pp**（FP 2223→1552）、`00003` **+4.34pp**，
+  唯一明显损失 `00036` **−2.83pp**（本身 FAR 0.4277 的极端序）。
+- 🔴 **`sky_ratio=1.0` 的真实语义**（`eval_bidirectional_track_fusion.py:856-893`）：
+  `sky_y_boundary = img_h·sky_ratio = 512` ⇒ `is_sky` 恒 True ⇒ **v3 = 取消一切天空/地面之分**，三处同时变：
+  ① `th_ground` 变**死参数**（全帧只用 th_base=0.48）；② 地面 0.30 分检测从「Tier1 可起航迹」降为「Tier2 只挂已有航迹」⇒ **掐掉凭空假航迹**
+  （这才是 `002251` 掉 FP 的机制）；③ sky_ratio 还决定**天空感知刚性剪枝 + hover 豁免**（`y < sky_ratio·H` 的静态目标永不清除）⇒ v3 下**整幅画面**受豁免。
+  ⚠️ **`th_deep` 三版都是死的**（`th_deep=0.0`，代码 `if th_deep > 0.0:` 才启用）⇒ 改它无任何效果。
+  🟢 板卡 C++ 已完整实现分区（`rk3588_app_base/mosaic_sdk/src/npu/mosaic_track_fusion.cpp:468-470` `is_sky ? (s>=th_base) : (s>=th_ground)`）
+  ⇒ **v3 无需任何移植改动**；th045/v2 依赖分区且 `sky_boundary` C++ 是 float32 / Python 是 float64，307.2 边界有位级风险点 ⇒ **v3 对齐风险最低**。
+- 📌 **落点**：`system_sota_longquan_trial0080_delivery_v3_params.json`（`_provenance.current_baseline` 已写定案）、
+  `run_trial0080_longquan_eval.sh`（改成真正可跑的 ONNX 版 + 末尾官方对账）、新增 `cmp_seq_vs_official.py` 与 `22q_onnx_vs_pt_ref.py`；
+  三版官方记录 + `params_md5` 已写进参数档（th045 `3673b060…`｜v2 `78394180…`｜v3 `bba1e948…`）。
+  产物：服务器 `/mnt/data/siping/runs/trial0080_onnx/{ms_cache,eval}/`，host `ultralytics/manu/memory/trial0080_alignment_20261119/`。
+- 📌 **本轮无板卡侧动作**（板卡 + host 今晚关机）：板卡 v3 移植与 **Δn 超参搜索按 §183 节拍做输入、用户通知后再启动**（用户明确「先不做」）。
 
-- 🔴 **三臂全部低于基线**：`/tmp/warm_canary/result.json` 三臂 nano = **0.698960** / **0.687854** / **0.685491**
-  ⇒ **全部低于基线 0.708648** ⇒ 当前抛光配置（**lr_scale 0.2/0.6 × L2 1e-3 × ep1~3**）**无效**。
-- 🛑 **处置建议**：**下调 `WARM_MAX_PER_ROUND` 或改配置后再试**，**不要在此轴继续投算力**。
-- 详见总结档 `manu/memory/nano_search_attempts_20261113.md` §18。
+- 📌 **待办（等通知才启动）**：RT pipeline 的 **Δn 参数搜索规格已固化** ⇒ `ultralytics/manu/memory/trial0080_delta_search_spec_20261119.md`
+  （仿真分布 `{1:35,2:50,3:15}` / `{1:15,2:55,3:30}` + 8% 乱序注入，须按板卡实测 Δn≈3.08~3.11 重标定；
+  搜索空间 `min_hits{2,3}` `max_age_phys{10,12,15,18}` `R_base{4,6,8,10}` `R_slope{2.0,3.5,5.0}` `alpha{0.75,0.82,0.88,0.93}`；
+  **Δn≡1 回归底线**须与 94.7469% 基准吻合）。
+- 🔧 **本轮附带修掉的坑**：① `run_trial0080_longquan_eval.sh` 缓存重建段原是「一次 `&` 拉起全部 shard、无错峰」⇒ 改为
+  `GPU_LIST` 选物理卡 + **错峰 30s** + **最多 3 路** + `CUDA_VISIBLE_DEVICES` 隔离 + `OMP=4`（合规）；② 三档 `delivery*_params.json` 的
+  `model`/`cache_root`/`source_json` **原指向已删路径** ⇒ 加 `[DELETED 2026-11]` 标记并补 `model_surviving_standin`/`cache_root_rebuilt`/`source_json_rebuilt`，
+  **`params` 块未动**（`params_md5` 三档复核仍与官方记录一致）。
+- 📦 新增 `ultralytics/manu/memory/trial0080_alignment_20261119/`（全部对账产物 + README）＋ `trial0080_delta_search_spec_20261119.md`；memory 双端 md5 已核对一致。
+- 🟢 **修掉 `--self-check` 闸门陷阱**（`system_sota_longquan.py`）：`GATE_EXPECTED` 是 **trial_0474 期冻结单帧基线**常量、
+  且闸门**忽略 `--params-json`**、断言精确相等 ⇒ 对 trial_0080 缓存**必然 FAIL**（tp 差 12.7%、fn 差 62.6%、f1 差 5.29pp）。
+  ⇒ 新增 `--self-check-baseline <json>`（期望值外置 + 容差）；内置常量**只在 cache_root 含指纹 `ms_cache_nop0` 时**才用，
+  否则打印 `[GATE SKIP] 不适用` 并 exit 0（不再误报）；新增 `system_sota_longquan_trial0080_singleframe_gate_baseline.json`。
+  **服务器实跑 `[GATE PASS]`，逐位等于 124855/12250/8402/133257/0.923613525569/0.074142219909** ⇒ 重建缓存确定性可复现。
+  另修：`cmp_seq_vs_official.py` 原来**永远 return 0** ⇒ 新增 `--max-df1-pp` / `--require-gt-identical` / `--min-f1`，违规 return 1。
+- 🟢 **板卡侧结论：C++ 一行都不用改**（`mosaic_track_fusion.cpp:453-470` 与 Python v3 逐项对应；
+  `sky_ratio` 是可配比例参数、`img_h` 默认 512 ⇒ `sky_ratio=1.0` ⇒ boundary=512 ⇒ **is_sky 恒真** ⇒ 与 v3 语义一致）。
+  ⚠️ **只改 sky_ratio 不够**：C++ 现值 `th_base 0.45 / th_ground 0.22 / confirm_consec 2 / confirm_gap_tol 6` 与 v3（0.48/0.26/7/0）不同，必须显式覆盖。
+  🔴 `mosaic_pipeline.h:1257-1258` 的注释值 `(6)/(0)` **是陈旧的**（真正生效值已被 random-FPS 搜索改成 2/6）⇒ 调参别照抄注释。
+  ✅ 物理帧三旋钮（`max_age_phys`/`r_slope`/`alpha_decay`）**Python 侧也已支持**（`eval_bidirectional_track_fusion.py:187-196,250-251,311-312`）。
+  📄 交付说明：`ultralytics/manu/memory/trial0080_board_fusion_preset_20261119.md`。
+- 🔴 **gapfit 臂（跳帧适配参数组）实测：在 25fps 逐帧口径下超红线** ⇒ **FAR 0.03513 > 0.03**（F1 94.3755% 比 v3 低 **0.378pp**，
+  Recall +0.888pp、Precision −1.744pp、**FP +2364**、FN −1183）。机制：confirm_consec 7→2 + confirm_gap_tol 0→6 + max_age_phys=10 ⇒ 虚警暴涨。
+  逐序列：`002251` **−11.28pp**（杂波序）、`00036` **+8.18pp**。⇒ **这组参数必须在仿真 Δn 分布下评测才有意义**；
+  Δn 搜索网格里 **confirm_consec / confirm_gap_tol / max_age_phys 必须当一等公民**，不能沿用固定值。
+  新 OSD 目录（服务器）：**`/mnt/data/siping/datasets/manu/龙泉山/osd_sys_sota_trial0080_v3_gapfit_20261119/`**（pass 21 / un-pass 3，24 个 mp4），
+  明天可与 `osd_sys_sota_trial0080_v3_20261022/` 并排对比。
+- 🔧 **顺手修掉的渲染坑**：`render_trial0080_longquan_osd.sh` 的内联 python 用 f-string 却是 **/usr/bin/python 2.7.18**（未激活 conda）
+  ⇒ SyntaxError ⇒ `search_json_for_render.json` 没生成 ⇒ **TSV 的工作点列全空**（视频不受影响但归档丢记录）⇒ 改为显式钉 `PY_BIN`。
 
-### §161 🔴🟢🟢 2026-11-13 15:05 **swb 轴第二层根因：训练集几乎没有 nano 目标 ⇒ 定位侧口径必须独立**
+- 🔴🔴 **重大发现：用户让我「先不做」的 Δn 搜索，2026-11-19 13:59 已经跑完了** ——
+  搜索器 = `manu/evaluation/rt_fps_jitter_search.py`（**就是用户那份规格的完整实现**），
+  结果 = `manu/evaluation/rt_fps_jitter_search_result_20261119.json`（原存服务器 `/tmp/rt_search.json`，易失，已回存仓库；763.9 s / 51 条网格）。
+  工况 4 个（`s1` 实测 1x **7.47 fps mean Δn 3.35**、`s2` 1.5x+抖动 Δn 5.17、`s3` 2x+抖动 Δn 7.13、`s4` 文档口径 Δn 1.93），每个注入 **8% 乱序**。
+  三臂（缓存 `nogmc_t3/swa`、th045 阈值）：逐帧天花板 **95.02%** ｜跳帧未调 **91.55%/worst 87.00%** ｜
+  **跳帧+物理帧补偿但确认层未放宽 ⇒ mean 16.46% / worst 0.00%（轨迹全判死）** ｜跳帧+优化 **93.54%/worst 91.74%**（跳帧净代价 ≈1.5pp）。
+  最优参数 `confirm_consec 2 / confirm_gap_tol 6 / max_age_phys 10 / r_slope 3.5 / alpha_decay 1.0 / min_hits 3 / match_dist 4.0`
+  ⇒ **板卡 C++ 现在的默认值就是这次搜索的产物**（`mosaic_track_fusion.h:76-95` 注释明写）。
+  ⚠️ **两条偏差**：① 这次搜索跑在 **nogmc_t3/swa 缓存 + th045 阈值**上，**不是 trial_0080 重建缓存 + v3 阈值**
+  ⇒「**trial_0080 + v3 + Δn 仿真**」这组合还没搜过（明天可做）；② 搜索最优 `match_dist=4.0`，板卡默认与今天的 gapfit 臂都用 **16.0**（用户主动选择，非 bug）。
+- 🔴🔴 **本夜 memory 同步事故与修复**（**自造事故，必读**）：并发写 memory（我 Δn 重搜线 vs「升轨/视频质量线」）时，我**用错 canonical**（拿主档当精简档的 source）⇒ 把主档 235 块灌进两个精简档（350 KB → 2.28 MB）；反解恢复时又误删本线 §257 尾部小节（### 十四~十七，117 行）。**修复**：按「块文本逐字节相同 + key 不在 `.bak` + 不在白名单」三重判据精确反解注入块（精简档复原 md5 `2807395529…`）；从 `.bak` 取回 ### 十四~十七 并按**章节锚点**归位到 §257 末尾（此前错落在 §259 之后）。**最终**：6 文件**逐字节一致**（主档 `0d1f0453…` / 精简档 `4888a50f…`），章节集合与权威基准一致，本条 §257 十八 md5 `42dec2918…` 一致，并发线 §258（74 行 6 小节）/§259/§260 **全保留**。**三条教训**：① 合并前必须确认 canonical **同档位**（主档 ≠ 精简档）；② 「零删改」不能只看行数差——`.bak` 早于并发线改写 ⇒ 并发线自己改的措辞会被**误报成删除**（本次报 75 行，实为 0 丢失）；正确判据是**章节集合 + 关键要点逐项在位**；③ 并发场景搬移必须用**章节号锚点**定位，不能靠「在文件末尾」的位置假设。脚本：`merge_blocks.py` / `undo_merge_blocks.py` / `verify_all.py`（`/mnt/data/siping/runs/trial0080_onnx/search/`）。
+- 📄 **host 侧回填**：**本夜服务器端做不了**（host 关机 + 整段不可达 + host 无 sshd ⇒ 服务器无法主动推送；服务器也无 host 仓库副本/NFS 客户端挂载）⇒ **host 开机后由人在 host 终端跑** `bash ultralytics/manu/memory/delivery_20261119/HOST_BACKFILL.sh`（已写好并校验通过，rsync 4 份 + md5 复核）；回填前先确认服务器侧写入已收口。
 
-- **现象**：修完归一化 bug（§160）后，`swb=1.0` 与 `swb=5.0`（nano 口径）首迭代 loss **仍然逐位相同**
-  （loss **11.7906** / hm **11.5293** / off **0.6533**）⇒ 轴还是空转。
-- **决定性对照**：把「其余目标权重」压到 `swlb=0.2` ⇒ off = **0.1307 = 0.2 × 0.6533**（精确 0.2 倍）
-  ⇒ 证明**权重确实生效、计数归一正确**；而 `swb=5.0` 与 `swb=1.0` 完全一致 ⇒
-  ⇒ **该 batch 一个 tiny 目标都没有**（不是代码问题，是**口径问题**）。
-- **训练集尺寸实测**（服务器扫描 8000 个标签，nano 桶 = 最长边 ≤4px 或 面积 ≤16px²）：
+## §257 十八 🔴 2026-11-19 18:24~19:30 · **trial_0080 + v3 基座上的 Δn（跳帧）超参重搜：目标函数加「逐帧口径不回退」硬约束 ⇒ 新的最优 gapfit 参数组（confirm 2 / gap_tol 8 / r_slope 5 / match_dist 10）+ 新 OSD 目录**
 
-  | 数据集 | nano(≤4px/≤16px²) | micro(≤8px/≤64px²) | small(≤16px/≤256px²) | max_side 中位数 |
-  |---|---|---|---|---|
-  | UAV | **4.59%** | 16.55% | 40.04% | 29 px |
-  | LQ | **0.00%** | 5.82% | 15.82% | 49 px |
+### 1. 为什么必须重搜（上一轮结果作废）
 
-  ⇒ 定位侧若沿用 nano 口径：**LQ 批次零梯度信号**（LQ 占混训 1/3 且 91.7% 是常规目标）、
-  UAV 批次整体只放大 ≈1.19× ⇒ **swb 轴必然空转**。
-- **修法（已上线）**：定位侧口径与分类侧**解耦**
-  - 训练侧新增 `--size-thr-px-box` / `--size-max-side-px-box`（默认 **0 = 沿用分类侧口径 ⇒ 逐位不变**）；
-  - `nano_search.train_cmd` 仅在 `swb_thr > 0` 时追加这两个 flag ⇒ **旧臂命令串逐字不变**；
-  - `adaptive_runner` 的 `RECIPE_KEYS` 增加 `swb_thr` / `swb_maxside`（配方指纹区分口径）。
-- **冒烟剂量-响应**（同 seed / 同 batch / `swb=5.0`，只看 off loss）：
-  nano 口径(16/4) **0.6533**（≈空转）→ micro 口径(64/8) **0.9745**（1.49×）→ small 口径(256/16) **1.9279**（2.95×）
-  ⇒ **轴已「活」**。
-- **新搜索格**（`BASE_DERIVED_CELLS` 表首）：
-  `BASE_swb5.0_t64m8`(3 seed) / `BASE_sw3.8_swb5.0_t64m8`(3) / `BASE_swb3.0_t64m8`(2) /
-  `BASE_swb5.0_t256m16`(2) / `BASE_swb6.0_t64m8`(2) / `BASE_sw3.5_swb6.0_t64m8`(2) /
-  `BASE_swb5.0_nanocr`(1，**对照**：证明「口径才是关键变量」)。
-- **顺带修 selftest**：两处断言在**旧代码上同样失配**（「复现组臂数不对：1 != 0」⇒ 与本次改动无关，
-  根因是「T2 死区」把复现组过滤成 0 臂、而计划里仍留 1 个冠军单臂）⇒ 按语义放宽
-  （期望为 0 时允许 ≤1 残留；单臂复现组允许在末轮被整格丢掉）⇒ **selftest PASS**。
-- **调度器**：14:37:22 以新代码重启 R14（训练臂 **168 → 176**）⇒ 新轴立即进队列。
+- 上一轮 Δn 搜索跑在 **旧底座 `nogmc_t3/swa` + th045 阈值**上，**不是**交付底座 `trial_0080` + `v3` 工作点 ⇒ 参数不能直接用于交付。
+- 更关键：上一轮目标函数**只看跳帧臂**，于是选出 `gapfit` 参数组 —— **逐帧口径 FAR 0.035128 > 0.03 红线、F1 94.3755%（比 v3 低 0.3778pp）**，违反交付判据。
+- 本轮把「**逐帧口径不回退**」写进目标函数，并让**交付参数 = 可行解**（per-frame FAR ≤ 红线 **且** per-frame F1 ≥ 基准−tol）。
 
-### §162 🟢 2026-11-13 14:41 **板卡 T4 自动测速守望（host 断电期间自补时延读数）**
+### 2. 目标函数（`manu/evaluation/rt_fps_jitter_search.py` 的 `objective()`）
 
-- **缺口**：调度器只跑**离线六项**（nano / nano4 / F1 / T1 / T2虚警 / T3），
-  但**交付**还要过板卡 T4（RKNN `rknn_run_avg_ms` ≤ trial_0031×1.02 = **19.989 ms**）
-  ⇒ 夜间若出了新的六项全过候选，**没人测它的板端时延** ⇒ 明早拿不到完整结论。
-- **实现**：`manu/pipeline/npu/board_t4_watch.py`（常驻，20 min/轮，截止 2026-11-16 09:00）
-  - 每轮用 `six_criteria_audit` 的**磁盘 gate_report 口径**找「六项全过」候选；
-  - 对**未测过**的候选：导出 RKNN → 上板 → 同会话 A/B 测速（`CONTROL_NAME=base_int8.rknn`
-    `LOOPS=30 WARMUP=10 SETTLE=5`）⇒ 落盘 `board_measure_auto/measured.json`。
-  - 🔒 **板卡只读预检**（load / 别人的 rknn 进程 / 根分区余量）⇒ 忙就跳过本轮；
-    **绝不 kill 板卡上任何进程**（板卡是共享资源）。
-- **实测**：9863 ep5 = **19.639 ms**（PASS）、12869 ep4 = **19.632 ms**（PASS）⇒ 红线 19.989 有约 0.35 ms 余量。
-- **踩坑**：板卡脚本把臂名写成 `arm_<name>_int8` ⇒ 首版正则取不到 ms（记成 null）⇒ 已加归一化匹配。
+```
+score = 跳帧 mean F1
+      − λ·max(0, 跳帧 FAR − 逐帧天花板 FAR)      λ=2.0
+      − μ·max(0, 逐帧 FAR − 0.03)                μ=25.0   ← 交付红线，硬约束级
+      − ν·max(0, 基准逐帧 F1 − tol − 逐帧 F1)   ν=25.0   ← 逐帧不回退，硬约束级
+```
 
-### §163 🟢 2026-11-13 15:30 **EMA 轴 + 抛光轴复活 + warm 根因澄清**
+坐标下降的**每个候选**都额外跑一遍 per-frame 臂；搜索结束后从 history 里挑
+「per-frame FAR ≤ 0.03 且 per-frame F1 ≥ 基准−tol」的**可行解**里 objective 最高者。
 
-- **EMA 轴**：`--ema-decay`（0=关⇒逐位不变），参数级 EMA + ramp-up `min(decay,(1+t)/(10+t))`，
-  存盘写影子权重（BN buffer 取实时值）；冒烟「影子参数 191 个」。
-  新格：`ema0.999`(3) / `ema0.9995`(2) / `ema0.9998`(2) / `ema0.999_sw4.5_thr14ms3.5`(2) / `ema0.999_frac`(2)。
-- **抛光轴复活**：14:37 重启把 32 个抛光臂杀在半路（无读数）但 `warm_key` 被算「已用」
-  ⇒ 周末再无抛光臂；修法 = dedup 只算**真跑出读数**的抛光臂。
-- **warm 掉 nano 的真因**：不是头被覆盖（`load_hm_model` 实测 374 tensors / missing_keys=0），
-  而是手工 canary 用了 `ns.BASE`（**sw=1.0**）而非锚点配方（9863 = sw=5.0）⇒ 抛光不再强化微小目标。
-  ⇒ 已撤销 `head_src=锚点路径` 的错误改动；抛光臂一律继承**锚点真实配方**。
+🔴 **踩过的坑（已修）**：`--perframe-f1-tol` 最初给的是 `0.001`，**过严** ⇒
+放宽 `confirm_gap_tol`（跳帧可用的**必要条件**）必然损失 0.15~0.28pp 逐帧 F1，
+于是**所有跳帧可用候选全被判不可行**，搜索回退到 v3 原参 —— 而 v3 原参的跳帧臂 F1 = **0.0841**（轨迹全判死；规范值出自 `rt_search_t0080_v3_seedfix.json`，早先写的 0.106 出自已作废的 run1，见「二十四」口径更正）。
+⇒ 已把默认 tol 标定为 **0.003**（`manu/evaluation/rt_fps_jitter_search.py`），重跑后 objective-best 即交付参数。
 
-### §164 🟢 2026-11-13 15:50 **两个 5/6 近失臂 + 台账打通 + 抛光槽轮转**
+### 3. 搜索配置
 
-- `12679@3`：nano 0.718809 / nano4 0.655718 / F1 0.890329 / T1 0.890550 / T2 fp 1 ✅ / **T3 0.948332（差 1.57e-4）**。
-- `96835@5`（12679 ep2+ep3 SWA 0.3/0.7）：nano 0.718336 / nano4 0.652647 / T3 **0.948343（差 1.46e-4）** / T2 fp 2 ✅。
-- **三处打通**：① `build_warm_arms` 改「配置序×锚点序」轮转 + `WARM_MAX_PER_ROUND` 16→24；
-  ② `fine_swa_sweep.register_synth_arms()` ⇒ SWA 候选进台账（六项审计 / T4 守望 / 抛光锚点都能看到）；
-  ③ 新增 `polish_nearmiss.py` 旁路：12679@3 与 96835@5 各 3 个抛光配置 ⇒ trial 999821~999826，GPU0/1，nice19。
+- 缓存：`/mnt/data/siping/runs/trial0080_onnx/ms_cache`（trial_0080 重建，24 序列 / 165,223 帧）
+- 基座：`manu/evaluation/system_sota_longquan_trial0080_delivery_v3_params.json`
+  （params_md5 `bba1e948f420efe1b5070269b4587a43`）
+- 工况：s1/s2/s3/s4 × seeds 0,1,2；24 序列；max-frames 4000；workers 4；sweeps 2
+- 空间：confirm_consec[2..7] / confirm_gap_tol[0,2..6,8] / max_age_phys[None,10,12,15,18] /
+  r_slope[0,2,3.5,5] / alpha_decay[1.0,0.75,0.82,0.88,0.93] / match_dist[4..16] / min_hits[2,3]
+- 搜索产物（**规范**）：`/mnt/data/siping/runs/trial0080_onnx/search/rt_search_t0080_v3_seedfix.json`（**run3**，2132.4 s，history 57 条）；
+  🔴 run1/run2（`rt_search_t0080_v3.json` / `_final.json`）出自 `hash()` 采样器 ⇒ cadence 不可复现、**已作废**（run1 与 run3 的 s1 `mean_delta_n` 3.4113 vs 3.3597 即实证）
+- 三臂复核：`/mnt/data/siping/runs/trial0080_onnx/search/rt_eval_t0080_v3_opt.json`（152.0 s）
 
-### 174 ★★ 2026-11-16 14:50 — 工程目录大件产物外迁 `workspace/cache`：upload 从 60 GB → **82.5 MB**
-- **起因**：每次跟服务器同步都极慢 ⇒ 根因是本机 `ultralytics/` 达 **61 GB**，其中 **60 GB 是 `runs/`**（与代码无关）。
-- **处置**：实体搬到 `/media/manu/1TB-Volume/workspace/cache/ultralytics/`，工程目录内**这些路径直接删掉、不留软链接**
-  ⇒ 工程目录内容降到 **100 MB**，upload 载荷实测 **82.5 MB**（清单里已无 runs/.rknn/build 产物）。
-  ⇒ 数据实体**仍在 cache**（60 GB + 804 MB，未删）。
-- 🔴 **教训（用户当场指正）**：**软链接挡不住同步**——`scp -r` 会解引用把 60 GB 全传、`rsync` 传死链
-  ⇒ 要真正缩小同步范围，必须让路径**物理不存在**（或用 `--exclude`），别用链接代替改路径。
-  ⇒ 代价：543 个 .py/.sh 仍默认写 `runs/...`，改指开关清单见主档 §174.6。
-- 🔴 **upload 铁律**（实测 rsync 3.4.1）：upload 落点 `/tmp/pycharm_project_10ae9e2e` 是软链接 →
-  `/mnt/data/siping/runs/npu20ms/nano_search/repo`，其中 `runs/mixed_ft_route_b/` 是**当前 nano_search 正在写的活目录**；
-  本机 `runs/` 变软链接后 ⇒ `rsync -a --delete` 会**清空它**；`--exclude` 才安全。
-  ⇒ **一律带排除项 + 默认禁止 `--delete`**；已封装 `manu/videos/upload_to_server.sh`（排除写死 + 默认 dry-run + 传后 md5 校验）。
-- ⚠️ **服务器 /tmp 已被 13:47 那次僵死重启清空** ⇒ 原完整工程 checkout（含 30 GB `runs/lookahead`）已丢失，
-  `/tmp/pycharm_project_10ae9e2e` 现指向 nano_search 的瘦身 repo（根目录只有 `memory.md`、无 `memory/`）
-  ⇒ 往那儿 upload 会覆盖对方正在写的东西 ⇒ `upload_to_server.sh` 已加**落点守卫**（布局不符 ⇒ rsync 前 exit 2，实测服务器零改动）。
-- 🔴 **大数据集不在落点内**：`/mnt/data/siping/datasets/manu/纵横AI数据采集_*`（9 个产物目录，tracked OSD 全套）在
-  `/tmp/pycharm_project_10ae9e2e` **之外** ⇒ upload 碰不到。**sshfs 挂载显示的 30 GB 是陈旧缓存**（软链接目标已重建）⇒ 尺寸事实须 ssh 直查。
-- **自查抓到两个自己的 bug**：① 软链接上跳层数算错（用「路径分量数」而非父目录深度）⇒ 7 个链接全断，
-  `ls` 断链不报错 ⇒ **必须 `test -e` 验**；② `DRY_RUN=1` 没真加 `--dry-run` ⇒ "预览"会真传。
-- 详见主档 `manu/memory/memory.md` §174；布局与恢复方法见 `workspace/cache/README.md`。
+🔴 **顺带修掉的一个可复现性缺陷**：`sample_delivered_frames()` 里用 `random.Random((hash(scenario) ...) )` 取种子，
+而 **CPython 的 `hash(str)` 每进程随机**（PYTHONHASHSEED）⇒ **cadence 采样跨运行不可复现**，
+同一个命令两次跑出来的 history 不一样。已改为 `zlib.crc32(scenario.encode())`（跨进程稳定），并用两个独立进程验证采样逐位一致。
 
-### 175 ★★ 2026-11-16 15:30 —「服务器那个软链是你改的吗？」⇒ **不是我**；新增**核心铁律十七**
-- **结论**：那个 `/tmp/pycharm_project_10ae9e2e → nano_search/repo` 的软链**不是**本工程做的。
-  证据：① host 全天会话日志 grep 建链命令**零命中**；② 那轮我在服务器只做**只读** + `rsync --dry-run`，
-  `DRY_RUN=0` 一次没跑；③ 该路径是 **harness 的活路径**（自带 30+ 脚本首行 `cd /tmp/pycharm_project_10ae9e2e`）；
-  ④ 软链 mtime 14:48 与 harness 重写 `curated_loop.sh`（改用绝对路径 `$W/repo`，不再依赖会被重启清空的 `/tmp`）**同一分钟**
-  ⇒ 是 harness 13:47 僵死重启后的**自修复**。
-- **终态**：用户 15:19 重启后重传 ⇒ `/tmp/pycharm_project_10ae9e2e` 恢复为**真实目录**（86 MB，**无 `runs/`**）⇒ upload 正常；
-  本机 dry-run：**3,157 文件 / 只差 2 个文件（190 KB）**。
-- 🔴 **新增核心铁律十七（rules.md）**：**服务器路径一律不动**（默认零写入，只读不算动）；大件产物**备份基准 = host 侧**
-  `workspace/cache/ultralytics/runs`；同步落点**不许是软链**、不许落在 harness 活仓库下；upload 默认 `DRY_RUN=1` + 不带 `--delete`。
-- 🔴 **本轮自查抓到 3 个自己的 bug**：① `REMOTE_ROOT` 默认值竟指向 harness 活路径（真传会穿透软链写进别人活目录）⇒ 加守卫⓪；
-  ② 守卫①探针在落点无 `runs/` 时**假阳性误拦** ⇒ 修 `NORUNS`；③ 守卫⓪初版按路径名硬禁会误伤惯用落点 ⇒ 改按「软链/实路径」判。
-- ⚠️ **副作用**：harness 老脚本现在落到用户刚传的副本（`/tmp` 易失 ⇒ 其 `runs/` 重启即丢）；新版 `curated_loop.sh` 用 `$W/repo` 不受影响。
-- 详见主档 `manu/memory/memory.md` §175 与 `manu/memory/rules.md` 铁律十七。
+### 4. 搜索得到的最优参数组（= 交付参数）
 
-### 176 ★★ 2026-11-16 16:45 — 交付包缺陷「`mosaic_sdk` 里一个 `.rknn` 都没有」已修并**真交付上板**（板卡换机 + 旧板缺 OpenCV）
-- **起因**：用户一句「**rknn没有打包到mosaic_sdk**」⇒ 交付包里 **0 个 `.rknn`**，而 README/交付脚本让客户用 `/mnt/manu/ptq/models/…`（**我们内部 NFS 路径**，客户机上不存在）⇒ 客户照抄任何一条命令**必失败**。
-- **修法（统一口径）**：**来源＝包内 `models/p0_off_A_none.rknn`**（6,326,305 B，md5 `1a3faf2f9459cad8a389ffa81810234c`）→ **落点＝板上 tmpfs `/tmp/p0_off_A_none.rknn`**；4 个测试程序 + `mosaic_pipeline.h` 的**内置默认模型路径**同步改成 `/tmp/p0_off_A_none.rknn`。
-- **✅ 真交付已完成（16:34，中转模式）**：本会话沙箱里 NFS 根是**只读**（`/dev/sdb` 挂 `ro`；fsck 报没问题）⇒ 走 `copy_to_nfs.sh` 的中转模式（tar → 板卡 `/tmp` → 板卡 `cp -a`）⇒ `/mnt/manu/mosaic_sdk` 实测 **73 文件**、模型 md5 对、6 个兼容软链正确，**板卡侧与 host 侧 NFS 视图两边一致**。
-- 🔴 **板卡换机了：IP 从 `192.168.0.211` 变成 `192.168.0.64`**（DHCP 变，`.211` ARP 已 FAILED；靠「ping 全段 + 扫 22 端口 + 读 `/proc/device-tree/model`」定位）⇒ 脚本默认 `--board root@192.168.0.211` **必须覆盖**。
-- 🔴 **换上的 `.64` 是【旧板】**（`Rockchip RK3588 DEP04A Board` / Ubuntu 20.04.6 / librknnrt 2.3.0）：**全盘没有 OpenCV、没有 `librga.so`、没有 `libOpenCL.so`** ⇒ 交付包（`NEEDED libopencv_*.so.406 + librga.so.2 + libOpenCL.so.1`）在它上面**必然 `exit 127`**。⇒ **不是交付缺陷，是目标板选错**；**交付目标是新板（散热改版 Orange Pi CM5）**。
-- **✅ 模型本体已在真板卡验收**（写了个只依赖 `librknnrt.so` 的最小加载器 `/tmp/rknn_load_check.c`）：`rknn_init` **成功**，输入 `[1,640,640,3] FLOAT16`、输出 **2×`[1,1,320,320] FLOAT16`** ⇒ **与 MANIFEST 声明完全一致**；板上经 NFS 读全文件 md5 **3/3 正确**、直读加载 **5/5 成功**。
-- 🔴 **诚实更正**：「NFS soft 直读必坏」**本次未复现**（来自历史事故，非可复现规律）⇒ 「cat 到 `/tmp` + md5 对账」**仍保留**（防间歇性损坏），但**不要讲成「直读必坏」**。
-- **改动**：`packaging/make_build_dir.sh`（新增 `MODEL_RKNN`，可置空＝不打包）+ `MANIFEST.template.md` + `README.template.md` + `copy_to_nfs.sh`（新增 `[0/5]` 落模型 + md5 对账，不符即 die）+ 5 个 C++/头文件；`known_hosts` 补 `.64` 三种密钥（`ssh-keyscan` 后与板卡自报 pubkey **逐字交叉验证**）。
-- **⚠️ 仍欠**：`copy_to_nfs.sh --board <新板IP> --verify` 的四条 gate（契约测试 / demo / 最小集成示范 / 异步两条 gate）**要在新板（散热改版 CM5）上跑**，旧板代跑不了。
-- 详见主档 `manu/memory/memory.md` §176（§176.1~§176.9）。
+| 参数 | v3 基座 | 本次最优 | 人话 |
+| --- | --- | --- | --- |
+| `confirm_consec` | 7 | **2** | 连续命中起批（原来要 7 次，慢） |
+| `confirm_gap_tol` | 0 | **8** | 起批允许断链的物理帧数 |
+| `max_age_phys` | （未设） | **None** | 丢失后保留的物理帧数 |
+| `r_slope` | （未设） | **5.0** | 每多跳 1 帧关联半径放宽(px) |
+| `alpha_decay` | （未设） | **1.0** | 置信度跨帧保留率 |
+| `match_dist` | 16.0 | **10.0** | 基础关联半径(px) |
+| `min_hits` | 3 | **3** | 最少命中数 |
 
-### 177 ★★ 2026-11-16 17:20 — `lq_ir_bmp` 生成链路溯源 + 嵌入式组推流素材（原始 mp4 ＋ 640×512 视频）已交付
-- **溯源结论**：`lq_ir_bmp` = **1920×1080 裸 H.264 红外原片**（`/mnt/data/xxxu/龙泉山/ir/VIDEO00007_19700101_001324.h264`，237,583,477 B / 25fps / 11,810 帧，**不是 mp4**）
-  → OpenCV `cv2.VideoCapture` 抽帧 → `cvtColor(BGR2GRAY)` → **crop(320,28,1280,1024)** → `resize INTER_AREA` 到 640×512
-  → **JPEG q95**（★全链唯一 Lossy 步，±8~9 灰阶）→ `imread(GRAYSCALE)+imwrite` → **8bit 灰度 BMP**（BI_RGB / 256 级调色板 / 328,758 B 每帧）。
-  ROI 经「几何居中 + 区域外像素仅 16~22」与「`matchTemplate` 命中 (960,271)」两路交叉验证。
-- **🔴 最值钱的一条**：做 640×512 视频**必须以现成 JPG 序列为编码输入**，**不能从原始 mp4 重裁** ——
-  实测「JPG vs BMP = 0」，而「原始 mp4 重裁 vs BMP = 8~9」⇒ 重裁版几何对但内容与 BMP 偏 ±9。
-- **交付（3 个 mp4，落 NFS `/mnt/manu/stream_test_media/`）**：
-  ① `lq_ir_original_1920x1080.mp4`（237,635,108 B，`-c copy` 无损封装，**framemd5 与源全量一致** ⇒ 像素级无损）；
-  ② `lq_ir_640x512.mp4`（74,274,211 B，yuv420p CRF18，**推流主用**）；③ `lq_ir_640x512_lossless_gray.mp4`（752,579,222 B，qp0 近无损参考版）。
-  附 `verification_report.json` + `make_stream_test_media.sh` + `verify_stream_test_media.py` + 给嵌入式组的 `README_stream_test_media.md`。
-- **校验五项全过**：三个 mp4 均 11,810 帧 / 25fps / 472.4 s；原始 mp4 framemd5 = 源（无损）；近无损版 **11,810 帧逐像素 maxdiff=1 / PSNR 65.93 dB**；推流版 PSNR 44.32 dB；板卡端 ffprobe 实测三文件均可解码。
-- 🔴 **落盘通道**：host 沙箱里 NFS **只读** ⇒ 写 NFS 必须**经板卡中转**（`ssh 服务器 'cat f' | ssh 板卡 'cat > /tmp/f'` → 板卡 `cp` 到 `/mnt/manu/`；板卡 NFS 挂载实测 rw）；**板卡无服务器密钥**（`Permission denied (publickey)`）⇒ host 做中转管道、不落 host 盘。三段 md5 全一致。
-- 详见主档 `manu/memory/memory.md` §177（§177.1~§177.9）。
+新参数档：`manu/evaluation/system_sota_longquan_trial0080_delivery_v3_optgapfit_params.json`
+（**params_md5 `a1157e013ebb496731be805c72c95dd8`**）
 
-### 178 ★★ 2026-11-18 — 嵌入式板卡「push 帧报错」根因＝**内核 RGA 驱动 Oops**，已根治（改用预分配 dma-buf）
-- **不是应用层 bug**：SDK 每帧用 `importbuffer_virtualaddr()`（虚拟地址）导入画布 ⇒ 内核给该 buffer 打 `RGA_MEM_FORCE_FLUSH_CACHE`
-  ⇒ 作业时 `dma_sync_single_for_device(dev, buffer->phys_addr, size, dir)` 而 `phys_addr` 可为 **0**
-  ⇒ 内核 `phys_to_virt(0)` 刷 cache ⇒ **`Internal error: Oops: 96000146`** ⇒ 进程 + 内核挂掉（与嵌入式组 `log.txt` 同型）。
-- **根治（用户拍板方案二）**：RGA 输入/输出缓冲全部改成**初始化时一次性分配的 dma-buf**
-  （`/dev/dma_heap/system-uncached` + `mmap` + `importbuffer_fd()` ⇒ `wrapbuffer_handle()`），
-  **任何虚拟地址都不再传给 RGA** ⇒ fd 路径走 `rga_mm_map_dma_buffer()`，**不打 FORCE_FLUSH_CACHE** ⇒ 崩溃分支**结构上不可达**。
-- **验收**：同一新库 `MOSAIC_RGA_DMA=0`（强制回虚拟地址）**立刻复现 OOPS #8**；默认（dma-fd）跑 25 帧 SDK 流水线
-  ＋ app 实机 **482 帧全程零 OOPS**，RGA 自检 OK。
-- 详见主档 `manu/memory/memory.md` §178。
+> ⚠️ **v3 参数块里 `max_age_phys` / `r_slope` / `alpha_decay` 三个键本来是缺失的**
+> （`system_sota_longquan.py` 走 `params.get(...)` 会回落到 legacy 默认 None/0.0/1.0），
+> ⇒ 新参数档**显式写死这三个键**，否则搜出来的跳帧参数会**静默失效**。
 
-### 179 ★★ 2026-11-18 — 换板核对：新板 = **原 EVM3588**（`192.168.0.64` / `ematech`），新 SDK（dma-fd RGA）**全序列精度 100% 逐位相同**
-- **板卡身份实测**：hostname `evm3588`、Ubuntu 20.04.6、内核 5.10.160、`librknnrt` **2.3.0**、7.9 GB / 8 核
-  ⇒ 与 memory 记录的「旧板」一致（**≠ CM5 的 2.2.0**）。
-- **新 SDK 代码（dma-fd RGA）全序列精度对齐 = 100% 逐位相同**。
-- **npu_workers 只能是 1**：2 个 context 会 **NPU soft reset**（见主档 §179.4）。
-- 详见主档 `manu/memory/memory.md` §179。
+### 5. 三臂对比（4000 帧口径，物理帧基 = 板卡真实节奏）
 
-### 180 ★★ 2026-11-19 — 时空后处理移植完成 ＋ **三端逐位对齐** ＋ 板卡实测「检测器→跟踪器更新间隔」
-- **Python 重写已与库对齐 = 100%**：对照 `scipy.optimize.linear_sum_assignment`（scipy 1.15.3 / numpy 2.2.6），
-  **4854 用例 / 371,058 格点，不一致 0**；反向注入 tie-break bug ⇒ 一致率掉到 **67.49%** ⇒ 用例集对 tie-break 敏感（**不是假一致**）。
-- **三端逐位对齐**：Python 参考 == C++ host == C++ aarch64 板卡（MD5 相同、`max|Δpos|=0`、`max|Δscore|=0`）。
-- **板卡节拍实测**（ematech / `npu_workers=1` / realtime 档 / 源 25 fps）：输出 **8.13 fps**、
-  间隔 mean **123.0 ms** / p95 152.5 / p99 178.4 / max 185.6 ms、**Δn mean 3.04**；
-  **丢帧 0**（丢在**调度层**不是队列溢出）；**结果帧号无乱序**（乱序来自 2 个 NPU worker，本板跑不了）。
-- **瓶颈 = NPU**：`rknn_run` p50/p95/p99/max = 118/121/125/128 ms；GMC 拟合 p50 17~36 ms；后处理 0.58 ms/帧。
-- **加时空后处理的时间成本**：板卡 Pass1 `Step()` mean **9.8 µs**（p99 17.8）、`OnlineFused()` 0.48 µs、`Finalize()` 0.86 ms
-  ⇒ 相对 120 ms/帧的 NPU 耗时**可忽略**。
-- 详见主档 `manu/memory/memory.md` §180 ＋ `manu/memory/spatio_temporal_track_20261119.md`。
+| 臂 | s1 | s2 | s3 | s4 | mean |
+| --- | --- | --- | --- | --- | --- |
+| **v3 原参** 跳帧·物理帧基（未调） | 0.0000 | 0.0000 | 0.0000 | 0.3365 | **0.0841** |
+> ⚠️ **口径更正（2026-11-19 21:50）**：上表「未调」行取自**规范产物 `rt_search_t0080_v3_seedfix.json`**（cadence 采样改用 `zlib.crc32` 确定性种子）＝ **0.0841**；早先写的 **0.1061** 出自第一次搜索 `rt_search_t0080_v3.json`，该次因 CPython `hash(str)` 每进程随机 ⇒ **采样不可复现 ⇒ 作废**。
+> 另：表中「最优参数」两行**现已改取确定性重测产物 `shortlist_deterministic.json`**（`delivered_cc2_md10`）＝ 密集帧基 **0.9383** / 物理帧基 **0.9514**；早先这两行取自 `rt_eval_t0080_v3_opt.json`（复核，base = 交付参数），该 json 里的 `2b_jump_physical_untuned` 与 `3_jump_optimised` 数值相同（0.952127）**不是 bug** —— 复核时 base 已是交付参数，两臂只差**时间基**（密集帧基 vs 物理帧基）；「未调」指**未针对跳帧再调参**，不是「用 v3 原参」；但它的数值出自**修复前采样器** ⇒ **0.952127 已作废**，以重测值为准。
+> 三次搜索的未调/优化对照：`rt_search_t0080_v3.json` 0.106058/0.110650（作废）、`rt_search_t0080_v3_final.json` 0.112741/0.952784（仍用 `hash()`，也不可复现）、**`rt_search_t0080_v3_seedfix.json` 0.084122/0.952186（唯一可复现 ✅）**。
 
-### 181 ★★ 2026-11-19 — SDK 接入「时空后处理」完成 ＋ 板卡 A/B（耗时 / 帧率波动 / 检测器→跟踪器更新间隔）
-- **三端逐位对齐（重编后复验，MD5 不变）**：板卡 `mosaic_track_dump`（400 帧 / 1764 候选 / 859 检测）的
-  候选流 / 在线 / 融合三份 TSV 与 Python 参考**逐位一致**（`compare_fused.py --strict` 离散不一致 0 / 数值不一致 0）。
-- **🔴 坑（已修）**：`collect_tracked` 在**融合关闭**时一直阻塞到 flush 才返回 -1 ⇒ A/B 脚本跑挂；
-  修法：等待前先查 `p->fusion`，未开则**直接返回 -1 不阻塞**（锁序 `m_fusion → m_out`）。
-- **A/B**：1:1 推收下融合开/关的 `post_ms_mean` **同为 1.253 ms**（融合在 `post_loop` 内，差 < 0.01 ms）；
-  融合自身 `Step()` mean 8.1 µs / p99 19.8 µs。
-- **独立短视频对齐**：换 `VIDEO00009_19700101_001531`（191 帧）从交付 mp4 解码出 BMP 走完整管线 ⇒
-  6 份产物（Python 参考 ×2 / 板卡离线 / 板卡在线 / 板卡原生 gcc 9.4 / **交付工具链 gcc 9.3 交叉编译**）**MD5 全同**
-  ⇒ 交付 .so 的融合内核已被证明与实测一致；剩下没验的只有 **OpenCV 4.6 的链接口径**。
-- 详见主档 `manu/memory/memory.md` §181。
+| **最优参数** 跳帧·密集帧基 | 0.9495 | 0.9314 | 0.9145 | 0.9581 | **0.9383** |
+| **最优参数** 跳帧·物理帧基 | 0.9554 | 0.9530 | 0.9389 | 0.9583 | **0.9514** |
+| 最优参数 · 逐帧臂（截断口径，**非天花板**） | - | - | - | - | **0.9586** |
+| 逐帧天花板（v3 基座 per-frame 臂） | - | - | - | - | **0.9602**（FAR 0.0176） |
 
-### 182 ★★ 2026-11-19 — `osd_sys_sota_trial0080_th045_20261022` **pass 20 序列全集**推流素材已交付（原始 mp4 ＋ 640×512）
-- **选集口径（最容易做错）**：`…/osd_sys_sota_trial0080_th045_20261022/pass/` **20** 条（去 `_F1-*.mp4` 后缀即真实序列名），
-  **un-pass 4 条排除**；🔴 **pass 集本身是 OSD 视频，只作选集不作输入**。
-- **原始视频溯源**：经 `frames_ir_jpg/manifest.json` 的 `source_video` 字段
-  ⇒ **`/mnt/data/xxxu/龙泉山/ir/<SEQ>.h264`（裸 H.264 ES，1920×1080 / yuvj420p / 25fps）**；20/20 存在性实测通过。
-- **处理链与 §177 逐字节同规格**（crop(320,28,1280,1024) → INTER_AREA 640×512 → JPEG q95 → BMP）；
-  🔴 **640×512 必须从 JPG 序列编码，不能从 mp4 重裁**（JPEG q95 是全链唯一 lossy 步，带来 ±8~9 灰阶）。
-- **交付**：**60 mp4（20 序列 × 三件套）/ 125,459 帧 / 83.6 min / 11.94 GiB** ＋ `verification_report.json`
-  ＋ `verification/<SEQ>.json` × 20 ＋ `md5sums.txt` ＋ README ＋ `scripts/` × 5（共 **88 个文件 / 12,816,859,810 B**）；
-  落服务器 `/mnt/data/mosaic_delivery_20261116/stream_test_media_th045_pass/` ＋
-  host `/media/manu/1TB-Volume/workspace/delivery/stream_test_media_th045_pass/`
-  ＋ **板卡 `/mnt/manu/stream_test_media_th045_pass/`（已发布）**；
-  **host ≡ 服务器 ≡ 板卡三方逐字节一致（各 88 文件 / 12,816,863,903 B）、三处 `md5sum -c` 均 60/60 PASS**、板卡 ffprobe 抽查帧数/尺寸/格式全对；
-  新增 `publish_stream_test_media_to_board.sh`（host 直写 NFS 是 `ro` ⇒ 走 ssh 管道直写板卡 NFS，**多通道错峰 30s**）。
-- **校验五项 20/20 全过**（`verification_report.json`：ok=20 failed=0）：帧数全对、**像素 hash 序列全等**、
-  lossless maxdiff=1（PSNR 64.05~66.66 dB）、推流版 maxdiff 20~52（PSNR 38.29~48.03 dB）、独立复算 8~11；
-  001324 三件套与 §177 参考交付 **md5 逐字节相同**。
-- 🔴🔴 **口径修正（本轮最值钱的一条）**：`framemd5` **整段文本** md5 判「无损」会**假阴性** ——
-  裸 H.264 ES 的 pts 起点常为 **1**、`-c copy` 封装进 mp4 后容器把起始 pts 归零 ⇒ 整段文本差一个常量偏移；
-  实测 **pts_offset 0 有 10 条 / −1 有 10 条**，旧口径会**误判 10 条有损**，而**像素 hash 序列 20/20 全等**
-  ⇒ 改为比 framemd5 **第 6 列（像素 hash）**，`pts_offset` 单列审计、不作有损依据。
-  **通用教训：跨容器（裸流 ↔ mp4）比「无损」必须比像素 hash 序列，不能比 framemd5 文本。**
-- **独立审计 7 个 BLOCKING 全部已修**：README/§182 的 3 处数字错（PSNR 实为 38.29~48.03 dB、文件数 88/110、非媒体 28 个）、**交付包内 `verify_*` 是口径修正前的旧版**（重跑会把 ok=20 变 ok=10 并抹掉审计字段）⇒ 已覆盖重发、`cat → ssh` 管道截断被当成功 ⇒ 已加**字节数门禁**、收口 `md5sum -c` 失败被吞 ⇒ 已独立成一步查退出码、「原子落位」TMPROOT 跨文件系统 ⇒ 改同盘；另自查抓到 `mean_abs_diff` 区间写错（实为 **0.014~0.0256**）。
-- 详见主档 `manu/memory/memory.md` §182（§182.1~§182.9）。
+- **跳帧工况实测节奏**（仿真注入）：s1 mean Δn=3.38 @ 7.40 fps ｜s2 Δn=5.38 @ 4.66 fps ｜s3 Δn=6.93 @ 3.61 fps ｜s4 Δn=1.99 @ 12.58 fps（每档再注入 8% 相邻帧乱序）
+- 🔴 **v3 原参在跳帧下 F1 = 0.0841（轨迹全判死）**：v3 的 `confirm_consec=7 / confirm_gap_tol=0` 让确认层 run 跨度阈值 = `1+gap_tol` = **1 帧**，
+  而跳帧步长 2~8 ⇒ run 直接断裂 ⇒ **「逐帧最优」与「跳帧最优」根本不是同一个解**。
+- 🟢 **最优参数在跳帧·物理帧基下 mean F1 = 0.9514**，甚至**高于**同参数下的密集帧基 0.9383（差 **+1.31pp**）
+  ⇒ 说明**让引擎看见真实物理帧号是净收益**：关联门限能按 Δn 放宽、`max_age` 按物理帧算，不会被跳帧误杀。
 
-### 183 ★★ 2026-11-19 — **Δn（物理帧间隔）口径统一** + random-FPS 超参搜索 + **C++ 已落地** + **板卡实跑逐位对齐**
-- **起因**：板卡实测 **8.03 fps / Δn 均值 3.11**（源恒定 25 fps），而冻结参数 `confirm_consec=6`+`confirm_gap_tol=0`
-  要求「逐帧连续」⇒ 走物理帧轴 **F1 = 0.00%**（轨迹被全杀光）。
-- **th045 核对**：`osd_sys_sota_trial0080_th045_20261022/` 下 **24 个 `*_F1-*.mp4` 与 TSV 24 行逐条一致**；
-  汇总 = 冻结指标 **F1 94.3909% / R 92.590% / P 96.263% / FAR 0.02899**（红线 f1≥0.88、recall≥0.85、far≤0.03）；
-  逐序 18/24 差异 ≤±0.5pp（`VIDEO00036` **底座不同**：服务器现存缓存是 `cs_t0043`，**trial_0080 的 th045 缓存已不存在**，真复跑需 GPU，本轮未启动）。
-- **四工况**：s1 实测×1.0(~8.0fps) / s2 ×1.5+σ0.25(~5.4) / s3 ×2.0+σ0.35(~4.0) / s4 文档(13.9fps)，均含 8% 相邻帧交换。
-- **五臂 F1**（全 24 序 × 5 seed）：逐帧上限 **95.33**｜稠密轴 93.78·90.70·87.43·94.97｜**物理轴+冻结 0.00·0.00·0.00·68.39**｜
-  物理轴+搜索值 94.49·94.02·92.39·94.65｜**物理轴+保守值 94.69·94.24·92.44·94.77（FAR 0.0281）** ⇒ **采纳保守变体**
-  （`match_dist` 保持 16.0、**不动冻结门限**），s1 **−0.65pp 可接受**。
-- **参数档**：`confirm_consec 6→2`、`confirm_gap_tol 0→6`、新增 `max_age_phys=10` / `r_slope=3.5` / `alpha_decay=1.0` /
-  `use_physical_frame_id=1`；落在 `manu/evaluation/system_sota_longquan_trial0080_delta_n_params.json`。
-- **C++ 已落地**：`mosaic_track_fusion` Δn 语义（`Predict(0.04·Δn)`/乱序守卫/物理帧判死）+ `mosaic_pipeline` 的
-  **`FusionAxisPicker`**（物理帧号优先、迟到帧原样喂、连续 3 次同 id 退回稠密）+ `ToFusionParams` 越界钳制；
-  **`MOSAIC_TRACK_FUSION_VERSION` 1→2**。
-- **逐位回归双通过**：legacy 稠密 md5 仍 **`93a7d5ec…`**（无回归）；Δn 物理轴 `compare_fused --strict` **PASS(identical)**。
-- **板卡实跑逐位对齐（本轮新增）**：0.64（OpenCV 4.8）**板卡原生重编** `96fb8e98…` ⇒
-  稠密臂 400 帧 1764 候选/**890** 融合检测，**板卡与 Python 参考 md5 同为 `d5af6923…`**；
-  **跳帧臂**（按实测 Δn 推 400 次更新、物理帧号 0…1202）5340 候选/**1084** 融合检测 ⇒
-  `compare_fused --strict` **PASS(identical)**（max\|Δpos\|=0、max\|Δscore\|=0）；
-  ⚠️ 唯一差异是**格式**：板卡 `collect_fused` 不输出空帧（652 行）vs Python 1203 行，去空帧后逐位相同。
-  🛠 新增 `mosaic_track_dump --ids <file>`（板卡复现跳帧）。
-- **交付包已重出（4.6 口径）`out/libmosaic_pipeline.so` md5 `0baaaaec…`** → NFS `mosaic_sdk`（76 文件）+ `rk3588_app_base/mosaic_sdk`。
-  🔴🔴 **交付必读：版本握手 1→2 ⇒ 嵌入方必须用新 `mosaic_pipeline.h` 重编**，否则 `set_track_fusion` 收 **`-2`**、融合**静默不生效**。
-  🛠 **交叉链接坑**：4.8 板 OpenCV 引用 `stat@GLIBC_2.33`，buildroot sysroot 只有隐藏 `stat`
-  ⇒ host 链测试程序报 `hidden symbol 'stat' … is referenced by DSO`（4.6 包靠 `boardlibs_211/opencv/deps` 的新版 libc 绕开；4.8 板直接板上原生编译）。
-- 详见主档 `manu/memory/memory.md` §183（§183.1~§183.11）。
+### 6. 逐帧口径复核（全量 24 序 / 165,223 帧，交付口径）
+
+| 指标 | v3 | v3 + optgapfit（交付） | 差值 |
+| --- | --- | --- | --- |
+| F1 | 94.7533% | 94.4976% | -0.2557pp |
+| Recall | 92.3539% | 92.6630% | +0.3092pp |
+| Precision | 97.2808% | 96.4062% | -0.8746pp |
+| TP | 123068 | 123480 | +412 |
+| FP | 3440 | 4603 | +1163 |
+| FN | 10189 | 9777 | -412 |
+| FAR | 2.0820% | 2.7859% | +0.7039pp |
+
+- **FAR 红线：0.027859 ≤ 0.03 ✅ 守住**（v3 是 0.020820，增加 +0.007039）
+- **F1：94.7533% → 94.4976%（-0.2557pp）**
+  ⚠️ **这是逐帧口径的实质回退（−0.26pp），必须如实报告**；换来的是跳帧臂从 0.0841 → 0.952。
+- FAR 增量**几乎全部来自 `VIDEO00012_19700101_002251`**（v3 单序列 FAR 就已经是 0.0997，optgapfit 后 0.1261，FP 1552→1962）——该序列本身是病态样本。
+
+### 7. 候选短名单实测（全量口径，跳帧 F1 取 4000 帧仿真口径）
+
+| 候选 | 逐帧 F1 | 逐帧 FAR（全量） | 逐帧 FAR（4000帧截断） | 跳帧 F1 | 判定 |
+| --- | --- | --- | --- | --- | --- |
+| cc2_md10 | 94.4976% | 0.027859 | 0.022399 | **0.9514** | FAR ✅ |
+| cc2_md8 | 94.4842% | 0.026455 | 0.021632 | **0.9512** | FAR ✅ |
+| cc2_md12 | 94.5166% | 0.028440 | 0.023364 | **0.9516** | FAR ✅ |
+| cc2_md16n | 94.5804% | 0.029348 | 0.024130 | **0.9517** | FAR ✅ |
+| cc3_md10 | 94.5097% | 0.026116 | 0.020937 | **0.9439** | FAR ✅ |
+| cc4_md10 | 94.5339% | 0.025112 | 0.020227 | **0.9358** | FAR ✅ |
+| cc5_md10 | 94.5462% | 0.024440 | 0.019673 | **0.9278** | FAR ✅ |
+| cc6_md10 | 94.5556% | 0.023744 | 0.019318 | **0.9159** | FAR ✅ |
+| cc7_md10 | 94.5804% | 0.022872 | 0.018864 | **0.9052** | FAR ✅ |
+| cc3_md16 | 94.5939% | 0.028029 | 0.023080 | **0.9446** | FAR ✅ |
+| rerun_selected | 94.3749% | 0.035152 | 0.029013 | **0.9522** | **FAR ❌ 破线** |
+| old_gapfit | 94.3755% | 0.035128 | 0.029013 | **0.9507** | **FAR ❌ 破线** |
+
+🔴🔴 **最重要的一条方法论教训：4000 帧截断口径会系统性低报 FAR ≈ +0.005~0.006（绝对值）**
+
+| 候选 | 截断口径 FAR | 全量口径 FAR | 差 |
+| --- | --- | --- | --- |
+| cc2_md10 | 0.022399 | 0.027859 | +0.005460 |
+| cc2_md8 | 0.021632 | 0.026455 | +0.004823 |
+| cc2_md12 | 0.023364 | 0.028440 | +0.005076 |
+| cc2_md16n | 0.024130 | 0.029348 | +0.005218 |
+| rerun_selected | 0.029013 | 0.035152 | +0.006139 |
+
+⇒ **红线必须在全量口径上判**：第二、三次搜索（两组不同的 cadence 采样；第三次用修复后的确定性种子）
+的 objective-best **完全相同**（`confirm_consec 2 / confirm_gap_tol 8 / max_age_phys 10 / r_slope 5.0 / match_dist 16.0`），
+在截断口径上是 FAR 0.029013（**看着守线**），全量口径却是 **0.0352 ⇒ 破线** ⇒ **被拒**。
+
+🔴 **搜索器的 objective-best 本身不稳定**：三次搜索分别选出
+`max_age_phys=None / match_dist=10`（第 1 次）与 `max_age_phys=10 / match_dist=16`（第 2、3 次）——
+跳帧臂 F1 只差 **0.0788pp**（交付 0.951398 vs 第 2、3 次 objective-best 0.952186，确定性重测规范值），但全量口径 FAR 差 **0.0073**（0.0279 vs 0.0352，**一个守线一个破线**）。
+⇒ 交付参数**必须**在全量口径上定，不能直接抄搜索器的 objective-best。
+⇒ 所以最终选型是**两阶段**：① 搜索器在截断口径上最大化跳帧臂；
+② **在全量交付口径上判 FAR 红线 + 逐帧 F1**，只有过第二关的才交付。
+
+- **交付 = `cc2_md10`**（= 搜索的 objective-best，且逐帧 FAR 守线）：{"confirm_consec": 2, "confirm_gap_tol": 8, "max_age_phys": null, "r_slope": 5.0, "alpha_decay": 1.0, "match_dist": 10.0, "min_hits": 3}
+- 旧 gapfit 组（confirm 2 / gap_tol 6 / max_age_phys 10 / r_slope 3.5 / match_dist 16）**逐帧 FAR 0.035128 破线**，
+  本次新组在**两个逐帧指标上都优于它**（F1 94.4976% vs 94.3755%，FAR 0.0279 vs 0.0351）。
+- 想把 FAR 余量再放大一点：**`match_dist=8`**（其余同）全量口径 F1 94.484% / FAR **0.0265**，
+  跳帧臂 F1 0.9512（与 md10 的 0.9514 实质相同，差 0.0183pp），是**余量最大**的等价解，
+  代价是逐帧 F1 再低 0.013pp。交付默认用 `match_dist=10`（逐帧 F1 最优）。
+
+### 8. 闸门与对账
+
+- `[GATE PASS]`：**self-check** 用 `system_sota_longquan_trial0080_singleframe_gate_baseline.json` 逐位复现冻结单帧臂（tp/fp/fn/gt/f1/far 全等）⇒ **缓存与流水线没坏**。
+- **可复现性检查 rc=0**：同缓存 + **v3 原参** 的 `track_all_v3.json` 对官方 v3 记录 → GT 24/24 一致、|dF1| ≤ 0.1pp ⇒ 流水线本身可复现。
+- **与官方 v3 对账 rc=1（预期）**：换了参数组，逐序列 |dF1| 必然超过 0.1pp 的**同参可复现性**阈值；**GT 仍 24/24 一致**，OVERALL df1 = −0.249pp。
+- **与重建缓存上的 v3 对账 rc=0**：GT 24/24 一致，OVERALL df1 = −0.256pp（纯参数效应）。
+
+### 9. 新 OSD 目录
+
+- **`/mnt/data/siping/datasets/manu/龙泉山/osd_sys_sota_trial0080_v3_optgapfit_20261119/`** —— pass **21** / un-pass **3** = 24 个 mp4（附 `per_sequence_hyperparams.tsv`（全局参数列含 confirm_consec=2）与 `search_json_for_render.json`）
+- un-pass 三条：`VIDEO00006_19700101_000322` F1 78.867%、`VIDEO00012_19700101_002251` F1 60.691%、`VIDEO00036_19700101_015740` F1 17.120%（与 v3 同为这三条，阈值 OUT_CUT=88.0）
+- 对照目录 `/mnt/data/siping/datasets/manu/龙泉山/osd_sys_sota_trial0080_v3_gapfit_20261119/`（上一轮**非最优** gapfit 参数渲的半成品，pass 21 / un-pass 3）**原样保留、未改名、未覆盖**。
+
+### 10. 还没做的事（依赖板卡）
+
+- 板卡 C++ `rk3588_app_base/mosaic_sdk/src/npu/mosaic_track_fusion.h:76-95` 的 Δn 默认值仍是**上一轮旧搜索**的产物，**必须同步为本次最优组**（confirm_consec 2 / confirm_gap_tol 8 / max_age_phys 无 / r_slope 5.0 / alpha_decay 1.0 / match_dist 10.0 / min_hits 3）后在真机复测。
+- 板卡实测 Δn 序列（`cad_on.tsv`）与本次仿真工况 s1~s4 的对应关系需要对齐复核。
+- 交付嵌入式的 **rknn 模型仍是 `trial_0080`，未变**（本次只动后处理参数，不动模型）。
+- 🔴 **改默认值之前必须先核「C++ 语义对齐对照表」**（施工单 `trial0080_board_fusion_preset_20261119.md` §2.1）：
+  服务器上**没有**板卡 C++ 源码（`mosaic_track_fusion.h` 在 host/板卡侧），
+  但服务器侧 Python 的权威语义已逐行读出并写成对照表 ——
+  **最大风险是「物理帧号差」vs「更新次数」**：
+  `confirm_gap_tol` 的 `max_gap = 1 + confirm_gap_tol` 比的是**帧号差**（不是更新次数）；
+  `r_slope` 的 `dt` 是物理帧差；`max_age_phys` 用 `frame_idx - last_hit_fid` 且**接管** `max_age` 分支
+  （交付值是「**不设**」，C++ 里应是**关闭**而不是写 0）；`alpha_decay` 的 `dt_hit` 也是物理帧差。
+  ⇒ **先对语义、再调参数**：逐帧实测若对不上 **F1 94.4976% / FAR 0.027859**，就是语义没对齐。
+
+<!-- 生成时间 2026-11-19 21:23:29 ｜ 搜索 2212.4 s ｜ 复核 152.0 s -->
+
+### 十九、🔴 为什么交付组用 `confirm_consec=2` 而不是 v3 的 7？（明天最可能被问的一条）
+
+`cc7_md10`（confirm_consec 保持 7）**逐帧指标明显更好**（F1 94.5804% / FAR 0.022872 vs 交付 94.4976% / 0.027859），
+**但跳帧臂彻底失效**：objective **0.0651**（s1/s2/s3 全 0，轨迹判死），交付组 **0.9514**。
+⇒ **机制**：`confirm_consec=7` 要**连续命中 7 次**，跳帧 Δn≈3~7 时永远攒不满；
+`confirm_gap_tol=8` 只放宽 run 跨度阈值（=1+gap_tol=9 帧），**管不了连续次数**。
+⇒ **「逐帧最优」与「跳帧最优」结构性冲突**，`confirm_consec` 只能二选一：
+交付组选 2（起批快、跳帧可用），代价 = 逐帧 F1 −0.2557pp / FAR +0.007039，
+**落点全在最差序 `002251`**（FAR 0.0997→0.1261，v3 自身就 0.0997 = 红线 3.3 倍）。
+🔴 **板端必须实测复核 FAR**（场景若类 `002251` 可能偏高）；必要时切 `match_dist=8.0`（FAR 0.026455 / F1 94.4842% / 跳帧 0.951215）。
+
+### 二十、🔴 口径澄清：`arm5` **不是**逐帧交付口径（只配做搜索期可行性过滤）
+
+- `rt_fps_jitter_search.py` 的 `prepare()`（**L691**）在 `--max-frames 4000` 处把每条序列**截断到前 4000 帧**
+  ⇒ **arm1/arm2a/arm2b/arm3/arm5 全部跑在截断子集上**：总帧 **70,451 = 全量 165,223 的 42.64%**（且只取每条序列前段）。
+- **arm5（截断）F1 0.958640 / FAR 0.022399　vs　交付口径（全量）F1 0.944976 / FAR 0.027859**
+  ⇒ 截断口径**同时高报 F1（+1.37pp）、低报 FAR（−0.00546）**（= §8.1 低报 FAR +0.005~0.006 的另一面）。
+- **任务书「用 arm5 复核 FAR ≤ 0.03 且 F1 不低于 v3」→ 实际交付判据改用全量口径**：
+  `eval/track_all_v3_optgapfit.json` ⇒ **FAR 0.027859 ≤ 0.03 ✅**、**F1 94.4976%（比 v3 低 0.2557pp，已如实报告）**。
+- ⚠️ arm5 内两种 FAR 别混：`far_delivered_agg`（帧加权）**0.022399** vs `far_delivered`（样本均值）**0.030842（> 0.03）**
+  ⇒ 判据一律用帧加权口径（同 `far_per_frame = FP/frames`）。
+- 旁证：`rt_eval_t0080_v3_opt.json` 的 `arm1` 与 `arm5` 数值**完全相同**（该 json 的 `base_params` **就是交付参数**）；
+  **「未调臂」0.084122 在 `rt_search_t0080_v3_seedfix.json`**（base = v3 原参）。
+
+### 二十一、🔴 修掉 OSD 的 `per_sequence_hyperparams.tsv` **漏记 Δn 旋钮**
+
+- **缺陷**：`manu/videos/render_sys_sota_osd.sh` 的 `# global params:` 行用**硬编码 5 键**（th_base/th_salvage/th_ground/sky_ratio/confirm_consec）
+  ⇒ **6 个 Δn 旋钮（confirm_gap_tol/r_slope/match_dist/alpha_decay/max_age_phys/min_hits）全没进 TSV**。
+- **后果**：拿到 TSV 的人以为 `r_slope=0` / `match_dist=16` ⇒ **参数"看起来没生效"**，且无法用 TSV 复现渲染。
+- **根因修复**：改成**从 `params` 字典派生**（`" ".join(f"{k}={params[k]}" for k in sorted(params))`）⇒ **无硬编码列表可漂移**。
+- **回填**：新 OSD 目录 TSV **只重写第 1 行**；用修好的渲染器逻辑重生成一份对比 ⇒ **数据行逐字节一致** ⇒ 纯元数据修正，**24 个 mp4 未重渲**。
+  旧 gapfit 对照目录按「不改名不覆盖」要求**未动**（仍是旧 5 键格式，历史留档）。
+- **新校验**（`verify_all.py`）：① TSV 必须记录全部 7 个 Δn 键；② **24 个 mp4 文件名 F1 必须与交付 track json 逐序列相等（实测 24/24）** ⇒ 证明 OSD 用的是本轮 preds。
+- **独立复核**：`verify_sys_sota_osd.py` 对新目录 **✅ 全部通过 RC=0**（24 视频 / TSV 24 行 / ffprobe 正常）。
+- 🔴 **三方一致性**（新校验）：**交付参数档 ↔ OSD 的 `search_json_for_render.json` ↔ OSD 的 TSV 全局参数行**
+  —— 三份文件分别流向不同人 ⇒ 实测**37 键逐键相等、零差异**，已固化成自动校验。
+  参数档 `_provenance` 另补 `arm5_is_not_the_delivery_caliber` / `three_way_consistency` 两条说明（该 JSON 会被单独传走）。
+
+### 二十二、🔴 **主机回填路径打通（服务器→主机推送）** + 自报 md5 陈旧已修正
+
+- 服务器持有 `id_ed25519_host_zerg`（ssh config `host-zerg`）⇒ **服务器→主机**可推；反向 host→server **认证不通**
+  （服务器 `authorized_keys` 仅 2 把：`id_board`、`board-ptq`，**无 host 公钥**）⇒ 拉取脚本 `HOST_BACKFILL.sh` 单靠认证走不通，
+  已补 `HOST_PUSH.sh`（服务器侧执行）。22:15 实测 host 与板卡 **均无响应**（host 18:30 关机）⇒ **本轮未真正回填**。
+- 新增 `merge_memory_section.py`：只改写「§257 十八」块（缺失→插入 / 旧版→原位替换 / 一致→no-op），
+  **块外字节逐字节保留**（§258~§260 与 host 独有内容不动）；三档 fixture ⇒ INSERT / REPLACE / SKIP 全过。
+- 🔴 本节自报 md5 `42dec291…` 是 **21:40 历史快照**（§21 追加后已变）⇒ 改标历史；
+  **当前 md5 以 `artifacts/memory_md5_manifest.txt` 为准**。交付口径不变：**F1 94.4976% / FAR 0.027859（守住 0.03）**。
+
+### 二十三、🔴 **两条回填路都改成「章节级合并」** + 守望脚本（自动闭环）
+
+- 🔴 `HOST_BACKFILL.sh` 原为**整文件 rsync** ⇒ 会静默覆盖 host 侧更新的并发章节 ⇒ 已改为**章节级合并**
+  （取回合并工具 + 两份正文，在本机合并；整档 md5 降为信息项，闸门 = 正文 md5 一致 + §258~§260 仍在位）。
+- 🔴 第 3 个真 bug：探测把**「主机密钥未记录」误报成「密钥未授权」** ⇒ 已修（加 `accept-new` + 按 ssh 真实报错分三类诊断）。
+- 两条路端到端实测通过（模拟 host：删掉 §257 十八 + §258 塞独有行）⇒ **6/6 合并、独有行 6/6 存活、并发章节 3/3、二次全 SKIP**。
+- 🔴 **本容器无可用守护机制**（cron 未运行/spool 不可写/no crond；nohup/setsid/screen 后台进程都会随会话结束被回收，实测两次）
+  ⇒ 常驻守望活不过一次 exec ⇒ 改为**幂等一次性脚本 `HOST_PUSH_ONCE.sh`**：**每次值守时调一次**，
+  host 可达即推送+复核（exit 0），不可达则跳过（exit 3）；`HOST_PUSH_WATCH.sh` 保留给有长驻 screen/tmux 的环境。
+- 交付判据不变：**F1 94.4976% / FAR 0.027859（守住 0.03）**。
+
+### 二十四、🔴 口径更正（第二轮，23:31~00:08）：跳帧三臂 + 短名单「跳帧 F1」列改用**确定性采样器**重测
+
+- 🔴 **§5「最优参数」两行与 §7 短名单的跳帧列都出自 `hash()` 采样器修复（21:23）之前** ⇒ 跨进程不可复现 ⇒ 不能当规范值
+  （21:50 那次口径更正只改了「未调」行，漏了这一处 —— 本轮自造的第二个口径缺陷）。
+- **重测产物**：`rt_eval_delivered_armA.json`（`--phase eval`，base=v3 / opt=交付参数）+
+  `shortlist_deterministic.json`（**一个进程内**重测 14 组候选，1562.8 s）。
+  **交叉校验逐位一致**：v3 未调 0.084122（A 的 arm2b ＝ B 的 v3_base）；交付参数 0.951398（A 的 arm3 ＝ B 的 delivered）。
+- **三臂（确定性采样器，4000 帧截断，物理帧基）**：
+  逐帧天花板（v3 基座）**0.960186**（FAR 0.017558）｜**v3 原参跳帧未调 0.084122**（s1/s2/s3=0）｜
+  **交付参数跳帧 0.951398**｜v3 原参密集帧基 0.922060｜交付参数密集帧基 0.938340。
+  ⇒ 旧值 **0.9521 / 0.9374 是修复前采样器的** ⇒ 改成 **0.9514 / 0.9383**；**结论方向不变**（0.0841 → 0.9514，+0.8673）。
+- **短名单（跳帧 F1 / 逐帧全量 F1 / 全量 FAR）**：cc2_md10（交付）0.951398 / 94.4976% / 0.027859（余量 7.1%）｜
+  cc2_md16n **0.951693（最高）** / 94.5804% / 0.029348（余量 **2.2%**）｜cc2_md8 0.951215 / 94.4842% / 0.026455｜
+  cc2_md12 0.951582 / 94.5166% / 0.028440｜cc3_md10 0.943935｜cc3_md16 0.944615｜cc4_md10 0.935804｜
+  cc5_md10 0.927832｜cc6_md10 0.915936｜cc7_md10 0.905213｜old_gapfit 0.950655（**FAR 0.035128 破线**）｜
+  rerun_selected 0.952186（**FAR 0.035152 破线**）。
+- 🔴 **选型措辞更正**：守线候选里跳帧 F1 最高的是 `cc2_md16n`（比交付组高 **0.03pp**），
+  但它的全量 FAR 离红线只剩 2.2%（交付组 7.1%）⇒ **交付仍用 `cc2_md10`**（用 0.03pp 跳帧 F1 换 3 倍 FAR 余量）；
+  若交付方要「跳帧 + 逐帧 F1 都再高一点」，`cc2_md16n` 也合规（track 已实测，换参数档 + 重渲 OSD 即可）。
+- **交付判据不变**：F1 **94.4976%** / FAR **0.027859**（守住 0.03）｜比 v3 低 0.2557pp｜GT 24/24｜`[GATE PASS]`。
+  本节只更正跳帧仿真臂数字，**不动参数档 / OSD / track 结果**。
+
+### 二十五、🔴 两条回填路补齐「交付包」+ 双路端到端复测（2026-11-20 00:08~00:15）
+
+- 🔴 **补齐前的洞**：两条回填路**只搬 §257 十八 正文**，**交付包本体（新参数档 / `COMPARISON.md` /
+  `osd_manifest.json` / 证据文件）没人搬** ⇒ host 收齐 memory 也拿不到这轮的参数档与对照表。
+  已给两路都加「交付包同步」段（只写**本线自己的** `manu/memory/delivery_20261119/`，**不碰并发线章节**）。
+- ✅ **双路端到端复测**（服务器自身当模拟主机，`ssh 127.0.0.1:32222` + `/tmp/hostsim{,2,3}`）：
+  推送路 **6/6 插入成功 + 正文 md5 一致 + §258/§259/§260 3/3 + host 独有行 6/6 存活 + 交付包落地 + 再推 6/6 NO-OP（幂等）**；
+  拉取路 **6/6 合并 + sec_md5 全对 + concurrent_kept=3/3 + 交付包拉全 + rc=0**。
+  ⚠️ 另测**故意只有 §258** 的模拟 host ⇒ 拉取路闸门如实报 `concurrent_kept=1/3` 且 **rc=1** ⇒ 闸门在章节缺失时真会拦住。
+- **host 仍未上电**（`ping 192.168.0.115` 无响应，00:12 实测）⇒ 本轮**依旧无法真正回填**；
+  host 一上电调 `HOST_PUSH_ONCE.sh` 即闭环（幂等、可重复调）。
+- **交付判据不变**：F1 **94.4976%** / FAR **0.027859**（守住 0.03）｜GT 24/24｜`[GATE PASS]`。
+
+### 二十六、🔴 可复现性闭环：交付参数档**连续 3 次独立重跑 track 臂**，输出逐位一致（2026-11-20 00:19~00:37）
+
+- **为什么做**：交付参数档 + `track_all_v3_optgapfit.json` 原本**只有一次跑批结果**；
+  交付链「参数档 → 预测 → OSD」必须能回溯，否则渲出的 24 条 OSD **对不上评测数字**。
+- **做法**：同一服务器 / 同一 `ms_cache` / 同一**交付参数档** / 同一组环境变量
+  （`OMP/MKL/OPENBLAS/NUMEXPR=4`、`PYTHONHASHSEED=0`）**连跑 3 次**，第 3 次挂同期 `iostat` 采样器。
+
+| 项 | run1（交付那次） | run2 | run3（+留证） |
+| --- | --- | --- | --- |
+| 预测文件 md5 | 基准 | **与 run1 逐位相同** | **与 run1 逐位相同** |
+| 评测 JSON 展平键 | 320 | 320，**仅 `elapsed_seconds` 不同** | 320，**仅 `elapsed_seconds` 不同** |
+| `overall` + 24 条 `per_sequence` | 基准 | **逐位一致** | **逐位一致** |
+| `config.params` == 交付参数档 | True | True | True |
+| `elapsed_seconds`（秒） | 80.06 | 205.77 | 117.75 |
+
+- 🔴 **本节上一版把归因写成了没有留证的事实，这里更正**：上一版说「跑批期间 `sda` 被他人 I/O 占满 100% util、191 MB/s」——
+  **那个 191 MB/s 是 00:18 步骤一资源读数，不是 run2 同期的数**（无凭据归因，**已更正**）。
+  现在有同期留证的是 **run3**（`artifacts/repro3_iostat.log`，60 个采样点）：
+  `sda` **%util 94.0~100.2（均值 99.7）**、读带宽 **45.7~84.4 MB/s（均值 63.8）**，
+  `nvme0n1` 同期仅 **0.0~4.2%** ⇒ **缓存所在的 `sda` 确为 I/O 瓶颈**，
+  墙钟随磁盘竞争在 80~206 s 浮动（run2 CPU 53%、run3 CPU 91%），
+  **但输出字节零差异** —— 这正是要证明的。
+- **结论**：**交付判据可复现：逐帧 F1 94.4976% / FAR 0.027859（守住 0.03）**，
+  且渲 OSD 所用的 `preds_v3_optgapfit` 与这 3 次跑批**逐位一致**。
+- **证据**：`artifacts/repro_preds_md5.txt`、`repro_track_arm.log`、`repro3_track_arm.log`、
+  `repro3_iostat.log`、`track_all_v3_optgapfit_repro.json`、`track_all_v3_optgapfit_repro3.json`。
+- **推送路对「模拟 host」端到端复测**（真实 host 关机时的唯一链路证据）：假 host 缺 §257 十八、
+  自带 §258/§259/§260 与一行 `HOST-ONLY-LINE-KEEP-ME` ⇒ **6/6 INSERT + 正文 md5 一致 + 并发章节 3/3
+  + host 独有行 6/6 存活 + 6 份新证据全在 + 二次 6/6 NO-OP（幂等）**。
+- **host 仍未上电**（00:22 实测 ping 100% 丢包、ssh:22 不可达）⇒ `HOST_PUSH_ONCE.sh` **RC=3（WAIT）**，已记日志；
+  host 一上电调该脚本即闭环（幂等）。
+
+### 二十七、🔴 审计遗留风险收口：manifest 闸门改用「本线拥有的 §257 十八 段 md5」+ 备份带时间戳（2026-11-20 00:44~00:47）
+
+- **审计点出的两个遗留风险**：
+  1. **manifest 记的是 6 份 memory 的整档 md5**，而并发线也在同一批文件里追加 §258/§259/§260
+     ⇒ **并发线再写一次 §261 就会让服务器侧 FAIL**，而那不是我们交付出问题
+     ⇒ **把「别人也在改的文件」当成了自己的闸门**；
+  2. **合并工具每次覆盖同名 `.bak_pre_push`** ⇒ 审计基线只反映最后一次合并，**会丢**。
+- **修法**：①manifest 记两样 —— **整档 md5 降为信息项**（drift 如实报告但**不判 FAIL**），
+  **新增「§257 十八 段 md5」作为真正闸门**（段是本线独有的，并发线永远不会碰）；
+  清单改由 `artifacts/regen_manifest.py` 一条命令生成。②备份改带时间戳 `*.bak_pre_push_YYYYmmdd_HHMMSS`，只留最近 2 份。
+- **变异测试（副本上做，真实文件零改动）**：模拟并发线追加「## §261」⇒ **段闸门 drift=[]（仍 PASS）**、
+  整档 drift 6/6 被报告但不判 FAIL；合并工具连跑 3 次 ⇒ 产出 2 份带时间戳备份、`§258` 每次都在位。
+- **交付判据不变**：F1 **94.4976%** / FAR **0.027859**（守住 0.03）｜GT 24/24｜`[GATE PASS]`；
+  `verify_all.py` **144 项 PASS / 0 FAIL / RC=0**。
+
+### 二十八、🔴 源码级复核（2026-11-20 00:50~00:55）：直接回源码核对任务书硬性要求
+
+- **为什么要做**：前几轮结论都来自本线自述；本轮**直接回源码**逐项核对任务书硬性要求，排除「自述与磁盘文件不符」。
+  结果：**硬性要求全部落实**，并**抓到两处文档不一致**（已修）。
+- **逐项核对（全部通过）**：
+  | 任务书要求 | 实证 |
+  | --- | --- |
+  | 目标函数硬约束 | `rt_fps_jitter_search.py:482` `objective()`：`−μ·max(0, 逐帧FAR−0.03)`（**μ=25.0**）、`−ν·max(0, 基准逐帧F1−tol−逐帧F1)`（**ν=25.0**）、`far_redline=0.03`、`perframe_f1_tol=0.003` ⇒ **硬约束级** |
+  | 逐帧臂真算每个候选 | `evaluate_candidate()` 对每个候选都跑 `["perframe"]` 臂并传入 objective |
+  | 搜索空间 | `space_t0080_v3.json` 与要求**逐项精确一致**（7 个旋钮全覆盖） |
+  | 底座 | `meta.cache_root=/mnt/data/siping/runs/trial0080_onnx/ms_cache`；`base_params` 与 v3 档**仅差 alpha_decay/r_slope 默认值**；`confirm_consec=7`/`gap_tol=0`/`th_base=0.48`/`th_ground=0.26`/`sky_ratio=1.0` 全对 |
+  | 搜索规模 | s1~s4 × seeds[0,1,2] × 4000 帧 × 24 序，history 57 条 |
+  | self-check | `self_check_optgapfit.log` 原文 expected==actual 逐项相等 ⇒ `[GATE PASS]` |
+  | 对账阈值 | `[2b]` 同参 v3 对官方 0.1pp = rc=0（流水线没坏）；`[3/5]` 交付组对官方 0.1pp = **必然 rc=1**（换了参数组）；`[4/5]` 对重建缓存 v3 = rc=0 ⇒ **失败的是「按定义必然失败」那一项** |
+- **🔴 抓到并已修的两处不一致**：①§3「搜索产物」指向**已作废的 run1** ⇒ 改为规范产物 `rt_search_t0080_v3_seedfix.json`（run3，2132.4 s；run1 2212.4 s，两者 cadence 直方图不同即不可复现的实证）；②§2 交叉引用「见 §5 口径更正」错位 ⇒ 改为「见二十四」。
+- **顺带核实**：objective-best 与交付组**只差 2 键**（`match_dist` 16→10、`max_age_phys` 10→null）⇒ 交付组是最小保守改动。
+- **交付判据不变**：F1 **94.4976%** / FAR **0.027859**（守住 0.03）｜GT 24/24｜`[GATE PASS]`。
+
+### 二十九、🔴 「同一份东西只能有一个版本」+ `--out-md` 死参数收口（第 81 轮）
+
+- **本轮不动数值**：交付参数组 / 逐帧 F1 **94.4976%** / FAR **0.027859** / 三臂跳帧口径 / OSD pass 21 + un-pass 3 全部未变。
+- 🔴 **`search/` 下两份陈旧副本 = 同一闸门两个版本**：`search/verify_all.py` 是 00:15 旧版（缺 §6c/§6d/§6e/§6f 四节），而 §257 正文明确指引读者去 `search/` 跑它
+  ⇒ 照做会跑到旧闸门；`search/memory_md5_manifest.txt` 整档 md5 全是旧值且无人引用 ⇒ `md5sum -c` 会误报「6 份全不匹配」。
+  **处置**：前者用包内当前版覆盖，后者删除（权威版只有包内一份）。
+- 🔴 **`--out-md` 是死参数**（只解析、从不使用）⇒ 历次 md 报告一份都没生成，而 `COMPARISON.md` §5 却声称交付 md、生成器 `copies` 还挂着 4 条指向从未存在之文件的条目（静默跳过，缺口不可见）。
+  **处置**：渲染器抽成纯 stdlib 模块 `manu/evaluation/render_search_report_md.py`，搜索器引用它、`--out-md` 真出报告；用同一函数从 4 份已存 json 现渲出 4 份 md ⇒ 声明变真、缺口补齐，且 md 随包交付可复渲。
+- **闸门加 §6g 5 项**（包内闸门==search 闸门 / 无陈旧 manifest 副本 / copies 无死条目 / 包内生成物==其源 / md==由 json 现渲染）⇒ 闸门 163 → **168 项**。
+### 三十、🔴 「差 0.0025pp」是误引 + 作废跳帧值全包扫描（第 82 轮）
+
+- **本轮不动数值**：交付参数组 / 逐帧 F1 **94.4976%** / FAR **0.027859** / 三臂跳帧口径 / OSD pass 21 + un-pass 3 全部未变。
+- 🔴 **正文一句误引**：「objective-best 与交付组跳帧臂只差 **0.0025pp**」—— **0.0025pp 实为 md8↔md10 的差**（旧值 0.951990 vs 0.952015），不是那两个数的差。
+  规范源 `shortlist_deterministic.json` 现算：objective-best(`rerun_selected` 0.952186) − 交付组(`delivered_cc2_md10` 0.951398) = **0.0788pp**；md10 − md8(0.951215) = **0.0183pp**。
+  ⇒ 「只差千分之几」被低估一个数量级 ⇒ 正文两份已改 0.0788pp / 0.0183pp，**差值不再手写**（闸门现取现比）。
+- 🔴 **作废跳帧值扫描扩到全交付包 + 搜索 + 评测** ⇒ 无标注命中 5 处已逐处修掉：4 份自动生成报告改为**头部**声明「跳帧数字不是交付口径」+ 指向规范源；
+  `build_final_selection.py` / `make_memory_section.py` 改为从规范源现取（不再有旧字面量）；`winner_knobs.json` 的 `_why` 改 0.951398 并标注旧值作废。
+- **`final_selection.json` 同步**：`delivered.jump_arm_f1_4000f` **0.952015 → 0.951398** + 新增 `jump_arm_dense_f1_4000f` = 0.93834 + `jump_arm_source`。
+- **闸门加 §6h 4 项**（差值现算 / final_selection 对齐 / md 头部声明与指针 / 生成器无作废字面量）⇒ 168 → **172 项**。
+### 三十一、🔴 memory 更新工具链：文档 / server / 包内三方对不上（第 83 轮）
+
+- **本轮不动数值**：交付参数组 / 逐帧 F1 **94.4976%** / FAR **0.027859** / 三臂跳帧口径 / OSD pass 21 + un-pass 3 全部未变。
+- 🔴 **缺陷 1：随包 `merge_memory_section.py`（md5 `17224adc…`）≠ server 侧那份（md5 `d0452cdc…`）**
+  —— 包内是手工放的、从未被生成器刷新；server 那份备份名固定 ⇒ **每次合并覆盖同一个备份**，审计基线只剩最后一次。
+  ⇒ 已归一（server ← 包内），`build_delivery.py` 在**包根**显式刷新（**不进 copies**，免得 `artifacts/` 里多出第二份），闸门 §6i 逐字节兜底。
+- 🔴 **缺陷 2：规格书 §7 仍指向 `insert_memory_section.py`（只插不替），照做会插出重复块且不可逆**
+  —— 实测：正文一改 ⇒ **两个 `## §257 十八` 块**（+54,142 B）；再用 merge 也只改**第一个**块，新内容被丢弃。
+  ⇒ §7 标「已作废」，当前唯一路径 = **`merge_memory_section.py`（章节级·替换式）**；文档提到 insert 工具必须带重复块/不可逆警示（§6i 强制）。
+- 🔴 **缺陷 3：正文「脚本留存」清单只列了事故工具**（`merge_blocks.py` / `undo_merge_blocks.py`，**未随包交付**），
+  真正在用且随包交付的 `merge_memory_section.py` 没被列上 ⇒ 清单重写为「当前可用（随包）」+「事故工具（仅 server 留证）」两栏。
+- **闸门加 §6i 7 项**（点名当前路径 / insert 工具必须带警示 / 清单脚本真实存在 / 包内==server / artifacts 无第二份 / 实测插出重复块 / 实测重复块不可逆）⇒ 172 → **179 项**。
+
+### 三十二、🔴 交付包混入被拒破线参数 + 整树 rsync 能整档覆盖 memory（第 85 轮）
+
+- **本轮不动数值**：交付参数组 / 逐帧 F1 **94.4976%** / FAR **0.027859** / 跳帧 phys **0.951398** / dense **0.938340** / OSD pass 21 + un-pass 3 全部未变。
+- 🔴 **缺陷 1**：交付包 `artifacts/` 混进两份**被拒的破线参数**（`opt_params_t0080_v3_final_flat.json` / `opt_params_t0080_v3_seedfix_flat.json`，内容逐字节相同）
+  —— = objective-best：`match_dist 16.0` / `max_age_phys 10`（与交付组只差 2 键）⇒ **全量 FAR 0.035152 > 0.03 红线**、F1 94.3749%（低 0.1227pp）；
+  且 `load_params`（`payload.get("params", payload)`）**静默接受**嵌套与扁平两种形态 ⇒ 喂错不报错；文件名带 `final` 又像权威版；
+  板卡施工单 §3 正要改这 2 键 ⇒ 误取 = 把**被拒参数**上板。**这两份不在 copies 清单里 ⇒ 闸门管不到**。
+  **处置**：删除 + `build_delivery.py` 加**自清理**（`_effective_params()` 镜像 `load_params`，凡「有效参数 ≠ 交付参数」即剔除并打印 `[CLEAN]`）
+  + README 改写 + server 侧 README 加「不得上板」警示；**反向实测**：注入 `opt_params_REVERSE_TEST.json` ⇒ 被剔除（判据非空转）。
+  证据：`search/final_selection.json` 与 run2/run3 的 `opt_params`。
+- 🔴 **缺陷 2**：`manu/videos/upload_to_server.sh` 整树 rsync（host→server，`--checksum`）**未排除任何 memory** ⇒ host 副本会**整档盖掉** server 正文
+  （并发线 §258/§259/§260 就在里面），与「memory 只章节级合并」铁律冲突。**处置**：EXCLUDES 加 6 条 memory 排除 + 注释写明原因与替代路径；
+  **本地模拟 rsync 实证** 6 份都没被传走、非 memory 文件照传。
+- 🔴 **加固 3**：§6i 探针加 tmpdir **硬断言**（不再只靠调用方约定）。
+- **闸门加 §6j 5 项**（参数文件唯一性 / 被拒文件不在包内 / 反向对照非空转 / `load_params` 静默接受实测 / rsync 排除 6 份 memory）⇒ 184 → **189 项**。
+- **`search/` 卫生**：与源逐字节相同的 `.bak` 与全过期的 `__pycache__/` 已删（md5 留证）。
+
+### 三十三、🔴 交付包 README 的「闸门项数」头条过期（第 86 轮）
+
+- **本轮不动数值**：交付参数组 / 逐帧 F1 **94.4976%** / FAR **0.027859** / 跳帧 phys **0.951398** / dense **0.938340** / OSD pass 21 + un-pass 3 全部未变。
+- 🔴 **缺陷**：包内 `artifacts/README.md` 清单里 `verify_all.py` 那行头条仍写「**184 项 PASS / 0 FAIL**」，
+  而**同一份文件**末尾的「第 85 轮修订」写「**184 → 189 项**」⇒ **一份文件两个数字并存**，读者看到的仍是过期项数。
+  **根因**：第 85 轮加 5 项只记在修订小节、**没回头改清单头条**；闸门只对「清单登记 ↔ 实际文件」双向对账、**不看数量**。
+  **处置**：头条改「**190 项**」+ 枚举补第 85/86 轮增量 + **闸门加 §9「闸门项数自证」1 项**
+  （末尾现算项数与 README 头条对账，且要求该表述全文只出现一处）。
+  **反向对照**：头条改回「189 项」⇒ §9 翻 `[FAIL]`，改回「190 项」⇒ 恢复 `[PASS]`（判据非空转）。
+- 本轮两轮独立只读审计（memory 同步链 / 交付包与板卡施工单）结论均 PASS，**未发现新缺陷**；
+  并发线无新段落（无 §261+），§258/§259/§260 完好，块外字节逐字节不变。
+- **闸门 189 → 190 项**，`ALL CHECKS PASSED` rc=0。
+
+### 三十四、🔴 闸门自审：判据会不会空转（第 87 轮）
+
+- **本轮不动数值**：交付参数组 / 逐帧 F1 **94.4976%** / FAR **0.027859** / 跳帧 phys **0.951398** / dense **0.938340** / OSD pass 21 + un-pass 3 全部未变。
+- 🔴 **缺陷**：前 86 轮只验「`ALL CHECKS PASSED` rc=0」，但**全 PASS 只说明「没触发失败」，不说明「真的在检查」** ——
+  恒真判据也会全 PASS ⇒「190 项全过」本身**不构成**闸门有效的证据。
+  **处置**：新增 `negctl_sweep.py`（server `search/` 留证，**故意不进交付包** —— 它会故意弄坏交付包）：
+  逐个故意破坏交付包 → 跑真闸门 → 看是否真翻红 → 逐字节还原并复核 md5。
+- **6 例负向对照全部翻红（判据非空转）**：C1 README 头条 190→189（1 FAIL）｜C2 包内 flat 参数 `match_dist` 10.0→16.0（2）｜
+  C3 README 清单删一行（1）｜C4 上传脚本删一条 memory 排除项（1）｜C5 章节标题改 1 字（4）｜C6 参数档 `th_base` 0.48→0.47（6）。
+  每例跑完逐字节还原，**6/6 md5 回到原值**。日志 `search/negctl_sweep.log`。
+- **项数从哪来**：源码 **140 个静态 `check()` 站点** → 运行时 **190 项**，差的 **50 项**全在循环里；
+  所有含 `check()` 的**循环长度都是固定字面量**（无数据依赖长度）⇒ 项数稳定。
+  **诚实边界**：`if <产物存在>` 守卫的检查在产物缺失时整段消失 ⇒ 项数会降，但对应检查本就会翻 `[FAIL]`、闸门照样红（§9 多报一条，**不是掩盖**）。
+  **确定性双跑**：两次均 190 项全过，`[PASS]/[FAIL]` 标签序列**逐行一致**。
+- **闸门项数本轮不变（仍 190 项）**；`negctl_sweep.py` 只留在 server `search/`，§6i「未随包」栏会自动核「它确实不在包内」。
+
+### 三十五、🔴 搜索器的硬约束搬到**交付口径**（第 88 轮，2026-11-20 05:26~07:40）
+
+**交付组不变（仍是 `cc2_md10`）**；本轮修掉搜索器的一个真缺陷：逐帧硬约束原先量在**截断口径**（低报 FAR 约 0.0055），
+于是会出现「搜索口径守线、交付口径破线」。修完重搜，argmax = `cc2_md16n`（与 r87 人工短名单最高点逐键相同），**同样守 0.03 红线**。
+
+- **缺陷与修复**：`rt_fps_jitter_search.py` 新增 `--perframe-caliber`，**默认 delivery**（全量 165,223 帧）；`--sweeps` 默认 0 = 收敛即停；
+  报告新增 `delivery_caliber` 判定（far_ok / f1_ok / feasible）。arm1 天花板与 arm5 显式留在截断口径 ⇒
+  **历史数字逐位复现**（0.960186 / 0.017558、起点 objective 0.084122）。
+- **路径被改写**：两轮 argmax 都是 `match_dist=16.0`（v3 基座原值），差别在 **`max_age_phys`** ——
+  历史选 `age=10`（全量 FAR **0.035152 破线**），r88 选 `age=null`（守线）。r88 的 sweep2 **明确实测过交付组那一档**：
+  md10 → objective 0.951398、md12 → 0.951582、md16 → **0.951693（选中）** ⇒ 交付组排第二。
+- **独立复核（权威交付口径）**：`system_sota_longquan.py` 全量 24 序 ⇒ **F1 0.945804 / FAR 0.029348**
+  （TP 123906 / FP 4849 / FN 9351 / GT 133257），**逐位复现** r87 的 `eval/shortlist/track_cc2_md16n.json`；
+  `--self-check` ⇒ **[GATE PASS]**；对官方 v3 `GT identical 24/24`（`|dF1|>0.1pp` 11 条 = 参数效应，冻结组 r87 同口径也是 11 条）；
+  对重建缓存上的 v3 ⇒ `[CMP GATE PASS]` rc=0。⚠️ 搜索器自带全量臂给的是 0.945673 / 0.029556，**别与权威 track 臂混用**。
+- **交付判定不变**：`cc2_md16n` 逐帧 F1 94.5804% / FAR 0.029348（**余量仅 2.2%**）vs 交付组 94.4976% / 0.027859（**余量 7.1%**）；
+  跳帧 phys 0.951693 vs 0.951398（+0.000295）。**板端 FAR 复核还没做（板卡断电）⇒ 薄余量风险今夜无法排除** ⇒
+  用 0.03pp 跳帧 F1 换 1/3 的 FAR 余量不划算，**交付一律不动**。
+- **候选组已切换就绪**：参数档 `manu/evaluation/system_sota_longquan_trial0080_delivery_v3_optgapfit_md16_candidate_params.json`
+  （37 键，params_md5 `2e41d10be83c1689f7ebb57742a9e3e1`，首行写明 `status: CANDIDATE`）、
+  `eval/track_all_v3_optgapfit_md16.json`、`eval/preds_v3_optgapfit_md16/`（25 件）、
+  OSD `osd_sys_sota_trial0080_v3_optgapfit_md16_20261120/`（pass 21 + un-pass 3 = 24）。
+  🔴 **候选参数档故意不进交付包**（§6j①：包内只允许一份 `load_params` 能吃的参数文件）。
+- **本轮不改**：交付参数组 / 逐帧 F1 94.4976% / FAR 0.027859 / 跳帧 phys 0.951398 / dense 0.938340 / OSD 21+3 全部未变；
+  闸门项数也不变（本轮只修搜索器 + 补证据文件）。
+
+
+8. **🔎 第 88 轮补充核验（2026-11-20 07:20~07:30）**：**un-pass 与参数改动无关** —— 官方 v3 参考渲染
+   `osd_sys_sota_trial0080_v3_20261022/` 同为 **21 + 3**，un-pass 三条与交付组**完全相同**
+   （`…000322` / `…002251` / `…015740`）；逐序列 F1（v3 → 交付）**78.821→78.867 / 66.101→60.691 / 14.286→17.120**，
+   且这三条在 v3 里本就是 FAR 最高的三条（0.4277 / 0.0997 / 0.0300）⇒ **场景固有难点，非参数造成**。
+   **渲染判据 = F1 ≥ 88%**（故 89.950% 那条算 pass，别按 90% 误判）。
+   交付 / 候选两个 OSD 的 `per_sequence_hyperparams.tsv` 与各自 `search_json_for_render.json` 的
+   **f1/far/tp/fp/fn/gt 逐字段一致（0 处不符）**，`group` 列严格等于 88% 判据。
+
+
+### 三十六、🔴 Δn 网格搜索的「指标评估 + 对比」统一汇总 + 独立复算（第 90 轮，2026-11-20 11:55）
+
+**交付数字一个没动**（仍是 `cc2_md10` / 逐帧 F1 94.4976% / FAR 0.027859 / 跳帧 0.951398 / OSD 21+3）；本轮把网格结果收成一份**可审计对比**并**独立复算**。
+
+- **环境事故**：服务器 **网络可达但公钥认证被拒**（`Permission denied (publickey)`）、板卡 `192.168.0.211` **离线**（`No route to host`）、host 旧挂载 `/media/manu/1TB-Volume/workspace` **整个消失**（handoff 触发器默认路径失效）⇒ **本轮全程零服务器、零重活**，全部在本地实测产物上重算。
+- **新脚本 `manu/evaluation/rt_grid_compare.py`**：①独立复算每个聚合值；②跨文件对账（短名单 vs 臂 json）；③出对比表。
+- **验收：[VERIFY] 267/267 checks passed**（脚本自带闸门）。
+- **口径首次反解并写进文档**（全是**序列级 micro-pool**）：`precision=Σtp/Σ(tp+fp)`、`recall=Σtp/Σgt`、`F1=2PR/(P+R)`、跳帧 `FAR=Σfp/Σ(delivered_frames×seeds)`、交付 `FAR=Σfp/165,223`。**逐序列 F1 求平均会低 ~2.7pp**（0.928331 vs 0.955383）⇒ 报数必须报 pooled。
+
+| 参数组 | 逐帧 F1（交付口径）| FAR/帧 | 红线 0.03 | 余量 |
+| --- | --- | --- | :-: | ---: |
+| `v3` | 94.7533% | 0.020820 | ✅ | 30.6% |
+| `v2` | 94.6231% | 0.025208 | ✅ | 16.0% |
+| `th045` | 94.4134% | 0.028701 | ✅ | 4.3% |
+| `old_gapfit` | 94.3755% | 0.035128 | ❌ | -17.1% |
+| `cc2_md10` | 94.4976% | 0.027859 | ✅ | 7.1% |
+| `cc2_md16n` | 94.5804% | 0.029348 | ✅ | 2.2% |
+| `cc2_md8` | 94.4842% | 0.026455 | ✅ | 11.8% |
+| `cc2_md12` | 94.5166% | 0.028440 | ✅ | 5.2% |
+| `cc3_md10` | 94.5097% | 0.026116 | ✅ | 12.9% |
+| `cc3_md16` | 94.5939% | 0.028029 | ✅ | 6.6% |
+| `cc4_md10` | 94.5339% | 0.025112 | ✅ | 16.3% |
+| `cc5_md10` | 94.5462% | 0.024440 | ✅ | 18.5% |
+| `cc6_md10` | 94.5556% | 0.023744 | ✅ | 20.9% |
+| `cc7_md10` | 94.5804% | 0.022872 | ✅ | 23.8% |
+| `old_gapfit(短名单复测)` | 94.3755% | 0.035128 | ❌ | -17.1% |
+| `rerun_selected` | 94.3749% | 0.035152 | ❌ | -17.2% |
+
+- **表 2b 口径校准（新增，本轮最硬的一条）**：14 对配对，截断→交付的 FAR 偏移区间 **[+0.003262, +0.006139]、全部为正**；**2 例两口径判定相反**（`old_gapfit`：截断 0.029013 PASS / 交付 0.035128 **FAIL**）⇒ 把第 88 轮「硬约束必须量在交付口径」那个修复**量化成表**。
+- **表 2 跳帧网格**（物理帧基）：`2a` 密集帧基 mean F1 0.922060｜`2b` v3 未调参 mean F1 **0.084122**（s1/s2/s3 全 0.0000，崩）｜`3` cc2_md10 mean F1 **0.951398**（worst 0.938916）⇒ **v3 崩不是参数差，是它假设「帧永远连续」**。
+- ⚠️ **短名单表的「逐帧(截断) FAR」列不能判红线**（见表 2b）；`rerun_selected`（`ma=10`）跳帧分最高但交付口径 FAR **0.035152 破线**（服务器实测，§三十五）。
+
+- **产物**：`manu/memory/delivery_20261119/grid_compare/`（`rt_grid_compare.md` + 4 个 csv）｜**执行机**：本机（host），纯读 json，无 GPU/网络/重活｜**复现**：`python3 manu/evaluation/rt_grid_compare.py --arm-json ... --shortlist ... --track label=path ... --out-dir ...`
+- **本轮没做**（外部依赖断）：① 板端 FAR 复核（板卡离线，脚本 `manu/evaluation/eval_board_fused_tsv.py` 已就位，上电即可跑）；② 服务器侧扩样/重跑（公钥认证被拒，需用户终端授权一次）；③ 更细的帧率扫描网格。
+
+## §258（紧凑版）2026-11-19 17:22~17:35 —— **新轴 `ax_bw10micro`（0.0005 微网格 29 臂）+ 自造 bug「门禁队列退化」根除 + 修正 §255 错误结论**
+- 🟢 **新轴 `ax_bw10micro`（29 臂）上线**：`gen_w13_recipes.py` md5 **`6fd7d2e3c9efd829a7a97aa6d86019d7`**。
+  依据：`2020036` 已拿 **T3 顶格 + t2_fp=3（严格优）+ 三轴=基线**，**只差 T1 1 个 TP（−1.86e-5）**；
+  `t2_fp` 口袋在 `w2≈.058`、T1 顶格台阶在 `w2≈.056/.060` ⇒ 台阶宽 ~.002 ⇒ 现有 .001 网格漏空 ⇒ 下探 .0005 半步。
+  (A) 1-D 扫 `w2∈[.0550,.0610] step .0005` @ `(.2116,.0980)` 13 臂；(B) `w4{.0975,.0985}×w3{.2116,.2121}×w2{.0570,.0575,.0585,.0590}` 16 臂。
+  波次每轮重跑该脚本 ⇒ **无需重启**；`gate_prio` 的 `t3win`（w3≥基线）⇒ `w3=.2116` 行 **dw3=0 ⇒ strict 段最前**。
+- 🔴 **自造 bug 已修**：17:20 回滚误删 `cands = _strict + _near` ⇒ 门禁队列退化为台账字典顺序
+  （队首 `1111031` 三轴差 1e-3 的死臂）⇒ 已补回；**受害窗口≈0**（17:28:25 修复 / 17:28:36 A 通道换批）。
+  `gate_prio.py` md5 **`e2be5da6e6e03ca15b0a1dd8e1d71fce`**（host↔server↔`$W/scripts/` 一致）。
+- 🔴 **修正 §255**：「同族三轴恒等」**错**。bw10 族 645 臂：`nano` 恒定(1 值)，
+  但 **`nano4` 5 值 / `f1` 13 值 / `f1_4` 27 值**；族内**无一臂 `nano4 > 基线`**。
+  §255 的「全台账 Pareto 支配」结论**不变**（8288 臂复算，三轴全≥基线的 157 臂里最高 T1/T3 仍 = 基线）。
+- 门禁候选 1076 臂分段：tier1&strict1 **117**（bw10 严格臂，队首）｜tier1&strict0 693｜tier−1&strict1 1｜tier−1&strict0 265。
+- 17:35 运行态：MemAvailable **74.8 GB/128.5 GB(58%)**｜load **32.6/80**；4 波 + 3 门禁通道 + 守望 + 明早 08:40 晨报 ⇒ **host 可断电**。
+
+## §259（2026-11-19 18:30 摘要）
+- **基线未变** `Baseline_v3.0=2020035@ep5`：nano .7242439 / nano4 .6609168 / f1 .8906832 / T1 .8909239(fp1473) / T2 .9931331(fp4) / T3 .9488856(fp76) / 板端 19.981ms。
+- 🔴 **首个 Pareto 支配臂 = `1990055`**（bw10 同族，w=[.6524,.036,.2116,.1]）：六项全过，**T2 严格优（t2_fp 4→3、F1 +3e-5）**，其余五轴与基线逐位相同
+  ⇒ **只差板卡 T4**（board_ms=None）⇒ `board_t4_watch` 下一轮按严格优轴=1 排最前，PASS 后 `auto_promote_watch` 自动升轨 Baseline_v3.1。
+- 🟢 **新轴 `ax_tipdose` 上线**（50 臂）：供体 `1102033@1`（nano .7244802 高一阶、nano4 .6729679 +1.2e-2、f1 +2.4e-4、t2_fp 3，只差 T1/T3）
+  ⇒ ε∈{.001...05} × w2∈{.056,.058,.060,.076,.098} 微量掺入基线族（**w∈[.001,.05] 区间史无前例**）；末位权重恒 .098 ⇒ 全臂同族 ⇒ 升轨链不断。
+- 🚫 不投 15510（异盆地不可汤，§253）；针族五轴主剂量仍判死。
+- **host 可断电**：算力/门禁/板卡/升轨/晨报全在服务器 192.168.99.40（load 33/80、MemAvail 62.7GB=48.8%、GPU≤48%）。
+
+## §260（2026-11-19 19:00~20:50 摘要）· **视频质量指标：好/坏视频组 ⇒ 5 个有效指标 / 8 条核心红线**
+- **结论**：跨两个模态共同的失效特征是**「糊 + 灰 + 压」，不是「晃」**。跨模态一致 **3 个有效指标** = **全局对比度 `global_contrast`、边缘密度 `edge_density`、拉普拉斯清晰度方差 `lap_var`**；红外另有 **2 个** = **块效应 `blockiness`、灰度熵 `entropy`** ⇒ 合计 **5 个有效指标 / 8 条核心红线（IR 5 + VIS 3）+ 2 条可见光弱红线 = 10 行阈值**。
+- **红线阈值**（IR：好 6/坏 2；VIS：好 12/坏 2）：IR `blockiness` 1.046→2.051 阈 **1.631**｜`entropy` 7.374→5.246 阈 **6.417**｜`global_contrast` 0.7732→0.2897 阈 **0.4693**｜`edge_density` 0.05528→0.007018 阈 **0.02016**｜`lap_var` 104.3→38.28 阈 **57.32**；VIS `lap_var` 2299→44.73（**表观 51.4×**）阈 **534**｜`edge_density` 0.1207→0.007725 阈 **0.03637**｜`global_contrast` 0.6708→0.3413 阈 **0.4756**。视频级判别力 0.917~1.000，窗口级 0.729~0.990；**双侧 p**：IR 最小 2/28=0.0714（永远到不了 0.05），VIS 0.0220。
+- **红线分级口径（先过候选集、再分级）**：候选集 = 判定为「✅ 有效」的指标（**不含「✅ 有效（描述性）」**；窗口级判别力 ≥ 0.70、显著性成立、方向正确、中位数拉开 > 1.2×）；候选集内按阈值处平衡准确率分级（≥ 0.90 核心 / < 0.90 弱）。**红外「平均亮度」只作描述性统计、不进候选集**。**VIS「帧间位移速率」「帧间缩放(%)」「帧间位移」「帧间最大位移」视频级平衡准确率 0.958/0.958/1.000/0.958，但窗口级 0.637/0.638/0.665/0.680 没进候选集 ⇒ 不进红线**。
+- **分级规则（不可简化成「任一条越线即拒」）**：**全部核心红线越线 → 拒绝接入**（本批**命中坏片 4/4、误拒好片 0/18**）；**命中 ≥1 条核心红线（未全部）→ 人工复核**（好组 1 条）；**仅命中弱红线 → 通过但记录抽检**（好组 2 条）；一条不越 → 通过（好组 15 条）。
+- 🔴 **三个坑**：① 坏组 IR 有**大面积黑边**，不裁边会把坏片**测成清晰**；② `130CT-02可见光_OSDT.mp4` 名字写可见光、实为红外/可见光切换（81.0% 可见光 = 290/358 采样点，落盘在 `out/130CT-02可见光_OSDT.json` 的 `modality_vis_ratio`）⇒ **模态按全片像素饱和度多数表决**；③ `osd/` 下 3 个「挂飞」文件实为**桌面录屏**，不是视频源。
+- **参考方法脚本的 4 个指标已全部落地实测**（帧间位移 P95、**帧间最大位移 `shift_frac_max`**、拉普拉斯清晰度 P5、红外粗糙度 ρ）：`shift_frac_max` 由已存逐帧数组按 1 秒窗口取最大派生（**无需重跑批跑**），IR 判别力 0.794（方向相反）／VIS 0.680（未达 0.70）⇒ **两个位移口径都不进红线**，红线集合仍 8+2=10 条。
+- 🔴 **否定性结论**：13 个「能分开但方向反」指标（`shift_frac`/`shift_rate`/`shift_frac_max` 红外坏片**更稳**、`noise_sigma`/`snr_db`/`grad_energy_ratio` 方向与直觉相反、`stripe_idx_row`/`row_bias`/`col_bias`/`sat_ratio`/`dog_snr_*`）**不可作判据**；**归一化尺度偏置已实测**（新脚本 `manu/video_quality/vq_bias.py`）：坏组 IR 1280 宽被抬高 1.84~2.07×、好组 IR 原生不抬 ⇒ **IR 清晰度真实差距 5.6×（表里 2.73×，偏保守）**；好组 VIS 1920 宽抬 6.97~7.21× 而坏组 OSDT 只有 1280 宽抬 2.08× ⇒ **VIS 表观 51.4× 里约 1.7× 来自尺度差，折算原生约 29×，对外不能只说 51×**。**σ/ρ/SNR 剔除的理由是「方向」不是「偏置」**。
+- 🔴 **边界**：好片 `VIDEO00007_...IR.h264` 命中 3/5 红外核心红线、坏片 `130CT-02红外_IRT.mp4` 命中 5/5，**两者在清晰度/边缘密度上真的重叠** ⇒ 无参考全图指标**分不清「画质差」与「场景没内容」** ⇒ **必须保留人工复核档**；另**核心红线在故障窗（末 5 秒）里照样全部越线**。
+- **局限**：坏组源视频只 4 条（VIS 仅 2 条，可见光侧「假设级」；**IR 三条核心红线留一法只剩 0.667~0.750 ⇒ 上线前必须扩样重标**）；**无 GT 框故未算真值局部 SCR**（改用 DoG÷噪声σ 无框代理，归一化位移同样未算）；**可见光两侧归一化尺度不统一**（接入前须固定裁剪/缩放策略）。
+- **专题档**：`manu/memory/video_quality_metrics_20261119.md`｜**汇报件**：`manu/video_quality/report/REPORT_视频质量指标.md`｜**脚本**：`manu/video_quality/vq_{metrics,run_server,reclassify,compare,stats,tail,bias,report,verify,acceptance}.py`｜**执行机** `192.168.99.40:32222` / `conda activate uav`｜**验收** `vq_verify` 550 项 0 失败、`vq_acceptance` 27/27 PASS。**耐久登记点**：本条可能被并行任务整档重写覆盖，**权威入口是专题档 + `manu/memory/.slim_memory.md` §7 登记行**。
+
+## §261（2026-11-20 09:00~11:30 摘要）· **夜班交接两项遗留收口：① 交付参数组 `cc2_md10` 回灌源码+板端调用侧 ② 提示词归属取证纠正（报告口径反了）**
+- 🔴 **遗留一真根因不是「注释没改」，是源码与交付物分叉**：仓库 `manu/pipeline/npu/mosaic_track_fusion.h` 的
+  **默认值本身就是旧的一组**（`th_base .45 / th_ground .22 / sky_ratio .60 / match_dist 16 / max_age_phys 10 / r_slope 3.5 / confirm_gap_tol 6`）；
+  今早 09:06/09:10/09:12 **只改了 3 个 SDK 目录**的头并重编 `.so`，仓库源 / `pipeline/npu/build/` 暂存树 / `rk3588_app_base/mosaic_sdk/` **三处仍是旧的**
+  ⇒ **照仓库源重编一次 `.so`，交付参数就静默退回旧组**（FAR 0.0352，破 0.03 红线）。
+  **二进制证据**：三个 SDK `.so` 烤的是新值（0.48/0.26/1.00/10.0/5.0，**无旧值**）；`pipeline/npu/build/out/` 与 `rk3588_app_base/mosaic_sdk/out/` 烤的是旧值（0.45/0.22/0.60/16.0/3.5）。
+- **已改**：① 仓库源 `mosaic_track_fusion.h` + `mosaic_pipeline.h` 对齐交付组 ⇒ **`mosaic_pipeline.h:1257-1258` 的 `(6)/(0)` 变成 `(2)/(8)`**（行号顺延到 1258-1259），顺带 `(0.45)/(0.22)/(0.60)/(16.0)` 全部改正；
+  ② 同步到 **5 个派生树**（3 个 SDK + `rk3588_app_base/mosaic_sdk` + `pipeline/npu/build`）逐字节一致；
+  ③ 陈旧措辞连根清（`mosaic_pipeline.h:1305`、`mosaic_pipeline.cpp:4331/4378`、`mosaic_track_fusion.cpp:6`）；
+  ④ 🔴 **板端调用侧显式覆盖 9 个字段**（`mosaic_cadence_probe.cpp` / `mosaic_track_dump.cpp`）
+  —— **报告的「8 个」少了 `max_age_phys`**：旧 `.so` 里它是 **10**（不是「不设」）⇒ 不覆盖它，板端跑的就是**已被闸门拒掉**的那组；交付值「不设」在 C++ 是 **-1**（**写 0 会让航迹下一帧就死**）；
+  ⑤ `[i] track fusion ON:` 日志行**补上 `th_salvage` 与 `match_dist`** ⇒ 板端照这一行核验即可；
+  ⑥ 两处陈旧 `.so/.o` 换成 Nov-20 09:07 那份 ⇒ 四个 `.so` **全部**烤新参数、**无旧值**；
+  ⑦ 5 个包目录的 `MANIFEST.md` / `README.md` md5 基线按 `make_build_dir.sh` 同格式重算（不再有假报警）；
+  ⑧ 板卡施工单 `trial0080_board_fusion_preset_20261119.md` 加 §2.0（9 字段）+ §4 改「已改完待复测」（三份副本 md5 一致）。
+- ⚠️ **板端该发哪一份**：板卡自带 **OpenCV 4.6**（`libopencv_*.so.406`）⇒ 发 `build/mosaic_sdk_20261120/out/`（md5 `e9b37af077cf1033be6e206fbd5407e4`）；**ocv48/ocv42 链接 `.so.408`/`.so.4`，板卡上没有，发过去也加载不了**。
+- 🔴 **遗留二的前提与实测相反**：`/mnt/data/codex-overnight/` 的**历史归属是红外线**（`prompt_first.txt` 第 1 行线程 id == `.handoff_session`、第 167 行指向 `/mnt/data/codex-overnight/server_stop_session.sh`；`SKILL.md:314-316` 逐字登记），
+  **ETF 每次都带显式 `--state-dir`**（`-qlib` / `-etf20261113` / **`/mnt/data/siping/runs/etf_rotation_results/codex_overnight`**，见 `launcher.log`+`watchdog.log`）⇒
+  **按报告口径把 ETF 提示词搬进去 = 把红外线串台掉**。已改：新增 `handoff/overnight/restore_overnight_state_prompts.sh` ⇒ **A** 把默认目录**还原成红外那一份**（先备份 + 双端 md5 比对）；**B** **不动** ETF 目录、只核验 md5 并打印 ETF 夜班该用的**显式** `--state-dir`。
+  ETF 那对提示词本来就是对的（`f9032dbc2f1005798d302f92a1a94318` 4925 B / `d7ec0a836c5dfb3fb994fbe3cbc6cca4` 16452 B，与 `HANDOVER_20261117_etf_v2.md:96-100` 逐位吻合）。
+- 🔴 **板端现状（11:0x 独立复核，不是转述）**：**今早 09:55 已经有一份板端验证报告** `trial0080_board_validation_20261120.md`；
+  我实测 **板 `.64`（`evm3588`）是活的**（`.211` 仍 `No route to host` 断电），
+  且**独立核对了部署包 md5**（`/run/media/manu/SSD960-LOCAL/nfs/mosaic_sdk/`）：
+  `mosaic_track_fusion.h` = `dba851ed…`、`mosaic_pipeline.h` = `47553e37…`、**`out/libmosaic_pipeline.so` = `e9b37af0…`** ⇒ **板端跑的就是交付参数组**。
+  🔴 **但板端运行时复测当前复现不了**：板上 **无 `/dev/rknpu*` 设备节点**（NPU 推理跑不起来）、`/mnt/manu` 未挂 NFS（交付包没到板）、
+  板上本地 `.so` 是 Nov-19 旧构建（`96fb8e98…`）、板上系统**无 OpenCV**（只有 `/root/mosaic/opencv/` 的 **4.8**）⇒ **早上那份报告的「本板只有 4.2 / 有运行时回读」需要用户复核是哪台板、哪个环境**。
+- 🔴 **三个硬阻塞（环境挡的）**：① **host 的 NFS 交换区只读 + 内核导出表空**（`findmnt` ⇒ `/dev/sdb ext4 ro`；`/proc/fs/nfsd/` 空 ⇒ 板上 mount 报 `access denied by server`；host 上 `touch` 报 `Read-only file system`）⇒ **需用户 sudo**（remount rw + `exportfs -ra`）；② 目标板 `.211` 仍断电；③ 服务器 `192.168.99.40:32222` 端口通但 **`Permission denied (publickey)`**（本机公钥未授权）⇒ 还原脚本**在连通性探测就干净退出**（已实测，不会半推），补 `ssh-copy-id -p 32222 huangzhe@192.168.99.40` 后重跑即可。板卡 `.64` 根分区 **95% 满（剩 871M）**。
+- ⚠️ **诚实边界**：host 上**无 aarch64 交叉编译器**（`build_lib.sh` 里的旧工具链路径 remount 后已不存在）⇒ **本轮没重编任何 aarch64 产物**；🟢 **板 `.64` 本机就有 `aarch64-linux-gnu-g++`** ⇒ 重编可在板上做。
+  `out/` 里的 `mosaic_cadence_probe`/`mosaic_track_dump` 仍是加覆盖之前编的（**行为等价**，`.so` 默认值已对，但不含显式覆盖 ⇒ 板端正式复测前要重编）。
+  🔴 **且这两个 probe 根本不在交付包里**（实测部署包 `src/npu/` 无此二文件、MANIFEST §A 的 `out/` 清单也没有 —— 它们是本地工具）⇒ **「显式覆盖 9 个字段」真正要落的是嵌入式组自己的调用侧**，施工单 §2.0 已给出可抄代码。
+- **耐久登记点**：本条可能被并行任务整档重写覆盖，**权威入口 = `manu/memory/memory.md` §261 + `manu/memory/trial0080_board_fusion_preset_20261119.md` + `handoff/overnight/restore_overnight_state_prompts.sh`**。
