@@ -22183,17 +22183,20 @@ python3 manu/evaluation/rt_grid_compare.py \
 
 **(a) `max_gap=1` 侧（`v3` 的判据）**
 
-| 场景 | 来源 | p(Δn=1) | maxRun@1 | #run≥7@1 | v3 F1 | 规则预测 v3≡0 | 观测 | 吻合 |
-| --- | --- | ---: | ---: | ---: | ---: | :-: | :-: | :-: |
-| `f25` | fps 网格（合成节拍） | 0.9199 | 127 | 92911 | 0.944969 | 否 | 否 | ✅ |
-| `f20` | fps 网格（合成节拍） | 0.7837 | 26 | 29543 | 0.934636 | 否 | 否 | ✅ |
-| `f17` | fps 网格（合成节拍） | 0.6078 | 11 | 2103 | 0.854244 | 否 | 否 | ✅ |
-| `f14` | fps 网格（合成节拍） | 0.3897 | 6 | 0 | 0.000000 | 是 | 是 | ✅ |
-| `f12` | fps 网格（合成节拍） | 0.2263 | 5 | 0 | 0.000000 | 是 | 是 | ✅ |
-| `s1` | 实测节拍（板卡重建） | 0.0202 | 4 | 0 | 0.000000 | 是 | 是 | ✅ |
-| `s2` | 实测节拍（板卡重建） | 0.0107 | 3 | 0 | 0.000000 | 是 | 是 | ✅ |
-| `s3` | 实测节拍（板卡重建） | 0.0045 | 2 | 0 | 0.000000 | 是 | 是 | ✅ |
-| `s4` | 实测节拍（板卡重建） | 0.3238 | 13 | 112 | 0.336489 | 否 | 否 | ✅ |
+| 场景 | 来源 | 达成 fps | p(Δn=1) | maxRun@1 | #run≥7@1 | v3 F1 | 规则预测 v3≡0 | 观测 | 吻合 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | :-: | :-: | :-: |
+| `f25` | fps 网格（合成节拍） | 23.1319 | 0.9199 | 127 | 92911 | 0.944969 | 否 | 否 | ✅ |
+| `f20` | fps 网格（合成节拍） | 20.0779 | 0.7837 | 26 | 29543 | 0.934636 | 否 | 否 | ✅ |
+| `f17` | fps 网格（合成节拍） | 17.1141 | 0.6078 | 11 | 2103 | 0.854244 | 否 | 否 | ✅ |
+| `f14` | fps 网格（合成节拍） | 14.1043 | 0.3897 | 6 | 0 | 0.000000 | 是 | 是 | ✅ |
+| `f12` | fps 网格（合成节拍） | 12.1067 | 0.2263 | 5 | 0 | 0.000000 | 是 | 是 | ✅ |
+| `s1` | 实测节拍（板卡重建） | 7.4475 | 0.0202 | 4 | 0 | 0.000000 | 是 | 是 | ✅ |
+| `s2` | 实测节拍（板卡重建） | 4.7848 | 0.0107 | 3 | 0 | 0.000000 | 是 | 是 | ✅ |
+| `s3` | 实测节拍（板卡重建） | 3.5759 | 0.0045 | 2 | 0 | 0.000000 | 是 | 是 | ✅ |
+| `s4` | 实测节拍（板卡重建） | 12.8220 | 0.3238 | 13 | 112 | 0.336489 | 否 | 否 | ✅ |
+
+⚠️ **口径澄清（防止把两个数混为一谈）**：第 90 轮表 2 里 `v3` 未调参的跳帧均值 **0.084122** 是 **`s1`~`s4` 四个节奏的均值**（达成 fps 依次为 7.4475 / 4.7848 /
+3.5759 / 12.8220），**不是**「某个 14 fps 档」的值 ⇒ **按本轮的帧率阶梯，14.1043 fps 档 `v3` 的 F1 是精确 0**。
 
 **(b) `max_gap=9` 侧（`cc2_md10` 的判据）**
 
@@ -22684,3 +22687,171 @@ bash handoff/overnight/restore_overnight_state_prompts.sh
 | 提示词还原脚本 | `handoff/overnight/restore_overnight_state_prompts.sh` |
 | 板端交付 `.so`（认 `.so.406`） | `build/mosaic_sdk_20261120/out/libmosaic_pipeline.so`（md5 `e9b37af077cf1033be6e206fbd5407e4`） |
 | 板端可执行文件源（待重编） | `manu/pipeline/npu/mosaic_cadence_probe.cpp` / `mosaic_track_dump.cpp` |
+
+## §262 🔴 2026-11-20 13:00~13:45 · **板卡对齐收口：板卡 C++ ≡ 主机 C++ ≡ 服务器 Python「逐字节」一致（24 组 参数组×Δn + 真实 0080 数据的 Δn=1/2/3）** + 🔴 证伪「`/dev/rknpu*` 缺失 ⇒ NPU 不可用」 + **0080+v3 OSD 三方对齐复核**
+
+### 1) 一句话
+
+§261 留下的「板端运行时复测在当前环境里做不到」**已被推翻**：服务器公钥已通、板卡 `.64` 活着、**NPU 其实可用**（走 DRM，不走 misc 设备节点）。
+本轮补上了 §257 十八 / §261 都没做过的那一件事 ——
+**板卡上的 C++ 时空融合引擎，在「交付参数组 + 各种 Δn」下与服务器 Python 生产流水线逐字节一致**，
+并第一次在**真实 0080 数据**（板卡上用真 RKNN 模型跑出来的 2500 帧检测流）上复核通过。
+
+### 2) 连通性（本轮打通的两件事）
+
+| 项 | §261 的记录 | **本轮实测（2026-11-20 13:0x~13:4x）** |
+| --- | --- | --- |
+| 服务器 `192.168.99.40:32222` | 🔴 `Permission denied (publickey)` | ✅ **已通**（`huangzhe`，免密；`~/.ssh/id_ed25519` 11:27 生成后已被接受） |
+| 板卡 `192.168.0.64` | 「SSH 通、活着」 | ✅ **已通**，链路 = 本机 → 服务器 → 板卡（服务器 `~/.ssh/config` 的 `ptq-board` 持有 `id_ed25519_ptq_board`） |
+
+- 板卡身份（实测）：hostname **`evm3588`**、`Rockchip RK3588 DEP04A Board`、Ubuntu 20.04.6 / kernel 5.10.160 / 8 核 / 7.9 GB、machine-id `27a1db91af4746b0a2b8ba93b052c60c`。
+  ⚠️ **它不是** `board_swap_20261110.md` 里记的「已作废旧板」—— 那份写的是 `.64` 已 `No route to host`；
+  **2026-11-20 实测 `.64` 反而是活的那台**，`.211`（Orange Pi / Debian 12）仍 `No route to host`。
+  ⇒ **板卡身份档需要更正**：当前**唯一可用的板卡是 `.64`**，它自带的 OpenCV 是 **4.8**（`.so.408`，在 `/root/mosaic/opencv/`），**不是 4.6**。
+- 板卡自带工具链：`/usr/bin/aarch64-linux-gnu-g++`、`g++`（9.4.0）⇒ **在板上原地重编不需要交叉工具链**（`build_lib.sh` 的 `RK3588_TOOLCHAIN` 那条老路径在本机已随 remount 消失）。
+
+### 3) 🔴 纠正：「板上没有 `/dev/rknpu*` ⇒ NPU 跑不了」是**错的**
+
+- §261 §5 记：「板上 `ls /dev` 无 rknpu；`lsmod` 无 rknpu 模块 ⇒ **NPU 推理跑不起来**」 ⇒ **作废**。
+- 实测：RKNPU 驱动**内建在内核里**（不是模块），初始化日志齐全
+  （`RKNPU fdab0000.npu: pvtm=898` / `rknpu iommu is enabled` / `Adding to iommu group 0`），
+  并且它注册在 **DRM** 名下而不是 misc：
+  `[drm] Initialized rknpu 0.9.8 20240828 for fdab0000.npu on **minor 1**` ⇒ 设备节点是 **`/dev/dri/renderD129`**（板上确实存在，226,129）。
+- 实证：**整条流水线在板上真跑起来了** ——
+  `[i] rknn runtime api=2.3.0 (c949ad889d@2024-11-07T11:35:33) driver=0.9.8`，
+  `mosaic_pipeline created: model=/root/mosaic/runtime/ir_uav_det.rknn …`，
+  `RGA native-tile self-check: OK`，跑完 2500 帧（`pipeline_frames=2500 wall_ms=514885 fps=4.856 dropped=0`）。
+- ⇒ **板端复测不是「做不了」，是「没人去跑」**；本轮与并发线（板卡上 `verifyB*_20261120_*.log` 那条线）都已实跑。
+
+### 4) 板端「显式覆盖 9 个字段」的**运行时回读**（实测原文，非转述）
+
+板卡 `/root/verifyB4_20261120_133017.log` 的原文一行：
+
+```
+[i] track fusion ON: th_base=0.4800 th_salvage=0.0600 th_ground=0.2600 sky_ratio=1.000 match_dist=10.00 \
+    tags=0x1 reorder_window=0 physical_frame_id=1 max_age_phys=-1 r_slope=5.00 alpha_decay=1.000 \
+    confirm_consec=2 confirm_gap_tol=8
+```
+
+⇒ **9 个字段逐项对上交付参数组**（`max_age_phys=-1` = 「不设」；`physical_frame_id=1` = 引擎吃的是**物理帧号**）。
+⇒ §261 §2.0 的施工单核验行**在真实板卡上可用**（前提：用带 `th_salvage`+`match_dist` 的那份 `.so`，见 §6）。
+
+### 5) ⭐ 本轮新增的对齐闸门：**Δn 口径下板卡 C++ ≡ 主机 C++ ≡ 服务器 Python**
+
+**为什么必须做**：之前唯一的板卡↔Python 对齐产物
+`manu/memory/cadence_ab_20261119/vid09_align/`（6 份 TSV 逐字节相同）跑的是 **Δn ≡ 1**
+（190 个帧间隔全是 1）**且用的是 `th045` 参数**（本轮复算证实：th045@Δn1 的输出 md5 `93a7d5ec119ce2d52d0745ccccbe9f64`
+= 那份归档产物的 md5，**逐位复现**）。
+⇒ **交付参数组 `cc2_md10` 从未在板卡上与 Python 对过账**，而它的全部意义就是跳帧工况。
+
+**做法**（新增脚本 `manu/evaluation/align_dn_delta_check.py`）：
+
+- 在同一份候选流上按多种 Δn 图案抽帧（Δn=1/2/3/5/7 + **板卡实测 cadence 的间隔序列**），
+- 分别跑 **C++**（`mosaic::TrackFusionEngine`，`track_fusion_align_test.cpp`，零第三方依赖 ⇒ host/板卡都能原生编）
+  与 **Python**（`manu/evaluation/sdk_track_fusion_ref.py --physical-frame-index`，即**服务器生产流水线**本身），
+- **逐字节** 比对两份输出。
+
+**结果（全部逐字节一致）**：
+
+| 数据 | 参数组 | Δn 图案 | 组合数 | 板卡(aarch64) vs 主机(x86_64) vs 服务器 Python |
+| --- | --- | --- | ---: | :-: |
+| `vid09_cands.tsv`（板卡实测检测流，191 帧） | **交付 `cc2_md10`** / `v3` / `old_gapfit` / `th045` | 1 / 2 / 3 / 5 / 7 / 板卡 cadence | **24** | ✅ **24/24 逐字节一致** |
+| **真实 0080 数据** `VIDEO00007_19700101_001324`（板卡用真 `p0_off_A_none.rknn` 跑出的 **2500 帧**检测流） | 交付 `cc2_md10` | 1 / 2 / 3 | **3** | ✅ **3/3 逐字节一致** |
+
+- 真实数据那 3 组的 md5（板卡 / 主机 / Python 三方**同一个**）：
+  Δn=1 → `839e1f437be0196e5fb4c54da6105d9e`（2301 条检测）、
+  Δn=2 → `026a219ca0055f30c120aaab058caab4`（2323 条）、
+  Δn=3 → `3321761b02586f5c298c2b08ab91e62f`（2158 条）。
+- ⭐ **附带复现了已知失效模式**：`v3` 基座在 **Δn ≥ 2 时输出检测数精确为 0**（板卡与 Python 同样为 0）
+  ⇒ 逐位复现「v3 原参跳帧臂 F1 = 0.084122、s1~s3 精确为 0」；交付组 `cc2_md10` 在同一数据上 180/2301 条正常出图。
+- ⭐ **板卡 `.so` 的融合路径 == 独立引擎**：同一份真实 2500 帧候选流，
+  `.so` 跑出的 `fused` 与独立引擎跑出的 `fused` **逐字节一致**（2301 条，md5 `5a317dab22bb28497e93b3db77927270`）。
+  ⚠️ 二者的**帧轴书写约定不同**：`.so` 只写**非空帧**，独立引擎写**整条帧轴**（含空帧）⇒ 比对时必须先滤空帧，**否则会误判成不一致**。
+
+### 6) ⚠️ 板卡上 `.so` 的**两份构建**、诊断打印能力不同（不是 bug，是要分清哪份是哪份）
+
+| 路径 | md5 | `[i] track fusion ON:` 打印行 | 烤进去的默认值 |
+| --- | --- | --- | :-: |
+| `/root/build/libmosaic_pipeline.so`（13:08） | `b383291e31ccbd71c46430ca69869360` | ✅ **含 `th_salvage` + `match_dist`**（全 9 字段可核） | 交付组 |
+| `/root/mosaic/libmosaic_pipeline.so`（13:16） | `a8d56d26d3604d5c33d69a859c598a78` | ⚠️ **缺 `th_salvage` + `match_dist`** | 交付组（0.48/0.26/1.00/10.0/5.0，**无旧值** 16.0/3.5/0.45/0.22） |
+
+⇒ 两份**功能等价**（默认值都是交付组），差别只在**诊断打印的字段数**；
+板端 `rknn_mosaic_track_dump` 走的是 `LD_LIBRARY_PATH=/root/build:…` ⇒ **实测打印行是全字段那份**（§4）。
+⇒ **嵌入式组若只拿到 `/root/mosaic/` 那份，核验行会少两个字段** —— 建议统一发 `/root/build/` 那份。
+
+### 7) 板卡实测 Δn ↔ 仿真工况 s1~s4 的对应关系（收口 §257 十八 §10 的遗留）
+
+- §257 十八 留下的遗留：「板卡实测 Δn 序列（`cad_on.tsv`）与本次仿真工况 s1~s4 的对应关系需要对齐复核」。
+- 本轮两边都拿到了**实测直方图**：
+
+| 来源 | 平均 Δn | 直方图 | fps |
+| --- | --- | --- | ---: |
+| **板卡实测**（`cad_on.tsv`，1930 个间隔） | **3.109** | — | — |
+| **板卡实测**（本轮 cadence 探针 `cadence_run2.tsv`） | **3.043** | `1:8 2:135 3:402 4:133 5:18 6:4` | 8.20 |
+| 仿真 **s1**（measured 1x，board idle） | **3.360** | `1:21 2:201 3:590 4:231 5:69 6:35 7:28 …` | 7.45 |
+| 仿真 **s2**（1.5x + jitter，shared SoC） | **5.232** | 峰在 4~6 | 4.78 |
+| 仿真 **s3**（2x + jitter，heavy load） | **7.004** | 峰在 5~6、长尾到 34 | 3.58 |
+| 仿真 **s4**（doc 口径，2 workers） | **1.951** | `1:687 2:900 3:379 …` | 12.82 |
+
+⇒ **对应关系**：板卡实测（3.04~3.11）**对应 s1**（3.36，偏差 ~9%）；
+**s2/s3 是「SoC 负载更高」的压测工况**，**s4 是「两 worker、~13.9 fps」的乐观假设**，
+与板卡**空闲态**实测不是同一档 ⇒ **板卡上线后若 CPU 被占，Δn 会往 s2 漂**，这正是交付组必须耐跳帧的原因。
+⇒ 与第 91 轮的结论自洽：**要救的是参数组，不是板卡速度**（交付组把可用下限从 14~17 fps 压到 ≤ 12.11 fps）。
+
+### 8) 0080 + v3 OSD 三方对齐复核（**只查 0080+v3 两个目录**，不碰旧 `gapfit` 对照目录）
+
+| 项 | 交付 `osd_sys_sota_trial0080_v3_optgapfit_20261119/` | 候选 `osd_sys_sota_trial0080_v3_optgapfit_md16_20261120/` |
+| --- | --- | --- |
+| pass / un-pass mp4 | **21 / 3 = 24** ✅ | **21 / 3 = 24** ✅ |
+| 总体积 | 5,809,211,411 B (5.5 G) | 5,809,344,292 B (5.5 G) |
+| 参数三件套（TSV 全局行 / `search_json_for_render.json` / 参数档 `params`） | **37/37 逐键全等** ✅ | 内部 **37/37 自洽** ✅；与交付档**仅 `match_dist` 1 键不同**（16.0 vs 10.0） |
+| `params_md5` | `a1157e013ebb496731be805c72c95dd8`（独立复算一致） | — |
+| mp4 文件名 F1 vs 交付 track json | **24/24 全等** ✅ | **24/24 全等** ✅ |
+| 媒体体检 | **24/24 过**，`tsv_mismatch []` / `group_mismatch []` ✅ | **24/24 过** ✅ |
+| un-pass 三条 | `000322` / `002251` / `015740`（与官方 v3 同三条 ⇒ **场景固有难点，非参数造成**） | 同三条 |
+
+⇒ **两个 OSD 目录与各自参数组完全对齐，可交付**；
+`match_dist=16.0` 的候选组换来 **+0.0828 pp F1**，代价是 **FAR 余量 7.14% → 2.17%**，
+且新增一条 **pass** 序列 `VIDEO00035_19700101_015138` 单序列 FAR **0.0315 越线** ⇒ **交付仍用 md10**。
+
+### 9) 产物清单
+
+| 内容 | 路径 |
+| --- | --- |
+| **新增闸门脚本** | `manu/evaluation/align_dn_delta_check.py`（Δn × 参数组 的 C++↔Python 逐字节对齐；host/板卡均可跑） |
+| 对齐证据 | `manu/memory/align_dn_20261120/`（`BOARD_MD5.txt` / `HOST_GOLDEN_MD5.txt` / `host_align_matrix.log` / `params_*.txt` / `real_0080/`） |
+| 板卡工作目录 | `/root/align_dn_20261120/`（板卡上；`track_fusion_align_test` + 24 组输出 + 真实 0080 的 dn1/dn2/dn3） |
+| 板卡访问助手 | `rk3588_app_base/board_sh.sh`（本机 → 服务器 → 板卡 的跳板执行） |
+
+### 10) 复现命令（本机，无需 GPU）
+
+```bash
+cd /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics
+PY=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/.conda-envs/lqcache/bin/python
+# ① 编 C++ 对齐工具（零第三方依赖）
+g++ -std=c++17 -O2 -ffp-contract=off -fno-fast-math -fno-unsafe-math-optimizations \
+    -o /tmp/align2/track_fusion_align_test \
+    ../rk3588_app_base/mosaic_sdk/src/npu/track_fusion_align_test.cpp \
+    ../rk3588_app_base/mosaic_sdk/src/npu/mosaic_track_fusion.cpp
+# ② 跑 4 参数组 × 6 Δn 图案 的 C++↔Python 逐字节对齐
+$PY manu/evaluation/align_dn_delta_check.py \
+    --cands manu/memory/cadence_ab_20261119/vid09_align/v09_cands.tsv \
+    --cpp-bin /tmp/align2/track_fusion_align_test --workdir /tmp/align_gold --python $PY \
+    --params delivery=manu/evaluation/system_sota_longquan_trial0080_delivery_v3_optgapfit_params.json \
+    --params v3=manu/evaluation/system_sota_longquan_trial0080_delivery_v3_params.json \
+    --params oldgapfit=manu/evaluation/system_sota_longquan_trial0080_delivery_v3_gapfit_params.json \
+    --cadence-tsv manu/memory/cadence_ab_20261119/cad_on.tsv
+# ③ 板卡上同一套（结果 md5 与主机 golden 逐位相同）
+bash ../rk3588_app_base/board_sh.sh 'cd /root/align_dn_20261120 && ./track_fusion_align_test --help 2>/dev/null | head -1; md5sum board_out/fused_cpp_*.tsv'
+```
+
+### 11) 仍未闭环（下一步）
+
+1. 🔴 **板端 FAR 复核**（唯一无法离线排除的风险）：`002251` 类病态场景在板端实帧上是否仍然偏高。
+   本轮已把**融合语义**对齐到位（§5），但**板端端到端 FAR/帧**还差一次「板卡跑 24 序 → 与服务器 `track_all_v3_optgapfit.json` 对账」。
+   板卡上已有 `/tmp/lqframes`（2500 帧 BMP）与模型 `/root/mosaic/runtime/ir_uav_det.rknn` ⇒ **可立即开工**，
+   但需把 24 序全部帧搬上板（板卡根分区曾 95% 满 ⇒ 只能挂 NFS，而 NFS 导出表当前为空 ⇒ **需要用户 sudo**）。
+2. 🔴 **NFS 交换区**：host 侧 `/proc/fs/nfsd/exports` 为空 ⇒ 板卡挂不上（§261 §5.1），
+   需用户 `sudo exportfs -ra`（+ `sudo mount -o remount,rw /run/media/manu/SSD960-LOCAL`）。
+3. ⚠️ **`.so` 诊断打印两份不一致**（§6）⇒ 交付给嵌入式组前统一发 `/root/build/` 那份（或在 `/root/mosaic/` 那份也补上两个字段后重编）。
+4. ⚠️ **板卡身份档需要更正**（§2）：`board_swap_20261110.md` 说 `.64` 已作废，实测 `.64` 是**唯一活着的板卡**、OpenCV **4.8**。

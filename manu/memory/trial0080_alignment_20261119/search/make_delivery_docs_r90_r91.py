@@ -365,14 +365,19 @@ def main() -> int:
         add("")
         add("**规则 → 观测，逐点吻合**")
         add("")
-        add("| 场景 | p(Δn=1) | maxRun@1 | #run≥7@1 | v3 F1 | 规则预测 v3≡0 | 观测 | 吻合 |")
-        add("| --- | ---: | ---: | ---: | ---: | :-: | :-: | :-: |")
+        add("| 场景 | 达成 fps | p(Δn=1) | maxRun@1 | #run≥7@1 | v3 F1 | 规则预测 v3≡0 | 观测 | 吻合 |")
+        add("| --- | ---: | ---: | ---: | ---: | ---: | :-: | :-: | :-: |")
         for row in rows:
-            add(f"| `{row['scenario']}` | {row['p_dn1']:.4f} | {row['max_run_gap1']} | "
+            add(f"| `{row['scenario']}` | {row['achieved_fps']:.4f} | {row['p_dn1']:.4f} | "
+                f"{row['max_run_gap1']} | "
                 f"{row['pos_ge7_gap1']} | {f6(row['untuned_f1'])} | "
                 f"{'是' if row['predicted_zero'] else '否'} | "
                 f"{'是' if row['observed_zero'] else '否'} | "
                 f"{'✅' if row['agrees'] else '❌'} |")
+        add("")
+        add("⚠️ **口径澄清（防止把两个数混为一谈）**：第 90 轮表 2 里 `v3` 未调参的跳帧均值 "
+            "**0.084122** 是 **`s1`~`s4` 四个节奏的均值**（达成 fps 依次为 7.4475 / 4.7848 / 3.5759 / 12.8220），"
+            "**不是**「某个 14 fps 档」的值 ⇒ **按本轮的帧率阶梯，14.1043 fps 档 `v3` 的 F1 是精确 0**。")
         add("")
         add(f"**吻合 {len(agree)}/{len(rows)}**，其中 **{len(zeros)} 个场景 v3 的 F1 精确为 0**"
             f"（{', '.join('`' + r['scenario'] + '`' for r in zeros)}）。")

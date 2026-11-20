@@ -401,6 +401,8 @@ def main() -> int:
         add_value(allowed, value)
     for row in rows:  # the per-row aggregates this script derives from the CSV
         add_value(allowed, row["pos_ge2_gap9"] / row["gaps"] * 100)
+        if row["achieved_fps"] is not None:
+            add_value(allowed, row["achieved_fps"])
         for key in ("p_dn1", "achieved_fps", "untuned_f1", "untuned_far", "opt_f1",
                     "opt_far", "dense_f1", "dense_far", "mean_dn"):
             if row.get(key) is not None:
@@ -491,14 +493,19 @@ def main() -> int:
     add("")
     add("**(a) `max_gap=1` 侧（`v3` 的判据）**")
     add("")
-    add("| 场景 | 来源 | p(Δn=1) | maxRun@1 | #run≥7@1 | v3 F1 | 规则预测 v3≡0 | 观测 | 吻合 |")
-    add("| --- | --- | ---: | ---: | ---: | ---: | :-: | :-: | :-: |")
+    add("| 场景 | 来源 | 达成 fps | p(Δn=1) | maxRun@1 | #run≥7@1 | v3 F1 | 规则预测 v3≡0 | 观测 | 吻合 |")
+    add("| --- | --- | ---: | ---: | ---: | ---: | ---: | :-: | :-: | :-: |")
     for row in rows:
-        add(f"| `{row['scenario']}` | {row['kind']} | {row['p_dn1']:.4f} | "
+        add(f"| `{row['scenario']}` | {row['kind']} | {row['achieved_fps']:.4f} | "
+            f"{row['p_dn1']:.4f} | "
             f"{row['max_run_gap1']} | {row['pos_ge7_gap1']} | {f6(row['untuned_f1'])} | "
             f"{'是' if row['predicted_zero'] else '否'} | "
             f"{'是' if row['observed_zero'] else '否'} | "
             f"{'✅' if row['agrees'] else '❌'} |")
+    add("")
+    add("⚠️ **口径澄清（防止把两个数混为一谈）**：第 90 轮表 2 里 `v3` 未调参的跳帧均值 "
+        "**0.084122** 是 **`s1`~`s4` 四个节奏的均值**（达成 fps 依次为 7.4475 / 4.7848 / 3.5759 / 12.8220），"
+        "**不是**「某个 14 fps 档」的值 ⇒ **按本轮的帧率阶梯，14.1043 fps 档 `v3` 的 F1 是精确 0**。")
     add("")
     add("**(b) `max_gap=9` 侧（`cc2_md10` 的判据）**")
     add("")
@@ -635,12 +642,17 @@ def main() -> int:
          f"（max_gap={v3_max_gap} ⇒ 必须 Δn=1 连 {v3_consec} 次），"
          f"`cc2_md10` = {opt_consec}/{opt_gap_tol}（max_gap={opt_max_gap}）。")
     cadd("")
-    cadd("| 场景 | p(Δn=1) | maxRun@1 | #run≥7@1 | v3 F1 | 吻合 |")
-    cadd("| --- | ---: | ---: | ---: | ---: | :-: |")
+    cadd("| 场景 | 达成 fps | p(Δn=1) | maxRun@1 | #run≥7@1 | v3 F1 | 吻合 |")
+    cadd("| --- | ---: | ---: | ---: | ---: | ---: | :-: |")
     for row in rows:
-        cadd(f"| `{row['scenario']}` | {row['p_dn1']:.4f} | {row['max_run_gap1']} | "
+        cadd(f"| `{row['scenario']}` | {row['achieved_fps']:.4f} | {row['p_dn1']:.4f} | "
+             f"{row['max_run_gap1']} | "
              f"{row['pos_ge7_gap1']} | {f6(row['untuned_f1'])} | "
              f"{'✅' if row['agrees'] else '❌'} |")
+    cadd("")
+    cadd("⚠️ **口径澄清**：第 90 轮表 2 的 `v3` 跳帧均值 **0.084122** 是 `s1`~`s4` **四个节奏的均值**"
+         "（7.4475 / 4.7848 / 3.5759 / 12.8220 fps），**不是**「14 fps 档」的值 ⇒ "
+         "**14.1043 fps 档 `v3` 的 F1 是精确 0**。")
     cadd("")
     cadd("| 场景 | maxRun@9 | #run≥2@9 | 覆盖率 | cc2 F1 |")
     cadd("| --- | ---: | ---: | ---: | ---: |")

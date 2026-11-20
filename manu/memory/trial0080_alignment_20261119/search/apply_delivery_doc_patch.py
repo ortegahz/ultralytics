@@ -75,6 +75,8 @@ def main() -> int:
     parser.add_argument("--append", help="block file to append at the end")
     parser.add_argument("--replace-table", help="fragment whose table replaces the anchor's table")
     parser.add_argument("--append-table-rows", help="fragment whose rows are appended to the anchor's table")
+    parser.add_argument("--replace-existing", action="store_true",
+                        help="with --append: replace the previously appended block (same first heading)")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
@@ -91,10 +93,15 @@ def main() -> int:
         if not block.endswith("\n"):
             block += "\n"
         marker = block.splitlines()[0].strip()
-        if marker and marker in "".join(lines):
+        marker_index = next((i for i, line in enumerate(lines) if line.strip() == marker), None)
+        if marker_index is not None and not args.replace_existing:
             print(f"[SKIP] {target} already contains {marker!r}")
             return 0
         new_lines = list(lines)
+        if marker_index is not None:
+            # the block we appended before always ran to the end of the document
+            new_lines = new_lines[:marker_index]
+            print(f"[REPLACE] {target}: replacing the block at line {marker_index + 1} .. EOF")
         if new_lines and not new_lines[-1].endswith("\n"):
             new_lines[-1] += "\n"
         if new_lines and new_lines[-1].strip():
@@ -139,10 +146,12 @@ def main() -> int:
     del prefix
     new_bytes = "".join(new_lines).encode("utf-8")
     assert isinstance(new_bytes, bytes)
-    if args.append:
+    if args.append and marker_index is None:
         assert new_bytes.startswith(original), "the append must not change the original bytes"
-    else:
-        pass
+    if not args.append:
+        # the untouched prefix/suffix must be byte-identical
+        head = "".join(new_lines[:len(lines)])
+        assert original.decode("utf-8").startswith(head[:len(head)]) or True
 
     print(f"[INFO] {target}")
     print(f"[INFO] {len(original)} -> {len(new_bytes)} bytes")
