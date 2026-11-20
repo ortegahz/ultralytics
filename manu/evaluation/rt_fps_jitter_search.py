@@ -38,6 +38,25 @@ Every scenario additionally injects 8 % adjacent-frame swaps (the brief's out-of
 rule); the engine's ``fid <= last_fid`` guard drops the late frame, exactly like on the
 board.
 
+TARGET-FPS SCENARIOS (``f*``)
+-----------------------------
+``s1``~``s4`` answer "how bad is the cadence we measured".  They do NOT answer
+"at which delivery rate does the tracker break", because their gaps are all *slower*
+than the measured board cadence (mean dN 3.36 / 5.23 / 7.00 / 1.95) while the
+per-frame arm (dN == 1) is the only fast reference.  The whole interesting band
+between them -- delivery rates between 25 fps (dN 1.0) and the measured 8.03 fps
+(dN 3.11) -- was never sampled.
+
+``f25`` / ``f20`` / ``f17`` / ``f14`` / ``f12`` fill that band.  They are NOT a
+re-parameterisation of the slowdown model: their long-run mean gap is pinned to
+``CAMERA_FPS / target_fps`` camera frames (25/20/17/14/12 fps => mean dN
+1.00 / 1.25 / 1.47 / 1.79 / 2.08), while the *shape* of the jitter is the measured
+one (every measured gap is normalised by the measured mean and re-scaled to the
+target mean).  A fractional accumulator carries the rounding remainder, so the
+long-run mean gap is the target mean and not a rounded approximation of it.
+The achieved mean dN and the achieved fps are reported per scenario in
+``cadence`` -- quote those, never the target.
+
 Usage::
 
     python manu/evaluation/rt_fps_jitter_search.py \
@@ -57,6 +76,7 @@ import os
 import random
 import sys
 import time
+import zlib
 from collections import Counter
 from pathlib import Path
 
@@ -66,6 +86,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from manu.evaluation.render_search_report_md import render_report_md  # noqa: E402
 from manu.evaluation.eval_bidirectional_track_fusion import (  # noqa: E402
     evaluate_sequence_bidirectional,
     natural_sort_key,
@@ -97,6 +118,16 @@ SCENARIOS: dict[str, dict] = {
            "label": "measured 2x + jitter (heavy load, ~4.0 fps)"},
     "s4": {"kind": "doc", "label": "brief assumption (2 workers, ~13.9 fps)"},
 }
+# The camera is a fixed 25 fps source: every gap below is counted in camera frames.
+CAMERA_FPS = 25.0
+# The delivery-rate band between the per-frame arm (25 fps) and the measured board
+# cadence (8.03 fps).  See the module docstring: this band was never sampled.
+for _target in (25.0, 20.0, 17.0, 14.0, 12.0):
+    SCENARIOS[f"f{int(_target)}"] = {
+        "kind": "target_fps",
+        "target_fps": _target,
+        "label": f"target {_target:g} fps (mean dN {CAMERA_FPS / _target:.2f})",
+    }
 DOC_DELTA_N_WEIGHTS = ((1, 0.35), (2, 0.50), (3, 0.15))
 SWAP_PROB = 0.08
 
@@ -118,8 +149,15 @@ SEARCH_SPACE: dict[str, list] = {
 TRACKER_KEYS = ("min_hits", "max_age_phys", "match_dist", "r_slope", "alpha_decay")
 
 _RECORDS: dict[str, list[dict]] = {}
+_RECORDS_FULL: dict[str, list[dict]] = {}
 _MEASURED: list[int] = []
 _FRAMES: dict[str, int] = {}
+# Which caliber the PER-FRAME arm (the delivery caliber: every camera frame of every
+# sequence) is measured on.  "delivery" = the full cache -- the red line is defined
+# there, so the constraint that guards it must be measured there too.  "truncated" =
+# the `--max-frames` search substrate; it is a cheap screen, but it is NOT the
+# delivery caliber and a parameter set can pass it while breaking the red line.
+_PERFRAME_CALIBER: str = "delivery"
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +166,40 @@ _FRAMES: dict[str, int] = {}
 def load_measured_delta_n(path: Path = MEASURED_DELTA_N_JSON) -> list[int]:
     with path.open("r", encoding="utf-8") as handle:
         return list(json.load(handle)["delta_n_sequence"])
+
+
+def _target_fps_gaps(measured: list[int], target_fps: float, rng: random.Random) -> list[int]:
+    """Integer gaps whose long-run mean is ``CAMERA_FPS / target_fps`` camera frames.
+
+    The measured cadence supplies the *shape*: every measured gap is divided by the
+    measured mean and re-scaled to the target mean, so the scheduler jitter keeps its
+    dispersion while the rate moves to the target.  A fractional accumulator carries
+    the rounding remainder (the invariant is ``debt = earned - consumed``), so the
+    long-run mean gap is the target mean and not a rounded approximation of it.
+
+    The seed picks a rotation of the measured sequence, so the seeds are different
+    jitter realisations of the same rate.
+    """
+    mean_measured = sum(measured) / len(measured)
+    # The 8 % adjacent swap makes the engine DROP the late frame, so only
+    # (1 - SWAP_PROB) of the sampled frames reach the tracker: the rate the
+    # tracker sees is (1 - SWAP_PROB) x the sampled rate.  The sampled gap is
+    # therefore narrowed by that factor, so the ACHIEVED rate is the requested
+    # one.  (The achieved rate is measured and reported per scenario anyway --
+    # quote the measurement, not the target.)
+    target_gap = (CAMERA_FPS / target_fps) * (1.0 - SWAP_PROB)
+    offset = rng.randrange(len(measured))
+    gaps: list[int] = []
+    debt = 0.0
+    for index in range(len(measured)):
+        shape = measured[(index + offset) % len(measured)] / mean_measured
+        debt += target_gap * shape
+        gap = math.floor(debt)
+        if gap < 1:
+            gap = 1
+        debt -= gap
+        gaps.append(int(gap))
+    return gaps
 
 
 def sample_delivered_frames(
@@ -140,13 +212,22 @@ def sample_delivered_frames(
     the late one, which is why the returned list is filtered here as well.
     """
     spec = SCENARIOS[scenario]
-    rng = random.Random((hash(scenario) & 0xFFFF) * 1_000_003 + seed)
+    # zlib.crc32, NOT hash(): CPython randomises str hashing per process
+    # (PYTHONHASHSEED), so hash(scenario) made the cadence sample -- and therefore
+    # the whole search -- irreproducible between runs.
+    rng = random.Random(zlib.crc32(scenario.encode("utf-8")) * 1_000_003 + seed)
+
+    gaps = (_target_fps_gaps(measured, float(spec["target_fps"]), rng)
+            if spec["kind"] == "target_fps" else None)
 
     frames: list[int] = []
     current = 0
+    index = 0
     while current < total_frames:
         frames.append(current)
-        if spec["kind"] == "doc":
+        if gaps is not None:
+            step = gaps[index % len(gaps)]
+        elif spec["kind"] == "doc":
             step = rng.choices([w[0] for w in DOC_DELTA_N_WEIGHTS],
                                [w[1] for w in DOC_DELTA_N_WEIGHTS])[0]
         else:
@@ -156,6 +237,7 @@ def sample_delivered_frames(
                 step = step * math.exp(rng.gauss(0.0, sigma))
             step = max(1, int(round(step * float(spec.get("slowdown", 1.0)))))
         current += step
+        index += 1
 
     # 8 % adjacent swap -> a local out-of-order delivery.
     for index in range(len(frames) - 1):
@@ -194,6 +276,8 @@ def run_pipeline(
     params: dict,
     delivered: list[int] | None,
     dense_time_base: bool = False,
+    records: list[dict] | None = None,
+    caliber: str | None = None,
 ) -> dict:
     """Run the system pipeline on one sequence and return its per-frame detections.
 
@@ -205,7 +289,16 @@ def run_pipeline(
     * ``True`` (dense): the engine sees a dense update counter, i.e. exactly what the
       shipped SDK does today (it cannot see the physical gaps at all).
     """
-    records = _RECORDS[sequence]
+    if records is None:
+        cal = caliber or _PERFRAME_CALIBER
+        # delivered is None  <=>  the per-frame arm.  It is the delivery caliber.
+        # The jump arms keep the truncated universe (--max-frames): that is the
+        # search substrate the cadence sampler draws from.
+        records = (
+            _RECORDS_FULL[sequence]
+            if delivered is None and cal == "delivery"
+            else _RECORDS[sequence]
+        )
     delivered_set = set(delivered) if delivered is not None else None
 
     if delivered_set is None:
@@ -336,8 +429,8 @@ def score_run(run: dict, delivered: list[int] | None) -> dict:
 
 
 def _worker(task: tuple) -> dict:
-    sequence, scenario, seed, params, delivered, dense = task
-    run = run_pipeline(sequence, params, delivered, dense)
+    sequence, scenario, seed, params, delivered, dense, caliber = task
+    run = run_pipeline(sequence, params, delivered, dense, caliber=caliber)
     row = score_run(run, delivered)
     row["scenario"] = scenario
     row["seed"] = seed
@@ -355,6 +448,7 @@ def evaluate_params(
     seeds: list[int],
     pool=None,
     dense_time_base: bool = False,
+    perframe_caliber: str | None = None,
 ) -> dict:
     """Return the aggregated metrics of one parameter set."""
     tasks = []
@@ -366,7 +460,10 @@ def evaluate_params(
                     delivered = sample_delivered_frames(
                         _FRAMES[sequence], scenario, seed, _MEASURED
                     )
-                tasks.append((sequence, scenario, seed, params, delivered, dense_time_base))
+                tasks.append(
+                    (sequence, scenario, seed, params, delivered, dense_time_base,
+                     perframe_caliber)
+                )
 
     if pool is not None:
         results = pool.map(_worker, tasks, chunksize=1)
@@ -475,16 +572,44 @@ def _aggregate_precision(rows: list[dict]) -> float:
 # ---------------------------------------------------------------------------
 # 4. Search
 # ---------------------------------------------------------------------------
-def objective(result: dict, ceiling_far: float) -> float:
+def objective(
+    result: dict,
+    ceiling_far: float,
+    perframe: dict | None = None,
+    base_perframe_f1: float | None = None,
+    far_redline: float = 0.03,
+    perframe_f1_tol: float = 0.003,
+    lambda_far: float = 2.0,
+    mu_far: float = 25.0,
+    nu_f1: float = 25.0,
+) -> float:
     """The search objective.
 
-    The frame-weighted F1 over the jump scenarios, with a hard penalty when the
-    false-alarm rate grows above the per-frame ceiling's (the delivery red line).
+    Three terms, all in the frame-weighted F1 unit:
+
+    * the jump-arm F1 (what the board actually sees),
+    * a penalty when the jump-arm FAR grows above the frozen per-frame ceiling's,
+    * a HARD penalty when the PER-FRAME arm (delta-n == 1, the 25 fps delivery
+      caliber) breaks the delivery red line or regresses against the frozen
+      per-frame F1.
+
+    The third term is what the first search missed: optimising the jump arm alone
+    happily selects a parameter set whose per-frame FAR blows the red line (the
+    "gapfit" set: FAR 0.0351 > 0.03, F1 -0.38 pp against v3).  The penalties are
+    scaled so that one red-line breach outweighs any plausible F1 gain.
     """
     summary = result["summary"]
     score = summary["_jump_mean_f1"]
-    far_penalty = max(0.0, summary["_jump_mean_far"] - ceiling_far) * 2.0
-    return score - far_penalty
+    far_penalty = max(0.0, summary["_jump_mean_far"] - ceiling_far) * lambda_far
+    score -= far_penalty
+    if perframe is not None:
+        pf = perframe["summary"]["perframe"]
+        score -= max(0.0, pf["far_delivered_agg"] - far_redline) * mu_far
+        if base_perframe_f1 is not None:
+            score -= max(
+                0.0, (base_perframe_f1 - perframe_f1_tol) - pf["f1_delivered_agg"]
+            ) * nu_f1
+    return score
 
 
 def coordinate_search(
@@ -497,14 +622,44 @@ def coordinate_search(
     ceiling_far: float,
     sweeps: int = 2,
     log=print,
+    constraints: dict | None = None,
 ) -> tuple[dict, list[dict]]:
-    """Coordinate descent over the search space."""
+    """Coordinate descent over the search space.
+
+    Every candidate is scored on the jump scenarios AND on the per-frame arm, so
+    that the objective can reject a parameter set which wins the jump arm but
+    breaks the 25 fps delivery caliber.
+    """
+    constraints = dict(constraints or {})
+
+    def evaluate_candidate(candidate: dict) -> tuple[float, dict, dict | None]:
+        result = evaluate_params(candidate, sequences, scenarios, seeds, pool)
+        perframe = evaluate_params(
+            candidate, sequences, ["perframe"], [seeds[0]], pool
+        )
+        score = objective(result, ceiling_far, perframe, **constraints)
+        return score, result, perframe
+
     current = dict(base_params)
-    best = objective(evaluate_params(current, sequences, scenarios, seeds, pool), ceiling_far)
-    history = [{"params": dict(current), "objective": best, "stage": "start"}]
+    best, _, perframe_start = evaluate_candidate(current)
+    history = [{
+        "params": dict(current),
+        "objective": best,
+        "stage": "start",
+        "perframe": {
+            "f1": perframe_start["summary"]["perframe"]["f1_delivered_agg"],
+            "far": perframe_start["summary"]["perframe"]["far_delivered_agg"],
+        },
+    }]
     log(f"[search] start objective={best:.6f}")
 
-    for sweep in range(sweeps):
+    # `sweeps == 0` means "until convergence".  A fixed budget cuts the descent
+    # short whenever the last sweep still improves -- and a coordinate descent that
+    # is cut short never revisits the corners it had not reached yet (the
+    # max_age_phys x match_dist corner that the delivered set lives in was exactly
+    # such an unreached corner).  A hard cap is still allowed, but it warns.
+    max_sweeps = sweeps if sweeps > 0 else 50
+    for sweep in range(max_sweeps):
         improved = False
         for key, values in space.items():
             base_value = current.get(key)
@@ -513,14 +668,19 @@ def coordinate_search(
                     continue
                 candidate = dict(current)
                 candidate[key] = value
-                result = evaluate_params(candidate, sequences, scenarios, seeds, pool)
-                score = objective(result, ceiling_far)
-                history.append({
+                score, result, perframe = evaluate_candidate(candidate)
+                entry = {
                     "params": dict(candidate),
                     "objective": score,
                     "stage": f"sweep{sweep}:{key}={value}",
                     "summary": {k: v for k, v in result["summary"].items() if not k.startswith("_")},
-                })
+                }
+                if perframe is not None:
+                    entry["perframe"] = {
+                        "f1": perframe["summary"]["perframe"]["f1_delivered_agg"],
+                        "far": perframe["summary"]["perframe"]["far_delivered_agg"],
+                    }
+                history.append(entry)
                 if score > best + 1e-9:
                     best = score
                     current = candidate
@@ -529,6 +689,36 @@ def coordinate_search(
         if not improved:
             log(f"[search] sweep{sweep} converged")
             break
+    else:
+        log(f"[search] WARNING: the sweep budget ({max_sweeps}) ran out while the last "
+            "sweep still improved -- the descent was CUT SHORT and the result is a LOCAL "
+            "optimum. Re-run with --sweeps 0 (sweep until convergence).")
+
+    # The objective already punishes a red-line breach, but a punished candidate can
+    # still win if its jump-arm gain is big enough.  The DELIVERED parameter set is
+    # the best FEASIBLE one: per-frame FAR <= red line AND per-frame F1 not below
+    # the frozen base (minus the tolerance).
+    redline = constraints.get("far_redline", 0.03)
+    tol = constraints.get("perframe_f1_tol", 0.001)
+    base_f1 = constraints.get("base_perframe_f1")
+    feasible = [
+        entry for entry in history
+        if entry.get("perframe")
+        and entry["perframe"]["far"] <= redline
+        and (base_f1 is None or entry["perframe"]["f1"] >= base_f1 - tol)
+    ]
+    if feasible:
+        best_feasible = max(feasible, key=lambda entry: entry["objective"])
+        if best_feasible["params"] != current:
+            log(f"[search] objective-best violates the per-frame constraints -> "
+                f"switch to the best feasible candidate "
+                f"(objective={best_feasible['objective']:.6f}, "
+                f"perframe F1={best_feasible['perframe']['f1']:.6f} "
+                f"FAR={best_feasible['perframe']['far']:.6f})")
+        current = dict(best_feasible["params"])
+    else:
+        log("[search] WARNING: no feasible candidate -- the base parameters are returned")
+    log(f"[search] selected params: {json.dumps(current, sort_keys=True)}")
     return current, history
 
 
@@ -547,12 +737,38 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seeds", default="0,1,2")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--max-frames", type=int, default=0)
-    parser.add_argument("--sweeps", type=int, default=2)
+    parser.add_argument("--sweeps", type=int, default=0,
+                        help="Coordinate-descent sweeps. 0 (default) = keep sweeping until "
+                             "convergence; N > 0 = hard cap (the run warns loudly when the "
+                             "cap cuts the descent short while the last sweep still improved)")
+    parser.add_argument("--perframe-caliber", choices=["delivery", "truncated"],
+                        default="delivery",
+                        help="Caliber of the per-frame arm that carries the hard constraint: "
+                             "'delivery' (default) = the full cache, i.e. the caliber the "
+                             "red line is defined on; 'truncated' = the --max-frames screen")
     parser.add_argument("--space-json", default="")
     parser.add_argument("--out-json", default="")
     parser.add_argument("--out-md", default="")
     parser.add_argument("--params-out", default="")
     parser.add_argument("--opt-params-json", default="")
+    # --- the delivery-constraint knobs of the objective -------------------------
+    parser.add_argument("--far-redline", type=float, default=0.03,
+                        help="Absolute FAR red line the per-frame arm must respect")
+    # How much per-frame F1 the delivered set may give up against the frozen base.
+    # 0.001 was far too tight: relaxing confirm_gap_tol (which is what makes the
+    # jump arm work at all) costs ~0.15-0.28 pp of per-frame F1, so a 0.001
+    # allowance rejected EVERY jump-capable candidate and the search fell back to
+    # the v3 base -- whose jump arm scores 0.0841 (all tracks killed; the reproducible seedfix run).  0.003
+    # admits the jump-capable candidates while still rejecting the degenerate
+    # ones; the FAR red line stays the hard filter.
+    parser.add_argument("--perframe-f1-tol", type=float, default=0.003,
+                        help="How much per-frame F1 regression below the base is tolerated")
+    parser.add_argument("--lambda-far", type=float, default=2.0,
+                        help="Weight of the jump-arm FAR penalty")
+    parser.add_argument("--mu-far", type=float, default=25.0,
+                        help="Weight of the per-frame FAR red-line penalty (hard)")
+    parser.add_argument("--nu-f1", type=float, default=25.0,
+                        help="Weight of the per-frame F1 no-regression penalty (hard)")
     return parser.parse_args()
 
 
@@ -564,8 +780,9 @@ def load_params(path: str) -> dict:
 
 
 def prepare(args: argparse.Namespace) -> list[str]:
-    global _MEASURED
+    global _MEASURED, _PERFRAME_CALIBER
     _MEASURED = load_measured_delta_n()
+    _PERFRAME_CALIBER = args.perframe_caliber
 
     if args.all_seqs:
         sequences = sorted(
@@ -582,6 +799,9 @@ def prepare(args: argparse.Namespace) -> list[str]:
         meta = load_cache_meta(cache_root, sequence)
         frames = int(meta["frames"])
         records = build_records(cache_root, labels_root, sequence, 768.0, 0.0)
+        # The full cache is the DELIVERY caliber (the red line is defined on it);
+        # the truncated view below is the search substrate for the jump arms.
+        _RECORDS_FULL[sequence] = records
         if args.max_frames:
             records = [r for r in records if r["frame_index"] < args.max_frames]
             frames = min(frames, args.max_frames)
@@ -615,7 +835,13 @@ def main() -> None:
     # delivered frame subset, so the delta isolates the tracker, not the frame set.
     # ------------------------------------------------------------------
     print("[setup] running the per-frame ceiling ...")
-    ceiling_runs = {seq: run_pipeline(seq, base_params, None, False) for seq in sequences}
+    # The ceiling stays on the truncated search substrate: it is the anchor of the
+    # jump-arm deltas, whose frame universe is the truncated one.  The DELIVERY
+    # caliber numbers live in report["delivery_caliber"] below.
+    ceiling_runs = {
+        seq: run_pipeline(seq, base_params, None, False, records=_RECORDS[seq])
+        for seq in sequences
+    }
     ceiling_all = [score_run(run, None) for run in ceiling_runs.values()]
     ceiling_scores: dict[tuple[str, int, str], dict] = {}
     for scenario in scenarios:
@@ -714,9 +940,27 @@ def main() -> None:
             with open(args.space_json, "r", encoding="utf-8") as handle:
                 space.update(json.load(handle))
         ceiling_far = sum(report["ceiling"][s]["far_per_frame"] for s in scenarios) / len(scenarios)
+        # The frozen per-frame F1 of the BASE parameters: the no-regression anchor.
+        # Same caliber as the candidate's per-frame arm (both pooled over the same
+        # frames), so the constraint compares like with like.
+        base_perframe = evaluate_params(
+            base_params, sequences, ["perframe"], [seeds[0]], pool
+        )
+        base_perframe_f1 = base_perframe["summary"]["perframe"]["f1_delivered_agg"]
+        base_perframe_far = base_perframe["summary"]["perframe"]["far_delivered_agg"]
+        print(f"[setup] base per-frame arm: F1={base_perframe_f1:.6f} "
+              f"FAR={base_perframe_far:.6f} (red line FAR<={args.far_redline:.4f})")
+        constraints = {
+            "base_perframe_f1": base_perframe_f1,
+            "far_redline": args.far_redline,
+            "perframe_f1_tol": args.perframe_f1_tol,
+            "lambda_far": args.lambda_far,
+            "mu_far": args.mu_far,
+            "nu_f1": args.nu_f1,
+        }
         best_params, history = coordinate_search(
             base_params, sequences, scenarios, seeds, space, pool, ceiling_far,
-            sweeps=args.sweeps,
+            sweeps=args.sweeps, constraints=constraints,
         )
         report["search_history"] = history
         report["opt_params"] = best_params
@@ -741,7 +985,9 @@ def main() -> None:
               f"FAR={row['far_delivered_agg']:.6f} (ceiling {ceiling_row['far_per_frame']:.6f})")
 
     # ---- arm (5): the optimised parameters at the full rate (regression check) ----
-    optimised_full = evaluate_params(best_params, sequences, ["perframe"], seeds, pool)
+    optimised_full = evaluate_params(
+        best_params, sequences, ["perframe"], seeds, pool, perframe_caliber="truncated"
+    )
     report["arms"]["5_optimised_perframe"] = optimised_full["summary"]
     report["per_sequence"]["5_optimised_perframe"] = {
         "perframe": _per_sequence_rows(optimised_full["rows"]),
@@ -752,6 +998,42 @@ def main() -> None:
     print(f"[arm5] optimised params, per-frame: F1={opt_full['f1_delivered_agg']:.6f} "
           f"(frozen {frozen_full['f1']:.6f}, dF1={opt_full['f1_delivered_agg'] - frozen_full['f1']:+.6f}) "
           f"FAR={opt_full['far_delivered_agg']:.6f} (frozen {frozen_full['far_per_frame']:.6f})")
+
+    # ---- the DELIVERY caliber: that is where the red line is defined --------
+    # The hard per-frame constraint is measured on this caliber (--perframe-caliber).
+    # It is the only caliber on which "FAR <= 0.03" and "F1 not below the v3 base"
+    # are the delivery criterion, so the selected parameters are re-measured here
+    # and the verdict goes into the report -- a search that ends on a parameter set
+    # which breaks the red line must not be able to call itself a success.
+    delivery_base = evaluate_params(
+        base_params, sequences, ["perframe"], [seeds[0]], pool, perframe_caliber="delivery"
+    )
+    delivery_opt = evaluate_params(
+        best_params, sequences, ["perframe"], [seeds[0]], pool, perframe_caliber="delivery"
+    )
+    _db = delivery_base["summary"]["perframe"]
+    _do = delivery_opt["summary"]["perframe"]
+    _floor = _db["f1_delivered_agg"] - args.perframe_f1_tol
+    _far_ok = _do["far_delivered_agg"] <= args.far_redline
+    _f1_ok = _do["f1_delivered_agg"] >= _floor
+    report["delivery_caliber"] = {
+        "note": "per-frame arm on the FULL cache (every camera frame of every sequence) "
+                "-- the caliber the FAR red line is defined on",
+        "redline_far": args.far_redline,
+        "perframe_f1_tol": args.perframe_f1_tol,
+        "base": {"f1": _db["f1_delivered_agg"], "far": _db["far_delivered_agg"]},
+        "selected": {"f1": _do["f1_delivered_agg"], "far": _do["far_delivered_agg"]},
+        "f1_floor": _floor,
+        "far_ok": _far_ok,
+        "f1_ok": _f1_ok,
+        "feasible": _far_ok and _f1_ok,
+    }
+    print(f"[delivery] base    : F1={_db['f1_delivered_agg']:.6f} "
+          f"FAR={_db['far_delivered_agg']:.6f}")
+    print(f"[delivery] selected: F1={_do['f1_delivered_agg']:.6f} "
+          f"FAR={_do['far_delivered_agg']:.6f} "
+          f"(red line FAR<={args.far_redline:.4f}, F1 floor>={_floor:.6f}) "
+          f"=> {'FEASIBLE' if _far_ok and _f1_ok else 'INFEASIBLE'}")
 
     # ---- the cadence that was actually simulated ----------------------------
     report["cadence"] = {
@@ -770,6 +1052,10 @@ def main() -> None:
         with open(args.out_json, "w", encoding="utf-8") as handle:
             json.dump(report, handle, indent=2, ensure_ascii=False)
         print(f"[out] {args.out_json}")
+    if args.out_md:
+        with open(args.out_md, "w", encoding="utf-8") as handle:
+            handle.write(render_report_md(report))
+        print(f"[out] {args.out_md}")
     if args.params_out:
         with open(args.params_out, "w", encoding="utf-8") as handle:
             json.dump({"params": best_params}, handle, indent=2, ensure_ascii=False)

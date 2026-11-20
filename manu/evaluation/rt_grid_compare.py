@@ -555,18 +555,21 @@ def main() -> int:
         add(f"- `{key}` = {info.get('label', '?')}｜kind=`{info.get('kind', '?')}`｜"
             f"mean Δn=`{cad.get('mean_delta_n', '?')}`｜fps=`{cad.get('fps', '?')}`")
     add("")
-    add("⇒ `2b`（v3 基座 · 未调参）在 s1~s3 上 F1 **精确为 0**（s4 假设情景 0.3365，均值 0.084122）；"
-        "`3`（cc2_md10）均值 0.951398、最差情景 0.938916（s3）。"
-        "**归因（假设，非因果证明）**：v3 的 `confirm_consec=7` 要求连续 7 帧确认，"
-        "而 s1~s3 的 mean Δn 分别为 3.36 / 5.23 / 7.00 —— 帧间隔已接近或超过该门限，"
-        "跟踪器因此无法建立确认 ⇒ **这是「帧不再连续」的结构性后果，不是检测器变差**。")
+    add("⇒ `2b`（v3 基座 · 未调参）在 s1~s3 上 F1 **精确为 0**"
+        "（s4 假设情景 0.3365，均值 0.084122）；"
+        "`3`（cc2_md10）均值 0.951398、最差情景 0.938916（s3）。")
+    add("**归因（假设，非因果证明）**：v3 的 `confirm_consec=7` 要求连续 7 帧确认，"
+        "而 s1~s3 的 mean Δn 分别为 3.36 / 5.23 / 7.00 —— "
+        "帧间隔已接近或超过该门限，跟踪器因此无法建立确认 ⇒ "
+        "**这是「帧不再连续」的结构性后果，不是检测器变差**。")
     add("")
 
     add("## 2b. 口径校准：截断口径 vs 交付口径（搜索器硬约束搬家的量化依据）")
     add("")
     matched = [r for r in calibration_rows if r["detector_matched"]]
     unmatched = [r for r in calibration_rows if not r["detector_matched"]]
-    add("| 短名单臂 | 交付口径臂 | 检测侧同源 | FAR（截断 4000 帧/序）| FAR（交付 165,223 帧）| 偏移 | 截断判定 | 交付判定 |")
+    add("| 短名单臂 | 交付口径臂 | 检测侧同源 | FAR（截断 4000 帧/序）| "
+        "FAR（交付 165,223 帧）| 偏移 | 截断判定 | 交付判定 |")
     add("| --- | --- | :-: | --- | --- | --- | :-: | :-: |")
     for row in calibration_rows:
         add(f"| `{row['shortlist_arm']}` | `{row['delivery_label']}` | "
@@ -588,18 +591,34 @@ def main() -> int:
             add("本批未出现判定相反的臂，但偏移方向一致。")
     if unmatched:
         add("")
-        add(f"⚠️ **异参行 {len(unmatched)} 例**（检测侧与搜索基座不同，**不参与上面的偏移统计**）："
+        plural = "它们的偏移里混着" if len(unmatched) > 1 else "它的偏移里混着"
+        add(f"⚠️ **异参行 {len(unmatched)} 例**"
+            "（检测侧与搜索基座不同，**不参与上面的偏移统计**）："
             + "、".join(f"`{r['delivery_label']}`" for r in unmatched)
-            + " —— 它们的偏移里混着**检测阈值变更**，不能当口径效应引用。")
+            + f" —— {plural}**检测阈值变更**，不能当口径效应引用。")
+    # "unpaired" is a property of the PARAMETER SIGNATURE, not of the label: the same
+    # arm can appear twice (a track_all_* copy AND a shortlist copy) and the second
+    # copy is intentionally not repeated in the table above.
+    shortlist_signatures = {row["signature"] for row in shortlist_rows}
+    unpaired = [row for row in delivery_rows if row["signature"] not in shortlist_signatures]
+    if unpaired:
+        add("")
+        names = "、".join(f"`{row['label']}`" for row in unpaired)
+        add(f"ℹ️ **表 2b 里没有出现的交付臂**：{names} —— "
+            "它在 14 臂短名单网格里**没有同参数签名的对应臂**"
+            "（签名 = 7 个跟踪旋钮的取值，见表 1）⇒ **没有截断口径读数可配**，"
+            "故不入表 2b；**这不是漏测**，是它在短名单网格之外。")
     add("")
-    add("⚠️ **偏移的来源要说准**：两个口径的**指标定义完全相同**，差的是**帧宇宙**"
-        "（截断 = 每序列前 4000 帧；交付 = 全量 165,223 帧）⇒ 偏移是**帧宇宙不同**带来的子集效应，"
-        "**不是**口径定义不同、也不是换算错误；长尾帧的 FAR 是否更高，本轮未单独测量，不作断言。")
+    add("⚠️ **偏移的来源要说准**：两个口径的**指标定义完全相同**，"
+        "差的是**帧宇宙**（截断 = 每序列前 4000 帧；交付 = 全量 165,223 帧）⇒ "
+        "偏移是**帧宇宙不同**带来的子集效应，**不是**口径定义不同、也不是换算错误；"
+        "长尾帧的 FAR 是否更高，本轮未单独测量，不作断言。")
     add("")
 
     add("## 3. 搜索短名单网格（14 臂，取自 shortlist 产物）")
     add("")
-    add("| 臂 | 参数 | 跳帧 mean F1 | 跳帧 worst F1 | 跳帧 mean FAR | 逐帧(截断) F1 | 逐帧(截断) FAR |")
+    add("| 臂 | 参数 | 跳帧 mean F1 | 跳帧 worst F1 | 跳帧 mean FAR | "
+        "逐帧(截断) F1 | 逐帧(截断) FAR |")
     add("| --- | --- | --- | --- | --- | --- | --- |")
     for row in sorted(shortlist_rows, key=lambda r: -(r["jump_physical_mean_f1"] or 0)):
         add(f"| `{row['arm']}` | {row['knobs']} | {row['jump_physical_mean_f1']:.6f} | "
@@ -607,7 +626,8 @@ def main() -> int:
             f"{row['perframe_truncated_f1']:.6f} | {row['perframe_truncated_far']:.6f} |")
     add("")
     add("⚠️ **这张表的「逐帧(截断) FAR」列不能用来判红线**（见表 2b）。"
-        "网格上跳帧分最高的臂在**交付口径**上会破线（见表 1）。**红线判定只看表 1（交付口径）。**")
+        "网格上跳帧分最高的臂在**交付口径**上会破线（见表 1）。"
+        "**红线判定只看表 1（交付口径）。**")
     add("")
 
     add("## 4. 独立复算验收")
@@ -626,8 +646,11 @@ def main() -> int:
         add("")
     add("复算口径：表 1 / 表 2 按**序列级 micro-pool** 复算"
         "（`precision=Σtp/Σ(tp+fp)`、`recall=Σtp/Σgt`、`F1=2PR/(P+R)`、"
-        "跳帧 `FAR=Σfp/Σ(delivered_frames×seeds)`、交付口径 `FAR=Σfp/总帧数`），"
-        "与产物里存的聚合值逐位对账；表 3 与表 2b 的截断列做**自洽性 + 跨文件一致性**检查。")
+        "跳帧 `FAR=Σfp/Σ(delivered_frames×seeds)`）；"
+        "**交付口径的 FAR 取自产物里的 `far_per_frame`，其分母由 `Σfp/far` 反解**，"
+        "并校验为整数、且**所有臂反解出同一个值**（165,223）—— "
+        "分母不是从视频元数据读的（那在服务器上）。"
+        "表 3 与表 2b 的截断列做**自洽性 + 跨文件一致性**检查。")
     add("")
 
     (out_dir / "rt_grid_compare.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
