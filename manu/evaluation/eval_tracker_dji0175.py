@@ -313,7 +313,7 @@ def main():
     # 3. Locate Raw Sequence Directory for true raw infrared frames
     raw_root = Path(args.raw_root)
     if not raw_root.exists():
-        for cand in [Path("/mnt/data/siping/datasets/manu/anti-uav"), Path("/home/manu/mnt/datasets/manu/anti-uav"), Path("/media/manu/1TB-Volume/data/anti-uav")]:
+        for cand in [Path("/mnt/data/siping/datasets/manu/anti-uav"), Path("/home/manu/mnt/datasets/manu/anti-uav"), Path("/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/data/anti-uav")]:
             if cand.exists():
                 raw_root = cand
                 break

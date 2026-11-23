@@ -1,0 +1,64 @@
+{
+  "window": 2500,
+  "sequence": "VIDEO00007_19700101_001324",
+  "cands": {
+    "all": {
+      "tp": 1954,
+      "fp": 24539,
+      "fn": 466,
+      "fn_absent": 466,
+      "fn_compete": 0,
+      "det": 26493,
+      "gt": 2420,
+      "recall": 0.8074380165289257,
+      "precision": 0.07375533159702563,
+      "f1": 0.1351641130287414,
+      "far_per_frame": 9.8156
+    },
+    "delivered": {
+      "tp": 1346,
+      "fp": 8811,
+      "fn": 46,
+      "fn_absent": 46,
+      "fn_compete": 0,
+      "det": 10157,
+      "gt": 1392,
+      "recall": 0.9669540229885057,
+      "precision": 0.1325194447179285,
+      "f1": 0.2330937743527578,
+      "far_per_frame": 6.307086614173229
+    },
+    "n_frames_with_output": 2500,
+    "delivered_frames": 1397
+  },
+  "fused": {
+    "all": {
+      "tp": 1343,
+      "fp": 958,
+      "fn": 1077,
+      "fn_absent": 1077,
+      "fn_compete": 0,
+      "det": 2301,
+      "gt": 2420,
+      "recall": 0.5549586776859504,
+      "precision": 0.5836592785745328,
+      "f1": 0.5689472569370897,
+      "far_per_frame": 0.3832
+    },
+    "delivered": {
+      "tp": 1343,
+      "fp": 958,
+      "fn": 49,
+      "fn_absent": 49,
+      "fn_compete": 0,
+      "det": 2301,
+      "gt": 1392,
+      "recall": 0.9647988505747126,
+      "precision": 0.5836592785745328,
+      "f1": 0.7273219604657459,
+      "far_per_frame": 0.6857551896921976
+    },
+    "n_frames_with_output": 1397,
+    "delivered_frames": 1397
+  }
+}

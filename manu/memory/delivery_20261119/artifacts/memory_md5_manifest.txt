@@ -1,0 +1,25 @@
+# memory md5 manifest -- generated 2026-11-20 14:02 (python3 artifacts/regen_manifest.py)
+#
+# whole-file md5 of the 6 memory copies -- INFORMATIONAL: the concurrent line
+# appends its own sections to these files, so a difference here is expected
+# and does not mean our delivery broke.
+# usage: md5sum -c <(grep -v '^#' this_file)  (from the repo root)
+# NOTE: regenerate after ANY memory edit; HOST_BACKFILL.sh / HOST_PUSH.sh verify against this file.
+MISSING                           memory.md
+MISSING                           memory_compact.md
+e85b74d8f44223a44b114ca3e41514f7  memory/memory.md
+02dcb042aa41a7834eb170a278ef02a0  memory/memory_compact.md
+e85b74d8f44223a44b114ca3e41514f7  manu/memory/memory.md
+02dcb042aa41a7834eb170a278ef02a0  manu/memory/memory_compact.md
+#
+# --- §257 十八 block md5 inside each copy -- THE GATE (this line owns it;
+#     the concurrent line's §258/§259/§260 never touch it) ---
+# sec  memory.md                        = MISSING  (DRIFT)
+# sec  memory_compact.md                = MISSING  (DRIFT)
+# sec  memory/memory.md                 = 40fdba635e258723d799c79e29e69c7e  (ok)
+# sec  memory/memory_compact.md         = a5793d2f839835014caaad38680c46be  (ok)
+# sec  manu/memory/memory.md            = 40fdba635e258723d799c79e29e69c7e  (ok)
+# sec  manu/memory/memory_compact.md    = a5793d2f839835014caaad38680c46be  (ok)
+# --- §257 十八 section bodies (the two canonical sources of that section) ---
+# full    md5(body) = 40fdba635e258723d799c79e29e69c7e   memory_section_257_18.md
+# compact md5(body) = a5793d2f839835014caaad38680c46be   memory_section_257_18_compact.md

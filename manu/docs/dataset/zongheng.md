@@ -212,7 +212,7 @@ web 标注器既可以扫 mp4（`VideoSequence`），也可以扫帧目录（`Im
 ```bash
 python -m manu.annotate.server \
   --root /mnt/data/siping/datasets/manu/纵横AI数据采集_mp4 \
-  --workspace /home/manu/mnt/pycharm_project_10ae9e2e/manu/annotate_workspace \
+  --workspace /home/manu/mnt/pycharm_project_a7d966e6/manu/annotate_workspace \
   --port 8777
 ```
 
@@ -226,7 +226,7 @@ python -m manu.annotate.server \
 ⇒ 推荐：
 ```bash
 cp -r /mnt/data/siping/datasets/manu/纵横AI数据采集_preannot_rc2/* \
-      /home/manu/mnt/pycharm_project_10ae9e2e/manu/annotate_workspace/prelabels/
+      /home/manu/mnt/pycharm_project_a7d966e6/manu/annotate_workspace/prelabels/
 ```
 （workspace 必须在 SSHFS 内，服务器才看得到。）
 

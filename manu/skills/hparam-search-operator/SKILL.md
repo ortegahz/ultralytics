@@ -53,17 +53,17 @@ starting.
 
 ### 2. Sync the code, then prove it with md5
 
-Local is the only place to edit (`/media/manu/1TB-Volume/workspace/ultralytics`); the SSHFS mirror
-`/home/manu/mnt/pycharm_project_10ae9e2e` writes straight through to the server
+Local is the only place to edit (`/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics`); the SSHFS mirror
+`/home/manu/mnt/pycharm_project_a7d966e6` writes straight through to the server
 `/tmp/pycharm_project_10ae9e2e`. Synchronisation is provable only by a three-side md5 comparison.
 
 ```bash
 # 【本地】
-md5sum /media/manu/1TB-Volume/workspace/ultralytics/manu/training/optuna_mix_ratio_search.py \
-       /media/manu/1TB-Volume/workspace/ultralytics/manu/training/enqueue_control_trials.py
+md5sum /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/training/optuna_mix_ratio_search.py \
+       /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/training/enqueue_control_trials.py
 # 【本地】SSHFS 镜像
-md5sum /home/manu/mnt/pycharm_project_10ae9e2e/manu/training/optuna_mix_ratio_search.py \
-       /home/manu/mnt/pycharm_project_10ae9e2e/manu/training/enqueue_control_trials.py
+md5sum /home/manu/mnt/pycharm_project_a7d966e6/manu/training/optuna_mix_ratio_search.py \
+       /home/manu/mnt/pycharm_project_a7d966e6/manu/training/enqueue_control_trials.py
 # 【服务器】
 ssh -p 32222 huangzhe@192.168.99.40 "md5sum /tmp/pycharm_project_10ae9e2e/manu/training/optuna_mix_ratio_search.py /tmp/pycharm_project_10ae9e2e/manu/training/enqueue_control_trials.py"
 ```

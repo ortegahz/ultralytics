@@ -102,6 +102,9 @@ int main(int argc, char** argv) {
   int reorder_window = 0;
   int fusion = 1;      // 0 = 不打开时空融合（A/B 对照）
   double thr = 0.02;   // 与 cands400.tsv 相同的检测阈值
+  // 跨尺度候选合并半径（px）：交付值 20（16~24 为可用带）。
+  // 0 = 关（= 2026-11-20 之前的 SDK 行为：FAR 0.3832，破 0.03 红线 12.8 倍）。
+  double cand_dedup_radius = 20.0;
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
     const bool nx = (i + 1 < argc);
@@ -117,10 +120,12 @@ int main(int argc, char** argv) {
     else if (a == "--fusion" && nx) fusion = atoi(argv[++i]);
     else if (a == "--thr" && nx) thr = atof(argv[++i]);
     else if (a == "--ids" && nx) ids_path = argv[++i];
+    else if (a == "--cand-dedup-radius" && nx) cand_dedup_radius = atof(argv[++i]);
     else {
       fprintf(stderr,
               "用法: %s [--dir D] [--model M] [--kernel-dir K] [--seq S] [--out-prefix P]\n"
               "          [--frames N] [--npu-workers 1] [--tag-mask 7] [--reorder-window 0] [--thr T]\n"
+              "          [--cand-dedup-radius 20] 跨尺度候选合并半径(px)，0=关\n"
               "          [--ids FILE]   每帧的 client_frame_id（物理帧号），模拟跳帧；\n"
               "                      不给时用稠密的 0,1,2,...（与 cands400.tsv 口径一致）\n",
               argv[0]);
@@ -169,10 +174,32 @@ int main(int argc, char** argv) {
   if (fusion) {
     MosaicTrackFusionConfig tf;
     mosaic_pipeline_track_fusion_defaults(&tf);
+    // 🔴 交付工作点（trial_0080 + v3 · cc2_md10）：**显式**覆盖这 9 个字段，
+    //    不依赖 .so 里编译进去的默认值 —— 旧默认组（match_dist 16 / gap_tol 6 /
+    //    r_slope 3.5 / max_age_phys 10）在全口径上 FAR 0.0352，破 0.03 红线。
+    //    参数档 manu/evaluation/system_sota_longquan_trial0080_delivery_v3_optgapfit_params.json
+    //    （params_md5 a1157e013ebb496731be805c72c95dd8）。
+    tf.th_base        = 0.48;   // 天空区高置信阈值
+    tf.th_salvage     = 0.06;   // 天空区弱脉冲打捞阈值
+    tf.th_ground      = 0.26;   // 地面区阈值
+    tf.sky_ratio      = 1.0;    // 天地分界 = img_h * sky_ratio
+    tf.confirm_consec = 2;      // 连续命中几次算确认
+    tf.confirm_gap_tol= 8;      // 连续判定容忍的额外物理帧间隔
+    tf.r_slope        = 5.0;    // 每多跳 1 个物理帧，关联门限放宽的像素数
+    tf.match_dist     = 10.0;   // 关联基础门限
+    tf.max_age_phys   = -1;     // 交付组「不设」⇒ <0 = legacy（写 10 会破 FAR 红线）
     tf.tag_mask = tag_mask;
     tf.reorder_window = reorder_window;
     if (mosaic_pipeline_set_track_fusion(pipe, &tf) != 0) {
       fprintf(stderr, "[FATAL] 打开时空融合失败\n");
+      return 1;
+    }
+    // 🔴 跨尺度候选合并：服务器在喂融合前把三个尺度的峰合并成一个候选
+    //    （merge_scales(dedup_radius)），板端缺这一步 ⇒ 一个目标裂成多条航迹
+    //    ⇒ FAR 0.3832（红线 12.8 倍）。交付值 20 px（16~24 为可用带），
+    //    **不能**照搬服务器的 768 px（那会让每帧只剩 1 个候选、丢掉次要目标）。
+    if (mosaic_pipeline_set_candidate_dedup_radius(pipe, cand_dedup_radius) != 0) {
+      fprintf(stderr, "[FATAL] 设置跨尺度候选合并半径失败\n");
       return 1;
     }
   } else {

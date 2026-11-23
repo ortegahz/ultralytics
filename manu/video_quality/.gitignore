@@ -1,0 +1,36 @@
+# 派生数据：可由原始视频 + manu/video_quality/vq_*.py 重新生成，不入库。
+out/
+__pycache__/
+# 第八节「任意点选可跟踪性」的派生数据：36 MB / 3.9 MB，可由 vq_grid*.py 整批重生成。
+grid_out/
+grid_lk_out/
+
+# report/ 下的中间表：体积大且可再生成；报告正文、图表与证据图要入库。
+# 根 .gitignore 有 `*.png`，但报告正文用相对路径引用这些图，不入库会导致图裂。
+!report/*.png
+report/windows.csv
+report/grid_windows.csv
+report/comparison.json
+report/stats.json
+report/tail_compare.json
+report/tail_slices.csv
+report/metrics_table.csv
+
+# 第九节「点选跟踪（SOT）联动」的派生数据：可由 vq_sot_link*.py 整批重生成。
+sot_out/
+# 逐秒大表（画质 26 列 + 跟踪 16 列），体积大且可再生成；逐片/判别力/合格线小表入库。
+report/sot_windows.csv
+
+# 短时程目录里的逐秒大表 = report/sot_windows.csv 的逐字节副本（md5 c00aa11f15c393f599cc20e0ea33dd36）。
+# 上面的 report/sot_windows.csv 带斜杠锚定到目录根、匹配不到子目录 ⇒ 这里补漏 8.4 MB。
+report/sot_short/sot_windows.csv
+
+# 退化实验的逐 1s 窗口大表（degrade_windows 4730 行 / degrade_lock 3938 行）：
+# 可由 vq_degrade_knee.py 整批重生成（重跑命令见 report/REPORT_视频质量指标.md 第 5 步「5-1~5-8」）；
+# 同批的结论级小表（degrade_curve / knee_thresholds / knee_blindtest / knee_combos）仍入库。
+report/degrade_windows.csv
+report/degrade_lock.csv
+
+# 注：本文件目前**未被 git 跟踪**。根 .gitignore 已同步一份等价规则
+#   （含 `!manu/video_quality/report/*.png` 的反向安全网），故即便本文件漏提交，clone 后行为仍自洽。
+#   但仍建议把本文件一并 git add，让嵌套规则随仓库分发。

@@ -16,7 +16,7 @@
 set -uo pipefail
 
 LIMIT="${1:-600}"
-NPU="/media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu"
+NPU="/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/pipeline/npu"
 LOCAL_NFS="/run/media/manu/SSD960-LOCAL/nfs"
 STAGE="$LOCAL_NFS/post_measure"
 REMOTE="/mnt/manu/post_measure"

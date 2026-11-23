@@ -1,0 +1,459 @@
+{
+  "generated_by": "manu/evaluation/artifact_audit_20261120.py",
+  "repo_source_of_truth": "/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/pipeline/npu",
+  "summary": {
+    "trees": 5,
+    "binaries_checked": 15,
+    "binaries_with_merge": 0,
+    "binaries_without_merge": 15,
+    "any_artifact_carries_merge": false,
+    "stale_source_slots": 2,
+    "stale_source_slots_detail": [
+      "staging:ultralytics/manu/pipeline/npu/build:mosaic_track_dump.cpp",
+      "staging:ultralytics/manu/pipeline/npu/build:mosaic_cadence_probe.cpp"
+    ],
+    "manifest_inconsistent_trees": [
+      "staging:ultralytics/manu/pipeline/npu/build",
+      "mirror:rk3588_app_base/mosaic_sdk"
+    ]
+  },
+  "trees": [
+    {
+      "label": "delivery:mosaic_sdk_20261120",
+      "path": "/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/build/mosaic_sdk_20261120",
+      "exists": true,
+      "binaries": {
+        "out/libmosaic_pipeline.so": {
+          "exists": true,
+          "md5": "e9b37af077cf1033be6e206fbd5407e4",
+          "bytes": 536704,
+          "mtime": 1795136825.9740567,
+          "has_api_symbol": false,
+          "has_cpp_symbol": false,
+          "has_cli_flag": false,
+          "has_log_marker": false,
+          "contains_merge": false
+        },
+        "out/mosaic_track_dump": {
+          "exists": true,
+          "md5": "5a854a07dcfb2d386eb033ff881f42fd",
+          "bytes": 35080,
+          "mtime": 1795154518.9873247,
+          "has_api_symbol": false,
+          "has_cpp_symbol": false,
+          "has_cli_flag": false,
+          "has_log_marker": false,
+          "contains_merge": false
+        },
+        "out/mosaic_cadence_probe": {
+          "exists": true,
+          "md5": "3fe28c17ea8d7dc8d378f7a8e308a90a",
+          "bytes": 56536,
+          "mtime": 1795154518.9853249,
+          "has_api_symbol": false,
+          "has_cpp_symbol": false,
+          "has_cli_flag": false,
+          "has_log_marker": false,
+          "contains_merge": false
+        }
+      },
+      "sources": {
+        "mosaic_track_fusion.cpp": {
+          "shipped_md5": "7691fd3888ec301c87856882f6368fb5",
+          "repo_md5": "7691fd3888ec301c87856882f6368fb5",
+          "status": "match",
+          "matches_repo": true
+        },
+        "mosaic_track_fusion.h": {
+          "shipped_md5": "b3f7d9b27e103d0567d831d036a17776",
+          "repo_md5": "b3f7d9b27e103d0567d831d036a17776",
+          "status": "match",
+          "matches_repo": true
+        },
+        "mosaic_pipeline.cpp": {
+          "shipped_md5": "95cfea757ad27799c97f1f55513a4591",
+          "repo_md5": "95cfea757ad27799c97f1f55513a4591",
+          "status": "match",
+          "matches_repo": true
+        },
+        "mosaic_pipeline.h": {
+          "shipped_md5": "98403eaaa0de90c01a2f8160c9b4c4b4",
+          "repo_md5": "98403eaaa0de90c01a2f8160c9b4c4b4",
+          "status": "match",
+          "matches_repo": true
+        },
+        "mosaic_track_dump.cpp": {
+          "shipped_md5": "7f8e9038844c3467addbab9097fc428e",
+          "repo_md5": "7f8e9038844c3467addbab9097fc428e",
+          "status": "match",
+          "matches_repo": true
+        },
+        "mosaic_cadence_probe.cpp": {
+          "shipped_md5": "f7040045a78e0f73fd7e1decc32d7024",
+          "repo_md5": "f7040045a78e0f73fd7e1decc32d7024",
+          "status": "match",
+          "matches_repo": true
+        }
+      },
+      "manifest": {
+        "path": "/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/build/mosaic_sdk_20261120/MANIFEST.md",
+        "md5": "0d026bdce61f8d7011e9051bfcb91752",
+        "rows": 69,
+        "mismatched_rows": [],
+        "consistent": true
+      }
+    },
+    {
+      "label": "delivery:mosaic_sdk_20261120_ocv48",
+      "path": "/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/build/mosaic_sdk_20261120_ocv48",
+      "exists": true,
+      "binaries": {
+        "out/libmosaic_pipeline.so": {
+          "exists": true,
+          "md5": "b383291e31ccbd71c46430ca69869360",
+          "bytes": 541128,
+          "mtime": 1795154764.0650642,
+          "has_api_symbol": false,
+          "has_cpp_symbol": false,
+          "has_cli_flag": false,
+          "has_log_marker": false,
+          "contains_merge": false
+        },
+        "out/mosaic_track_dump": {
+          "exists": true,
+          "md5": "5a854a07dcfb2d386eb033ff881f42fd",
+          "bytes": 35080,
+          "mtime": 1795154519.0083246,
+          "has_api_symbol": false,
+          "has_cpp_symbol": false,
+          "has_cli_flag": false,
+          "has_log_marker": false,
+          "contains_merge": false
+        },
+        "out/mosaic_cadence_probe": {
+          "exists": true,
+          "md5": "3fe28c17ea8d7dc8d378f7a8e308a90a",
+          "bytes": 56536,
+          "mtime": 1795154519.0063245,
+          "has_api_symbol": false,
+          "has_cpp_symbol": false,
+          "has_cli_flag": false,
+          "has_log_marker": false,
+          "contains_merge": false
+        }
+      },
+      "sources": {
+        "mosaic_track_fusion.cpp": {
+          "shipped_md5": "7691fd3888ec301c87856882f6368fb5",
+          "repo_md5": "7691fd3888ec301c87856882f6368fb5",
+          "status": "match",
+          "matches_repo": true
+        },
+        "mosaic_track_fusion.h": {
+          "shipped_md5": "b3f7d9b27e103d0567d831d036a17776",
+          "repo_md5": "b3f7d9b27e103d0567d831d036a17776",
+          "status": "match",
+          "matches_repo": true
+        },
+        "mosaic_pipeline.cpp": {
+          "shipped_md5": "95cfea757ad27799c97f1f55513a4591",
+          "repo_md5": "95cfea757ad27799c97f1f55513a4591",
+          "status": "match",
+          "matches_repo": true
+        },
+        "mosaic_pipeline.h": {
+          "shipped_md5": "98403eaaa0de90c01a2f8160c9b4c4b4",
+          "repo_md5": "98403eaaa0de90c01a2f8160c9b4c4b4",
+          "status": "match",
+          "matches_repo": true
+        },
+        "mosaic_track_dump.cpp": {
+          "shipped_md5": "7f8e9038844c3467addbab9097fc428e",
+          "repo_md5": "7f8e9038844c3467addbab9097fc428e",
+          "status": "match",
+          "matches_repo": true
+        },
+        "mosaic_cadence_probe.cpp": {
+          "shipped_md5": "f7040045a78e0f73fd7e1decc32d7024",
+          "repo_md5": "f7040045a78e0f73fd7e1decc32d7024",
+          "status": "match",
+          "matches_repo": true
+        }
+      },
+      "manifest": {
+        "path": "/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/build/mosaic_sdk_20261120_ocv48/MANIFEST.md",
+        "md5": "134663ad8683d8efac25bb0ec4af6a5e",
+        "rows": 69,
+        "mismatched_rows": [],
+        "consistent": true
+      }
+    },
+    {
+      "label": "delivery:mosaic_sdk_20261120_ocv42",
+      "path": "/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/build/mosaic_sdk_20261120_ocv42",
+      "exists": true,
+      "binaries": {
+        "out/libmosaic_pipeline.so": {
+          "exists": true,
+          "md5": "6baf4bc5f155f8272c4f2938125ee62e",
+          "bytes": 557480,
+          "mtime": 1795137183.4511893,
+          "has_api_symbol": false,
+          "has_cpp_symbol": false,
+          "has_cli_flag": false,
+          "has_log_marker": false,
+          "contains_merge": false
+        },
+        "out/mosaic_track_dump": {
+          "exists": true,
+          "md5": "5a854a07dcfb2d386eb033ff881f42fd",
+          "bytes": 35080,
+          "mtime": 1795154519.0143247,
+          "has_api_symbol": false,
+          "has_cpp_symbol": false,
+          "has_cli_flag": false,
+          "has_log_marker": false,
+          "contains_merge": false
+        },
+        "out/mosaic_cadence_probe": {
+          "exists": true,
+          "md5": "3fe28c17ea8d7dc8d378f7a8e308a90a",
+          "bytes": 56536,
+          "mtime": 1795154519.0123246,
+          "has_api_symbol": false,
+          "has_cpp_symbol": false,
+          "has_cli_flag": false,
+          "has_log_marker": false,
+          "contains_merge": false
+        }
+      },
+      "sources": {
+        "mosaic_track_fusion.cpp": {
+          "shipped_md5": "7691fd3888ec301c87856882f6368fb5",
+          "repo_md5": "7691fd3888ec301c87856882f6368fb5",
+          "status": "match",
+          "matches_repo": true
+        },
+        "mosaic_track_fusion.h": {
+          "shipped_md5": "b3f7d9b27e103d0567d831d036a17776",
+          "repo_md5": "b3f7d9b27e103d0567d831d036a17776",
+          "status": "match",
+          "matches_repo": true
+        },
+        "mosaic_pipeline.cpp": {
+          "shipped_md5": "95cfea757ad27799c97f1f55513a4591",
+          "repo_md5": "95cfea757ad27799c97f1f55513a4591",
+          "status": "match",
+          "matches_repo": true
+        },
+        "mosaic_pipeline.h": {
+          "shipped_md5": "98403eaaa0de90c01a2f8160c9b4c4b4",
+          "repo_md5": "98403eaaa0de90c01a2f8160c9b4c4b4",
+          "status": "match",
+          "matches_repo": true
+        },
+        "mosaic_track_dump.cpp": {
+          "shipped_md5": "7f8e9038844c3467addbab9097fc428e",
+          "repo_md5": "7f8e9038844c3467addbab9097fc428e",
+          "status": "match",
+          "matches_repo": true
+        },
+        "mosaic_cadence_probe.cpp": {
+          "shipped_md5": "f7040045a78e0f73fd7e1decc32d7024",
+          "repo_md5": "f7040045a78e0f73fd7e1decc32d7024",
+          "status": "match",
+          "matches_repo": true
+        }
+      },
+      "manifest": {
+        "path": "/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/build/mosaic_sdk_20261120_ocv42/MANIFEST.md",
+        "md5": "1e139c4b8c8aabe977f2a6ee20c8bbd4",
+        "rows": 69,
+        "mismatched_rows": [],
+        "consistent": true
+      }
+    },
+    {
+      "label": "staging:ultralytics/manu/pipeline/npu/build",
+      "path": "/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/pipeline/npu/build",
+      "exists": true,
+      "binaries": {
+        "out/libmosaic_pipeline.so": {
+          "exists": true,
+          "md5": "e9b37af077cf1033be6e206fbd5407e4",
+          "bytes": 536704,
+          "mtime": 1795136825.9740567,
+          "has_api_symbol": false,
+          "has_cpp_symbol": false,
+          "has_cli_flag": false,
+          "has_log_marker": false,
+          "contains_merge": false
+        },
+        "out/mosaic_track_dump": {
+          "exists": true,
+          "md5": "5a854a07dcfb2d386eb033ff881f42fd",
+          "bytes": 35080,
+          "mtime": 1795154519.0273244,
+          "has_api_symbol": false,
+          "has_cpp_symbol": false,
+          "has_cli_flag": false,
+          "has_log_marker": false,
+          "contains_merge": false
+        },
+        "out/mosaic_cadence_probe": {
+          "exists": true,
+          "md5": "3fe28c17ea8d7dc8d378f7a8e308a90a",
+          "bytes": 56536,
+          "mtime": 1795154519.0253246,
+          "has_api_symbol": false,
+          "has_cpp_symbol": false,
+          "has_cli_flag": false,
+          "has_log_marker": false,
+          "contains_merge": false
+        }
+      },
+      "sources": {
+        "mosaic_track_fusion.cpp": {
+          "shipped_md5": "7691fd3888ec301c87856882f6368fb5",
+          "repo_md5": "7691fd3888ec301c87856882f6368fb5",
+          "status": "match",
+          "matches_repo": true
+        },
+        "mosaic_track_fusion.h": {
+          "shipped_md5": "b3f7d9b27e103d0567d831d036a17776",
+          "repo_md5": "b3f7d9b27e103d0567d831d036a17776",
+          "status": "match",
+          "matches_repo": true
+        },
+        "mosaic_pipeline.cpp": {
+          "shipped_md5": "95cfea757ad27799c97f1f55513a4591",
+          "repo_md5": "95cfea757ad27799c97f1f55513a4591",
+          "status": "match",
+          "matches_repo": true
+        },
+        "mosaic_pipeline.h": {
+          "shipped_md5": "98403eaaa0de90c01a2f8160c9b4c4b4",
+          "repo_md5": "98403eaaa0de90c01a2f8160c9b4c4b4",
+          "status": "match",
+          "matches_repo": true
+        },
+        "mosaic_track_dump.cpp": {
+          "shipped_md5": "",
+          "repo_md5": "7f8e9038844c3467addbab9097fc428e",
+          "status": "missing",
+          "matches_repo": false
+        },
+        "mosaic_cadence_probe.cpp": {
+          "shipped_md5": "",
+          "repo_md5": "f7040045a78e0f73fd7e1decc32d7024",
+          "status": "missing",
+          "matches_repo": false
+        }
+      },
+      "manifest": {
+        "path": "/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/pipeline/npu/build/MANIFEST.md",
+        "md5": "339a24176d8f2e7c7b5899e1258105fe",
+        "rows": 67,
+        "mismatched_rows": [
+          "README.md",
+          "build_demo.sh",
+          "build_lib.sh",
+          "src/npu/mosaic_pipeline.cpp",
+          "src/npu/mosaic_pipeline.h",
+          "src/npu/mosaic_track_fusion.cpp",
+          "src/npu/mosaic_track_fusion.h"
+        ],
+        "consistent": false
+      }
+    },
+    {
+      "label": "mirror:rk3588_app_base/mosaic_sdk",
+      "path": "/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/rk3588_app_base/mosaic_sdk",
+      "exists": true,
+      "binaries": {
+        "out/libmosaic_pipeline.so": {
+          "exists": true,
+          "md5": "e9b37af077cf1033be6e206fbd5407e4",
+          "bytes": 536704,
+          "mtime": 1795136825.9740567,
+          "has_api_symbol": false,
+          "has_cpp_symbol": false,
+          "has_cli_flag": false,
+          "has_log_marker": false,
+          "contains_merge": false
+        },
+        "out/mosaic_track_dump": {
+          "exists": true,
+          "md5": "5a854a07dcfb2d386eb033ff881f42fd",
+          "bytes": 35080,
+          "mtime": 1795154519.0213244,
+          "has_api_symbol": false,
+          "has_cpp_symbol": false,
+          "has_cli_flag": false,
+          "has_log_marker": false,
+          "contains_merge": false
+        },
+        "out/mosaic_cadence_probe": {
+          "exists": true,
+          "md5": "3fe28c17ea8d7dc8d378f7a8e308a90a",
+          "bytes": 56536,
+          "mtime": 1795154519.0183246,
+          "has_api_symbol": false,
+          "has_cpp_symbol": false,
+          "has_cli_flag": false,
+          "has_log_marker": false,
+          "contains_merge": false
+        }
+      },
+      "sources": {
+        "mosaic_track_fusion.cpp": {
+          "shipped_md5": "7691fd3888ec301c87856882f6368fb5",
+          "repo_md5": "7691fd3888ec301c87856882f6368fb5",
+          "status": "match",
+          "matches_repo": true
+        },
+        "mosaic_track_fusion.h": {
+          "shipped_md5": "b3f7d9b27e103d0567d831d036a17776",
+          "repo_md5": "b3f7d9b27e103d0567d831d036a17776",
+          "status": "match",
+          "matches_repo": true
+        },
+        "mosaic_pipeline.cpp": {
+          "shipped_md5": "95cfea757ad27799c97f1f55513a4591",
+          "repo_md5": "95cfea757ad27799c97f1f55513a4591",
+          "status": "match",
+          "matches_repo": true
+        },
+        "mosaic_pipeline.h": {
+          "shipped_md5": "98403eaaa0de90c01a2f8160c9b4c4b4",
+          "repo_md5": "98403eaaa0de90c01a2f8160c9b4c4b4",
+          "status": "match",
+          "matches_repo": true
+        },
+        "mosaic_track_dump.cpp": {
+          "shipped_md5": "7f8e9038844c3467addbab9097fc428e",
+          "repo_md5": "7f8e9038844c3467addbab9097fc428e",
+          "status": "match",
+          "matches_repo": true
+        },
+        "mosaic_cadence_probe.cpp": {
+          "shipped_md5": "f7040045a78e0f73fd7e1decc32d7024",
+          "repo_md5": "f7040045a78e0f73fd7e1decc32d7024",
+          "status": "match",
+          "matches_repo": true
+        }
+      },
+      "manifest": {
+        "path": "/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/rk3588_app_base/mosaic_sdk/MANIFEST.md",
+        "md5": "6c7d5fb4f958807dc2311fd6875e978c",
+        "rows": 67,
+        "mismatched_rows": [
+          "build_lib.sh",
+          "fetch_board_libs.sh",
+          "models/p0_off_A_none.rknn"
+        ],
+        "consistent": false
+      }
+    }
+  ]
+}

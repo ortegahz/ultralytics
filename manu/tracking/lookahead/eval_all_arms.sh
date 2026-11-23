@@ -33,13 +33,17 @@ REPO="${REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 cd "$REPO"
 export PYTHONPATH="$REPO${PYTHONPATH:+:$PYTHONPATH}"
 
-CACHE="${CACHE:-/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/ms_cache}"
+CACHE="${CACHE:-/home/manu/mnt/pycharm_project_a7d966e6/runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/ms_cache}"
 GT="${GT:-/home/manu/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010}"
 FRAMES="${FRAMES:-/home/manu/mnt/data/siping/datasets/manu/龙泉山/frames_ir_jpg}"
-FRAMES_CACHE="${FRAMES_CACHE:-runs/lookahead/frame_cache}"
-PY="${PY:-/media/manu/1TB-Volume/workspace/.conda-envs/lqcache/bin/python}"
+# 产物落点（铁律二十五）：帧缓存与评测输出都是「代码产生的中间产物」，一律出仓库目录。
+# 默认与上面的 CACHE 同根（SSHFS 映射 = 服务器侧 /mnt/data/siping/runs/ 的产品区）；
+# 本机跑时用 PRODUCT_ROOT 覆盖到 workspace/cache/ultralytics/。
+PRODUCT_ROOT="${PRODUCT_ROOT:-/home/manu/mnt/pycharm_project_a7d966e6/runs/lookahead}"
+FRAMES_CACHE="${FRAMES_CACHE:-${PRODUCT_ROOT}/frame_cache}"
+PY="${PY:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/.conda-envs/lqcache/bin/python}"
 PARAMS="${PARAMS:-manu/evaluation/system_sota_longquan_trial0080_delivery_v3_params.json}"
-OUT="${OUT:-runs/lookahead/final}"
+OUT="${OUT:-${PRODUCT_ROOT}/final}"
 DELTA="${DELTA:-8}"
 CONSISTENCY_GATE_PX="${CONSISTENCY_GATE_PX:-0}"   # 一致性门（px）：重推结果偏离『锚点+Δ·v』超门 ⇒ 改用运动学预测；0=关
 REFINE_GATE_PX="${REFINE_GATE_PX:-24}"             # refine 档位：快核单步修正上限（px）

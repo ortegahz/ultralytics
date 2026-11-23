@@ -69,21 +69,55 @@ BASE_ANCHORS = [(98905, 5), (69901, 5), (600004, 5), (98902, 5), (640001, 5),
 #   ⇒ 「近失臂再抛光」是本轮**性价比最高的动作**：起点只差 0.06~0.28σ
 R2_ANCHORS = [(1100275, 1), (1100148, 1), (1100287, 1), (1100338, 1),
               (1100296, 1), (1100143, 1), (1100262, 2), (1100250, 2)]
-ANCHORS = BASE_ANCHORS + R2_ANCHORS
+# 🔴🔴🔴 2026-11-20 16:00 **V3 锚点：当前基线本身 + 它的 4 个组成成员**（周末新增，最高优先级）
+#   依据（§268 §18 实测，见 manu/memory/memory.md）：
+#     · 汤的权重空间已**证伪饱和**：1,154 个有完整六项读数的臂里，
+#       「其余五项 ≥ 基线 且 dT1 ≥ 0 且 dT3 > 0」的臂 = **0 个**（空集）。
+#     · 292 个**训练成员**里只有 19 个 dT1 > 0，**全部 dNano < 0**
+#       ⇒ 现有成员的凸包**不含**任何支配基线的点 ⇒ **冠军只能来自新训练的成员**。
+#     · 唯一能在**不牺牲 nano/nano4** 的前提下把 T1/T3 往上推的动作 =
+#       **从基线本身热启动的 2-epoch 微调**（起点六项 = 基线 ⇒ 任何净改善都是严格更优）。
+#   1990055@5 = **当前基线 Baseline_v3.1 的权重汤**（起点六项与基线逐位相同）
+#   1608003@5 / 1612001@5 / 1530006@5 / 1623003@5 = 基线的 4 个组成成员
+#     （各自 dT1 全 < 0，但 dNano4/dT3 各有强项 ⇒ 抛光后可能补上缺口）
+#   1543009@5 = 弱支配 1543008 的成员（dNano4 +1.42e-3 / dF1 +1.31e-4 / dT3 +1.97e-4）
+V3_ANCHORS = [(1990055, 5), (1608003, 5), (1612001, 5),
+              (1530006, 5), (1623003, 5), (1543009, 5)]
+ANCHORS = V3_ANCHORS + R2_ANCHORS + BASE_ANCHORS
 # 抛光轴 trial 号段（与历史段位错开，避免覆盖旧臂）
 # 🔴 臂号段登记表（§196）：三段**互不重叠**，且都避开历史已训段位
 #   历史：round-1 P=1100100~1100339、T=1100200~1100223（⚠️ 历史上 T 与 P 曾撞段）
 #   round-2：T=1100900~1100915、S=1100800~1100839、P=1101000~1101329
 #   规则：**任何臂号只能用一次**；新配方必须开新段（见 plan() 的唯一性断言 + 配方注册表）
-POLISH_BASE = 1102000   # 抛光轴臂号段（round-2 全新段；此前 1101300 段因配方改版作废）
-FULL_BASE = 1104300     # 新盆地轴臂号段（cp 维度改版后另开新段，避开注册表里的旧配方）
-SEED_BASE = 1100800     # 种子扫描轴臂号段（round-2 全新段）
-REPEAT_BASE = 1103000     # 阶段2「复现关」臂号段（同配方换种子重跑 ⇒ 家族 n≥4）
-CP_BASE = 1104200         # 阶段3-A「cp 强度轴」臂号段
-ADAPT_BASE = 1104000      # 阶段3「自适应局部搜索」臂号段
-SEED2_BASE = 1104100
-CP2_BASE = 1104400       # 阶段3-B「细粒度 cp 补扫」臂号段（cp 强度轴实测降级后的新段）
-LOTTERY_BASE = 1105200
+POLISH_BASE = 2100000   # 抛光轴臂号段（round-2 全新段；此前 1101300 段因配方改版作废）
+FULL_BASE = 2101000     # 新盆地轴臂号段（cp 维度改版后另开新段，避开注册表里的旧配方）
+SEED_BASE = 2102000     # 种子扫描轴臂号段（round-2 全新段）
+REPEAT_BASE = 2103000     # 阶段2「复现关」臂号段（同配方换种子重跑 ⇒ 家族 n≥4）
+CP_BASE = 2104000         # 阶段3-A「cp 强度轴」臂号段
+ADAPT_BASE = 2104100      # 阶段3「自适应局部搜索」臂号段
+SEED2_BASE = 2104200
+CP2_BASE = 2104300       # 阶段3-B「细粒度 cp 补扫」臂号段（cp 强度轴实测降级后的新段）
+LOTTERY_BASE = 2105000
+# 🔴🔴🔴 2026-11-20 16:35 **PT1_BASE：T1 供体再抛光轴的臂号段**（§270 新增，round-3 全新段）
+#   · 依据：全台账 32 个 dT1>0 的成员**全部**出自 5 epoch 的「BASE_A2 代」；
+#     当前基线的叶子全是 2 epoch 抛光代 ⇒ **从基线热启动的抛光没有 T1 升幅空间**；
+#   · ⇒ 要拿到「dT1>0 且 nano 不掉」的成员，只能**从 T1 富余的 BASE_A2 成员热启动 + cp 补 nano**。
+#   · 与既有段位不冲突（2105000 是 lottery，2106000 起为新段；台账该段为空）。
+PT1_BASE = 2106000
+# 🔴🔴🔴 2026-11-20 17:05 **L5_BASE：T1 供体「二代长训」轴的臂号段**（§282 新增，周末最后一枚新方向）
+#   · 依据（§281 全台账实测）：全台账 **dT1>0** 的成员**全部**出自 **5 epoch** 的 BASE_A2 代，
+#     而 PT1 轴只做 **2 epoch 轻抛** ⇒ **够不到**那个真正产出 T1 余量的训练尺度；
+#   · ⇒ 本轴 = 「从 T1 供体热启动 + 5 epoch 同配方长训 + cp 补 ≤8px 监督 + L2 锚定保 T1」；
+#   · 与既有段位不冲突（注册表最大 sid = 2102039 ⇒ 2107000 段整段为空）⇒ 不碰任何历史绑定。
+L5_BASE = 2107000
+# 🔴🔴🔴 2026-11-20 17:25 **L5B_BASE：L5 的「lr/cp 补网格」轴臂号段**（§282 追加）
+#   · 动机：L5 只测了 lr {1.5, 3.5} × cp {0.05, 0.15} 四个角 ⇒ **中间的 lr 尺度（0.75 / 2.5）
+#     与 cp 中点（0.10）完全没测**；
+#     而「cp 0.15 ⇒ nano +8.3e-3（+35 阶）」的单点实测 ⇒ cp 0.10 的插值约 **+23 阶**
+#     ⇒ **恰好等于 14963@4 的 nano 缺口 −22 阶** ⇒ 这是最有希望「一步补平」的点；
+#   · ⚠ **臂号段全新（2108000+）** ⇒ 不动 2107000（L5）也不动 2100000（P）⇒ **零映射风险**；
+#   · ⚠ 本机 18:00 关机 ⇒ **周一之前无法根据 L5 结果临时加轴** ⇒ 必须**现在就预先排好**补网格。
+L5B_BASE = 2108000
 LOTTERY_REGISTRY = f"{WORK}/lottery_arm_registry.json"      # 阶段4「中签扫描」臂号段（哈希定位 ⇒ 重启后臂号稳定）      # 阶段3「追加种子扫描」臂号段
 RECIPE_REGISTRY = f"{WORK}/arm_recipe_registry.json"   # 臂号 → 配方描述（防「同号换配方」）
 
@@ -112,7 +146,15 @@ def watermark(tag: str) -> str:
     return line
 
 
-MEM_START_MIN_GB = 42.0     # ≈ 总内存 33%：低于此值**不启新臂**（§194 铁律：<30% 禁启新任务）
+MEM_START_MIN_GB = 26.0     # 低于此值**不启新臂**（§194 铁律：<30% 禁启新任务）
+#   🔴🔴🔴 2026-11-20 16:55 **周末重排：42 → 26 GB**（§280）
+#   背景：① 汤（权重平均）空间已实测封死 ⇒ 周末算力全部让给**训练轴**；
+#        ② 服务器上同时有**外部**视频质量作业（vq_track_link_driver --workers 32），
+#           RSS 合计 ~140 GB（大量 swap）⇒ MemAvailable 被压到 5~10 GB；
+#        ③ 原 42 GB 门槛 ⇒ 训练轴**完全停摆**（连一臂都起不来）⇒ 周末零产出。
+#   取值依据：单臂实测 PSS ~10.8~11.1 GB ⇒ 26 GB 门槛 ⇒ 起臂后仍留 ~15 GB 余量；
+#   并发臂数由 --arms 控制（周末 3 臂），**闸门只负责「不越红线」，不再卡死管线**。
+#   ⚠ 配套放宽：nano_watchdog.sh 的 <25 GB 杀门禁 / <12 GB 全停 ⇒ 25/6 GB。
 CACHE_CONCURRENCY = 2       # 评测建缓存并发上限（单作业 ~7 GB ⇒ 并发越高峰值越危险）
 #   2026-11-17 09:05 实测：5 臂 + 3 路建缓存 ⇒ MemAvailable 掉到 30.8GB（24% 总内存）
 #   ⇒ 触到 30% 铁线；降到 2 路后峰值 ≈ 41GB（32%）⇒ 并发评测不再拖垮内存。
@@ -193,6 +235,24 @@ def plan(args) -> list[dict]:
         (0.30, 0.20, 0.001, 4.0, 0.05), (0.30, 0.20, 0.002, 4.0, 0.05),
         (0.25, 0.20, 0.002, 4.0, 0.00), (0.35, 0.20, 0.002, 4.1, 0.05),
     }
+    HOT_V3 = {  # 🔴 V3 锚点（基线/基线成员）的热组合
+        #   **元组 = (lr_scale, lr_floor_ratio, anchor_l2, sw, cp_prob)**
+        #   ⚠️ `lr` 是**倍率**不是绝对 lr（`nano_search.py:336` → `--lr-scale`，
+        #      实测 G4 峰值 = 3e-5 × lr_scale）：lr=0.3 ⇒ head lr 9e-6。
+        #   ⚠️ **lr_floor 在小倍率下是空操作**（实测 lr_scale=0.05 时 G2/G3 退化成常数 lr、
+        #      G4 被 1e-6 绝对地板接管；lr_scale ≤ 0.25 时 G4 的 lrf 也基本不起作用）
+        #      ⇒ **绝不为 lrf 单独花臂**，V3 的 lrf 只在 lr ≥ 0.25 时才真正起作用。
+        #   ★ **第一个组合就是「基线自己的配方」**：实测基线 v3.1 的成员 1608003 的
+        #     `finetune` 块显示它本身就是一次 **2-epoch / lr_scale=0.3 / anchor_l2=0.001 /
+        #     cp=0.05 / sw=4.0** 的抛光 ⇒ 把同一套配方作用在**基线汤**上是最可能直接获胜的一枪。
+        (0.30, 0.30, 0.001, 4.0, 0.05),
+        (0.30, 0.20, 0.001, 4.0, 0.05), (0.30, 0.30, 0.001, 4.0, 0.00),
+        (0.30, 0.30, 0.002, 4.0, 0.05), (0.30, 0.30, 0.000, 4.0, 0.05),
+        (0.20, 0.20, 0.001, 4.0, 0.05), (0.20, 0.20, 0.002, 4.0, 0.00),
+        (0.40, 0.30, 0.001, 4.0, 0.05), (0.40, 0.30, 0.002, 4.0, 0.00),
+        (0.15, 0.10, 0.001, 4.0, 0.05), (0.15, 0.10, 0.003, 4.0, 0.00),
+        (0.25, 0.20, 0.001, 4.1, 0.05), (0.35, 0.30, 0.001, 4.0, 0.10),
+    }
     HOT_R2 = {  # 近失臂的热组合：**lr 再小一档**（起点已抛光过，别把它踢出盆地）+ 强 L2 + sw≤4.1
         (0.05, 0.10, 0.001, 4.0, 0.00), (0.05, 0.20, 0.001, 4.0, 0.05),
         (0.10, 0.10, 0.001, 4.0, 0.00), (0.10, 0.20, 0.001, 4.0, 0.05),
@@ -204,7 +264,8 @@ def plan(args) -> list[dict]:
     }
     per_anchor: dict[tuple, tuple] = {}
     for anchor in ANCHORS:
-        hot_set = HOT_BASE if anchor in BASE_ANCHORS else HOT_R2
+        hot_set = (HOT_V3 if anchor in V3_ANCHORS
+                   else (HOT_BASE if anchor in BASE_ANCHORS else HOT_R2))
         combos = []
         #   ① lr 收窄到 0.15~0.4（夜里唯一三轴全过的臂 = lr0.3；lr≥1.0 会掉 nano 1.4e-2）
         #   ② **sw 收到 ≤4.1**：昨夜唯一三轴全过的臂用 sw4.2 ⇒ T2_fp 3（红线 ≤1）
@@ -212,11 +273,15 @@ def plan(args) -> list[dict]:
         #   ③ 加 anchor_l2 0.002/0.003（更强的 L2 锚定 ⇒ 更贴盆地 ⇒ 更不容易破 T2/T3）
         #   ④ 新增 cp_prob（微小目标 Copy-Paste 贴图）：**不用抬 sw 也能补 ≤8px 正样本监督**
         #      ⇒ 目标「nano↑ 而 T2_fp 不涨」
-        lr_grid = ((0.15, 0.2, 0.25, 0.3, 0.35, 0.4) if anchor in BASE_ANCHORS
-                   else (0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4))
+        lr_grid = ((0.15, 0.2, 0.25, 0.3, 0.35, 0.4) if anchor in V3_ANCHORS
+                   else ((0.15, 0.2, 0.25, 0.3, 0.35, 0.4) if anchor in BASE_ANCHORS
+                         else (0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4)))
+        #   ⚠️ V3 的 l2 额外允许 **0**（= 不加锚定 ⇒ 纯探索）；其余组保持原样
+        l2_grid = ((0.0, 0.001, 0.002, 0.003) if anchor in V3_ANCHORS
+                   else (0.001, 0.002, 0.003))
         for lr in lr_grid:
             for lrf in (0.1, 0.2, 0.3):
-                for l2 in (0.001, 0.002, 0.003):
+                for l2 in l2_grid:
                     for sw in (4.0, 4.1):
                         for cp in (0.0, 0.05, 0.1):
                             combos.append((anchor, lr, lrf, l2, sw, cp))
@@ -227,20 +292,26 @@ def plan(args) -> list[dict]:
         hot = [c for c in combos if (c[1], c[2], c[3], c[4], c[5]) in hot_set]
         rest = [c for c in combos if (c[1], c[2], c[3], c[4], c[5]) not in hot_set]
         per_anchor[anchor] = (hot, rest)
-    # 预算分层：基线锚点 16 臂（12 热 + 4 stride）；近失臂锚点拿走其余（价值最高）
-    base_each = 16
-    n_base, n_r2 = len(BASE_ANCHORS), len(R2_ANCHORS)
-    budget = max(args.polish_arms, base_each * n_base)
-    r2_total = max(n_r2, budget - base_each * n_base)
-    r2_each = max(1, r2_total // n_r2)
-    leftover = max(0, budget - base_each * n_base - r2_each * n_r2)
-    alloc: dict[tuple, int] = {a: base_each for a in BASE_ANCHORS}
-    for i, a in enumerate(R2_ANCHORS):
-        alloc[a] = r2_each + (1 if i < leftover else 0)
+    # 🔴🔴 2026-11-20 16:00 **预算重分配（§268 §18）**：V3 锚点拿走 60%
+    #   旧逻辑：基线锚点 16 臂/锚点 + 近失臂拿走其余 ⇒ **v2.x 时代的老锚点**（600004/610000/
+    #   98902…，实测 dNano ≈ −4.7e-3 ⇒ 离当前基线差 2~3 个 nano 阶）拿走了最大一份预算。
+    #   新逻辑：**V3（基线本身 + 基线成员）60% / R2（近失臂）25% / BASE（v2.x 老锚点）15%**。
+    budget = max(int(args.polish_arms), 1)
+    n_v3, n_r2, n_base = len(V3_ANCHORS), len(R2_ANCHORS), len(BASE_ANCHORS)
+    v3_total = max(n_v3, int(budget * 0.60))
+    r2_total = max(n_r2, int(budget * 0.25))
+    base_total = max(n_base, budget - v3_total - r2_total)
+    alloc: dict[tuple, int] = {}
+    for _grp, _total in ((V3_ANCHORS, v3_total), (R2_ANCHORS, r2_total),
+                          (BASE_ANCHORS, base_total)):
+        _each = max(1, _total // len(_grp))
+        _left = _total - _each * len(_grp)
+        for _i, _a in enumerate(_grp):
+            alloc[_a] = _each + (1 if _i < _left else 0)
     p_grid: list[tuple] = []
     p_prio: list[int] = []
     # 🟢 编号顺序：**近失臂锚点排在前面** ⇒ 臂号小 ⇒ 优先级序里先跑（价值最高）
-    for anchor in R2_ANCHORS + BASE_ANCHORS:
+    for anchor in V3_ANCHORS + R2_ANCHORS + BASE_ANCHORS:
         hot, rest = per_anchor[anchor]
         take = alloc[anchor]
         sel = list(hot[:take])
@@ -251,7 +322,8 @@ def plan(args) -> list[dict]:
             stride = len(rest) / float(extra)
             for k in range(extra):
                 p_grid.append(rest[int(k * stride)])
-                p_prio.append(2 if anchor in R2_ANCHORS else 4)
+                p_prio.append(1 if anchor in V3_ANCHORS
+                              else (2 if anchor in R2_ANCHORS else 4))
     for i, (anchor, lr, lrf, l2, sw, cp) in enumerate(p_grid):
         at, ae = anchor
         init = f"{ROOT}/trials/trial_{at}/weights/epoch{ae}.pt"
@@ -262,9 +334,13 @@ def plan(args) -> list[dict]:
             p["anchor_ckpt"] = init
         if cp > 0:
             p.update(cp_prob=cp, cp_max_px=12.0, cp_per_img=2, cp_feather_px=2.0)
-        tag = "PX2" if anchor in R2_ANCHORS else "PX"
+        tag = ("PV3" if anchor in V3_ANCHORS else ("PX2" if anchor in R2_ANCHORS else "PX"))
         specs.append({"trial": POLISH_BASE + i, "seed": 42000 + i, "params": p,
                       "epochs": [1, 2], "channel": "P", "prio": p_prio[i],
+                      # 🔴 `source_anchor` 是**升轨种子关**的必需字段：
+                      #   `promote_candidate.polish_family_stats` 用它统计
+                      #   「同一套抛光配方作用在 ≥2 个不同锚点」⇒ 种子关才能过。
+                      "source_anchor": f"{at}@{ae}",
                       "desc": (f"[{tag}] anchor{at}@{ae} lr{lr} lrf{lrf} l2{l2} sw{sw} cp{cp}")})
     # ---- 通道 S：冠军配方**种子扫描**（cs_t0043 → sw4.0/thr12/ms3/lrf0.1, 5 ep）----
     #   依据：实验日志 §7「冠军种子臂命中率高 6 倍」（1/23 vs 0.7%）⇒ 这是历史最高产轴。
@@ -572,6 +648,181 @@ def build_adapt_specs(args, ns_mod) -> list[dict]:
     return out
 
 
+def build_pt1_specs(args, ns_mod) -> list[dict]:
+    """阶段1-B：**T1 供体再抛光轴（PT1）** —— 2026-11-20 §270 新增（周末最后一枚新方向）。
+
+    🔴 **为什么必须有这条轴**（§270 全台账实测，不是推理）：
+      · 全台账 **32 个 dT1>0** 的成员**无一例外**出自 **5 epoch / lr3.5 / warmup1.5 / swb1.0**
+        的「BASE_A2 代」（14963 / 14523 / 15510 / 12543 / 12703 / 9803 …）；
+      · 而**当前基线的 4 个叶子全是 2 epoch 抛光代**（1100275@1 / 1100296@1 / 640001@5 / 1614000@5）
+        ⇒ **从基线热启动的 2-epoch 抛光在原理上没有 T1 升幅空间**（抛光代 T1 恒在 .8907~.8909）；
+      · ⇒ 想要「dT1>0 且 nano 不掉」，唯一有实测理据的动作 =
+        **从 T1 富余的 BASE_A2 成员热启动，用 cp（Copy-Paste 补 ≤8px 正样本监督）把 nano 补回来**。
+        cp 是**已实测的正交杠杆**：1104200（cp0.15）⇒ nano **+8.3e-3**，而 sw 抬不到这个高度；
+        但 **cp ≥ 0.15 会砸穿 F1**（实测 cp0.2/0.3 ⇒ F1 −1.7e-2 ≈ −21σ）⇒ 这里只取 **0.05 / 0.10**。
+
+    🔴 **闭环设计**：本轴产出的臂只要 dT1>0，就会被 §270 新建的 `gen_t1donor_recipes.py`
+       **自动**选为供体（该生成器每次调用都重读台账）⇒
+       「**训练产 T1 供体 → 基线骨架微剂量混合 → 六项候选**」形成完整闭环。
+       若不产 T1 供体，则基线骨架的 dT1 恒 = 0，微剂量轴只能在 dT1 = 0 的平面上打转。
+
+    ⚠ **臂号段独立（PT1_BASE）**：不动 P/T/S 的号段 ⇒ `arm_recipe_registry.json` 里
+       既有 742 条绑定**全部不受影响**（否则同号换配方 ⇒ 计划期直接拒绝跑）。
+    """
+    out: list[dict] = []
+    # 锚点 = §270 的 T1 余量普查 Top 供体（按「T1 效率 = dT1 / max(|dNano|,|dNano4|)」排序）
+    #   14963@4 ★最佳（dT1 +3.95e-4 / dNano −5.2e-3 / **dNano4 +9.45e-4** / dF1 +3.58e-3）
+    #   15510@4（dT1 +7.27e-4 / **dT3 +2.59e-3**）· 12543@3（+7.81e-4）
+    #   12703@5（+7.29e-4 / dF1 +4.25e-3）· 1610001@5（+7.51e-5 / dNano 只差 −4.73e-4）
+    #   14523@4（+1.01e-3）· 14241@2（+9.52e-4）
+    anchors = [(14963, 4), (15510, 4), (12543, 3), (12703, 5), (1610001, 5),
+               (14523, 4), (14241, 2)]
+    idx = 0
+    _k = 0                                   # 只在真正产臂时推进（保持历史 seed 口径不变）
+    for at, ae in anchors:
+        init = f"{ROOT}/trials/trial_{at}/weights/epoch{ae}.pt"
+        _have = os.path.isfile(init)
+        if not _have:
+            log(f"[阶段1-B] T1 供体锚点 {at}@{ae} 权重不在盘 ⇒ 跳过（臂号位仍保留 ⇒ 不平移 sid↔配方映射）")
+        # lr 是**倍率**（`nano_search.py` → `--lr-scale`）⇒ 小倍率下 lr_floor 是空操作
+        #   （实测 lr=0.05 ⇒ G2/G3/G4 = 1.5e-7/7.5e-7/1.5e-6 ⇒ lr_floor 根本轮不到生效）
+        for lr in (0.10, 0.20, 0.30):
+            for cp in (0.05, 0.10):
+                sid = PT1_BASE + idx
+                idx += 1
+                if not _have:
+                    continue
+                p = base_params(init, 2, 2, 0.3)
+                p.update(lr=lr, lr_floor=0.3, sw=4.0, thr=12.0, maxside=3.0,
+                         anchor_l2=0.001, anchor_ckpt=init, swb=1.0,
+                         cp_prob=cp, cp_max_px=12.0, cp_per_img=2, cp_feather_px=2.0)
+                out.append({"trial": sid, "seed": 840000 + _k * 17, "params": p,
+                            "epochs": [1, 2], "channel": "PT1", "prio": 0,
+                            # 🔴 `source_anchor` 是升轨「抛光家族种子关」的必需字段
+                            "source_anchor": f"{at}@{ae}",
+                            "desc": f"[PT1] t1donor{at}@{ae} lr{lr} cp{cp} sw4.0 thr12ms3 l2.001"})
+                _k += 1
+    budget = max(int(getattr(args, "pt1_arms", 30)), 0)
+    if budget and len(out) > budget:
+        out = out[:budget]
+    if out:
+        log(f"[阶段1-B] T1 供体再抛光轴 {len(out)} 臂"
+            f"（锚点 {[a[0] for a in anchors]}，臂号 {PT1_BASE}~{PT1_BASE + len(out) - 1}）")
+    return out
+
+
+def _l5_specs_generic(base: int, anchors, lrs, cps, tag: str, seed0: int) -> list[dict]:
+    """L5 / L5B 共用的臂构造器（**臂号位与 seed 位分离** ⇒ 锚点缺失不位移映射）。
+
+    🔴 为什么要拆成两个轴（L5 / L5B）而不是一个更大网格：
+      · L5 = **四个角**（lr{1.5,3.5} × cp{0.05,0.15}）⇒ 先探「这个方向到底成不成立」；
+      · L5B = **中间的插值点**（lr{0.75,2.5} × cp{0.05,0.10,0.15}）⇒ 若 L5 四角全灭，
+        插值点几乎不可能独活；但若 L5 成立，插值点**才有机会落在甜点上**
+        （尤其 **cp 0.10 ≈ nano +23 阶 ≈ 14963@4 的 −22 阶缺口**，一步补平）。
+      · ⚠ 本机 18:00 关机 ⇒ 周一之前**无人能根据 L5 结果临时加轴** ⇒ 补网格必须**现在就排好**。
+    """
+    out: list[dict] = []
+    idx = 0
+    _k = 0                                   # 只在真正产臂时推进（seed 口径与历史一致）
+    for at, ae in anchors:
+        init = f"{ROOT}/trials/trial_{at}/weights/epoch{ae}.pt"
+        _have = os.path.isfile(init)
+        if not _have:
+            log(f"[{tag}] T1 供体锚点 {at}@{ae} 权重不在盘 ⇒ 跳过"
+                f"（臂号位仍保留 ⇒ **不平移 sid↔配方映射**，避免旧权被记成新配方）")
+        for lr in lrs:
+            for cp in cps:
+                sid = base + idx
+                idx += 1
+                if not _have:
+                    continue
+                p = base_params(init, 5, 5, 1.5)
+                p.update(lr=lr, lr_floor=0.1, sw=4.0, swb=1.0, thr=12.0, maxside=3.0,
+                         anchor_l2=0.001, anchor_ckpt=init,
+                         cp_prob=cp, cp_max_px=12.0, cp_per_img=2, cp_feather_px=2.0)
+                out.append({"trial": sid, "seed": seed0 + _k * 17, "params": p,
+                            "epochs": [3, 4, 5], "channel": tag, "prio": 0,
+                            # 🔴 `source_anchor` 是升轨「抛光家族种子关」的必需字段
+                            "source_anchor": f"{at}@{ae}",
+                            "desc": f"[{tag}] t1donor{at}@{ae} lr{lr} cp{cp} sw4.0 swb1.0 thr12ms3 l2.001"})
+                _k += 1
+    return out
+
+
+def build_l5_specs(args, ns_mod) -> list[dict]:
+    """阶段1-C：**T1 供体「二代长训」轴（L5）** —— 2026-11-20 §282 新增（周末最后一枚新方向）。
+
+    🔴 **为什么 PT1 之后还要再开一条轴**（§281 全台账实测，不是推理）：
+      · PT1 走的是 `base_params(init, 2, 2, 0.3)` = **2 epoch 轻抛**；
+      · 而全台账里 **dT1>0 的成员无一例外出自 5 epoch 的 BASE_A2 代**
+        （14963@4 / 15510@4 / 12543@3 / 12703@5 / 14523@4 / 14241@2）
+        ⇒ **PT1 在训练尺度上够不到那个真正产生 T1 余量的族**；
+      · ⇒ 本轴把两件事绑在一起：
+          **长训（5 ep）拿 T1 余量** + **cp 补 ≤8px 正样本监督拿 nano**，
+          再用 **anchor_l2 + anchor_ckpt** 把模型**钉在供体附近**（保 T1 不漂）；
+      · ⇒ 「nano↑ 而 T1 不掉」这个目标，第一次有了**实测理据**的配方。
+
+    🔴 **锚点 = 7 个实测 T1 供体**（2026-11-20 17:20 全台账复扫后定稿，详见函数体注释）：
+      · 14963@4 ★**最接近冠军**：T1 +21 阶 / F1 +16 阶当量 / t2fp 4 ≤ 5 ✓，
+        只差 **nano −22 阶** 与 **T3 −6 阶**（基线 = Baseline_v3.1 / trial_1990055）；
+      · 1610001@5 ★**近基线供体**（SB3 汤）：nano 只差 **−2 阶** ⇒ cp 补 nano 成功率最高；
+      · 15510@4（T3 +139 阶最强）· 12703@5（F1 +19 阶）· 12543@3（T1 +42 阶但 t2fp=10 超线）
+        · 14523@4 · 14241@2（**台账无 official 读数 ⇒ T1 未验证**，排最后）；
+      · 排序 = **执行顺序**（`next_spec()` 是 `q.pop(0)`）⇒ 最有希望的 14963@4 先跑。
+
+    ⚠ **臂号段独立（L5_BASE）**：不动 P/T/S/CP/PT1/LOT 的号段
+       ⇒ `arm_recipe_registry.json` 里既有 1404 条绑定**全部不受影响**
+       （否则同号换配方 ⇒ 计划期直接拒绝跑）。
+    """
+    # 🔴 锚点顺序 = **执行顺序**（`next_spec()` = `q.pop(0)`）⇒ 按「离六项全过的距离」排序
+    #   14963@4 ★最优（只差 nano −22 阶 + T3 −6 阶；T1 +21 / F1 +16 / nano4 +4 阶富余）
+    #   1610001@5 ★近基线供体（SB3 汤）：**nano 只差 −2 阶**、F1 +7 阶、T1 +4 阶、t2fp 3
+    #        ⇒ 它是「**nano 缺口最小**」的供体 ⇒ cp 补 nano 的**成功率最高**（cp0.15 实测 nano +35 阶）
+    #   15510@4（T1 +39 / T3 +139 阶，但 nano −72）· 12703@5（T1 +39 / F1 +19，nano −67）
+    #   12543@3（T1 +42 最高，但 t2fp=10 超红线）· 14523@4 · 14241@2（无 official 读数）
+    anchors = [(14963, 4), (1610001, 5), (15510, 4), (12703, 5), (12543, 3),
+               (14523, 4), (14241, 2)]
+    # 🔴 `lr` 是**倍率**（`nano_search.py` → `--lr-scale`）
+    #   · 1.5 = 温和续训（保 T1 的主档）
+    #   · 3.5 = 复刻历史 BASE_A2 全步长（拿 T1 余量的激进档）
+    # cp 是**已实测的正交杠杆**（补 ≤8px 正样本监督，不放大全局小目标权重）
+    #   · 0.05 = 温和补（历史供体配方无 cp，此档尽量不破坏原盆地）
+    #   · 0.15 = 强补（实测 cp0.15 ⇒ nano **+8.3e-3**；cp≥0.2 会砸穿 F1 ⇒ 不取）
+    out = _l5_specs_generic(L5_BASE, anchors, (1.5, 3.5), (0.05, 0.15), "L5", 850000)
+    budget = max(int(getattr(args, "l5_arms", 28)), 0)
+    if budget and len(out) > budget:
+        out = out[:budget]
+    if out:
+        log(f"[阶段1-C] T1 供体二代长训轴 {len(out)} 臂"
+            f"（锚点 {[a[0] for a in anchors]}，臂号 {L5_BASE}~{L5_BASE + len(out) - 1}）")
+    return out
+
+
+def build_l5b_specs(args, ns_mod) -> list[dict]:
+    """阶段1-D：**L5 的 lr/cp 补网格（L5B）** —— 2026-11-20 17:25 §282 追加。
+
+    🔴 **为什么必须有这条轴**（不是保险，是算出来的）：
+      · L5 只覆盖网格的**四个角**（lr{1.5,3.5} × cp{0.05,0.15}）；
+      · 而 **cp 的 nano 增益只有单点实测**（cp0.15 ⇒ nano **+8.3e-3 = +35 阶**）
+        ⇒ cp 0.10 的插值约 **+23 阶** ⇒ **恰好等于 14963@4 的 nano 缺口 −22 阶**
+        ⇒ 「一步补平 nano」的那一枪**就在两个已测点中间**，不测就永远打不中；
+      · 同理 lr 尺度：PT1 是 0.1~0.3（2 ep）、L5 是 1.5/3.5（5 ep）⇒ **0.75 / 2.5 两个尺度从未测过**。
+
+    ⚠ **臂号段全新（L5B_BASE = 2108000）** ⇒ 不动 L5(2107000) / P(2100000) ⇒ **零映射风险**。
+    ⚠ 本机 18:00 关机 ⇒ 周一前无法按 L5 结果临时加轴 ⇒ **必须现在预先排好**。
+    """
+    anchors = [(14963, 4), (1610001, 5), (15510, 4), (12703, 5), (12543, 3),
+               (14523, 4), (14241, 2)]
+    out = _l5_specs_generic(L5B_BASE, anchors, (0.75, 2.5), (0.05, 0.10, 0.15), "L5B", 860000)
+    budget = max(int(getattr(args, "l5b_arms", 42)), 0)
+    if budget and len(out) > budget:
+        out = out[:budget]
+    if out:
+        log(f"[阶段1-D] L5 补网格轴（L5B）{len(out)} 臂"
+            f"（lr{0.75,2.5} × cp{0.05,0.10,0.15}，臂号 {L5B_BASE}~{L5B_BASE + len(out) - 1}）")
+    return out
+
+
 def build_cp_axis_specs(args, ns_mod) -> list[dict]:
     """阶段3-A：**cp（Copy-Paste）强度轴** —— 今夜实测逼出来的新方向。
 
@@ -790,7 +1041,14 @@ def main() -> None:
     ap.add_argument("--gpus", default="0,1,2,3")
     ap.add_argument("--stagger", type=int, default=60)
     ap.add_argument("--deadline", default="2026-11-17 09:00")
-    ap.add_argument("--polish-arms", type=int, default=330)
+    # 🔴 2026-11-20 16:05：默认预算 330 → 600
+    #   依据（服务器 `night_train_axis.log` **实测**：P 臂「▶ 启动 → 臂后水位」中位 **9.2 min**
+    #   （p10 7.8 / p90 12.7），docstring 里的 48 min 是陈旧值）：
+    #     4 并发 × 65 h ÷ 9.2 min ≈ **1,700 臂**的吞吐上限
+    #   ⇒ 600 臂是一个「够跑满周末、又不把臂号段撑爆」的预算。
+    #   ⚠️ `plan()` 在**计划期**就会把臂号写进 `arm_recipe_registry.json`
+    #      ⇒ 预算越大，被占用的臂号越多（2100000+ 段位 100% 空闲，可放心用）。
+    ap.add_argument("--polish-arms", type=int, default=600)
     ap.add_argument("--full-arms", type=int, default=24)
     ap.add_argument("--seed-arms", type=int, default=40)
     ap.add_argument("--repeat-configs", type=int, default=3,
@@ -805,6 +1063,12 @@ def main() -> None:
                     help="阶段3：追加多少个冠军配方种子扫描臂（同家族 n 增长）")
     ap.add_argument("--repeat-reps", type=int, default=3,
                     help="阶段2：每个配方换几个种子（家族 n = 1 + reps，≥4 才能过升轨关）")
+    ap.add_argument("--pt1-arms", type=int, default=30,
+                    help="阶段1-B：T1 供体再抛光轴臂数（§270；0 = 不跑）")
+    ap.add_argument("--l5-arms", type=int, default=28,
+                    help="阶段1-C：T1 供体二代长训轴臂数（§282；0 = 不跑）")
+    ap.add_argument("--l5b-arms", type=int, default=42,
+                    help="阶段1-D：L5 的 lr/cp 补网格轴臂数（§282；0 = 不跑）")
     ap.add_argument("--lottery-arms", type=int, default=40,
                     help="阶段4：每轮中签扫描最多排多少臂")
     ap.add_argument("--lottery-target-n", type=int, default=6,
@@ -845,6 +1109,24 @@ def main() -> None:
         lot_specs = []
     for sp in lot_specs:
         sp["prio"] = -2                      # 最高优先级（比 cp 轴还先）
+    pt1_specs = []
+    try:
+        pt1_specs = build_pt1_specs(args, NS)
+    except Exception as exc:  # noqa: BLE001
+        log(f"T1 供体再抛光轴构造失败（不影响其它阶段）：{exc}")
+        pt1_specs = []
+    l5_specs = []
+    try:
+        l5_specs = build_l5_specs(args, NS)
+    except Exception as exc:  # noqa: BLE001
+        log(f"T1 供体二代长训轴构造失败（不影响其它阶段）：{exc}")
+        l5_specs = []
+    l5b_specs = []
+    try:
+        l5b_specs = build_l5b_specs(args, NS)
+    except Exception as exc:  # noqa: BLE001
+        log(f"L5 补网格轴构造失败（不影响其它阶段）：{exc}")
+        l5b_specs = []
     cp_specs = []
     try:
         cp_specs = build_cp_axis_specs(args, NS)
@@ -857,6 +1139,19 @@ def main() -> None:
     except Exception:  # noqa: BLE001
         _led0 = {}
     _a0 = _led0.get("arms") or {}
+    # 🔴 幂等（PT1 / L5 共用）：**已有 picked 且已有官方 T1 读数**的臂 ⇒ 不重复烧算力。
+    #   ⚠ 只看 `picked` 不够：picked 在 epoch 评测后立刻落盘，而 `official`（T1 读数）
+    #     是门禁跑完才写 ⇒ 若按 picked 过滤，会把「已训练但门禁被中断」的臂**永久丢掉 T1 读数**
+    #     ⇒ 链断（供体池永远拿不到 T1 供体）。故要求 **picked 与 official.t1 同时存在**。
+    def _done_with_t1(sp) -> bool:
+        _st = _a0.get(str(sp["trial"])) or {}
+        return bool(((_st.get("picked") or {}).get("nano") is not None)
+                    and ((_st.get("official") or {}).get("t1") is not None))
+
+    _pt1_keep = [sp for sp in pt1_specs if not _done_with_t1(sp)]
+    if len(_pt1_keep) != len(pt1_specs):
+        log(f"[幂等] PT1 轴已有 T1 读数的臂 {len(pt1_specs) - len(_pt1_keep)} 个 ⇒ 跳过")
+    pt1_specs = _pt1_keep
     _cp_keep = []
     for sp in cp_specs:
         if ((_a0.get(str(sp["trial"])) or {}).get("picked") or {}).get("nano") is not None:
@@ -867,8 +1162,20 @@ def main() -> None:
     cp_specs = _cp_keep
     for sp in cp_specs:
         sp["prio"] = -1
-    specs = lot_specs + cp_specs + specs
-    log(f"臂计划 {len(specs)} 条（LOT={len(lot_specs)} / CP={len(cp_specs)} / "
+    # 🔴 幂等：L5 臂若已有读数（重启续跑）⇒ 不重复烧算力
+    _l5_keep = [sp for sp in l5_specs if not _done_with_t1(sp)]
+    if len(_l5_keep) != len(l5_specs):
+        log(f"[幂等] L5 轴已有读数的臂 {len(l5_specs) - len(_l5_keep)} 个 ⇒ 跳过")
+    l5_specs = _l5_keep
+    _l5b_keep = [sp for sp in l5b_specs if not _done_with_t1(sp)]
+    if len(_l5b_keep) != len(l5b_specs):
+        log(f"[幂等] L5B 轴已有 T1 读数的臂 {len(l5b_specs) - len(_l5b_keep)} 个 ⇒ 跳过")
+    l5b_specs = _l5b_keep
+    # ⚠ 列表顺序 = 执行顺序（`next_spec()` = `q.pop(0)`）
+    #   ⇒ **L5 / L5B 紧跟 PT1 跑**（PT1 是 2 epoch 轻抛，L5/L5B 是 5 epoch 长训 ⇒ 尺度不同，互不替代）
+    specs = lot_specs + pt1_specs + l5_specs + l5b_specs + cp_specs + specs
+    log(f"臂计划 {len(specs)} 条（LOT={len(lot_specs)} / PT1={len(pt1_specs)} / L5={len(l5_specs)} / "
+        f"L5B={len(l5b_specs)} / CP={len(cp_specs)} / "
         f"P={sum(1 for s in specs if s['channel']=='P')} / "
         f"T={sum(1 for s in specs if s['channel']=='T')}）｜并发 {args.arms}｜GPU {gpus}｜"
         f"截止 {args.deadline}")
@@ -966,6 +1273,13 @@ def main() -> None:
             st["desc"] = spec["desc"]
             st["channel"] = spec["channel"]
             st["trained"] = True
+            # 🔴🔴 2026-11-20 16:00 **抛光臂必须打 `polish` + `source_anchor` 标记**
+            #   否则 `promote_candidate.check_arm` 的种子关分支永远进不去
+            #   （`recipe_stats()` 只收 `init == cs_t0043.pt` 的臂 ⇒ 抛光臂不在普通配方组里）
+            #   ⇒ 训练出来的臂**永远升不了轨**（与板卡是否空闲无关）。
+            if spec["channel"] in ("P", "PT1", "L5", "L5B"):
+                st["polish"] = 1
+                st["source_anchor"] = spec.get("source_anchor")
             traj = st.setdefault("nanobench", {})
             for ep in epochs:
                 ck = f"{ROOT}/trials/trial_{trial}/weights/epoch{ep}.pt"
@@ -1000,7 +1314,7 @@ def main() -> None:
                 st["picked"] = best
                 st["picked_epoch"] = best["epoch"]
                 st["select_rule"] = how
-                st["beat_to_pass_ref"] = "Baseline_v2.2(trial_610000)"
+                st["beat_to_pass_ref"] = "Baseline_v3.1(trial_1990055)"
             NS.save_ledger(led)
             # ---- 三轴全过才跑官方门禁（贵）----
             triad = bool(best and best.get("nano", 0) > NS.BASE_V2["nano"]
@@ -1018,8 +1332,15 @@ def main() -> None:
             rec = {"trial": trial, "gpu": gpu, "desc": spec["desc"], "triad": triad,
                    "nano": (best or {}).get("nano"), "nano4": (best or {}).get("nano4"),
                    "f1": (best or {}).get("f1"), "ep": (best or {}).get("epoch")}
-            if (triad or near) and best:
-                log(f"[{trial}] {'★ 三轴全过' if triad else '近失臂'}（边际 {_marg:+.3f}σ）⇒ 跑官方门禁（GPU{gpu}）")
+            # 🔴🔴🔴 2026-11-20 §270/§282：PT1 / L5 臂（T1 供体再抛光 / 二代长训）**无条件跑官方门禁**
+            #   理由：它们的起点（BASE_A2 代成员）nano 就比基线低 **22 阶** ⇒ 永远进不了
+            #   triad / near(margin≥−0.3σ) 关 ⇒ 而它们的**唯一价值就是 T1 余量**
+            #   ⇒ 不打官方门禁就永远量不出 T1 ⇒ 也就永远进不了 §270 新轴的供体池 ⇒ 链断。
+            _force_gate = (spec.get("channel") in ("PT1", "L5", "L5B"))
+            if (triad or near or _force_gate) and best:
+                _why = ("★ 三轴全过" if triad else
+                        ("近失臂" if near else "强制门禁（唯一价值在 T1 余量）"))
+                log(f"[{trial}] {_why}（边际 {_marg:+.3f}σ）⇒ 跑官方门禁（GPU{gpu}）")
                 try:
                     off = NS.run_official_gate(trial, best["epoch"], gpu)
                 except Exception as exc:  # noqa: BLE001

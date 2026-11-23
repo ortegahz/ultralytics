@@ -25,6 +25,14 @@ set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 2
 export PYTHONPATH=.
 
+# The inline python below uses f-strings, so it MUST be a Python 3 interpreter.  On the training server the
+# bare `python` in a non-interactive ssh shell is /usr/bin/python == **Python 2.7** => SyntaxError => the
+# search_json_for_render.json is never written => the TSV silently loses its "global params" columns and the
+# renderer falls back to the per-sequence metrics only.  Pin the interpreter explicitly.
+PY_BIN="${PY_BIN:-$HOME/anaconda3/envs/uav/bin/python}"
+command -v "$PY_BIN" >/dev/null 2>&1 || PY_BIN="$(command -v python3 || command -v python)"
+echo "  python: $PY_BIN ($("$PY_BIN" -V 2>&1))"
+
 OUT_DIR="${OUT_DIR:-/mnt/data/siping/datasets/manu/龙泉山/osd_sys_sota_trial0080_20261022}"
 OUT_CUT="${OUT_CUT:-88.0}"
 JOBS="${JOBS:-12}"
@@ -75,7 +83,7 @@ echo "=============================================================="
 # 而 system_sota_longquan.py 写出的是 {"config","overall","per_sequence"}。这里做一次结构转换，
 # 数值逐字段搬运，不做任何重算 —— TSV 里的分数仍来自评估本身。
 RENDER_SEARCH_JSON="$OUT_DIR/search_json_for_render.json"
-python - "$SEARCH_JSON" "$RENDER_SEARCH_JSON" <<'PY'
+"$PY_BIN" - "$SEARCH_JSON" "$RENDER_SEARCH_JSON" <<'PY'
 import json, sys
 from pathlib import Path
 

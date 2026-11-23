@@ -59,6 +59,42 @@ from manu.pipeline.npu import route2_acceptance as RA  # noqa: E402
 
 LOGF = os.path.join(W, "soup3.log")
 
+# 🔴🔴 号段独占锁：同一个 `--sid-base` 号段**同时只能有一个合成进程**。
+#
+# 为什么需要（2026-11-23 10:29~10:31 实测事故）：
+#   `t1close_synth.sh` 的 flock 挂在**包装 shell**上，而真正干活的 `night_soup3.py`（经 timeout）
+#   是它的**子进程**。包装 shell 一死（SIGHUP/SIGTERM/被守望收割）⇒ flock 释放 ⇒
+#   守望按「PID 文件已死」拉起第二个实例 ⇒ **两个 `night_soup3` 拿着同一个 `--sid-base`
+#   和同一批配方并行跑**（实测 pid 819483 与 820183 的 `--recipes` 逐字节相同）。
+#   台账本身是安全的（`reserve_sid` 有 flock + 读-合并-写事务 ⇒ 不会撞号），
+#   但 `trial_<sid>/weights/epoch5.pt` 与 `soup3_<sid>.pkl` **原本直接写最终路径**
+#   ⇒ 两个进程并发写同一个文件 ⇒ 产物可能被截断/串写。
+#
+# ⇒ 在**进程内**按号段加锁：这是「号段独占」这条不变式的最后一道闸，
+#   与「谁启动的」（cron / 守望 / 手工 ssh）完全无关。
+_SIDRANGE_LOCK_FD = None
+
+
+def acquire_sid_range_lock(base: int, span: int):
+    """按号段加**非阻塞**独占锁。成功返回持有锁的 fd（须保持存活），失败返回 None。"""
+    import fcntl  # noqa: PLC0415
+
+    path = os.path.join("/tmp", f"soup3_sidrange_{int(base)}.lock")
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o666)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        return None
+    return fd
+
+
+def _unlink(path: str) -> None:
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
 
 def log(msg: str) -> None:
     line = f"[{time.strftime('%F %T')}] {msg}"
@@ -186,6 +222,16 @@ def main() -> None:
                     help="只跑门禁（不合成）：捞台账里 sb3 家族、三轴 ≥ 基线 且未门禁的臂")
     args = ap.parse_args()
 
+    # 🔴 号段独占（双实例的最后一道闸；见 acquire_sid_range_lock 的事故说明）
+    global _SIDRANGE_LOCK_FD
+    if not args.only_gate:
+        _SIDRANGE_LOCK_FD = acquire_sid_range_lock(args.sid_base, args.sid_span)
+        if _SIDRANGE_LOCK_FD is None:
+            log(f"[3汤] 🔴 号段 [{args.sid_base},{args.sid_base + args.sid_span}) 已被另一个合成进程"
+                f"占用 ⇒ 本实例退出（防双实例重复合成 / 并发写同一 ckpt+pkl）")
+            raise SystemExit(3)
+        log(f"[3汤] 号段锁已持有 sid=[{args.sid_base},{args.sid_base + args.sid_span})")
+
     dl = time.mktime(time.strptime(args.deadline, "%Y-%m-%d %H:%M"))
     base = NS.BASE_V2
     recipes = parse_recipes(args.recipes)
@@ -233,6 +279,17 @@ def main() -> None:
             if sid is None:
                 log(f"[3汤] 独占号段已满 ⇒ 收工")
                 break
+            # 🟢🟢 2026-11-18 10:55 **已合成 ⇒ 跳过**（幂等续跑）
+            #   坑：night_soup3 每轮循环都会把同一批配方**重新合成 + 重建缓存 + 重评测**
+            #        ⇒ 一轮 D2/D3 波（~60 臂）每轮重复消耗数小时算力，真正的新配方反而排不上。
+            #   修法：台账已有 picked + ckpt + pkl 都在 ⇒ 直接跳过（合成是确定性的，重做无意义）。
+            _led0 = NS.load_ledger()
+            _st0 = (_led0.get("arms") or {}).get(str(sid))
+            _ck0 = os.path.join(ROOT, "trials", f"trial_{sid}", "weights", "epoch5.pt")
+            _pk0 = os.path.join("/mnt/data/siping/runs/npu20ms/tiny_ref", f"soup3_{sid}.pkl")
+            if _st0 and _st0.get("picked") and os.path.isfile(_ck0) and os.path.isfile(_pk0):
+                log(f"[3汤] sid={sid} 已合成 ⇒ 跳过")
+                continue
             paths = [ck_path(t, e) for (t, e) in mt]
             if not all(os.path.isfile(p) for p in paths):
                 log(f"[3汤] 权重缺失 {paths} ⇒ 跳过")
@@ -240,28 +297,52 @@ def main() -> None:
             out_dir = os.path.join(ROOT, "trials", f"trial_{sid}", "weights")
             os.makedirs(out_dir, exist_ok=True)
             out_ck = os.path.join(out_dir, "epoch5.pt")
+            # 🔴 原子发布：先写「同目录临时文件」再 os.replace ⇒ 任何时刻 out_ck 要么是旧的
+            #    完整文件、要么是新的完整文件，**绝不会是写了一半的**。
+            #    （守望的「收割孤儿」会 kill -9 掉写盘中途的进程 ⇒ 直接写最终路径必然留残档）
+            tmp_ck = f"{out_ck}.tmp.{os.getpid()}"
             try:
-                average_checkpoints(paths, out_ck, weights=ws, epoch=5,
+                average_checkpoints(paths, tmp_ck, weights=ws, epoch=5,
                                     note="soup3_" + "_".join(f"{t}@{e}w{w:.4f}" for t, e, w in members))
+                os.replace(tmp_ck, out_ck)
             except Exception as exc:  # noqa: BLE001
                 log(f"[3汤] 合成失败 {fam}：{exc}")
+                _unlink(tmp_ck)
                 continue
             pkl = f"/mnt/data/siping/runs/npu20ms/tiny_ref/soup3_{sid}.pkl"
+            tmp_pkl = f"{pkl}.tmp.{os.getpid()}"
             try:
-                if not RA.build_cache(out_ck, pkl, args.gpu, extra="--no-peak-attrs"):
+                _unlink(tmp_pkl)  # 清掉上一次崩溃留下的残档（否则 build_cache 会误判「已存在」）
+                if not RA.build_cache(out_ck, tmp_pkl, args.gpu, extra="--no-peak-attrs"):
                     log(f"[3汤] 缓存失败 sid={sid}")
+                    _unlink(tmp_pkl)
                     continue
-                res = NS._nb_pool().submit(NS._nb_worker, (pkl, f"soup3_{sid}")).result()
+                res = NS._nb_pool().submit(NS._nb_worker, (tmp_pkl, f"soup3_{sid}")).result()
             except Exception as exc:  # noqa: BLE001
                 log(f"[3汤] 评测异常 sid={sid}：{exc}")
+                _unlink(tmp_pkl)
                 continue
             if not res:
                 log(f"[3汤] 评测失败 sid={sid}")
+                _unlink(tmp_pkl)
                 continue
+            # 评测通过才发布缓存 ⇒ 挂到台账上的永远是「已评测过」的完整缓存
+            os.replace(tmp_pkl, pkl)
             m = {"nano": res["nano"], "nano4": res["nano4"], "f1": res["f1"],
                  "micro": res.get("micro"), "small": res.get("small"), "regular": res.get("regular"),
                  "f1_4": res.get("f1_4"), "cache": pkl}
-            triad = bool(m["nano"] > base["nano"] and m["nano4"] > base["nano4"] and m["f1"] > base["f1"])
+            # 🟢🟢 2026-11-18 15:40 **三轴筛选放宽（F1 容差 + nano4 增益例外）**
+            #   背景：基线抬到 v2.7 后 f1=.8905687 ⇒ 「f1 差 1e-4 但 nano4 高 5e-3」的臂被挡在门外，
+            #   而这类臂恰恰是**小目标召回更强**的候选（用户最关心的 nano4 轴）⇒ 需要门禁读数才能进晨报。
+            #   规则（**仅决定「是否值得花门禁机时」**，六项判据本身不变）：
+            #     · nano 必须 > 基线、nano4 必须 > 基线；
+            #     · 且（f1 > 基线）**或**（f1 > 基线 − F1_TOL 且 nano4 ≥ 基线 + NANO4_GAIN）。
+            F1_TOL = 2.0e-4
+            NANO4_GAIN = 3.0e-3
+            triad = bool(m["nano"] > base["nano"] and m["nano4"] > base["nano4"]
+                         and (m["f1"] > base["f1"]
+                              or (m["f1"] > base["f1"] - F1_TOL
+                                  and m["nano4"] >= base["nano4"] + NANO4_GAIN)))
             mg = margin(m, base)
             log(f"[3汤] sid={sid} fam={fam} ⇒ nano={m['nano']:.7f} nano4={m['nano4']:.7f} "
                 f"F1={m['f1']:.7f} m={mg:+.3f}σ 三轴全过={triad}")

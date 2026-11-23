@@ -8,7 +8,7 @@
 
 | # | 铁律 | 落地动作 |
 |:--|:--|:--|
-| 〇 | **本地优先** | 一律先改本地 `/media/manu/1TB-Volume/workspace/ultralytics/`，**严禁直接改服务器代码**；同步判据**只能靠 md5 双侧比对**（本地 / SSHFS 镜像 / 服务器） |
+| 〇 | **本地优先** | 一律先改本地 `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/`，**严禁直接改服务器代码**；同步判据**只能靠 md5 双侧比对**（本地 / SSHFS 镜像 / 服务器） |
 | 〇之二 | **基线冻结** | `manu/data/build_full_median_dataset.py` **严禁修改**（只可调用/读取）——它定义了 baseline 本身 |
 | 〇之三 | **任务边界** | 只做用户交代的事；**禁止自启动未授权实验/训练/推理/重型评测**。发现缺口只能记录 + 上报，不得自行执行 |
 | 一 | **禁擅自启动重活** | 训练 / 推理 / 缓存构建 / 评测必须用户当轮明确授权 |
@@ -56,9 +56,9 @@
 | 项 | 值 |
 |:--|:--|
 | 训练/推理服务器 | `ssh -p 32222 huangzhe@192.168.99.40`（项目目录 `/tmp/pycharm_project_10ae9e2e`，conda env `uav`） |
-| SSHFS 代码镜像（**只读 ro**，写不进去，**不是推送通道**） | `/home/manu/mnt/pycharm_project_10ae9e2e` |
+| SSHFS 代码镜像（**只读 ro**，写不进去，**不是推送通道**） | `/home/manu/mnt/pycharm_project_a7d966e6` |
 | RK3588 板卡 | `ssh -p 22 root@192.168.0.211`（**2026-11-10 换板**，旧 `192.168.0.64` 已作废；口令见 `manu/memory/rules.md` §1b，**不得写入对外材料**） |
-| 交叉编译器 | `/media/manu/1TB-Volume/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu`（前缀 `aarch64-rockchip-linux-gnu-`） |
+| 交叉编译器 | `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu`（前缀 `aarch64-rockchip-linux-gnu-`） |
 
 ### 4.1 算力归属 SOP（重活上服务器）
 
@@ -70,14 +70,14 @@
 |:--|:--|
 | 服务器 ssh | **`ssh -p 32222 huangzhe@192.168.99.40`**（**端口 32222**；22 端口是**关闭**的，用 22 会 `Connection refused`） |
 | 服务器项目目录 | `/tmp/pycharm_project_10ae9e2e`（conda env `uav`） |
-| 本机 SSHFS 镜像 | `/home/manu/mnt/pycharm_project_10ae9e2e`（**只读 ro**，写不进去，别指望它当推送通道） |
+| 本机 SSHFS 镜像 | `/home/manu/mnt/pycharm_project_a7d966e6`（**只读 ro**，写不进去，别指望它当推送通道） |
 | 服务器数据 | `/mnt/data/...`（本机镜像 `/home/manu/mnt/data`，**只读**） |
 | 现成脚本 | `manu/tracking/lookahead/server_overnight/push_and_start.sh`（打包 + scp + 拉起夜间作业）、`start_on_server.sh`、`run_overnight_eval.sh` |
 
 **执行法（用户在 host 终端跑一次）**：
 
 ```bash
-cd /media/manu/1TB-Volume/workspace/ultralytics
+cd /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics
 bash manu/tracking/lookahead/server_overnight/push_and_start.sh   # 端口已在脚本里设为 32222
 ```
 
@@ -93,8 +93,8 @@ bash manu/tracking/lookahead/server_overnight/push_and_start.sh   # 端口已在
 ## 5. 同步三侧校验（改完必做）
 
 ```bash
-md5sum /media/manu/1TB-Volume/workspace/ultralytics/<f> \
-       /home/manu/mnt/pycharm_project_10ae9e2e/<f>
+md5sum /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/<f> \
+       /home/manu/mnt/pycharm_project_a7d966e6/<f>
 ssh -p 32222 huangzhe@192.168.99.40 "md5sum /tmp/pycharm_project_10ae9e2e/<f>"
 ```
 

@@ -1230,16 +1230,17 @@ typedef struct {
   int32_t reorder_window;
 
   /* ---- the parameters, one by one with the Python reference's params ----
-   * Every field carries the frozen th045/v1 value as its default; see
-   * mosaic_pipeline_track_fusion_defaults(). */
-  double th_base;          /* the sky-region confidence threshold        (0.45) */
+   * Every field carries the 2026-11-20 DELIVERY value as its default (the
+   * trial_0080 bottom + the v3 working point + the delta-n re-search);
+   * see mosaic_pipeline_track_fusion_defaults(). */
+  double th_base;          /* the sky-region confidence threshold        (0.48) */
   double th_salvage;       /* the sky-region weak-pulse salvage          (0.06) */
-  double th_ground;        /* the ground-region threshold                (0.22) */
-  double sky_ratio;        /* the sky/ground split = img_h * sky_ratio   (0.60) */
+  double th_ground;        /* the ground-region threshold                (0.26) */
+  double sky_ratio;        /* the sky/ground split = img_h * sky_ratio   (1.00) */
   int32_t img_h;           /* the frame height the thresholds assume       (512) */
   int32_t max_age;         /* the UPDATES a track survives without a hit    (3) */
   int32_t min_hits;        /* the hits before a track is confirmed          (3) */
-  double match_dist;       /* the association gate                         (16.0) */
+  double match_dist;       /* the association gate                         (10.0) */
   double max_match_dist;   /* the association gate's upper bound           (24.0) */
   double min_track_score;  /* the score floor of a track                   (0.08) */
   double instant_conf;     /* the score that confirms a track at once      (0.25) */
@@ -1254,8 +1255,8 @@ typedef struct {
   double max_rigid_var;    /* the coordinate variance of a rigid-junk point  (1.0) */
   int32_t min_hits_prune;  /* the observations before the pruning starts      (4) */
   double min_rigid_disp_sky; /* <0 = None (the legacy branch)               (-1.0) */
-  int32_t confirm_consec;  /* the consecutive hits that confirm a track       (6) */
-  int32_t confirm_gap_tol; /* the extra gap the confirmation tolerates       (0) */
+  int32_t confirm_consec;  /* the consecutive hits that confirm a track       (2) */
+  int32_t confirm_gap_tol; /* the extra gap the confirmation tolerates       (8) */
   int32_t confirm_trim_prefix; /* 1 = drop the detections before the confirmation (1) */
 
   /* THE FRAME AXIS THE ENGINE IS FED WITH.
@@ -1283,8 +1284,10 @@ typedef struct {
    *                  match_dist + r_slope * (dn - 1), capped by
    *                  max_match_dist);
    *   alpha_decay  : the score retention per physical frame.
-   *   The defaults are the values found by the 2026-11-19 random-FPS
-   *   search (10 / 3.5 / 1.0). */
+   *   The defaults are the values of the 2026-11-20 DELIVERY set
+   *   (-1 = off / 5.0 / 1.0).  The 2026-11-19 random-FPS search had said
+   *   (10 / 3.5 / 1.0), but its objective-best scored FAR 0.0352 on the
+   *   full 165,223-frame caliber and was REJECTED by the delivery gate. */
   int32_t max_age_phys;
   double r_slope;
   double alpha_decay;
@@ -1299,7 +1302,9 @@ typedef struct {
   int32_t infilled; /* 1 = a SYNTHESISED (interpolated) frame, not an observation */
 } MosaicTrackedDet;
 
-/* Fill `cfg` with the frozen th045/v1 defaults.  Call it FIRST, then change
+/* Fill `cfg` with the 2026-11-20 DELIVERY defaults (the trial_0080 bottom +
+ * the v3 working point + the delta-n re-search; params_md5
+ * a1157e013ebb496731be805c72c95dd8).  Call it FIRST, then change
  * the fields you care about:
  *     MosaicTrackFusionConfig cfg;
  *     mosaic_pipeline_track_fusion_defaults(&cfg);
@@ -1316,6 +1321,26 @@ void mosaic_pipeline_track_fusion_defaults(MosaicTrackFusionConfig* cfg);
  * flight are lost.
  * OFF by default: a pipeline that never calls this behaves exactly as before. */
 int32_t mosaic_pipeline_set_track_fusion(MosaicPipeline* p, const MosaicTrackFusionConfig* cfg);
+
+/* Set the CROSS-SCALE CANDIDATE MERGE radius (pixels) -- the board's
+ * counterpart of the server's `merge_scales(dedup_radius)`.
+ *   0 (the default) = OFF: the candidates reach the fusion engine exactly
+ *       as the back-projection produced them (today's behaviour).
+ *   > 0 = the candidates of a frame are merged greedily: pooled, sorted by
+ *       descending score (stable), and a candidate lying within `radius`
+ *       of an already kept one is dropped (the server's rule, bit for bit).
+ * WHY: the server's FAR is calibrated on a MERGED candidate stream.  The
+ * board fed the engine the RAW one, so one target that fired on several
+ * scales became several tracks => board FAR 0.3832 against the 0.03 red
+ * line (12.8x) on the same 2500-frame window, while the fusion engine
+ * itself was proven equivalent to the server's.
+ * The board's delivery value is 20 px (16~24 px is the accepted band).  The
+ * server's own delivery caliber uses 768 px, which is WRONG on the board:
+ * 768 px is longer than any two points of a 640x512 frame, so it keeps a
+ * single candidate per frame and drops the secondary targets.
+ * Returns 0 on success, -1 on a NULL pipeline, -3 on a radius out of range.
+ * It may be called before or after mosaic_pipeline_set_track_fusion(). */
+int32_t mosaic_pipeline_set_candidate_dedup_radius(MosaicPipeline* p, double radius);
 
 /* Collect the next frame's TRACKED output (the ONLINE fusion: the confirmed
  * tracks that were OBSERVED in that frame -- no synthesised frames).

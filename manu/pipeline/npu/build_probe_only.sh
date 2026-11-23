@@ -17,9 +17,9 @@ PIPE="$(cd "$HERE/.." && pwd)"
 OUT="$HERE/out"
 STAGE="$HERE/.build-include"
 
-TC="${RK3588_TOOLCHAIN:-/media/manu/1TB-Volume/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu}"
-INSTALL="${OPENCV_INSTALL:-/media/manu/1TB-Volume/workspace/opencv-4.10.0-arm64-install}"
-LIBDIR="${BOARD_LIBS:-/media/manu/1TB-Volume/rk3588/boardlibs}"
+TC="${RK3588_TOOLCHAIN:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu}"
+INSTALL="${OPENCV_INSTALL:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/opencv-4.10.0-arm64-install}"
+LIBDIR="${BOARD_LIBS:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rk3588/boardlibs}"
 TP_LIB="$INSTALL/lib/opencv4/3rdparty"
 
 CXX="$TC/bin/aarch64-rockchip-linux-gnu-g++"

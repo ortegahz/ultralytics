@@ -36,7 +36,7 @@ def parse_args():
     parser.add_argument(
         "--cache-file",
         type=str,
-        default="/home/manu/mnt/pycharm_project_10ae9e2e/runs/badcase_analysis/inference_cache.pkl",
+        default="/home/manu/mnt/pycharm_project_a7d966e6/runs/badcase_analysis/inference_cache.pkl",
         help="Path to inference_cache.pkl",
     )
     parser.add_argument(

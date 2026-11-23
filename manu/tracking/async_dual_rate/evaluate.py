@@ -1239,10 +1239,10 @@ def write_evidence(
 
 def _default_paths() -> dict:
     return {
-        "cache_root": "/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/ms_cache",
+        "cache_root": "/home/manu/mnt/pycharm_project_a7d966e6/runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/ms_cache",
         "frames_root": "/home/manu/mnt/data/siping/datasets/manu/龙泉山/frames_ir_jpg",
         "labels_root": "/home/manu/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010",
-        "sys_sota_root": "/home/manu/mnt/pycharm_project_10ae9e2e/runs/sys_sota_preds",
+        "sys_sota_root": "/home/manu/mnt/pycharm_project_a7d966e6/runs/sys_sota_preds",
     }
 
 

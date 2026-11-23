@@ -35,7 +35,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-DEFAULT_W = "/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_p0_nas/trial_0474/weights/best.pt"
+DEFAULT_W = "/home/manu/mnt/pycharm_project_a7d966e6/runs/optuna_p0_nas/trial_0474/weights/best.pt"
 DEFAULT_IMG = ("/home/manu/mnt/data/siping/datasets/manu/uav_gmc_median/images/val/"
                "01_4485_1167-2666__000100.jpg")
 DEFAULT_OUT = REPO_ROOT / "runs/onnx/trial0474_hm.onnx"

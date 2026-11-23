@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pickle
 from pathlib import Path
 import sys
@@ -70,6 +71,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-area", type=int, default=4, help="Minimum connected-component pixel count")
     parser.add_argument("--max-detections", type=int, default=100, help="Detections cached per frame per source")
     parser.add_argument("--hm-weights", default="runs/optuna_p0_nas/trial_0474/weights/best.pt")
+    parser.add_argument(
+        "--hm-onnx",
+        default="",
+        help="Heatmap model as an ONNX file (ONNX Runtime backend).  Used when the "
+             "PyTorch checkpoint is gone but the exported graph still is -- e.g. the "
+             "exact ONNX the delivered .rknn was built from.  Same post-processing as "
+             "the torch path; only the inference backend differs.",
+    )
     parser.add_argument(
         "--ablate-p0",
         action="store_true",
@@ -230,6 +239,41 @@ def detect_components(heatmap: np.ndarray, threshold: float, dilate: int, min_ar
     return entries[:limit]
 
 
+def run_heatmaps_onnx(session, canvases: np.ndarray, batch: int) -> np.ndarray:
+    """ONNX Runtime twin of :func:`run_heatmaps` -- identical maths, different backend.
+
+    The torch path feeds ``model(tensor)`` with ``tensor = uint8_canvas / 255`` in NCHW and takes
+    ``prediction["heatmap"][:, 0]``.  This helper does exactly the same on the ONNX graph
+    (input ``images``, outputs ``heatmap``/``offset``) so the **downstream post-processing is
+    bit-for-bit the same code** and only the inference engine differs.
+
+    The adapter path is deliberately not supported here: the official cache build runs without
+    an adapter, and silently ignoring one would be a foot-gun.
+    """
+    collected: list[np.ndarray] = []
+    start = 0
+    size = max(1, batch)
+    input_name = session.get_inputs()[0].name
+    output_names = [output.name for output in session.get_outputs()]
+    # A graph exported with a fixed batch (e.g. torch.onnx.export of a batch-1 sample) hard-binds
+    # the batch dimension, and feeding it more rows raises INVALID_ARGUMENT.  Clamp to whatever
+    # the graph actually accepts instead of guessing.
+    static_batch = session.get_inputs()[0].shape[0] if session.get_inputs()[0].shape else None
+    if isinstance(static_batch, int) and static_batch > 0:
+        size = min(size, static_batch)
+    if size != max(1, batch):
+        print(f"[ONNX] graph batch dim is static ({static_batch}) -> per-run batch clamped to {size}",
+              flush=True)
+    while start < len(canvases):
+        count = min(size, len(canvases) - start)
+        window = canvases[start : start + count].astype(np.float32) / 255.0
+        outputs = session.run(output_names, {input_name: np.ascontiguousarray(window)})
+        prediction = dict(zip(output_names, outputs))
+        collected.extend(np.asarray(prediction["heatmap"])[:, 0])
+        start += count
+    return np.stack(collected) if collected else np.zeros((0, 0, 0), dtype=np.float32)
+
+
 def run_heatmaps(model, canvases: np.ndarray, device: torch.device, batch: int,
                  adapter=None, guide_channel: int = 0) -> np.ndarray:
     """Run the heatmap detector over pre-padded canvases, halving the batch on CUDA OOM.
@@ -318,17 +362,42 @@ def main() -> None:
     # ★ 结构自描述显式下传（2026-11-06 修静默丢权重 bug）：这条路径以前只传 use_p0_highway
     #   ⇒ head_conv 回落 64、late_upsample 回落 False ⇒ 重建出的头与 ckpt 形状对不上
     #   ⇒ 头权重被静默跳过 ⇒ 随机头 ⇒ 热图全 0 ⇒ 被误判成死模型。
-    hm_weights = resolve_weights(args.hm_weights)
-    ckpt = torch.load(hm_weights, map_location="cpu")
-    ck_head_conv = ckpt.get("head_conv", None)
-    ck_late_upsample = bool(ckpt.get("late_upsample", False))
-    print(f"[STRUCT] ckpt 自描述: {hm_weights} | head_conv={ck_head_conv} late_upsample={ck_late_upsample}",
-          flush=True)
-    model, stride = load_hm_model(
-        hm_weights, device, use_p0_highway=not args.ablate_p0,
-        head_conv=int(ck_head_conv) if ck_head_conv else None,
-        late_upsample=ck_late_upsample,
-    )
+    if args.hm_onnx:
+        # ---- ONNX Runtime backend (the torch checkpoint may be gone) ----
+        import onnxruntime as ort  # noqa: E402  (lazy: only needed on this path)
+
+        session_options = ort.SessionOptions()
+        session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        session_options.intra_op_num_threads = max(1, args.cpu_threads)
+        # The ONNX backend picks its device from --device alone: this repo's ``uav`` env ships a
+        # CPU-only torch, so ``torch.cuda.is_available()`` is False and the torch-derived ``device``
+        # would silently demote ORT to the CPU.  ``CUDA_VISIBLE_DEVICES`` still selects the card.
+        providers = ["CPUExecutionProvider"]
+        if args.device != "cpu":
+            providers.insert(0, "CUDAExecutionProvider")
+        session = ort.InferenceSession(str(args.hm_onnx), session_options, providers=providers)
+        heatmap_shape = session.get_outputs()[0].shape
+        stride = int(args.imgsz // int(heatmap_shape[-1])) if heatmap_shape[-1] else 2
+        print(
+            f"[STRUCT] onnx backend: {args.hm_onnx} | providers={session.get_providers()} | "
+            f"input={session.get_inputs()[0].name}{session.get_inputs()[0].shape} | "
+            f"heatmap_out={heatmap_shape} | stride={stride} | "
+            f"cuda_visible={os.environ.get('CUDA_VISIBLE_DEVICES', '<unset>')}",
+            flush=True,
+        )
+        model, ck_head_conv, ck_late_upsample = None, None, False
+    else:
+        hm_weights = resolve_weights(args.hm_weights)
+        ckpt = torch.load(hm_weights, map_location="cpu")
+        ck_head_conv = ckpt.get("head_conv", None)
+        ck_late_upsample = bool(ckpt.get("late_upsample", False))
+        print(f"[STRUCT] ckpt 自描述: {hm_weights} | head_conv={ck_head_conv} late_upsample={ck_late_upsample}",
+              flush=True)
+        model, stride = load_hm_model(
+            hm_weights, device, use_p0_highway=not args.ablate_p0,
+            head_conv=int(ck_head_conv) if ck_head_conv else None,
+            late_upsample=ck_late_upsample,
+        )
     adapter = None
     if args.adapter_weights:
         from manu.models.adapter_model import HeatmapAdapter  # noqa: E402  (lazy: optional feature)
@@ -351,7 +420,9 @@ def main() -> None:
     all_scales = [0] + args.scales
     print(
         f"[INFO] sequences={len(sequences)} | scales={all_scales} (0 = native letterbox) | stride={stride} | "
-        f"device={device} | ablate_p0={args.ablate_p0}\n"
+        f"backend={'onnxruntime' if args.hm_onnx else 'torch'} | "
+        f"device={('cuda:' + args.device) if (args.hm_onnx and args.device != 'cpu') else device} | "
+        f"ablate_p0={args.ablate_p0}\n"
         f"[INFO] fused row = per-pixel max across scales >= {args.main_threshold} dilated by {args.fusion_dilate}, "
         f"components with area >= {args.min_area}",
         flush=True,
@@ -398,8 +469,11 @@ def main() -> None:
                 canvases[index * len(all_scales) : (index + 1) * len(all_scales)] = np.stack(scale_canvases)
                 chunk_mappings.append(mappings)
 
-            heatmaps = run_heatmaps(model, canvases, device, args.batch_size,
-                                    adapter=adapter, guide_channel=args.adapter_guide_channel)
+            if args.hm_onnx:
+                heatmaps = run_heatmaps_onnx(session, canvases, args.batch_size)
+            else:
+                heatmaps = run_heatmaps(model, canvases, device, args.batch_size,
+                                        adapter=adapter, guide_channel=args.adapter_guide_channel)
             if device.type == "cuda":
                 torch.cuda.empty_cache()
 
@@ -467,7 +541,9 @@ def main() -> None:
                 "features_root": str(args.features_root) if args.features_root else "",
                 # Model identity: without these two a P0 and a no-P0 cache are indistinguishable on disk,
                 # which is exactly how a later A/B silently compares one arm against the other.
-                "hm_weights": str(args.hm_weights),
+                "hm_weights": str(args.hm_weights) if not args.hm_onnx else "",
+                "hm_onnx": str(args.hm_onnx) if args.hm_onnx else "",
+                "inference_backend": "onnxruntime" if args.hm_onnx else "torch",
                 "use_p0_highway": not args.ablate_p0,
                 # Adapter identity: an adapter cache and a base cache must never be confusable,
                 # for the same reason the P0 flag above exists.

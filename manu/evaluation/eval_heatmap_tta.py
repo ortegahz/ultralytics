@@ -201,7 +201,7 @@ def main():
         alt_paths = [
             REPO_ROOT / args.weights,
             Path("/tmp/pycharm_project_10ae9e2e") / args.weights,
-            Path("/home/manu/mnt/pycharm_project_10ae9e2e") / args.weights,
+            Path("/home/manu/mnt/pycharm_project_a7d966e6") / args.weights,
         ]
         for alt in alt_paths:
             if alt.exists():

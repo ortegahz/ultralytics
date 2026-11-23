@@ -69,7 +69,7 @@ fi
 # ---------------------------------------------------------------------------
 # 交叉编译器
 # ---------------------------------------------------------------------------
-TC_DEFAULT="/media/manu/1TB-Volume/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu"
+TC_DEFAULT="/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu"
 TC_CANDIDATES="${RK3588_TOOLCHAIN:-$TC_DEFAULT}"
 
 # ⚠️ 必须**真的跑一下**编译器（buildroot 的 `*-g++` 是 `*.br_real` 包装器）。

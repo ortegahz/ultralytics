@@ -8,7 +8,7 @@
 # all. Spending real accuracy on a sequence that does not need the speed is the
 # wrong trade, so the budget that suits VIDEO00036 must not be imposed on it.
 set -u
-HERE=/media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/opencl/board
+HERE=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/pipeline/opencl/board
 BIN=/tmp/gmc_stream_ocl_cap
 B=$HERE/.bench_bmp
 K=$HERE/../kernels

@@ -14,7 +14,7 @@ Measured facts:
     output scale of ~0.0075, not 0.00094.
   * the trial-0474 int8 model that actually shipped had out[0] scale=0.00365272
     and was calibrated with 200 JPEG feature images listed in
-    /media/manu/1TB-Volume/rknn_work/hm/calib_train_features.txt (Anti-UAV
+    /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/hm/calib_train_features.txt (Anti-UAV
     train features, round-robin over 199 sequences).
 
 So the toolkit's calibration pass did NOT see what ONNX Runtime sees. Three
@@ -50,7 +50,7 @@ HERE = Path(__file__).resolve().parent
 DEFAULT_CALIB = Path("/mnt/data/siping/ptq_work/calib")
 DEFAULT_OUT = Path("/mnt/data/siping/ptq_work/calib2")
 # the frozen trial-0474 calibration list lives on the workstation
-T0474_SRC = Path("/media/manu/1TB-Volume/rknn_work/hm/calib_train_features.txt")
+T0474_SRC = Path("/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/hm/calib_train_features.txt")
 # the list was written against the workstation's NFS mount; on the server the
 # same tree is at /mnt/data/siping
 T0474_PREFIX_FROM = "/home/manu/mnt/data/siping/"

@@ -42,7 +42,7 @@ displayNames:
 
 本 skill 的绝大多数命令在**服务器**（`ssh -p 32222 huangzhe@192.168.99.40`）执行，
 因为数据在服务器盘 `/mnt/data` 上；本机只有 SSHFS 只读镜像
-`/home/manu/mnt/data/...` 和代码镜像 `/home/manu/mnt/pycharm_project_10ae9e2e`（写代码即落服务器）。
+`/home/manu/mnt/data/...` 和代码镜像 `/home/manu/mnt/pycharm_project_a7d966e6`（写代码即落服务器）。
 
 先按下列顺序建立环境（服务器上 `python` 无 3 后缀，conda 环境名为 `uav`）：
 
@@ -62,7 +62,7 @@ python -V   # 期望 3.10.20
 - 训练侧一律走 YOLO 官方 `build_yolo_dataset` + `build_dataloader`，
   不要另写 OpenCV 图像处理分支，不要改 `letterbox_gray`
   （定义在 `manu/data/preannotate_hm_bbox.py`，被 `manu/data/multiscale_heatmap_cache.py` 引用）。
-- 新场景的改动先落在本地仓库 `/media/manu/1TB-Volume/workspace/ultralytics/`，
+- 新场景的改动先落在本地仓库 `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/`，
   再同步到服务器 `/tmp/pycharm_project_10ae9e2e`；同步是否成功**只用 md5 比对**判定。
 
 ### 1. 人工定界：把新场景切成 Ignore / Blind / Train+Anchor

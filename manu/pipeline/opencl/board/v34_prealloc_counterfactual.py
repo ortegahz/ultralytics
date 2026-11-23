@@ -24,7 +24,7 @@ import csv
 import math
 import os
 
-CSV = ("/media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/opencl/board/"
+CSV = ("/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/pipeline/opencl/board/"
        ".bench_out/FIX7/profile_A_VIDEO00034_19700101_015052.csv")
 RED_LINE = 40.0
 

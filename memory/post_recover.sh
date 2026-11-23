@@ -1,7 +1,7 @@
 #!/bin/bash
 # host 侧：服务器恢复后的资产回灌 + 状态核验（把服务器上的关键产物拉回 host，防 /tmp 清空）
 IP=${1:-192.168.99.40}
-H=/media/manu/1TB-Volume/workspace/ultralytics/server_backup
+H=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/server_backup
 mkdir -p "$H"
 SSH="ssh -F /dev/null -o ConnectTimeout=12 -o BatchMode=yes -o StrictHostKeyChecking=no -p 32222 huangzhe@$IP"
 SCP="scp -F /dev/null -o ConnectTimeout=12 -o BatchMode=yes -o StrictHostKeyChecking=no -P 32222"

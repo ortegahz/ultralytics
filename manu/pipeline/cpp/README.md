@@ -92,7 +92,7 @@ Shi-Tomasi、金字塔 Lucas-Kanade、RANSAC 部分仿射、`warpAffine`、`resi
 ### 4.0 先跑离线单元验证（秒级，不需要数据集 / 显卡 / 已编译的二进制）
 
 ```bash
-cd /home/manu/mnt/pycharm_project_10ae9e2e
+cd /home/manu/mnt/pycharm_project_a7d966e6
 python manu/pipeline/cpp/test_port_units.py
 ```
 
@@ -122,7 +122,7 @@ python manu/pipeline/cpp/test_port_units.py
 服务器上的 Python `cv2` 能用不代表 C++ 头文件在，先定位：
 
 ```bash
-cd /home/manu/mnt/pycharm_project_10ae9e2e
+cd /home/manu/mnt/pycharm_project_a7d966e6
 
 # 1) 找 OpenCV 安装前缀（两种方式任选其一种到结果即可）
 python3 -c "import cv2; print(cv2.getBuildInformation())" | grep -iE "^\s+(Installation|CMAKE_INSTALL_PREFIX)" -A2
@@ -145,7 +145,7 @@ sudo apt-get install -y libopencv-dev
 然后构建：
 
 ```bash
-cd /home/manu/mnt/pycharm_project_10ae9e2e
+cd /home/manu/mnt/pycharm_project_a7d966e6
 cmake -S manu/pipeline/cpp -B manu/pipeline/cpp/build -DCMAKE_BUILD_TYPE=Release
 cmake --build manu/pipeline/cpp/build -j
 ```
@@ -181,7 +181,7 @@ cmake --build manu/pipeline/cpp/build -j
 ### 5.1 主验收：step=2 必须复现 SOTA 特征
 
 ```bash
-cd /home/manu/mnt/pycharm_project_10ae9e2e
+cd /home/manu/mnt/pycharm_project_a7d966e6
 mkdir -p runs/cpp_port
 
 PYTHONPATH=. python manu/pipeline/verify_cpp_port.py \
@@ -210,7 +210,7 @@ PYTHONPATH=. python manu/pipeline/verify_cpp_port.py \
 ### 5.2 交付配置 step=10
 
 ```bash
-cd /home/manu/mnt/pycharm_project_10ae9e2e
+cd /home/manu/mnt/pycharm_project_a7d966e6
 PYTHONPATH=. python manu/pipeline/verify_cpp_port.py \
     --cpp-bin manu/pipeline/cpp/build/gmc_stream \
     --raw-root /mnt/data/siping/datasets/manu/anti-uav \
@@ -231,7 +231,7 @@ PYTHONPATH=. python manu/pipeline/verify_cpp_port.py \
 上面两次是**局部检查**。要把结论写进汇报，必须跑全量：
 
 ```bash
-cd /home/manu/mnt/pycharm_project_10ae9e2e
+cd /home/manu/mnt/pycharm_project_a7d966e6
 SEQS=$(python3 - <<'PY'
 from pathlib import Path
 import re
@@ -261,7 +261,7 @@ PYTHONPATH=. python manu/pipeline/verify_cpp_port.py \
 ## 6. 直接运行（不经 Python 验证器）
 
 ```bash
-cd /home/manu/mnt/pycharm_project_10ae9e2e
+cd /home/manu/mnt/pycharm_project_a7d966e6
 ./manu/pipeline/cpp/build/gmc_stream \
     --raw-root /mnt/data/siping/datasets/manu/anti-uav \
     --sequence wg2022_ir_052_split_08 \

@@ -18,9 +18,9 @@
 # =============================================================================
 set -euo pipefail
 
-ROOT=${ROOT:-/media/manu/1TB-Volume/workspace/ultralytics}
+ROOT=${ROOT:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics}
 NFS=${NFS:-/run/media/manu/SSD960-LOCAL/nfs/e2e24}
-WORK=${WORK:-/media/manu/1TB-Volume/workspace/ultralytics/runs/e2e24_ablation}
+WORK=${WORK:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/runs/e2e24_ablation}
 TS_S=${TS_S:-$NFS/full_serial}
 TS_P=${TS_P:-$NFS/full_par}
 

@@ -26,9 +26,9 @@ is reproducible without reading this file.
 
 Usage:
     python yolo26n_speed_ab.py \
-        --onnx /media/manu/1TB-Volume/rknn_work/yolo26n/yolo26n.onnx \
-        --outdir /media/manu/1TB-Volume/rknn_work/yolo26n/arms \
-        --calib-list /media/manu/1TB-Volume/rknn_work/yolo26n/calib_train_features.txt
+        --onnx /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/yolo26n/yolo26n.onnx \
+        --outdir /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/yolo26n/arms \
+        --calib-list /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/yolo26n/calib_train_features.txt
 """
 
 from __future__ import annotations

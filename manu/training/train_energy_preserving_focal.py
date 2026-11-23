@@ -249,7 +249,7 @@ def main():
         for cand in [
             PROJECT_ROOT / weights_path,
             Path("/tmp/pycharm_project_10ae9e2e") / weights_path,
-            Path("/home/manu/mnt/pycharm_project_10ae9e2e") / weights_path,
+            Path("/home/manu/mnt/pycharm_project_a7d966e6") / weights_path,
         ]:
             if cand.exists():
                 weights_path = cand

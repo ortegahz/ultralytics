@@ -31,7 +31,7 @@ What it checks
 Usage
 -----
     python manu/evaluation/verify_delivery_evidence.py
-    python manu/evaluation/verify_delivery_evidence.py --project-mount /home/manu/mnt/pycharm_project_10ae9e2e
+    python manu/evaluation/verify_delivery_evidence.py --project-mount /home/manu/mnt/pycharm_project_a7d966e6
 
 Execution machine: any machine where the repository, the project mount and the data mount
 are visible (no GPU, no model, no inference).
@@ -428,7 +428,7 @@ def check_card_paths(card_path: Path, project: Path, data: Path, checker: "Check
 def main() -> int:
     parser = argparse.ArgumentParser(description="Re-verify the trial_0080 Longquanshan delivery evidence")
     parser.add_argument("--repo-root", default="", help="Local repository root (default: derived from this file)")
-    parser.add_argument("--project-mount", default="/home/manu/mnt/pycharm_project_10ae9e2e",
+    parser.add_argument("--project-mount", default="/home/manu/mnt/pycharm_project_a7d966e6",
                         help="SSHFS mount of the server project directory")
     parser.add_argument("--data-mount", default="/home/manu/mnt/data",
                         help="SSHFS mount of the server /mnt/data volume")

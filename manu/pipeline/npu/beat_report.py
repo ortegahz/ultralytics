@@ -12,7 +12,14 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# 🔴 本脚本是**以脚本方式**被调用的（`python manu/pipeline/npu/beat_report.py`）
+#   ⇒ `sys.path[0]` 是**脚本所在目录**、**仓库根不在 sys.path**（cwd 不会自动加入）
+#   ⇒ `from manu.pipeline.npu import ...` 会 **ModuleNotFoundError: No module named 'manu'**
+#   ⇒ 必须显式把**仓库根**加进 sys.path（同 `promote_candidate.py` 的做法）。
+sys.path.insert(0, os.path.abspath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "..", "..")))
 import nano_search as ns  # noqa: E402
+from manu.pipeline.npu import t4_criterion as T4  # noqa: E402（板端 T4 判据唯一真源）
 
 OUT = f"{ns.WORK}/beat_to_pass_report.md"
 
@@ -71,8 +78,16 @@ def main() -> None:
         ms = st.get("board_ms")
         if ms is None and b.get("epoch") is not None:
             ms = ns.board_ms_for(int(k), b["epoch"])   # 台账没存就去会话文件里找（epoch 可能是分数）
-        if ms is not None and ref_t31:
-            chk["ms"] = ms <= ref_t31 * 1.02
+        # 🔴 2026-11-20（R8）：板端判定**必须与升轨链同口径**。
+        #   台账的 `board_pass_t4` 已是「绝对 OR 同会话相对基线」的**综合判定**
+        #   （相对口径抵消板卡热漂移 ±0.5 ms）⇒ 有它就以它为准；
+        #   老臂（没有该字段）⇒ 用**绝对红线**，**不再**用 `ref_t31 * 1.02`
+        #   （台账里的 t31 是**已下线 .211 板**的 23.528 ms ⇒ 预算 24 ms ⇒ 误放行）。
+        _bp = st.get("board_pass_t4")
+        if _bp is not None and ms is not None:
+            chk["ms"] = bool(_bp)
+        elif ms is not None:
+            chk["ms"] = ms <= T4.LIMIT_MS
         core = {kk: vv for kk, vv in chk.items() if kk != "ms"}
         # 🔴 六项必须**齐全**且全 True（缺项 = 官方三轨没测 ⇒ 不算打平）
         need = ("nano", "nano4", "f1", "t1", "t2fp", "t3")

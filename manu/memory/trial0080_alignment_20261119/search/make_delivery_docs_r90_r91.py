@@ -243,6 +243,9 @@ def main() -> int:
     cross_f1_pp = (float(calib["selected"]["f1"]) - float(published["f1"])) * 100
     cross_far = abs(float(calib["selected"]["far"]) - float(published["far"]))
     redline = float(calib["redline_far"])
+    resid = {r["scenario"]: abs(r["achieved_fps"] - r["target_fps"]) / r["target_fps"] * 100
+             for r in fps_rows}
+    ceiling_frames = int(data["fps_doc"]["arms"]["1_perframe_ceiling"]["frames"])
 
     # ---- corpus for the drift check ------------------------------------------
     structured = [table1, table2, table2b, table3,
@@ -261,6 +264,9 @@ def main() -> int:
             if row.get(key) is not None:
                 add_value(allowed, row[key])
         add_value(allowed, row["pos_ge2_gap9"] / row["gaps"] * 100)
+        add_value(allowed, row["max_obs_run"])
+    for value in resid.values():
+        add_value(allowed, value)
     # the pooled-vs-mean demo, recomputed from the arm json
     arm_rows = list(json.loads(ARM_JSON.read_text(encoding="utf-8"))
                     ["per_sequence"]["3_jump_optimised"]["s1"].values())
@@ -355,24 +361,31 @@ def main() -> int:
                 add(f"| `{arm_name}` | {arm_label} | `{row['scenario']}` | "
                     f"{row['achieved_fps']:.4f} | {f6(row[f1_key])} | {f6(row[far_key])} |")
         add("")
-        add(f"（FAR 红线 {redline}；跳帧 F1 / FAR 为物理帧基、逐序列 micro-pool）")
+        add(f"（FAR 红线 {redline}；跳帧 F1 / FAR 为逐序列 micro-pool。口径提示："
+            "`2b_jump_physical_untuned` / `3_jump_optimised` 是**物理帧基**，"
+            "`2a_jump_dense_timebase` 是**密集时间基口径**，两者**不可直接并列比较**）")
         add("")
-        add("**机制（读码证实）**：`apply_consecutive_confirmation` 把航迹的真实观测帧按"
+        add("**机制（读码确认 + 中间量部分证实）**：`apply_consecutive_confirmation` 把航迹的真实观测帧按"
             "「与前一观测帧的物理帧差 ≤ `max_gap = 1 + confirm_gap_tol`」切成游程，"
             f"**最长游程 < `confirm_consec` 的整条航迹被丢弃**；"
-            f"`v3` = {v3_consec}/{v3_gap_tol}（max_gap={1 + v3_gap_tol} ⇒ 必须 Δn=1 连 {v3_consec} 次），"
+            f"`v3` = {v3_consec}/{v3_gap_tol}（max_gap={1 + v3_gap_tol} ⇒ 必须 Δn=1 连 {v3_consec} 次观测），"
             f"`cc2_md10` = {opt_consec}/{opt_gap_tol}（max_gap={1 + opt_gap_tol} ⇒ 间隔 ≤ {1 + opt_gap_tol} 帧即可）。")
         add("")
-        add("**规则 → 观测，逐点吻合**")
+        add(f"⚠️ **单位对齐**：`maxRun@1` 单位=**间隙**，`confirm_consec={v3_consec}` 单位=**观测数** ⇒ "
+            f"判据是 `maxRun@1 + 1 < {v3_consec}`（{v3_consec} 次观测需 {v3_consec - 1} 个连续 Δn=1 间隙）；"
+            "否则**只「允许 F1 > 0」**（必要非充分）。")
         add("")
-        add("| 场景 | 达成 fps | p(Δn=1) | maxRun@1 | #run≥7@1 | v3 F1 | 规则预测 v3≡0 | 观测 | 吻合 |")
-        add("| --- | ---: | ---: | ---: | ---: | ---: | :-: | :-: | :-: |")
+        add(f"**规则 → 观测，逐点核对（吻合 {len(agree)}/{len(rows)}）**")
+        add("")
+        add("| 场景 | 达成 fps | p(Δn=1) | maxRun@1(间隙) | 最长连续交付帧数 | "
+            "间隙位置数(游程≥7) | v3 F1 | 规则预测 | 观测 | 吻合 |")
+        add("| --- | ---: | ---: | ---: | ---: | ---: | ---: | :-: | :-: | :-: |")
         for row in rows:
             add(f"| `{row['scenario']}` | {row['achieved_fps']:.4f} | {row['p_dn1']:.4f} | "
-                f"{row['max_run_gap1']} | "
+                f"{row['max_run_gap1']} | {row['max_obs_run']} | "
                 f"{row['pos_ge7_gap1']} | {f6(row['untuned_f1'])} | "
-                f"{'是' if row['predicted_zero'] else '否'} | "
-                f"{'是' if row['observed_zero'] else '否'} | "
+                f"{'必须≡0' if row['predicted_zero'] else '允许>0'} | "
+                f"{'≡0' if row['observed_zero'] else '>0'} | "
                 f"{'✅' if row['agrees'] else '❌'} |")
         add("")
         add("⚠️ **口径澄清（防止把两个数混为一谈）**：第 90 轮表 2 里 `v3` 未调参的跳帧均值 "
@@ -382,11 +395,21 @@ def main() -> int:
         add(f"**吻合 {len(agree)}/{len(rows)}**，其中 **{len(zeros)} 个场景 v3 的 F1 精确为 0**"
             f"（{', '.join('`' + r['scenario'] + '`' for r in zeros)}）。")
         add("")
+        disagree = [r for r in rows if not r["agrees"]]
+        if disagree:
+            add(f"🔴 **1 处例外：`{'`、`'.join('`' + r['scenario'] + '`' for r in disagree)}`** —— "
+                f"最长连续交付帧数 = {disagree[0]['max_obs_run']} = `confirm_consec`({v3_consec})，"
+                "**恰在门槛上** ⇒ 机制**只「允许 >0」**（不强制），实测却是 0 ⇒ "
+                f"**机制只解释 {len(agree)}/{len(rows)} 个场景，不是充分条件**。")
+            add("")
         add("**交叉验证**：本轮 `delivery_caliber.selected` F1="
             f"{f6(float(calib['selected']['f1']))} / FAR={f6(float(calib['selected']['far']))}"
             f" vs 第 90 轮已发布 `cc2_md10` F1={f6(float(published['f1']))} / "
             f"FAR={f6(float(published['far']))}（差 {cross_f1_pp:+.4f} pp / {cross_far:.6f}）"
             "⇒ 两个评测器互证。")
+        add("")
+        add(f"⚠️ **两侧口径不同**：本轮 3 seeds × {ceiling_frames:,} 帧 vs 第 90 轮 1 seed × 165,223 帧 "
+            "⇒ 互证实现一致，**非同批逐位比对**。")
         add("")
         add("**业务结论**：")
         add("")
@@ -399,8 +422,12 @@ def main() -> int:
             "⇒ **要救的是参数组，不是板卡速度**。")
         add("")
         add("**局限**：① `f` 网格固定抖动形状、只改速率，**与实测 `s1` 不是同一条生成链**，"
-            "两条链只能并列陈述、不能互相插值；② `f25` 只能到 "
-            f"{ladder_high:.4f} fps（间隙下限 1 帧）；③ 本轮不涉及任何板端复核。")
+            "两条链只能并列陈述、不能互相插值；"
+            f"② `f25` 只能到 {ladder_high:.4f} fps（间隙下限 1 帧，残差 {resid['f25']:.2f}%）；"
+            f"③ 机制只解释 {len(agree)}/{len(rows)} 个场景（`f14` 恰在门槛上，"
+            "「连续性门限导致 f14 归零」**只作归因、不作因果证明**）；"
+            "④ `s1`~`s3` 是实测 Δn 分布的 **IID 重采样**、`s4` 是 **brief assumption**；"
+            "⑤ 本轮不涉及任何板端复核。")
         add("")
         return body
 
@@ -410,7 +437,7 @@ def main() -> int:
         "（16 臂交付口径 + 3 臂×4 跳帧情景 + 截断↔交付口径校准），复算 `[VERIFY] "
         f"{n_checks}/{n_checks_total} checks passed` |",
         "| `grid_compare/rt_fps_grid.md` / `.csv` | 第 91 轮：交付帧率阶梯"
-        f"（`f25`~`f12` 五档），机制与观测 {len(agree)}/{len(rows)} 逐点吻合 |",
+        f"（`f25`~`f12` 五档），规则-观测 {len(agree)}/{len(rows)} 吻合（`f14` 为机制临界例外） |",
         "| `artifacts/rt_fps_grid_r90.json` / `artifacts/analyse_runs_r90.csv` | "
         "第 91 轮服务器实测产物与节拍中间量 |",
         "| `manu/evaluation/rt_fps_jitter_search.py` / `rt_fps_grid_report.py` | "
@@ -514,9 +541,18 @@ def main() -> int:
         problems.append("[summary] the refreshed section-3 table does not carry th045's artefact FAR")
     if "0.028991" in s3_text:
         problems.append("[summary] the drifted th045 FAR is still present")
-    # T5: rule/observation agreement
-    if len(agree) != len(rows):
-        problems.append(f"[data] rule/observation agreement is {len(agree)}/{len(rows)}")
+    # T5: rule/observation agreement -- 8/9, and the single exception must be f14
+    # sitting exactly on the mechanism's threshold (mechanism allows >0, observed 0).
+    if len(agree) != len(rows) - 1:
+        problems.append(f"[data] rule/observation agreement is {len(agree)}/{len(rows)}, "
+                        f"expected {len(rows) - 1}/{len(rows)}")
+    for row in rows:
+        if not row["agrees"]:
+            if row["scenario"] != "f14":
+                problems.append(f"[data] unexpected disagreement at {row['scenario']}")
+            if row["max_obs_run"] != v3_consec:
+                problems.append(f"[data] {row['scenario']} exception is not on the threshold: "
+                                f"max_obs_run={row['max_obs_run']} vs confirm_consec={v3_consec}")
     problems += [f"[summary-s3] {item}" for item in drift_check(s3_text, allowed)]
     problems += [f"[summary-s4] {item}" for item in drift_check("\n".join(summary_s4), allowed)]
 

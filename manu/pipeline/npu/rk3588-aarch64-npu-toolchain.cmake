@@ -3,7 +3,7 @@
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR aarch64)
 
-set(_tc "/media/manu/1TB-Volume/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu")
+set(_tc "/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu")
 
 set(CMAKE_C_COMPILER   "${_tc}/bin/aarch64-rockchip-linux-gnu-gcc")
 set(CMAKE_CXX_COMPILER "${_tc}/bin/aarch64-rockchip-linux-gnu-g++")

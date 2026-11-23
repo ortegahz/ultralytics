@@ -13,11 +13,11 @@
 # Environment (see manu/memory/MOSAIC_RK3588_20261026.md):
 #   board  : ssh -p 22 root@192.168.0.64      (NFS /mnt/manu -> host /run/media/manu/SSD960-LOCAL/nfs)
 #   server : ssh -p 32222 huangzhe@192.168.99.40  (/tmp/pycharm_project_10ae9e2e, conda env `uav`)
-#   mirror : /home/manu/mnt/pycharm_project_10ae9e2e  == the server tree over SSHFS
+#   mirror : /home/manu/mnt/pycharm_project_a7d966e6  == the server tree over SSHFS
 set -euo pipefail
 
-REPO=/media/manu/1TB-Volume/workspace/ultralytics
-MIRROR=/home/manu/mnt/pycharm_project_10ae9e2e
+REPO=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics
+MIRROR=/home/manu/mnt/pycharm_project_a7d966e6
 NPU="$REPO/manu/pipeline/npu"
 
 BOARD_MODEL=/mnt/manu/ptq/models/p0_off_A_none.rknn          # md5 1a3faf2f9459cad8a389ffa81810234c

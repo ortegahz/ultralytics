@@ -22,7 +22,7 @@
 | **主线** | 从"能跑"到"可交付"——把一条 PC 上的算法图，变成 RK3588 上可并行、可量化、可验收的实时管线 |
 | **结构** | **开篇立两个靶子**（难题一 GMC / 难题二 NPU）→ **战线 A 打 GMC**（A1 OpenCL / A2 step10 / A3 缓存）→ **战线 B 打 NPU**（B1~B4）→ **公共底座**（并行结构 + 库交付）→ 收口遗留与下一步 |
 | **页数** | **21 页**（16:9，1280×720，含结尾「谢谢」页；v4 新增「战果 A4 · 多缓存深度帕累托」整页） |
-| **生成器** | **ppt-master**（`/media/manu/1TB-Volume/workspace/ppt-master`）· Quick Generate 流程 · mode=`pyramid` + style=`data-journalism` · 产出**原生 DrawingML 形状**（非整页位图），文字可直接在 PowerPoint 里编辑 |
+| **生成器** | **ppt-master**（`/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ppt-master`）· Quick Generate 流程 · mode=`pyramid` + style=`data-journalism` · 产出**原生 DrawingML 形状**（非整页位图），文字可直接在 PowerPoint 里编辑 |
 | **内容源** | **ppt-master 工程 `svg_output/*.svg`**（本仓 `assets/svg_source/` 为其归档副本，**唯一真值**） |
 | **状态** | ✅ **21/21 页完全通过**布局质量门（0 warning / 0 error / 0 blocking） |
 
@@ -89,7 +89,7 @@ manu/report/
 
 ```bash
 # 1) 全量生成（当前成品：ppt-master / Quick Generate）
-cd /media/manu/1TB-Volume/workspace/ppt-master
+cd /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ppt-master
 P=projects/ir_uav_engineering_20261029
 PY=/home/manu/anaconda3/envs/uav/bin/python
 
@@ -132,9 +132,9 @@ python3 manu/memory/validate_nav_table.py    # 期望 77/77
 
 | 组件 | 位置 / 版本 | 说明 |
 |:--|:--|:--|
-| **PPT 生成器（当前成品）** | `/media/manu/1TB-Volume/workspace/ppt-master` | 手写 SVG 源页 → 质量门 → **原生 DrawingML** PPTX（**无位图**） |
+| **PPT 生成器（当前成品）** | `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ppt-master` | 手写 SVG 源页 → 质量门 → **原生 DrawingML** PPTX（**无位图**） |
 | **内容源（唯一真值）** | `ppt-master/projects/ir_uav_engineering_20261029/svg_output/*.svg` | 21 个源页，本仓 `assets/svg_source/` 为归档副本 |
-| 上一版生成器（留档） | `/media/manu/1TB-Volume/workspace/PPT-AGENT` | LLM 逐页生成 HTML → 截图 → PPTX（整页位图） |
+| 上一版生成器（留档） | `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/PPT-AGENT` | LLM 逐页生成 HTML → 截图 → PPTX（整页位图） |
 | 并行驱动 | `PPT-AGENT/run_fixed_deck_parallel.py` | Phase A 并发 LLM / Phase B 串行 playwright / Phase C 导出 |
 | 串行驱动（对照） | `PPT-AGENT/run_fixed_deck.py` | |
 | LLM 端点 | MiniMax OpenAI 兼容（`api.minimaxi.com/v1`） | key 存 `PPT-AGENT/.env`（`chmod 600`，`.gitignore` 已忽略） |

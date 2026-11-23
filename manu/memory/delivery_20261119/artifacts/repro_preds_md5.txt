@@ -1,0 +1,56 @@
+# reproducibility evidence -- delivered params file re-run through the track arm
+# generated 2026-11-20 00:36  (3 independent runs)
+#
+# run1 = the delivery run that produced track_all_v3_optgapfit.json + the OSD
+# run2 = first re-run  (/mnt/data/siping/runs/trial0080_onnx/eval/repro/)
+# run3 = second re-run WITH a concurrent iostat sampler (/mnt/data/siping/runs/trial0080_onnx/eval/repro3/)
+#
+# prediction dirs:
+#   run1 /mnt/data/siping/runs/trial0080_onnx/eval/preds_v3_optgapfit
+#   run2 /mnt/data/siping/runs/trial0080_onnx/eval/repro/preds_v3_optgapfit_repro
+#   run3 /mnt/data/siping/runs/trial0080_onnx/eval/repro3/preds_v3_optgapfit_repro3
+# file counts: run1=25 run2=25 run3=25
+# all three prediction sets bitwise identical: True
+#
+# eval JSON structural diff (flattened leaf keys, run1 as reference):
+#   run1 flattened keys = 320
+#   run2: keys=320 common=320 differing=['elapsed_seconds']
+#      overall identical=True  per_sequence identical=True (24 seqs)  config.params identical=True
+#   run3: keys=320 common=320 differing=['elapsed_seconds']
+#      overall identical=True  per_sequence identical=True (24 seqs)  config.params identical=True
+#   elapsed_seconds: run1=80.06  run2=205.77  run3=117.75
+#
+# run3 concurrent iostat (artifacts/repro3_iostat.log), the ONLY run with a sampler:
+#   sda samples=60  %util min=94.0 max=100.2 mean=99.7
+#   sda read KB/s min=45742 max=84396 mean=63819
+#   -> the cache lives on sda and it is the I/O bottleneck; wall-clock varies with disk
+#      contention, but every output byte is identical.
+#
+# --- per-file md5 (identical in all three runs) ---
+1d4a431fe3cab1f3e77630861c82c749  VIDEO00002_19700101_001415.json
+a0832636ee8a3301eb639bd70f2e955d  VIDEO00003_19700101_002111.json
+672a14d7dd0db80f221026111852490c  VIDEO00004_19700101_002438.json
+8503879f0658edb61b9f4c703db50487  VIDEO00005_19700101_002959.json
+bf1be6a01f783547757dc4dfbd349cc3  VIDEO00006_19700101_000322.json
+2221457205a2ebb8630baa591feff983  VIDEO00006_19700101_000703.json
+2f297f8b0e8cde63b9e5290b0dfb5867  VIDEO00007_19700101_000818.json
+59b75676396c26ca0003909a2f2e3f49  VIDEO00007_19700101_001324.json
+4c6056540be15d59ce6cc9f665dd4619  VIDEO00008_19700101_001307.json
+42dd0755cdc15f86c39b2695c9041430  VIDEO00008_19700101_002001.json
+7cfaeb54ba4d3160893e0d2a2cf2852d  VIDEO00009_19700101_001531.json
+613f0b2188993efe5d0d8be8acec718d  VIDEO00009_19700101_003002.json
+71bc65a3b72181577ea61e6d36ad3a94  VIDEO00010_19700101_001550.json
+1834f56ac39a65f043cfefa6c61f1368  VIDEO00011_19700101_001810.json
+37b1f3e9ede6ed85b7d9f43ce71922cc  VIDEO00012_19700101_002251.json
+b6daafedac071e9ba02d7c5aacc11a1f  VIDEO00028_19700101_013631.json
+0c1c8d244a28b12745a6a2ef8c828745  VIDEO00029_19700101_014053.json
+0fa31408ddf204604799d52d2530ed52  VIDEO00030_19700101_014144.json
+be9d858275c9c5ae98fe4d28fb2be25d  VIDEO00031_19700101_014227.json
+8b63e3030e7835dea41f167f598bbbe0  VIDEO00032_19700101_014453.json
+b2d7bfdeb1c04d0eb5b2ee23a78b1d79  VIDEO00033_19700101_015000.json
+237086b468970cb21f24cf8b160e5132  VIDEO00034_19700101_015052.json
+aa89421f4efcea9de9d70d11c72a846d  VIDEO00035_19700101_015138.json
+e9245da45630d80ccb7ad461c2c7edc3  VIDEO00036_19700101_015740.json
+40a85390058bfaebccdd64cc5994ce29  summary.json
+# --- overall (identical in all three runs) ---
+#   {"tp": 123480, "fp": 4603, "fn": 9777, "fn_absent": 9777, "fn_compete": 0, "det": 128083, "gt": 133257, "recall": 0.9266304959589365, "precision": 0.9640623658096703, "f1": 0.9449758934721054, "far_per_frame": 0.02785931740738275}

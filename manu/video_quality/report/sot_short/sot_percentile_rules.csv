@@ -1,0 +1,11 @@
+scope,good_percentile,rule,good_windows_passed,good_windows_total,good_coverage_pct,good_trackable_rate,bad_windows_passed,bad_windows_total,bad_false_accept_rate
+ir,P10,global_contrast >= 0.51601 AND edge_density >= 0.014121 AND lap_var >= 37.825 AND blockiness <= 1.0246 AND entropy >= 6.7471,41,403,10.2,1.000,0,3220,0.0000
+ir,P25,global_contrast >= 0.57543 AND edge_density >= 0.029497 AND lap_var >= 63 AND blockiness <= 1.0332 AND entropy >= 7.1918,95,403,23.6,1.000,0,3220,0.0000
+ir,P50,global_contrast >= 0.77068 AND edge_density >= 0.049584 AND lap_var >= 100.39 AND blockiness <= 1.0491 AND entropy >= 7.3706,95,403,23.6,1.000,0,3220,0.0000
+ir,P75,global_contrast >= 0.80117 AND edge_density >= 0.0585 AND lap_var >= 117.98 AND blockiness <= 1.1072 AND entropy >= 7.4135,27,403,6.7,1.000,0,3220,0.0000
+ir,P90,global_contrast >= 0.81132 AND edge_density >= 0.063481 AND lap_var >= 130.5 AND blockiness <= 1.6178 AND entropy >= 7.4384,5,403,1.2,1.000,0,3220,0.0000
+vis,P10,global_contrast >= 0.56166 AND edge_density >= 0.046798 AND lap_var >= 699.94 AND blockiness <= 1.0089 AND entropy >= 5.7573,42,691,6.1,1.000,0,3138,0.0000
+vis,P25,global_contrast >= 0.60549 AND edge_density >= 0.074354 AND lap_var >= 1098.3 AND blockiness <= 1.0154 AND entropy >= 6.1976,72,691,10.4,1.000,0,3138,0.0000
+vis,P50,global_contrast >= 0.64505 AND edge_density >= 0.12611 AND lap_var >= 2102.1 AND blockiness <= 1.0241 AND entropy >= 6.7322,24,691,3.5,1.000,0,3138,0.0000
+vis,P75,global_contrast >= 0.69338 AND edge_density >= 0.18514 AND lap_var >= 2750.6 AND blockiness <= 1.0362 AND entropy >= 6.9522,0,691,0.0,n/a,0,3138,0.0000
+vis,P90,global_contrast >= 0.72109 AND edge_density >= 0.2055 AND lap_var >= 3070.2 AND blockiness <= 1.0681 AND entropy >= 7.0201,0,691,0.0,n/a,0,3138,0.0000

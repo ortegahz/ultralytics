@@ -1,0 +1,34 @@
+{
+  "all": {
+    "tp": 1244,
+    "fp": 1002,
+    "fn": 1176,
+    "fn_absent": 1176,
+    "fn_compete": 0,
+    "det": 2246,
+    "gt": 2420,
+    "recall": 0.5140495867768595,
+    "precision": 0.553873552983081,
+    "f1": 0.5332190312901843,
+    "far_per_frame": 0.4008
+  },
+  "delivered": {
+    "tp": 442,
+    "fp": 364,
+    "fn": 289,
+    "fn_absent": 289,
+    "fn_compete": 0,
+    "det": 806,
+    "gt": 731,
+    "recall": 0.6046511627906976,
+    "precision": 0.5483870967741935,
+    "f1": 0.5751463890696161,
+    "far_per_frame": 0.49122807017543857
+  },
+  "total_frames": 2500,
+  "delivered_frames": 741,
+  "delivered_frames_with_output": 493,
+  "gt_frames": 10535,
+  "sequence": "VIDEO00007_19700101_001324",
+  "fused_tsv": "manu/memory/board_far_20261120/board_merge/mg_jf_r0_fused.tsv"
+}

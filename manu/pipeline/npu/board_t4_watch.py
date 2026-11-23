@@ -37,12 +37,29 @@ os.chdir(REPO)
 from manu.pipeline.npu import six_criteria_audit as A  # noqa: E402
 from manu.pipeline.npu import route2_acceptance as RA  # noqa: E402
 from manu.pipeline.npu import nano_search as ns  # noqa: E402
+from manu.pipeline.npu import t4_criterion as T4  # noqa: E402
 import board_speed_search as B  # noqa: E402
 
 OUT = "/mnt/data/siping/runs/npu20ms/board_measure_auto"
 DONE = os.path.join(OUT, "measured.json")
 KEY = "-i /home/huangzhe/.ssh/id_board -o StrictHostKeyChecking=no -o ConnectTimeout=10"
-LIMIT_MS = 19.989          # trial_0031 19.597 ms × 1.02（交付时延红线）
+LIMIT_MS = T4.LIMIT_MS      # trial_0031 19.597 ms × 1.02（交付时延红线）· 唯一真源 = t4_criterion
+# 🔴🔴🔴 2026-11-19 15:30 —— **T4 判定增加「同会话相对基线」口径**（治板卡读数整体漂移）
+#   现场：板卡换成**旧板 .64** 且长期有别的任务在跑 ⇒ **绝对读数整体上漂 0.3~0.5 ms**：
+#     同一时刻 **基线臂 2020035 自己读到 20.067 / 20.129 ms**（远超 19.989 红线），
+#     而**同会话**里 `2020036` 读到 19.973（**比基线还快**）、
+#     `2000025` 读到 19.959、`2010052` 读到 20.025（**都比基线快**）。
+#     ⇒ 它们和基线是**同一张计算图**（同一个 soup 成员集），真实 NPU 时延相同
+#     ⇒ 绝对口径正在**误杀升轨候选**（2020023 / 2010025 / 2000051 被判 FAIL），
+#        而真正更慢的臂反而不显眼 ⇒ **升轨链最后一环被打断**。
+#   修法：**同会话差值口径**。板卡一次测速会话会把**在板上的所有臂**都测一遍
+#     （含当前基线臂）⇒ 直接取同会话基线读数作参考：
+#         diff = 候选读数 − 同会话基线读数        （消掉板卡整体漂移/被占用）
+#         pass = (中位数 ≤ LIMIT_MS)  或  (中位数 diff ≤ LIMIT_MS − 基线干净参考值)
+#     ⇒ 语义完全不变：「不比 trial_0031×1.02 慢」，但**不再受换板/他任务占用影响**。
+#     ⇒ 同图臂 diff ≈ 0 ⇒ 稳定 PASS；真更慢的臂 diff > 容差 ⇒ 稳定 FAIL。
+BASE_REF_DEFAULT = T4.BASE_REF_DEFAULT  # Baseline_v3.0 在干净板卡上的 19.629 ms（容差换算基准）
+DIFF_TOL_MIN = T4.DIFF_TOL_MIN          # 容差下限（防基线读数缺失时误判）
 # 🟢 2026-11-17 17:30：板卡是**共享资源** ⇒ 临界带（红线 ±0.6 ms）内的读数要复测取中位数
 BORDER_LO = LIMIT_MS - 0.6
 BORDER_HI = LIMIT_MS + 0.6
@@ -55,7 +72,26 @@ BORDER_HI = LIMIT_MS + 0.6
 MIN_SAMPLES = 5
 MAX_SAMPLES = 9
 SAMPLES = os.path.join(OUT, "t4_samples.json")
-_ARM_RE = re.compile(r"^arm_n(\d+)_ep(\d+)_int8$")
+_ARM_RE = T4.ARM_RE
+
+# 🔴🔴 2026-11-20（reviewer R2/R3/Y9）：**差值池必须带参照身份**。
+#   基线换人后，旧参照的差值与新参照的差值若混在一池，中位数**没有意义**。
+#   ⇒ 差值池键 = `{trial}_ep{ep}|d@{参照臂}`（参照臂形如 `1990055_ep5`）。
+#   ⇒ 历史实测 `ref_ms` 恒 None ⇒ **从未产生过差值池** ⇒ 改键**无数据损失**。
+def current_ref_id() -> str:
+    """当前基线臂的身份（`{trial}_ep{epoch}`）⇒ 差值池的参照维度。"""
+    try:
+        b = (ns.load_ledger() or {}).get("baseline_v2") or {}
+        bt = int(b.get("trial") or 0)
+        be = str(b.get("epoch") or 5)
+    except Exception:  # noqa: BLE001
+        return ""
+    return f"{bt}_ep{be}" if bt else ""
+
+
+#: 本进程内**是否曾经拿到过同会话参照**（R7：没有它 ⇒ 不能拿「差值样本不足」去卡补测，
+#: 否则参照机制一坏就变成**无限补测**死循环）。
+_REF_OK_SEEN = False
 
 
 def load_pools() -> dict:
@@ -103,22 +139,17 @@ def save_pools(pools: dict) -> None:
 
 
 def pool_median(xs: list) -> float:
-    s = sorted(float(x) for x in xs)
-    n = len(s)
-    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2.0
+    return T4.pool_median(xs)
 
 
-def merge_session(pools: dict, all_ms: dict) -> list:
-    """把一次会话里**所有臂**的读数并进各自样本池 ⇒ 返回被更新的臂键列表。"""
-    touched = []
-    for ak, av in (all_ms or {}).items():
-        m = _ARM_RE.match(str(ak).strip())
-        if not m:
-            continue
-        key = "%s_ep%s" % (m.group(1), m.group(2))
-        pools.setdefault(key, []).append(float(av))
-        touched.append(key)
-    return touched
+def merge_session(pools: dict, all_ms: dict, ref_ms: float | None = None,
+                  ref_key: str = "") -> list:
+    """把一次会话里**所有臂**的读数并进各自样本池 ⇒ 返回被更新的臂键列表。
+
+    🟢🟢 2026-11-19 15:30：**同时把「同会话相对基线的差值」另存一池**（键后缀 `|d`）
+      ⇒ 板卡整体漂移（换板 / 他任务占用）被差值抵消 ⇒ 判定不再误杀同图候选。
+    """
+    return T4.merge_session(pools, all_ms, ref_ms, ref_key)
 
 # 🟢 2026-11-17 11:45：任务书交付红线（memory §136.6）—— 与「内部严格六项」是两套口径。
 #   交付判据：F1 > 0.887122（0031）· nano ≥ 0.6666 · 官方 T1 ≥ 0.885997 · T2 FP ≤ 20（官方 36）
@@ -197,23 +228,144 @@ def board_ready() -> bool:
 
 def _norm_arm(key: str) -> str:
     """板卡脚本会把臂名写成 `arm_<name>_int8` ⇒ 归一化后再比对。"""
-    k = key.strip()
-    if k.startswith("arm_"):
-        k = k[4:]
-    if k.endswith("_int8"):
-        k = k[:-5]
-    return k
+    return T4.norm_arm(key)
 
 
 def _pick_ms(res: dict, trial: int, ep: str) -> float | None:
     """从 @@SUMMARY@@ 结果里挑出本候选的 rknn_run_avg_ms。"""
-    want = _norm_arm(f"n{trial}_ep{ep}")
-    for k, v in res.items():
-        if _norm_arm(k) == want:
-            return float(v)
-    cand = [float(v) for k, v in res.items()
-            if _norm_arm(k).startswith(f"n{trial}_ep")]
-    return cand[0] if len(cand) == 1 else None
+    return T4.pick_ms(res, trial, ep)
+
+
+def base_ref_ms() -> float:
+    """基线臂在「干净板卡」上的参考绝对值（用于同会话差值口径的容差换算）。
+
+    🔴🔴 2026-11-20（reviewer R1）：**参照必须是「干净板卡」上的读数**。
+      事故链：靠**相对口径**才 PASS 的臂，其绝对 ms 必然 > 红线（如 20.05）⇒
+      升轨时 `promote_candidate` 把这个**漂移下的读数**写进 `baseline_v2.ms_new_board`
+      ⇒ `auto_promote_watch` 再把它回填进源码常量 ⇒ `baseline_guard` 再灌回台账
+      ⇒ **污染值自我固化** ⇒ `diff_tol = 19.989 − 20.05 = −0.061 ⇒ 夹到 0.05`
+      ⇒ 相对口径从「不比基线慢 0.36 ms」变成「必须与漂移后的基线**几乎逐位相同**」
+      ⇒ **第一次自动升轨就把升轨链自己打断**（且没有任何告警）。
+      ⇒ 修法：**只接受 ≤ 红线的读数**（那才是「干净板卡」上的绝对达标读数）；
+      超红线的值说明基线本身是**靠相对口径**过的 ⇒ 它不是干净参照 ⇒ 退回常量并**告警**。
+    """
+    try:
+        b = (ns.load_ledger() or {}).get("baseline_v2") or {}
+        # 优先读显式的「干净参照」字段（只允许干净板卡实测写入）
+        v = float(b.get("ms_clean_ref") or 0)
+        if v <= 5.0:
+            v = float(b.get("ms_new_board") or 0)
+        if v > 5.0 and v <= LIMIT_MS:
+            return v
+        if v > LIMIT_MS:
+            log(f"[T4] ⚠️ 基线读数 {v:.3f} ms **超过红线 {LIMIT_MS}** ⇒ 它是「靠相对口径过的漂移读数」，"
+                f"**不能**当干净参照（否则容差塌到 {T4.DIFF_TOL_MIN} ms）⇒ 退回常量 {BASE_REF_DEFAULT}")
+    except Exception:  # noqa: BLE001
+        pass
+    return BASE_REF_DEFAULT
+
+
+def diff_tol() -> float:
+    """允许的同会话相对差（候选 − 同会话基线）＝ LIMIT_MS − 基线干净参考值。"""
+    return T4.diff_tol(base_ref_ms())
+
+
+def _session_ref_ms(res: dict) -> float | None:
+    """同会话里「当前基线臂」的读数（板卡一次会话会把在板上的臂全测一遍）。"""
+    try:
+        b = (ns.load_ledger() or {}).get("baseline_v2") or {}
+        bt = int(b.get("trial") or 0)
+        be = str(b.get("epoch") or 5)
+    except Exception:  # noqa: BLE001
+        return None
+    return T4.session_ref_ms(res, bt, be)
+
+
+def ensure_base_ref_on_board() -> bool:
+    """🔴🔴🔴 2026-11-20 14:30 —— **把当前基线臂的 RKNN 也放上板**（同会话参照的根因修复）。
+
+    现场事故（2026-11-20 14:00 实测）：
+      · `measured.json` 177 条里 **ref_ms 全为 None** ⇒ 「同会话相对基线」口径**全程失效**，
+        只剩绝对口径 `ms ≤ 19.989`。
+      · 根因：`_session_ref_ms()` 只在**同会话**的 `all_ms` 里找 `n{trial}_ep{epoch}`，
+        而**基线臂压根不在板上**（会话摘要里只有 `control_base_cs_t0043` 和候选臂）
+        ⇒ 参照取不到。
+      · 板卡读数**热漂移 ±0.5 ms**（逐小时中位数 11-13 19.68 → 11-19 18时 20.005 → 11-20 13时 19.831，
+        批内 max 21.462），而红线 19.989 正落在漂移带中央
+        ⇒ **同一张计算图**（基线家族 bw10 克隆臂）现在测出 19.94~21.46 ms ⇒ **被误判 FAIL**
+        ⇒ **升轨链最后一环断链**（周末 65 h 算力产出的臂全部升不了轨）。
+
+    修法：**每次测速会话都把当前基线臂一起放上板** ⇒ 板卡脚本会把板上所有臂测一遍
+      ⇒ `arm_n{bt}_ep{be}_int8` 出现在摘要里 ⇒ `_session_ref_ms()` 取得到参照
+      ⇒ 相对口径恢复（同一张图 diff ≈ 0 ⇒ 稳定 PASS；真更慢的臂 diff > 容差 ⇒ 稳定 FAIL）。
+
+    ★ 导出走 `RA.export_rknn` 的**缓存**（`{WORK}/arms/{name}_int8.rknn` 已存在则复用）
+      ⇒ 只有基线变更时才付一次导出成本。
+    ★ 失败不致命：返回 False，本轮退回绝对口径。
+    """
+    try:
+        b = (ns.load_ledger() or {}).get("baseline_v2") or {}
+        bt = int(b.get("trial") or 0)
+        be = str(b.get("epoch") or 5)
+    except Exception as exc:  # noqa: BLE001
+        log(f"[T4] 读基线失败（跳过参照臂）：{exc}")
+        return False
+    if not bt:
+        return False
+    bname = f"n{bt}_ep{be}".replace(".", "_")
+    ck_name = ns.epoch_ckpt_name(be) if hasattr(ns, "epoch_ckpt_name") else f"epoch{be}.pt"
+    ck = os.path.join(CKPT_DIR, f"trial_{bt}", "weights", ck_name)
+    if not os.path.isfile(ck):
+        log(f"[T4] 基线臂权重不存在，无法上板做参照：{ck}")
+        return False
+    try:
+        rknn, stride = RA.export_rknn(ck, bname)
+    except Exception as exc:  # noqa: BLE001
+        log(f"[T4] 基线臂导出失败（退回绝对口径）：{exc}")
+        return False
+    if not rknn or not os.path.isfile(rknn):
+        log("[T4] 基线臂导出返回空（退回绝对口径）")
+        return False
+    # 🟡 Y2：板卡上已有**同 md5** 的同名文件 ⇒ 不必再传一遍（每次会话 3 MB ⇒ ~4 GB/天 LAN）
+    _local_md5 = ""
+    try:
+        import hashlib  # noqa: PLC0415
+        _h = hashlib.md5()
+        with open(rknn, "rb") as _fh:
+            for _chunk in iter(lambda: _fh.read(1 << 20), b""):
+                _h.update(_chunk)
+        _local_md5 = _h.hexdigest()
+    except Exception:  # noqa: BLE001
+        _local_md5 = ""
+    _same = False
+    if _local_md5:
+        try:
+            _chk = subprocess.run(
+                ["bash", "-c",
+                 f"timeout 60 ssh {KEY} {B.BOARD} 'md5sum {B.BOARD_DIR}/arms/{bname}_int8.rknn 2>/dev/null'"],
+                capture_output=True, text=True, timeout=90)
+            _same = _local_md5 in (_chk.stdout or "")
+        except Exception:  # noqa: BLE001
+            _same = False
+    if _same:
+        log(f"[T4] 基线臂已在板（md5 一致）⇒ 跳过重复上传：{bname}")
+        _up = subprocess.run(
+            ["bash", "-c",
+             f"timeout 120 ssh {KEY} {B.BOARD} 'printf {stride} > {B.BOARD_DIR}/arms/{bname}_int8.stride'"],
+            capture_output=True, text=True, timeout=180)
+        if _up.returncode != 0:
+            log(f"[T4] 基线臂 .stride 写入失败（忽略）：{(_up.stderr or '')[-200:]}")
+        return True
+    up = subprocess.run(
+        ["bash", "-c",
+         f"timeout 300 scp {KEY} {rknn} {B.BOARD}:{B.BOARD_DIR}/arms/ && "
+         f"timeout 120 ssh {KEY} {B.BOARD} 'printf {stride} > {B.BOARD_DIR}/arms/{bname}_int8.stride'"],
+        capture_output=True, text=True, timeout=600)
+    if up.returncode != 0:
+        log(f"[T4] 基线臂上板失败（退回绝对口径）：{(up.stderr or '')[-200:]}")
+        return False
+    log(f"[T4] 同会话参照臂已上板：{bname}（trial={bt} ep={be}）")
+    return True
 
 
 def measure(trial: int, ep: str) -> dict | None:
@@ -247,6 +399,9 @@ def measure(trial: int, ep: str) -> dict | None:
     if up.returncode != 0:
         log(f"[T4] 上传失败 {trial}@{ep}：{(up.stderr or '')[-300:]}")
         return None
+    # 🔴🔴 2026-11-20 14:30 —— **同会话参照臂上板**（见 ensure_base_ref_on_board 的 docstring）
+    #   ⇒ 没有它，`ref_ms` 恒为 None ⇒ 相对口径恒失效 ⇒ 热漂移下基线同图臂被误判 FAIL ⇒ 升轨断链。
+    _ref_on_board = ensure_base_ref_on_board()
     r = subprocess.run(
         ["bash", "-c",
          f"timeout 900 ssh {KEY} {B.BOARD} 'cd {B.BOARD_DIR} && BOARD_DIR={B.BOARD_DIR} "
@@ -263,13 +418,30 @@ def measure(trial: int, ep: str) -> dict | None:
     for m in re.finditer(r"@@SUMMARY@@ (\S+)\|rknn_run_avg_ms\|([\d.]+)", txt):
         res[m.group(1)] = float(m.group(2))
     ms = _pick_ms(res, trial, ep)
+    # ★ 同会话参考（当前基线臂）⇒ 差值口径
+    ref_ms = _session_ref_ms(res)
+    # 🔴🔴 2026-11-20（reviewer R7）：**参照缺失必须显式告警**。
+    #   原实现：`ensure_base_ref_on_board()` 的返回值被丢弃、`ref_ms is None` 也没人管
+    #   ⇒ 相对口径**静默**失效 ⇒ 精确回到 2026-11-20 14:00 的事故态（177 条 `ref_ms` 全 None），
+    #   而且**没有任何指标暴露**（`pass_t4_rel` 全 False 没人看）⇒ 断链复发且无人察觉。
+    if ref_ms is None:
+        log(f"[T4] ⚠️ **[T4] {trial}_ep{ep} 本次会话**没有基线臂参照**（base_ref_on_board="
+            f"{_ref_on_board}）⇒ 相对口径失效，本轮只按绝对口径判 ⇒ 若板卡正在漂移，"
+            f"同图臂会被误判 FAIL（升轨链会断）")
+    diff_ms = (round(float(ms) - float(ref_ms), 4)
+               if (ms is not None and ref_ms is not None) else None)
+    _tol = diff_tol()          # ← 提出来算一次（`diff_tol()` 会读 24 MB 台账）
+    _dec = T4.decide(ms, diff_ms, _tol)
     out = {"trial": trial, "ep": ep, "ckpt": ck, "ms": ms, "limit_ms": LIMIT_MS,
-           "pass_t4": bool(ms is not None and ms <= LIMIT_MS),
+           "ref_ms": ref_ms, "diff_ms": diff_ms, "diff_tol_ms": round(_tol, 4),
+           "base_ref_on_board": bool(_ref_on_board), "ref_ok": ref_ms is not None,
+           "pass_t4": _dec["ok"],
+           "pass_t4_abs": _dec["ok_abs"], "pass_t4_rel": _dec["ok_rel"],
            "all_ms": res, "ts": time.strftime("%F %T")}
     return out
 
 
-def prune_remote_arms(keep: int = 25) -> None:
+def prune_remote_arms(keep: int = 25, protect: str = "") -> None:
     """🔴🔴 2026-11-19 11:20：**板卡根分区只剩 1.0GB**，而每次测速要上传 2.96MB 的 rknn。
 
     现场事实：`/root/hm_speed/arms` 已 198MB / 150 个文件，板卡 `df -h /` = **94%（余 1021MB）**。
@@ -279,9 +451,15 @@ def prune_remote_arms(keep: int = 25) -> None:
     修法：每次测速后，只保留板卡上**最新的 keep 个** rknn（连同对应 .stride），其余删掉。
     保留 25 个 ≈ 75MB ⇒ 稳态占用约 75MB，1GB 余量足够撑到 deadline。
     """
+    # 🟡 Y2：白名单 —— **控制臂 `base_int8.rknn`**（板卡脚本的对照臂，最老 ⇒ 会被优先删掉）
+    #   与**当前基线臂**（同会话参照）**永不删** ⇒ 否则会话失去对照臂 / 相对口径失去参照。
+    _keep_names = ["base_int8.rknn"]
+    if protect:
+        _keep_names.append(protect)
+    _pat = "|".join(_keep_names)
     cmd = (
         f"timeout 120 ssh {KEY} {B.BOARD} 'cd {B.BOARD_DIR}/arms 2>/dev/null || exit 0; "
-        f"ls -1t *.rknn 2>/dev/null | tail -n +{keep + 1} | "
+        f"ls -1t *.rknn 2>/dev/null | tail -n +{keep + 1} | grep -v -x -E \"{_pat}\" | "
         f"while read f; do rm -f \"$f\" \"${{f%.rknn}}.stride\"; done; "
         f"ls -1 *.rknn 2>/dev/null | wc -l'"
     )
@@ -293,7 +471,9 @@ def prune_remote_arms(keep: int = 25) -> None:
         log(f"[清理] 板卡 arms 清理失败（不致命）：{exc}")
 
 
-def write_back_ledger(trial: int, ep: str, ms: float) -> None:
+def write_back_ledger(trial: int, ep: str, ms: float, ok: bool | None = None,
+                       ref_ms: float | None = None, diff_ms: float | None = None,
+                       ref_id: str = "") -> None:
     """把板端 T4 读数**写回台账**（2026-11-13 新增）。
 
     为什么必需：`promote_candidate.check_arm()` 的板端参照只认台账里的板卡会话
@@ -309,8 +489,17 @@ def write_back_ledger(trial: int, ep: str, ms: float) -> None:
             return
         st["board_ms"] = float(ms)
         st.setdefault("board_ms_epochs", {})[str(ep)] = float(ms)
-        st["board_pass_t4"] = bool(float(ms) <= LIMIT_MS)
+        # 🔴 2026-11-20 14:45：单臂回写也认「同会话相对」口径（ok 传入优先），缺则退回绝对口径。
+        st["board_pass_t4"] = bool(ok) if ok is not None else T4.abs_ok(float(ms))
         st["board_limit_ms"] = LIMIT_MS
+        if ref_ms is not None:
+            st["board_ms_ref"] = float(ref_ms)
+        if diff_ms is not None:
+            st["board_diff_ms"] = float(diff_ms)
+        # 🔴 R3：记录**参照基线身份** ⇒ 换基线后能识别「这个板端判定是打旧基线量的」
+        if ref_id:
+            st["board_ref_trial"] = str(ref_id).split("_ep")[0]
+            st["board_ref_ep"] = str(ref_id).split("_ep")[-1]
         st["board_measured_at"] = time.strftime("%F %T")
         arms[str(trial)] = st
         led["arms"] = arms
@@ -331,14 +520,30 @@ def write_back_ledger_batch(items: list) -> None:
         led = ns.load_ledger()
         arms = led.get("arms") or {}
         n = 0
-        for trial, ep, ms in items:
+        for item in items:
+            # 🟢 2026-11-19 15:30：items 可带第 4 个元素 = **综合 pass 标志**
+            #   （绝对口径 OR 同会话相对口径，由 run_once 计算后传入）
+            trial, ep, ms = item[0], item[1], item[2]
+            ok = bool(item[3]) if len(item) > 3 else T4.abs_ok(float(ms))
+            ref_m = item[4] if len(item) > 4 else None
+            diff_m = item[5] if len(item) > 5 else None
+            ref_id = item[6] if len(item) > 6 else ""
             st = arms.get(str(trial))
             if st is None:
                 continue
             st["board_ms"] = float(ms)
             st.setdefault("board_ms_epochs", {})[str(ep)] = float(ms)
-            st["board_pass_t4"] = bool(float(ms) <= LIMIT_MS)
+            st["board_pass_t4"] = ok
             st["board_limit_ms"] = LIMIT_MS
+            # 🔴 2026-11-20 14:45：把**同会话参照读数与差值**一起落台账 ⇒ 相对口径可审计、可回溯
+            if ref_m is not None:
+                st["board_ms_ref"] = float(ref_m)
+            if diff_m is not None:
+                st["board_diff_ms"] = float(diff_m)
+            # 🔴 R3：参照基线身份（换基线 ⇒ 旧判定过期）
+            if ref_id:
+                st["board_ref_trial"] = str(ref_id).split("_ep")[0]
+                st["board_ref_ep"] = str(ref_id).split("_ep")[-1]
             st["board_measured_at"] = time.strftime("%F %T")
             arms[str(trial)] = st
             n += 1
@@ -375,7 +580,14 @@ def sync_measured_to_ledger() -> None:
             ep = str(v.get("ep") or key.split("_ep")[-1])
         except Exception:  # noqa: BLE001
             continue
-        items.append((trial, ep, float(ms)))
+        # 🟢🟢🟢 2026-11-19 15:45 —— **sync 也要用「综合判定」**（绝对 OR 同会话相对基线）。
+        #   现场：15:27:37 这个函数用**纯绝对口径**把 116 个臂刷进台账
+        #   ⇒ 把我 15:26:40 重判出来的 board_pass_t4=True **全部覆盖回 False**
+        #   ⇒ 升轨链再次断在最后一环。
+        #   修法：直接用实测记录里的 pass_t4（已经是 abs OR rel 的综合结论），
+        #        只有旧记录没有该字段时才退回绝对口径。
+        ok = T4.stored_pass(v)
+        items.append((trial, ep, float(ms), ok))
     # 🟢 2026-11-19：一次写全（原来逐臂 load+save 84 次 ⇒ 丢更新风险 + 慢）
     write_back_ledger_batch(items)
     log(f"[sync] 已测候选 {len(items)} 个 ⇒ 同步进台账（中位数口径）")
@@ -523,6 +735,8 @@ def run_once() -> None:
             done = {}
     pools = load_pools()
     cands = candidates()
+    _ref_id = current_ref_id()          # 🔴 差值池的参照维度（基线臂身份）
+    _tol = diff_tol()                   # 🔴 提到循环外（`diff_tol()` 会读 24 MB 台账）
     log(f"[scan] 六项全过候选 {len(cands)} 个；已测 {len(done)} 个；样本池 {len(pools)} 个臂")
     if not cands:
         save_pools(pools)
@@ -558,8 +772,16 @@ def run_once() -> None:
         # 🟢 2026-11-19：**判 FAIL 的也要继续补样本**（上限 MAX_SAMPLES）
         #   现场：1740004 中位数一度 19.990（只超红线 0.001 ms）⇒ 不能一票否决。
         need = len(pool) < MIN_SAMPLES
-        if not need and len(pool) < MAX_SAMPLES and pool and pool_median(pool) > LIMIT_MS:
+        # 🔴 Y9：**差值样本也要够**（绝对池满 ≠ 差值池满；早期会话没有基线臂 ⇒ 差值样本为 0）。
+        #   ⚠️ 只在「参照机制曾经可用」时才强制 ⇒ 否则参照一坏就变成无限补测死循环（R7）。
+        _dpool = pools.get(key + "|d@" + _ref_id) or [] if _ref_id else []
+        if _REF_OK_SEEN and len(_dpool) < MIN_SAMPLES:
             need = True
+        if not need and len(pool) < MAX_SAMPLES and pool and pool_median(pool) > LIMIT_MS:
+            # 🟢 2026-11-19 15:30：**绝对口径超线时，只有「同会话相对口径也超线」才继续补样本**
+            #   （否则板卡一漂移就无限补样本，浪费板卡机时）
+            if not _dpool or pool_median(_dpool) > diff_tol():
+                need = True
         if need:
             todo.append((_strict(r), r, key))
     # 严格优于的轴多的优先 ⇒ 最可能成为新基线的臂先攒样本
@@ -658,23 +880,38 @@ def run_once() -> None:
     for _ns, r, key in todo:
         log(f"[T4] 开始测 {key}（nano={r.get('nano')}｜严格优轴={_ns}｜已有样本 {len(pools.get(key) or [])}）")
         out = measure(int(r["trial"]), str(r["ep"]))
-        prune_remote_arms()          # 🔴 测速后立刻清理板卡 rknn（防磁盘写满断链）
+        # 🔴 测速后立刻清理板卡 rknn（防磁盘写满断链）；白名单保住控制臂与基线臂（Y2）
+        prune_remote_arms(protect=("n%s_int8.rknn" % _ref_id) if _ref_id else "")
         if not out:
             continue
-        touched = merge_session(pools, out.get("all_ms") or {})
+        touched = merge_session(pools, out.get("all_ms") or {}, out.get("ref_ms"), _ref_id)
+        if out.get("ref_ok"):
+            globals()["_REF_OK_SEEN"] = True
         if out["ms"] is not None and key not in touched:
             pools.setdefault(key, []).append(float(out["ms"]))
+            if out.get("ref_ms") is not None:
+                pools.setdefault(key + ("|d@" + _ref_id if _ref_id else "|d"), []).append(
+                    round(float(out["ms"]) - float(out["ref_ms"]), 4))
             touched.append(key)
         for k2 in sorted(set(touched)):
             xs = pools.get(k2) or []
             if not xs:
                 continue
             med = pool_median(xs)
+            # 🔴 差值池按**参照身份**取（R2：换基线后不得混池）
+            ds = pools.get(k2 + ("|d@" + _ref_id if _ref_id else "|d")) or []
+            dmed = pool_median(ds) if ds else None
+            _dec2 = T4.decide(med, dmed, _tol)
             rec = done.get(k2) or {"trial": int(k2.split("_ep")[0]), "ep": k2.split("_ep")[-1]}
             rec.update({"ms": round(med, 4), "ms_last": xs[-1],
                         "samples": [round(float(x), 4) for x in xs],
                         "n_samples": len(xs), "limit_ms": LIMIT_MS,
-                        "pass_t4": bool(med <= LIMIT_MS),
+                        "ref_ms": out.get("ref_ms"),
+                        "diff_ms": (round(dmed, 4) if dmed is not None else None),
+                        "diff_samples": [round(float(x), 4) for x in ds],
+                        "diff_tol_ms": round(_tol, 4),
+                        "pass_t4": _dec2["ok"],
+                        "pass_t4_abs": _dec2["ok_abs"], "pass_t4_rel": _dec2["ok_rel"],
                         "all_ms": out.get("all_ms"), "ts": time.strftime("%F %T")})
             done[k2] = rec
         save_pools(pools)
@@ -686,13 +923,17 @@ def run_once() -> None:
             rec = done.get(k2) or {}
             if rec.get("ms") is None:
                 continue
-            _bw.append((int(k2.split("_ep")[0]), k2.split("_ep")[-1], float(rec["ms"])))
+            _bw.append((int(k2.split("_ep")[0]), k2.split("_ep")[-1], float(rec["ms"]),
+                        bool(rec.get("pass_t4")), rec.get("ref_ms"), rec.get("diff_ms"),
+                        _ref_id))
         if _bw:
             write_back_ledger_batch(_bw)
         rec = done.get(key) or {}
         log(f"[T4] {key} ⇒ 样本 {rec.get('n_samples')} 个 {rec.get('samples')} "
-            f"中位数 {rec.get('ms')} ms（红线 {LIMIT_MS}）⇒ "
-            f"{'PASS ✔' if rec.get('pass_t4') else 'FAIL ✘'}")
+            f"中位数 {rec.get('ms')} ms（红线 {LIMIT_MS}）｜同会话基线 {rec.get('ref_ms')} "
+            f"⇒ 差值 {rec.get('diff_ms')} ms（容差 {rec.get('diff_tol_ms')}）⇒ "
+            f"{'PASS ✔' if rec.get('pass_t4') else 'FAIL ✘'}"
+            f"（绝对{'✔' if rec.get('pass_t4_abs') else '✘'}/相对{'✔' if rec.get('pass_t4_rel') else '✘'}）")
 
 
 def main() -> None:

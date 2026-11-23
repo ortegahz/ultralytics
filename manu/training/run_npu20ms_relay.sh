@@ -25,7 +25,7 @@ CUR_OUT="${CUR_OUT:-/mnt/data/siping/runs/nogmc_struct4}"
 CUR_PID_FILE="$CUR_OUT/dispatcher.pid"
 NEW_OUT="${NEW_OUT:-/mnt/data/siping/runs/npu20ms}"
 SPEED_TABLE="$NEW_OUT/struct_speed_table.json"
-TABLE_DIRS="${TABLE_DIRS:-/media/manu/1TB-Volume/rknn_work/hm_speed}"
+TABLE_DIRS="${TABLE_DIRS:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/hm_speed}"
 LIMIT_MS="${LIMIT_MS:-21.0}"
 PER_STRUCT="${PER_STRUCT:-2}"
 POLL_SEC="${POLL_SEC:-45}"
@@ -59,7 +59,7 @@ else
 fi
 
 # ---- 2) 合并结构→速度表 ----
-# ⚠️ **表必须在仓库里**（宿主 /media/manu/1TB-Volume 是宿主盘，服务器上没有这个挂载！）
+# ⚠️ **表必须在仓库里**（宿主 /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084 是宿主盘，服务器上没有这个挂载！）
 #    ⇒ 宿主在关机前把 probes*/arms.json 合并好写进仓库并同步，relay 从仓库读。
 log "合并结构→速度表（仓库内 manu/pipeline/npu/struct_speed_table.json + 可选的宿主 probes*）"
 python3 - << 'PYEOF'
@@ -76,7 +76,7 @@ if repo_tbl.is_file():
     except Exception as e:
         print("  仓库表读取失败", e)
 # ② 若宿主盘可达（同一台机器上跑时），再并入更新的 probes*/
-for d in sorted(glob.glob("/media/manu/1TB-Volume/rknn_work/hm_speed/probes*")):
+for d in sorted(glob.glob("/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/hm_speed/probes*")):
     p = Path(d) / "arms.json"
     if not p.is_file():
         continue

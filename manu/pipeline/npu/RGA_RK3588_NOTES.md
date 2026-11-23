@@ -16,7 +16,7 @@
 
 ```bash
 # 1) 交叉编译（本地）
-cd /media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu
+cd /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/pipeline/npu
 ./build_rga_probe_arm64.sh
 
 # 2) 上板（板卡不能从 NFS 执行，scp 到 /root/）

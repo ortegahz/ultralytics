@@ -27,21 +27,21 @@
 
 set -euo pipefail
 
-REPO="/media/manu/1TB-Volume/workspace/ultralytics"
-WORK="/media/manu/1TB-Volume/rknn_work/hm/merge_head"
+REPO="/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics"
+WORK="/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/hm/merge_head"
 ONNX_DIR="$WORK/onnx"
 REMOTE="huangzhe@192.168.99.40"
 PORT=32222
 REMOTE_ROOT="/tmp/pycharm_project_10ae9e2e"
 REMOTE_WORK="$REMOTE_ROOT/runs/merge_head"
 BOARD_PY="$REPO/manu/pipeline/opencl/board/board_run.py"
-CKPT="/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_p0_nas/trial_0474/weights/best.pt"
+CKPT="/home/manu/mnt/pycharm_project_a7d966e6/runs/optuna_p0_nas/trial_0474/weights/best.pt"
 CALIB_IMG="/home/manu/mnt/data/siping/datasets/manu/uav_gmc_median/images/val/01_4485_1167-2666__000100.jpg"
 FEAT_JPG="/home/manu/mnt/data/siping/datasets/manu/uav_gmc_median/images/val/01_4485_1167-2666__000100.jpg"
 UAV_PY="/home/manu/anaconda3/envs/uav/bin/python"
 # rknn-toolkit2 2.3.0 —— 与板卡 librknnrt commit c949ad889d 同版本。
 # ⚠️ conda-envs/rknn 是 1.4.0，案卷已定其为弃用版，禁止用于转换。
-RKNN_PY="/media/manu/1TB-Volume/conda-envs/rknn230/bin/python"
+RKNN_PY="/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/conda-envs/rknn230/bin/python"
 BOARD_PY_PY="/usr/bin/python3"   # 需要 pexpect；uav 环境没有，系统 python3 有
 
 # 板端工作目录一律本地盘（/root），避免 NFS 往返污染时延
@@ -64,7 +64,7 @@ stage_onnx() {
   "$UAV_PY" - <<'PYEOF'
 import onnx
 for t in ("base", "merge"):
-    g = onnx.load(f"/media/manu/1TB-Volume/rknn_work/hm/merge_head/onnx/trial0474_hm_nop0_{t}.onnx").graph
+    g = onnx.load(f"/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/hm/merge_head/onnx/trial0474_hm_nop0_{t}.onnx").graph
     hc = [n.name for n in g.node if n.op_type == "Conv" and "/head/" in n.name]
     has = [n.name for n in g.node if n.name in ("/model/head/branch3x3/Conv", "/model/head/Split")]
     print(f"  {t:6s} nodes={len(g.node)} init={len(g.initializer)} headConv={len(hc)} merge_nodes={has}")

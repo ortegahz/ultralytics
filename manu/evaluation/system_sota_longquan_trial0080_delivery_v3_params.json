@@ -1,0 +1,99 @@
+{
+  "_provenance": {
+    "what": "trial_0080 (RC2) business-domain delivery working point v3 -- adds the sky_ratio axis on top of v2; strictly better F1, FAR margin, and it is the first point where VIDEO00012_19700101_002251 is back above the frozen baseline.",
+    "supersedes_for_this_model_only": "manu/evaluation/system_sota_longquan_trial0080_delivery_v2_params.json (v2, th_base=0.42 / th_ground=0.26 / confirm_consec=7, sky_ratio=0.6).",
+    "why_a_new_file": "Same rule as v1/v2: a new working point gets a new file. v1, v2 and the frozen trial_0474 file are all left untouched.",
+    "model": "runs/optuna_mix_ratio/trials/trial_0080/weights/epoch3.pt  [DELETED 2026-11 -- whole runs/optuna_mix_ratio tree was removed]",
+    "model_surviving_standin": "ONNX export hm_plain.onnx (7,210,696 B, md5 adf14c5b9af11c01dcdd023f2ffc3fb8) at /mnt/data/siping/ptq_work/qdq_probe/onnx/hm_plain.onnx -- verified numerically equivalent to the deleted .pt over 3,297 frames (see manu/pipeline/npu/ptq/22q_onnx_vs_pt_ref.py and memory.md 257.4).  Use --hm-onnx <that path> --ablate-p0.",
+    "cache_root": "runs/optuna_mix_ratio/trials/trial_0080/lq_eval/ms_cache  [DELETED 2026-11]",
+    "cache_root_rebuilt": "/mnt/data/siping/runs/trial0080_onnx/ms_cache  (24 pkl / 165,223 frames / 24 sequences; rebuilt 2026-11-19 15:39~17:17 with the ONNX stand-in; verified equivalent to the deleted official cache -- see memory.md 257.7)",
+    "feature_source": "/mnt/data/siping/datasets/manu/longquanshan_ir_gmc_median/images/train (FPV chained-affine semantics)",
+    "only_changed_vs_v2": "th_base 0.42 -> 0.48, sky_ratio 0.6 -> 1.0 (every other parameter identical to v2, v1 and the frozen point).",
+    "why_sky_ratio_is_the_key_axis": "th_base is the SKY-region threshold and th_ground the GROUND-region threshold (eval_bidirectional_track_fusion.py:814); sky_ratio decides where the horizon sits. sky_ratio=1.0 puts the WHOLE frame under the stricter th_base, i.e. th_ground stops gating anything. Measured effect on the 002251 clutter: FP 2048 -> 1552 while its true positives stay at 1520, so the sequence is back above the frozen baseline (59.67% -> 66.10% vs baseline 61.81%).",
+    "evidence": "manu/evaluation/probe_far_threshold_tradeoff.py, 28-candidate grid over (sky_ratio x th_base) on the trial_0080 cache (no GPU, no re-inference). The grid's 'base' row reproduces the v2 pipeline run bit-for-bit, which cross-validates the probe against the pipeline.",
+    "delivered_metrics_v3": {
+      "f1": 0.947469,
+      "recall": 0.92342,
+      "precision": 0.9728,
+      "tp": 123052,
+      "fp": 3440,
+      "fn": 10205,
+      "far_per_frame": 0.02082
+    },
+    "delivery_criteria": {
+      "f1_min": 0.88,
+      "recall_min": 0.85,
+      "far_max": 0.03
+    },
+    "vs_v2": {
+      "f1": "+0.13 pp (94.6175% -> 94.7469%)",
+      "recall": "-0.25 pp (92.591% -> 92.342%), still far above the 85% floor",
+      "fp": "-725 (4165 -> 3440)",
+      "far_per_frame": "0.025208 -> 0.020820",
+      "far_margin": "16.0% -> 30.6% below the 0.030 bound",
+      "pass_sequences": "21/24 (unchanged)",
+      "002251": "59.67% -> 66.10%, i.e. back above the frozen baseline 61.81%"
+    },
+    "note": "Still ONE global working point for all 24 sequences (no per-sequence cherry-picking). All 28 candidates of the grid pass the delivery triple, so the point is not on a cliff edge.",
+    "official_record": {
+      "record_dir": "/mnt/data/siping/datasets/manu/龙泉山/osd_sys_sota_trial0080_v3_20261022",
+      "source_json": "runs/optuna_mix_ratio/trials/trial_0080/lq_eval/track_all_v3.json  [DELETED 2026-11 -- the numbers below are the frozen copy of that file]",
+      "source_json_rebuilt": "/mnt/data/siping/runs/trial0080_onnx/eval/track_all_v3.json (re-scored from the rebuilt cache on 2026-11-19; per-sequence delta vs the official record is +0.0065 pp overall and 22/24 sequences bit-identical)",
+      "params_md5": "bba1e948f420efe1b5070269b4587a43",
+      "official_metrics": {
+        "tp": 123052,
+        "fp": 3440,
+        "fn": 10205,
+        "gt": 133257,
+        "f1": 0.9474685176843799,
+        "recall": 0.9234186571812363,
+        "precision": 0.9728046042437466,
+        "far_per_frame": 0.020820345835628213
+      },
+      "note": "official_metrics = the numbers recorded by the 2026-10-22 OSD sweep; used as the regression target when this working point is re-scored (the original runs/ tree has since been deleted, so the cache is rebuilt from the trial_0080 ONNX export)."
+    },
+    "current_baseline": {
+      "since": "2026-11-19",
+      "why": "Of the three frozen trial_0080 working points (th045 / v2 / v3) this one has BOTH the highest F1 (94.7469%) and the lowest false-alarm rate (0.02082 per frame, 30.6% below the 0.03 bound).  It supersedes th045 as THE baseline for all downstream work (spatio-temporal post-processing search, board port, delivery).",
+      "supersedes": "manu/evaluation/system_sota_longquan_trial0080_delivery_params.json (th045)",
+      "model": "trial_0080 epoch3 = the source graph of the delivered p0_off_A_none.rknn (6,326,305 B, md5 1a3faf2f9459cad8a389ffa81810234c) -- the ONNX export hm_plain.onnx is the surviving stand-in for the deleted .pt",
+      "sky_ratio_note": "sky_ratio=1.0 makes is_sky always true => th_ground never gates anything (it becomes a dead parameter) AND the salvage tier / hover exemption / sky-aware rigid pruning cover the WHOLE frame.  It is not merely 'one uniform threshold'.  th_deep=0.0 is dead in all three versions (the code only enables the deep band when th_deep > 0)."
+    }
+  },
+  "params": {
+    "th_base": 0.48,
+    "th_salvage": 0.06,
+    "th_ground": 0.26,
+    "sky_ratio": 1.0,
+    "min_hits": 3,
+    "max_age": 3,
+    "match_dist": 16.0,
+    "max_match_dist": 24.0,
+    "instant_conf": 0.25,
+    "min_disp": 2.5,
+    "min_track_score": 0.08,
+    "stitch_gap": 6,
+    "infill_gap": 3,
+    "min_hits_infill": 5,
+    "min_rigid_disp": 2.0,
+    "max_rigid_var": 1.0,
+    "min_hits_prune": 4,
+    "dedup_radius": 768.0,
+    "th_deep": 0.0,
+    "min_hits_deep": 3,
+    "min_rigid_disp_sky": -1.0,
+    "hover_vel": 0.0,
+    "hover_infill_gap": 15,
+    "coast_frames": 0,
+    "min_hits_hover": 8,
+    "hover_sky_only": 1,
+    "stitch_long_gap": 0,
+    "stitch_vel_diff": 4.0,
+    "confirm_consec": 7,
+    "confirm_gap_tol": 0,
+    "confirm_trim_prefix": 1,
+    "persist_min_hits": 0,
+    "persist_window": 0,
+    "persist_tol": 4.0
+  }
+}

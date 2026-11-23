@@ -24,7 +24,7 @@
 # harness, DOES pass --pyr-cache. So the board census will follow the pyr-cache
 # column, and quoting 306 as the expected board count would be wrong.
 set -u
-HERE=/media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/opencl/board
+HERE=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/pipeline/opencl/board
 cd "$HERE"
 B=$HERE/.bench_bmp
 K=$HERE/../kernels

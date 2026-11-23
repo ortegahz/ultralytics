@@ -1,0 +1,544 @@
+{
+  "schema": "trial0080-longquan-delivery-manifest/1",
+  "generated_at": "2026-10-22T17:05:58",
+  "goal": "用 trial_0080 best model 重跑龙泉山数据集，交付单帧性能、带 track 性能与全量 OSD 视频",
+  "execution": {
+    "server": "huangzhe@192.168.99.40 -p 32222",
+    "project_dir": "/tmp/pycharm_project_10ae9e2e",
+    "conda_env": "uav",
+    "trial_dir": "/tmp/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080",
+    "model": "runs/optuna_mix_ratio/trials/trial_0080/weights/epoch3.pt",
+    "feature_source": "/mnt/data/siping/datasets/manu/longquanshan_ir_gmc_median/images/train (FPV chained-affine, read from disk - not recomputed)"
+  },
+  "local_mounts": {
+    "repo": "/media/manu/1TB-Volume/workspace/ultralytics",
+    "project": "/home/manu/mnt/pycharm_project_10ae9e2e",
+    "data": "/home/manu/mnt/data",
+    "note": "the data mount is the server's /mnt/data; the OSD sets live under siping/datasets/manu/龙泉山/ there"
+  },
+  "delivery_criteria_measured": {
+    "measured_on": "track_all_v3.json",
+    "f1": 0.947469,
+    "recall": 0.923419,
+    "precision": 0.972805,
+    "far_per_frame": 0.02082,
+    "tp": 123052,
+    "fp": 3440,
+    "fn": 10205,
+    "gt": 133257,
+    "frames": 165223,
+    "thresholds": {
+      "f1_min": 0.88,
+      "recall_min": 0.85,
+      "far_max": 0.03
+    },
+    "all_three_met": true,
+    "far_margin_pct": 30.6
+  },
+  "delivered_working_point": {
+    "th_base": 0.48,
+    "th_ground": 0.26,
+    "sky_ratio": 1.0,
+    "confirm_consec": 7
+  },
+  "how_to_reverify": {
+    "command": "python manu/evaluation/verify_delivery_evidence.py --server huangzhe@192.168.99.40",
+    "expected": "PASS 80 / FAIL 0",
+    "checks": "parameter md5 / evaluation reports / criteria recomputed from raw counts / cache meta / OSD counts and byte sums / old OSD mtimes / three-way md5 / figures quoted on the delivery cards vs the measured artefacts"
+  },
+  "notes": [
+    "The OSD byte figure is the sum of the mp4 FILE sizes; `du -sb` also counts directory entries and therefore differs between the native filesystem and an SSHFS mount.",
+    "The 2026-10-20 OSD set carries one extra clip under preview/; the '24 videos' figure counts pass/ + un-pass/ only."
+  ],
+  "verification_summary": {
+    "passed": 80,
+    "failed": 0
+  },
+  "deliverables": [
+    {
+      "role": "frozen delivery point (trial_0474) - MUST NOT change",
+      "path": "/media/manu/1TB-Volume/workspace/ultralytics/manu/evaluation/system_sota_longquan_delivery_params.json",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/manu/evaluation/system_sota_longquan_delivery_params.json",
+      "md5": "0ca8267f4ad340df11b3aa7d679d9068",
+      "size_bytes": 1766,
+      "facts": {
+        "th_base": 0.3,
+        "th_ground": 0.22,
+        "sky_ratio": 0.6,
+        "confirm_consec": 6,
+        "dedup_radius": 768.0
+      }
+    },
+    {
+      "role": "v1 working point (th_base=0.45) - historical",
+      "path": "/media/manu/1TB-Volume/workspace/ultralytics/manu/evaluation/system_sota_longquan_trial0080_delivery_params.json",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/manu/evaluation/system_sota_longquan_trial0080_delivery_params.json",
+      "md5": "d40559902b86920ebbf8a1f1f363b64f",
+      "size_bytes": 3648,
+      "facts": {
+        "th_base": 0.45,
+        "th_ground": 0.22,
+        "sky_ratio": 0.6,
+        "confirm_consec": 6,
+        "dedup_radius": 768.0
+      }
+    },
+    {
+      "role": "v2 working point (0.42/0.26/7) - historical",
+      "path": "/media/manu/1TB-Volume/workspace/ultralytics/manu/evaluation/system_sota_longquan_trial0080_delivery_v2_params.json",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/manu/evaluation/system_sota_longquan_trial0080_delivery_v2_params.json",
+      "md5": "15af89e67bf2cddc54cd51cb8ed5b214",
+      "size_bytes": 3477,
+      "facts": {
+        "th_base": 0.42,
+        "th_ground": 0.26,
+        "sky_ratio": 0.6,
+        "confirm_consec": 7,
+        "dedup_radius": 768.0
+      }
+    },
+    {
+      "role": "v3 DELIVERED working point (0.48/0.26/7 + sky_ratio=1.0)",
+      "path": "/media/manu/1TB-Volume/workspace/ultralytics/manu/evaluation/system_sota_longquan_trial0080_delivery_v3_params.json",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/manu/evaluation/system_sota_longquan_trial0080_delivery_v3_params.json",
+      "md5": "b20de759599d96aae9493b93ce6b61e8",
+      "size_bytes": 3549,
+      "facts": {
+        "th_base": 0.48,
+        "th_ground": 0.26,
+        "sky_ratio": 1.0,
+        "confirm_consec": 7,
+        "dedup_radius": 768.0
+      }
+    },
+    {
+      "role": "single-frame arm parameters (th=0.22 / radius=768 / inbox)",
+      "path": "/media/manu/1TB-Volume/workspace/ultralytics/manu/evaluation/system_sota_longquan_singleframe_params.json",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/manu/evaluation/system_sota_longquan_singleframe_params.json",
+      "md5": "5a6e1ca5b578afb1178ce24221c3ddc4",
+      "size_bytes": 1976,
+      "facts": {
+        "th_base": 0.22,
+        "th_ground": 0.35,
+        "sky_ratio": 0.6,
+        "confirm_consec": 3,
+        "dedup_radius": 768.0
+      }
+    },
+    {
+      "role": "single-frame arm report (frozen criterion)",
+      "path": "/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/single_frame_all.json",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/single_frame_all.json",
+      "md5": "76bd30d7e4d6269c386d7353f841b0fc",
+      "size_bytes": 9241,
+      "facts": {
+        "tp": 124852,
+        "fp": 12247,
+        "fn": 8405,
+        "gt": 133257,
+        "f1": 0.9236118303274201,
+        "recall": 0.9369263903584802,
+        "precision": 0.9106703914689385,
+        "far_per_frame": 0.07412406263050544
+      }
+    },
+    {
+      "role": "track arm @ frozen point th_base=0.30 (FAR misses the bound)",
+      "path": "/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/track_all.json",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/track_all.json",
+      "md5": "35efbe3a41a67b67ed8f3e9f323fc6c3",
+      "size_bytes": 9070,
+      "facts": {
+        "tp": 124119,
+        "fp": 6687,
+        "fn": 9138,
+        "gt": 133257,
+        "f1": 0.9400711193919633,
+        "recall": 0.9314257412368581,
+        "precision": 0.9488784918123022,
+        "far_per_frame": 0.04047257343105984
+      }
+    },
+    {
+      "role": "track arm @ v1 (th_base=0.45)",
+      "path": "/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/track_all_th045.json",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/track_all_th045.json",
+      "md5": "aa4ade6f794fb7fda463a85f247f9ee3",
+      "size_bytes": 9100,
+      "facts": {
+        "tp": 123383,
+        "fp": 4790,
+        "fn": 9874,
+        "gt": 133257,
+        "f1": 0.9439085032322226,
+        "recall": 0.9259025792266072,
+        "precision": 0.9626286347358648,
+        "far_per_frame": 0.028991121090889284
+      }
+    },
+    {
+      "role": "track arm @ v2 (0.42/0.26/7)",
+      "path": "/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/track_all_v2.json",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/track_all_v2.json",
+      "md5": "92890f58709e9170d947a0062f77c5d7",
+      "size_bytes": 9097,
+      "facts": {
+        "tp": 123384,
+        "fp": 4165,
+        "fn": 9873,
+        "gt": 133257,
+        "f1": 0.9461745511989755,
+        "recall": 0.9259100835228168,
+        "precision": 0.9673458827587829,
+        "far_per_frame": 0.025208354769009157
+      }
+    },
+    {
+      "role": "track arm @ v3 DELIVERED (0.48/0.26/7, sky_ratio=1.0)",
+      "path": "/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/track_all_v3.json",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/track_all_v3.json",
+      "md5": "2a1027fc61f65a91b51e89b287d2c6ff",
+      "size_bytes": 9093,
+      "facts": {
+        "tp": 123052,
+        "fp": 3440,
+        "fn": 10205,
+        "gt": 133257,
+        "f1": 0.9474685176843799,
+        "recall": 0.9234186571812363,
+        "precision": 0.9728046042437466,
+        "far_per_frame": 0.020820345835628213
+      }
+    },
+    {
+      "role": "single-axis th_base sweep (5 candidates)",
+      "path": "/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/far_tradeoff_probe.json",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/far_tradeoff_probe.json",
+      "md5": "cd40b83fed304d0494a4f8f0df0279e0",
+      "size_bytes": 43613,
+      "facts": {
+        "tp": null,
+        "fp": null,
+        "fn": null,
+        "gt": null,
+        "f1": null,
+        "recall": null,
+        "precision": null,
+        "far_per_frame": null
+      }
+    },
+    {
+      "role": "3-axis grid: th_base x confirm_consec x th_ground (54 candidates)",
+      "path": "/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/robustness_grid.json",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/robustness_grid.json",
+      "md5": "6d4438e373225b483f7c8ec8741cb1d0",
+      "size_bytes": 461877,
+      "facts": {
+        "tp": null,
+        "fp": null,
+        "fn": null,
+        "gt": null,
+        "f1": null,
+        "recall": null,
+        "precision": null,
+        "far_per_frame": null
+      }
+    },
+    {
+      "role": "4th-axis grid: sky_ratio x th_base (28 candidates)",
+      "path": "/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/sky_ratio_grid.json",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/sky_ratio_grid.json",
+      "md5": "358b2b33c5acc6d4ae7f965c938b9b19",
+      "size_bytes": 239136,
+      "facts": {
+        "tp": null,
+        "fp": null,
+        "fn": null,
+        "gt": null,
+        "f1": null,
+        "recall": null,
+        "precision": null,
+        "far_per_frame": null
+      }
+    },
+    {
+      "role": "frozen baseline re-run through the same probe code path",
+      "path": "/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/baseline_recheck.json",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/baseline_recheck.json",
+      "md5": "38fcc10f72ef942212eccd032a357602",
+      "size_bytes": 9789,
+      "facts": {
+        "tp": null,
+        "fp": null,
+        "fn": null,
+        "gt": null,
+        "f1": null,
+        "recall": null,
+        "precision": null,
+        "far_per_frame": null
+      }
+    },
+    {
+      "role": "leave-one-sequence-out check of the v2 point",
+      "path": "/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/loo_check.json",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/loo_check.json",
+      "md5": "9ec469bafa65c86bdf806bbd60882b61",
+      "size_bytes": 12833
+    },
+    {
+      "role": "leave-one-sequence-out check of the v3 point",
+      "path": "/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/loo_check_v3.json",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/loo_check_v3.json",
+      "md5": "481668280532805dc772e542b60b4817",
+      "size_bytes": 12341
+    },
+    {
+      "role": "multiscale heatmap cache (24 sequences, FPV features read from disk)",
+      "path": "/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/ms_cache",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/ms_cache",
+      "facts": {
+        "pkl_files": 24
+      }
+    },
+    {
+      "role": "per-sequence predictions for the OSD renderer (preds_single)",
+      "path": "/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/preds_single",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/preds_single",
+      "facts": {
+        "json_files": 25
+      }
+    },
+    {
+      "role": "per-sequence predictions for the OSD renderer (preds_track)",
+      "path": "/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/preds_track",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/preds_track",
+      "facts": {
+        "json_files": 25
+      }
+    },
+    {
+      "role": "per-sequence predictions for the OSD renderer (preds_track_th045)",
+      "path": "/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/preds_track_th045",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/preds_track_th045",
+      "facts": {
+        "json_files": 25
+      }
+    },
+    {
+      "role": "per-sequence predictions for the OSD renderer (preds_track_v2)",
+      "path": "/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/preds_track_v2",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/preds_track_v2",
+      "facts": {
+        "json_files": 25
+      }
+    },
+    {
+      "role": "per-sequence predictions for the OSD renderer (preds_track_v3)",
+      "path": "/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/preds_track_v3",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/preds_track_v3",
+      "facts": {
+        "json_files": 25
+      }
+    },
+    {
+      "role": "OSD review videos (osd_sys_sota_20261020)",
+      "path": "/home/manu/mnt/data/siping/datasets/manu/龙泉山/osd_sys_sota_20261020",
+      "server_path": "/mnt/data/siping/datasets/manu/龙泉山/osd_sys_sota_20261020",
+      "facts": {
+        "pass": 17,
+        "un_pass": 7,
+        "mp4_total_including_preview": 25,
+        "file_bytes_sum": 5804497704,
+        "zero_byte_files": 0
+      }
+    },
+    {
+      "role": "OSD review videos (osd_sys_sota_trial0080_20261022)",
+      "path": "/home/manu/mnt/data/siping/datasets/manu/龙泉山/osd_sys_sota_trial0080_20261022",
+      "server_path": "/mnt/data/siping/datasets/manu/龙泉山/osd_sys_sota_trial0080_20261022",
+      "facts": {
+        "pass": 21,
+        "un_pass": 3,
+        "mp4_total_including_preview": 24,
+        "file_bytes_sum": 5814432296,
+        "zero_byte_files": 0
+      }
+    },
+    {
+      "role": "OSD review videos (osd_sys_sota_trial0080_th045_20261022)",
+      "path": "/home/manu/mnt/data/siping/datasets/manu/龙泉山/osd_sys_sota_trial0080_th045_20261022",
+      "server_path": "/mnt/data/siping/datasets/manu/龙泉山/osd_sys_sota_trial0080_th045_20261022",
+      "facts": {
+        "pass": 20,
+        "un_pass": 4,
+        "mp4_total_including_preview": 24,
+        "file_bytes_sum": 5804540094,
+        "zero_byte_files": 0
+      }
+    },
+    {
+      "role": "OSD review videos (osd_sys_sota_trial0080_v2_20261022)",
+      "path": "/home/manu/mnt/data/siping/datasets/manu/龙泉山/osd_sys_sota_trial0080_v2_20261022",
+      "server_path": "/mnt/data/siping/datasets/manu/龙泉山/osd_sys_sota_trial0080_v2_20261022",
+      "facts": {
+        "pass": 21,
+        "un_pass": 3,
+        "mp4_total_including_preview": 24,
+        "file_bytes_sum": 5798916597,
+        "zero_byte_files": 0
+      }
+    },
+    {
+      "role": "OSD review videos (osd_sys_sota_trial0080_v3_20261022)",
+      "path": "/home/manu/mnt/data/siping/datasets/manu/龙泉山/osd_sys_sota_trial0080_v3_20261022",
+      "server_path": "/mnt/data/siping/datasets/manu/龙泉山/osd_sys_sota_trial0080_v3_20261022",
+      "facts": {
+        "pass": 21,
+        "un_pass": 3,
+        "mp4_total_including_preview": 24,
+        "file_bytes_sum": 5790776836,
+        "zero_byte_files": 0
+      }
+    },
+    {
+      "role": "code / documentation artefact",
+      "path": "/media/manu/1TB-Volume/workspace/ultralytics/manu/evaluation/probe_far_threshold_tradeoff.py",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/manu/evaluation/probe_far_threshold_tradeoff.py",
+      "md5": "7a1e884a0abec5628029811f4045874a",
+      "size_bytes": 10165
+    },
+    {
+      "role": "code / documentation artefact",
+      "path": "/media/manu/1TB-Volume/workspace/ultralytics/manu/evaluation/loo_working_point_check.py",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/manu/evaluation/loo_working_point_check.py",
+      "md5": "1b02cd9a5967930fbf33895150e3eb2a",
+      "size_bytes": 9720
+    },
+    {
+      "role": "code / documentation artefact",
+      "path": "/media/manu/1TB-Volume/workspace/ultralytics/manu/evaluation/analyze_track_structure.py",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/manu/evaluation/analyze_track_structure.py",
+      "md5": "990095d6518c2dbe4eea3abdf54bcc79",
+      "size_bytes": 8363
+    },
+    {
+      "role": "code / documentation artefact",
+      "path": "/media/manu/1TB-Volume/workspace/ultralytics/manu/evaluation/verify_delivery_evidence.py",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/manu/evaluation/verify_delivery_evidence.py",
+      "md5": "bf28c738826f5c076bfe558630d40811",
+      "size_bytes": 31523
+    },
+    {
+      "role": "code / documentation artefact",
+      "path": "/media/manu/1TB-Volume/workspace/ultralytics/manu/evaluation/run_trial0080_longquan_eval.sh",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/manu/evaluation/run_trial0080_longquan_eval.sh",
+      "md5": "6c466e0ddfb33ce4902ceabe15637d3c",
+      "size_bytes": 7571
+    },
+    {
+      "role": "code / documentation artefact",
+      "path": "/media/manu/1TB-Volume/workspace/ultralytics/manu/evaluation/system_sota_longquan_singleframe_params.json",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/manu/evaluation/system_sota_longquan_singleframe_params.json",
+      "md5": "5a6e1ca5b578afb1178ce24221c3ddc4",
+      "size_bytes": 1976
+    },
+    {
+      "role": "code / documentation artefact",
+      "path": "/media/manu/1TB-Volume/workspace/ultralytics/manu/evaluation/system_sota_longquan_trial0080_delivery_v3_params.json",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/manu/evaluation/system_sota_longquan_trial0080_delivery_v3_params.json",
+      "md5": "b20de759599d96aae9493b93ce6b61e8",
+      "size_bytes": 3549
+    },
+    {
+      "role": "code / documentation artefact",
+      "path": "/media/manu/1TB-Volume/workspace/ultralytics/manu/data/audit_cache_provenance.py",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/manu/data/audit_cache_provenance.py",
+      "md5": "b5f013604149dfe38dae4c7c84a62f9c",
+      "size_bytes": 6851
+    },
+    {
+      "role": "code / documentation artefact",
+      "path": "/media/manu/1TB-Volume/workspace/ultralytics/manu/data/multiscale_heatmap_cache.py",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/manu/data/multiscale_heatmap_cache.py",
+      "md5": "31055f925500e09497ef2e40b4bd0f89",
+      "size_bytes": 26408
+    },
+    {
+      "role": "code / documentation artefact",
+      "path": "/media/manu/1TB-Volume/workspace/ultralytics/manu/postprocess/tune_sys_sota_longquan.py",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/manu/postprocess/tune_sys_sota_longquan.py",
+      "md5": "0215b9f810b0f6a096ceffe73ae5a169",
+      "size_bytes": 43458
+    },
+    {
+      "role": "code / documentation artefact",
+      "path": "/media/manu/1TB-Volume/workspace/ultralytics/manu/videos/render_trial0080_longquan_osd.sh",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/manu/videos/render_trial0080_longquan_osd.sh",
+      "md5": "b26bbdf6685ad7abe1ad614095c5066c",
+      "size_bytes": 6253
+    },
+    {
+      "role": "code / documentation artefact",
+      "path": "/media/manu/1TB-Volume/workspace/ultralytics/manu/memory/archive/06_领域迁移复评_§五十四~§五十五.md",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/manu/memory/archive/06_领域迁移复评_§五十四~§五十五.md",
+      "md5": "9188bc98b0e4f5a9cd15c46c251296c5",
+      "size_bytes": 69889
+    },
+    {
+      "role": "code / documentation artefact",
+      "path": "/media/manu/1TB-Volume/workspace/ultralytics/manu/memory/trial0080_longquan_DELIVERY_README.md",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/manu/memory/trial0080_longquan_DELIVERY_README.md",
+      "md5": "8b6b975e5294d1336f1a9f26597d1f5c",
+      "size_bytes": 4417
+    },
+    {
+      "role": "code / documentation artefact",
+      "path": "/media/manu/1TB-Volume/workspace/ultralytics/manu/memory/trial0080_EVALUATION_DELIVERABLES.md",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/manu/memory/trial0080_EVALUATION_DELIVERABLES.md",
+      "md5": "b545175ed44c21171fc8a5d2543089d0",
+      "size_bytes": 2753
+    },
+    {
+      "role": "code / documentation artefact",
+      "path": "/media/manu/1TB-Volume/workspace/ultralytics/manu/memory/trial0080_gate_DO_NOT_USE.md",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/manu/memory/trial0080_gate_DO_NOT_USE.md",
+      "md5": "64f0b00feba1a6cf9d598ab0b359fce1",
+      "size_bytes": 1215
+    },
+    {
+      "role": "top-level quick reference -> the whole delivery on one page",
+      "path": "/media/manu/1TB-Volume/workspace/ultralytics/2026-10-22_trial0080_longquan_delivery.md",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/2026-10-22_trial0080_longquan_delivery.md",
+      "md5": "78ca0268496f62b588d613656aaeb4ef",
+      "size_bytes": 2989
+    },
+    {
+      "role": "entry point in the experiment tree (pointer at the trial root -> where the Longquanshan delivery lives)",
+      "path": "/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/EVALUATION_DELIVERABLES.md",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/EVALUATION_DELIVERABLES.md",
+      "md5": "21478f0aa2254b751ee3a9ab9e02fe0e",
+      "size_bytes": 2753
+    },
+    {
+      "role": "entry point in the experiment tree (warning inside gate/ -> that cache is NOT the business-domain evaluation)",
+      "path": "/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/gate/DO_NOT_USE_FOR_LQ_EVAL.md",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/gate/DO_NOT_USE_FOR_LQ_EVAL.md",
+      "md5": "64f0b00feba1a6cf9d598ab0b359fce1",
+      "size_bytes": 1215
+    },
+    {
+      "role": "entry point in the experiment tree (human readable delivery guide inside the evaluation directory)",
+      "path": "/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/DELIVERY_README.md",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/DELIVERY_README.md",
+      "md5": "b4b76c7f17ae19758f3881cb3a5b8210",
+      "size_bytes": 4417
+    },
+    {
+      "role": "entry point in the experiment tree (machine readable delivery manifest inside the evaluation directory)",
+      "path": "/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/DELIVERY_MANIFEST.json",
+      "server_path": "/tmp/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/lq_eval/DELIVERY_MANIFEST.json",
+      "md5": "930206af7c37bfff6c64eeb592c4f7e0",
+      "size_bytes": 23228
+    }
+  ]
+}

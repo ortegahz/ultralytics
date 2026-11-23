@@ -19,7 +19,7 @@
 用法：
     python manu/pipeline/npu/merge_struct_speed_table.py \
         --table manu/pipeline/npu/struct_speed_table.json \
-        --probes /media/manu/1TB-Volume/rknn_work/hm_speed/probes7/arms.json
+        --probes /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/hm_speed/probes7/arms.json
 """
 
 from __future__ import annotations

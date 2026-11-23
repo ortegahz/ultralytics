@@ -365,7 +365,7 @@ def generate_video(args):
         for cand in [
             PROJECT_ROOT / weights_path,
             Path("/tmp/pycharm_project_10ae9e2e") / weights_path,
-            Path("/home/manu/mnt/pycharm_project_10ae9e2e") / weights_path,
+            Path("/home/manu/mnt/pycharm_project_a7d966e6") / weights_path,
         ]:
             if cand.exists():
                 weights_path = cand
@@ -463,7 +463,7 @@ def generate_video(args):
         for cand in [
             Path("/mnt/data/siping/datasets/manu/anti-uav"),
             Path("/home/manu/mnt/datasets/manu/anti-uav"),
-            Path("/media/manu/1TB-Volume/data/anti-uav"),
+            Path("/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/data/anti-uav"),
         ]:
             if cand.exists():
                 raw_root = cand

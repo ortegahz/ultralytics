@@ -523,7 +523,7 @@ root@192.168.0.64: Permission denied (publickey,password).
 
 ```bash
 RK3588_PASSWORD=<口令> bash \
-  /media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/opencl/board/guarantee_run.sh
+  /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/pipeline/opencl/board/guarantee_run.sh
 ```
 
 流程：部署 + md5 双向校验 → arm C/D/E 三轮 → 回传 → 打印四张表
@@ -579,7 +579,7 @@ RK3588_PASSWORD=<口令> bash \
 ## 7. 复现命令
 
 ```bash
-cd /media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/opencl/board
+cd /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/pipeline/opencl/board
 
 # 触发普查（未截尾对照 + 预算 200）
 bash x86_evidence_regen.sh census

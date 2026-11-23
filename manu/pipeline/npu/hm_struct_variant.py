@@ -57,9 +57,9 @@ if str(REPO_ROOT) not in sys.path:
 import torch  # noqa: E402
 import torch.nn as nn  # noqa: E402
 
-DEFAULT_W = ("/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_p0_nas/"
+DEFAULT_W = ("/home/manu/mnt/pycharm_project_a7d966e6/runs/optuna_p0_nas/"
              "trial_0474/weights/best.pt")
-WORK = Path("/media/manu/1TB-Volume/rknn_work/hm")
+WORK = Path("/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/hm")
 
 VARIANTS = {
     "base":              dict(stride=2, p0=True,  head_k3=True),

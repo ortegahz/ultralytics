@@ -170,7 +170,7 @@ def main():
             Path("/mnt/data/siping/datasets/manu/anti-uav"),
             Path("/mnt/data/siping/datasets/anti-uav"),
             Path("/home/manu/mnt/datasets/manu/anti-uav"),
-            Path("/media/manu/1TB-Volume/data/anti-uav"),
+            Path("/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/data/anti-uav"),
         ]:
             if cand.exists():
                 raw_root = cand

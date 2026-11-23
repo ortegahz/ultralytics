@@ -79,18 +79,18 @@ Every command below targets the Linux server. From a Windows workstation, drive 
 SSH rather than translating the commands to PowerShell — `md5sum`, `ssh` and the conda activation
 have no equivalent here, and the GPU evaluation only exists on the server.
 
-The project rule 〇 ("local first") makes the local repo `/media/manu/1TB-Volume/workspace/ultralytics`
-the only place to edit code, and the SSHFS mirror `/home/manu/mnt/pycharm_project_10ae9e2e` writes
+The project rule 〇 ("local first") makes the local repo `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics`
+the only place to edit code, and the SSHFS mirror `/home/manu/mnt/pycharm_project_a7d966e6` writes
 straight through to the server `/tmp/pycharm_project_10ae9e2e`. Synchronisation can only be proven
 by a three-side md5 comparison, never by "I copied it".
 
 ```bash
 # 【本地】
-md5sum /media/manu/1TB-Volume/workspace/ultralytics/manu/training/mix_ratio_judgement.py \
-       /media/manu/1TB-Volume/workspace/ultralytics/manu/training/auto_epoch_gate_check.py
+md5sum /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/training/mix_ratio_judgement.py \
+       /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/training/auto_epoch_gate_check.py
 # 【本地】SSHFS 镜像
-md5sum /home/manu/mnt/pycharm_project_10ae9e2e/manu/training/mix_ratio_judgement.py \
-       /home/manu/mnt/pycharm_project_10ae9e2e/manu/training/auto_epoch_gate_check.py
+md5sum /home/manu/mnt/pycharm_project_a7d966e6/manu/training/mix_ratio_judgement.py \
+       /home/manu/mnt/pycharm_project_a7d966e6/manu/training/auto_epoch_gate_check.py
 # 【服务器】
 ssh -p 32222 huangzhe@192.168.99.40 "md5sum /tmp/pycharm_project_10ae9e2e/manu/training/mix_ratio_judgement.py /tmp/pycharm_project_10ae9e2e/manu/training/auto_epoch_gate_check.py"
 ```

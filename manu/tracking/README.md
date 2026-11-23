@@ -26,7 +26,7 @@
 
 | 项 | 值 |
 |:--|:--|
-| 执行机 | 本地 `/media/manu/1TB-Volume/workspace/ultralytics`（分支 `manu_dev_v2`，git `a9eaca6e7`） |
+| 执行机 | 本地 `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics`（分支 `manu_dev_v2`，git `a9eaca6e7`） |
 | 环境 | conda env `uav`，Python 3.10.20，numpy 2.2.6，cv2 4.10，**无 pytest ⇒ 用 unittest** |
 | 模型 | **RC2 / trial_0080 / epoch3**（回放 `ms_cache/*.pkl`，**不重跑推理**） |
 | 序列 | `VIDEO00007_19700101_001324`，11,810 帧，GT 10,535 框（每帧 1 框） |
@@ -197,7 +197,7 @@
 ## 5. 复现命令（可直接复制）
 
 ```bash
-cd /media/manu/1TB-Volume/workspace/ultralytics
+cd /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics
 source ~/anaconda3/etc/profile.d/conda.sh && conda activate uav
 
 # 全量单测
@@ -260,10 +260,10 @@ PYTHONPATH=. python -m manu.tracking.async_dual_rate.evaluate \
 |:--|:--|:--|
 | `--gate` | `all` | `2` / `3` / `4` / `6` / `all` |
 | `--sequence` | `VIDEO00007_19700101_001324` | 序列目录名 |
-| `--cache-root` | `/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/ms_cache` | RC2 检测缓存（只读挂载） |
+| `--cache-root` | `/home/manu/mnt/pycharm_project_a7d966e6/runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/ms_cache` | RC2 检测缓存（只读挂载） |
 | `--frames-root` | `/home/manu/mnt/data/siping/datasets/manu/龙泉山/frames_ir_jpg` | 帧目录 |
 | `--labels-root` | `/home/manu/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010` | GT 标签目录 |
-| `--sys-sota-root` | `/home/manu/mnt/pycharm_project_10ae9e2e/runs/sys_sota_preds` | Gate 6 的冻结预测 |
+| `--sys-sota-root` | `/home/manu/mnt/pycharm_project_a7d966e6/runs/sys_sota_preds` | Gate 6 的冻结预测 |
 | `--det-hz` | `25,12.5,8.333333333333334` | 逗号分隔的检测帧率档（必须可整除相机帧率；10/12.5/15 Hz 都会 round 成 stride=2） |
 | `--latency` | `0,4,8,12` | 逗号分隔的 Δ（帧） |
 | `--out-dir` | `runs/tracking_async` | 实际落盘 = `<out-dir>/<sequence>/` |
@@ -279,7 +279,7 @@ PYTHONPATH=. python -m manu.tracking.async_dual_rate.evaluate \
 | 参数 | 默认值 | 说明 |
 |:--|:--|:--|
 | `--sequence` | **必填** | 序列目录名 |
-| `--cache-root` | `/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/ms_cache` | RC2 检测缓存 |
+| `--cache-root` | `/home/manu/mnt/pycharm_project_a7d966e6/runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/ms_cache` | RC2 检测缓存 |
 | `--frames-root` | `/home/manu/mnt/data/siping/datasets/manu/龙泉山/frames_ir_jpg` | 帧目录 |
 | `--labels-root` | `/home/manu/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010` | GT 标签目录 |
 | `--det-hz` | `12.5` | 检测帧率（臂 1 固定 25，臂 2/臂 3 与消融臂固定 12.5） |
@@ -295,7 +295,7 @@ PYTHONPATH=. python -m manu.tracking.async_dual_rate.evaluate \
 
 - 帧 `/home/manu/mnt/data/siping/datasets/manu/龙泉山/frames_ir_jpg/<SEQ>/frame_%06d.jpg`（512×640 uint8）
 - GT `/home/manu/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010/<SEQ>__%06d.txt`
-- 检测缓存 `/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/ms_cache/*.pkl`
+- 检测缓存 `/home/manu/mnt/pycharm_project_a7d966e6/runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/ms_cache/*.pkl`
 
 ### 5.4 产物说明
 
@@ -774,7 +774,7 @@ vs `ablation_fused_alpha` — 全序列 **8729** 帧；条件化覆盖 **3930** 
 
 本轮改动**只存在于本地工作区**，**尚未同步到服务器**：
 
-- SSHFS 镜像 `/home/manu/mnt/pycharm_project_10ae9e2e` 与 `/home/manu/mnt/data` 在本环境为 **只读**；
+- SSHFS 镜像 `/home/manu/mnt/pycharm_project_a7d966e6` 与 `/home/manu/mnt/data` 在本环境为 **只读**；
 - 直连 SSH 被沙箱的**网络层**阻断（`approval=never`），实测：
   `ssh -F /dev/null 192.168.99.40` → `socket: Operation not permitted` /
   `ssh: connect to host 192.168.99.40 port 22: failure`；
@@ -786,7 +786,7 @@ vs `ablation_fused_alpha` — 全序列 **8729** 帧；条件化覆盖 **3930** 
 
 ```bash
 # 源（本地）
-cd /media/manu/1TB-Volume/workspace/ultralytics
+cd /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics
 md5sum manu/tracking/README.md \
        manu/tracking/async_dual_rate/*.py \
        manu/tracking/tests/*.py \

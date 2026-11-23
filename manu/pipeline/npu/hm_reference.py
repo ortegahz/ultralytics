@@ -44,7 +44,7 @@ from manu.pipeline.npu.hm_common import (  # noqa: E402
 )
 
 DEFAULT_LABEL_ROOT = Path("/home/manu/mnt/data/siping/datasets/manu/uav_gmc_median/labels/val")
-DEFAULT_WEIGHTS = "/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_p0_nas/trial_0474/weights/best.pt"
+DEFAULT_WEIGHTS = "/home/manu/mnt/pycharm_project_a7d966e6/runs/optuna_p0_nas/trial_0474/weights/best.pt"
 
 # Overridden by --label-root. The x86 workstation and the training server mount the
 # same dataset at different prefixes, so the default here only works on the former;

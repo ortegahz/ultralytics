@@ -252,7 +252,7 @@ versions behind the x86 reference **4.10.0**. Installing it would silently
 change the numerics that the fused-kernel work was validated against, so the
 same tag was built from source instead.
 
-The build uses a **git worktree** at `/media/manu/1TB-Volume/workspace/opencv-4.10.0-arm64`;
+The build uses a **git worktree** at `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/opencv-4.10.0-arm64`;
 the user's existing 5.x checkout is untouched.
 
 Only the six modules the pipeline actually calls are built

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Emit the final markdown tables for the GMC full-frame GPU probe report."""
 import sys
-sys.path.insert(0, '/media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu')
+sys.path.insert(0, '/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/pipeline/npu')
 from ff_summarize import load, stats, pctl
 
-D = '/media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu/out/ff/'
+D = '/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/pipeline/npu/out/ff/'
 RUNS = [
     ("hard600", "最难窗口 (abs 551)", 600, 1),
     ("hard500", "最难窗口 (abs 551)", 500, 1),

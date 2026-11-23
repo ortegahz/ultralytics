@@ -4,7 +4,7 @@
 # under-sampled (it missed the frames where VIDEO00032 actually truncates) and
 # numerically wrong (lexicographic max).
 set -u
-HERE=/media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/opencl/board
+HERE=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/pipeline/opencl/board
 BIN=/tmp/gmc_stream_ocl_cap
 B=$HERE/.bench_bmp
 K=$HERE/../kernels

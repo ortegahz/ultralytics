@@ -25,10 +25,10 @@
 
 | 项 | 值 |
 |:--|:--|
-| 执行机 / 环境 | **服务器 = 重活全部在这里跑** `test-Super-Server`（80 核 / 125 GB），cwd `/tmp/pycharm_project_10ae9e2e`，conda env `uav`（`/home/huangzhe/anaconda3/envs/uav/bin/python`）· **本地 = 编辑/抽检** `/media/manu/1TB-Volume/workspace/ultralytics`（分支 `manu_dev_v2`；`manu/tracking/` 未提交，在工作区）· Python 3.10.20，numpy 2.2.6，cv2 4.10，**无 pytest ⇒ 用 unittest** |
+| 执行机 / 环境 | **服务器 = 重活全部在这里跑** `test-Super-Server`（80 核 / 125 GB），cwd `/tmp/pycharm_project_10ae9e2e`，conda env `uav`（`/home/huangzhe/anaconda3/envs/uav/bin/python`）· **本地 = 编辑/抽检** `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics`（分支 `manu_dev_v2`；`manu/tracking/` 未提交，在工作区）· Python 3.10.20，numpy 2.2.6，cv2 4.10，**无 pytest ⇒ 用 unittest** |
 | 服务器路径（**唯一正确**） | 缓存 `/tmp/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/ms_cache` · GT `/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010`（**平铺文件** `<SEQ>__<idx>.txt`）· 帧 `/mnt/data/siping/datasets/manu/龙泉山/frames_ir_jpg/<SEQ>/frame_%06d.jpg` |
 | 模型 | **RC2 / trial_0080 / epoch3**（回放 `ms_cache/*.pkl`，**不重跑推理**） |
-| 数据（**SSHFS 只读**） | 缓存 `/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/ms_cache`（**8 序列**）· GT `/home/manu/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010`（**取服务器侧路径**，不要指本机只读镜像）· 帧 `/home/manu/mnt/data/siping/datasets/manu/龙泉山/frames_ir_jpg/<SEQ>/frame_%06d.jpg`（≈7.4 ms/帧） |
+| 数据（**SSHFS 只读**） | 缓存 `/home/manu/mnt/pycharm_project_a7d966e6/runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/ms_cache`（**8 序列**）· GT `/home/manu/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010`（**取服务器侧路径**，不要指本机只读镜像）· 帧 `/home/manu/mnt/data/siping/datasets/manu/龙泉山/frames_ir_jpg/<SEQ>/frame_%06d.jpg`（≈7.4 ms/帧） |
 | 工作点 | `manu/evaluation/system_sota_longquan_trial0080_delivery_v3_params.json`（th_base 0.48 / sky_ratio 1.0 / th_ground 0.26 / confirm_consec 7） |
 | 代码 / 单测 / 产物 | `manu/tracking/lookahead/`：`extrapolator.py`（外挂核）· `xcorr.py`（**模板匹配位移精修**）· `track_fusion.py`（跟踪器拷贝）· `lookahead_longquan.py`（管线拷贝 + 四臂 + CLI）· `diag_xcorr.py`（诊断）· 单测 `manu/tracking/tests/test_lookahead_plugin.py`（**18 项**，全库 **135 项**全绿）· 产物 `runs/lookahead/{ref,off,sweep,gate,osd,final}/`（见 §7） |
 | 跨机同步 | ⚠️ **host 与服务器的代码不同步**（本轮改过的 `xcorr.py` / `extrapolator.py` / `lookahead_longquan.py` 只在服务器上）。同步包 `/mnt/data/codex-overnight/code_sync_20261103.tar.gz`（md5 见 memory §23.7） |
@@ -174,9 +174,9 @@ GT=27173 TP=25454 FP=182 FN=1719 **R=93.67% P=99.29% F1=96.400% FAR=0.0063**（�
 > 取**服务器侧路径**，不要指本机只读镜像。下列命令逐字来自 `manu/memory/lookahead_extrapolator_20261102.md` §8。
 
 ```bash
-cd /media/manu/1TB-Volume/workspace/ultralytics
+cd /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics
 source ~/anaconda3/etc/profile.d/conda.sh && conda activate uav
-CACHE=/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/ms_cache
+CACHE=/home/manu/mnt/pycharm_project_a7d966e6/runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/ms_cache
 GT=/home/manu/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010
 PARAMS=manu/evaluation/system_sota_longquan_trial0080_delivery_v3_params.json
 

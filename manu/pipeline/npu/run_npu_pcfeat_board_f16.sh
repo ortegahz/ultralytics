@@ -13,10 +13,10 @@
 #
 # 模型来源（可复现）：与 int8 交付模型同一脚本、同一 ONNX、同一 config，
 # 只加 --no-quant：
-#   /media/manu/1TB-Volume/conda-envs/rknn230/bin/python \
+#   /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/conda-envs/rknn230/bin/python \
 #     manu/pipeline/npu/hm_convert_rknn.py \
-#     --onnx /media/manu/1TB-Volume/rknn_work/hm/models/trial0474_hm_nop0.onnx \
-#     --out   /media/manu/1TB-Volume/rknn_work/hm/models/trial0474_hm_nop0_fp16.rknn \
+#     --onnx /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/hm/models/trial0474_hm_nop0.onnx \
+#     --out   /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/hm/models/trial0474_hm_nop0_fp16.rknn \
 #     --compress-weight --no-quant
 #   ONNX md5 028f23c655f421fe61a5e43575715fca / rknn-toolkit2 2.3.0
 #

@@ -1,0 +1,9 @@
+scope,metric,direction,raw_threshold,metric_threshold,score,mean_score_above,mean_score_below,gap,n_above,n_below,cover_threshold,cover_mean_score_above,cover_median_score_below,cover_n_above,cover_n_below,cover_good_coverage,cover_target_score
+all,lap_var,higher_better,2421.076379394531,2421.076379,xcorr_short_ugr,0.867347,0.256872,0.610475,294,7158,997.432822,0.875,0.0,607,6845,0.5,0.875
+all,edge_density,higher_better,0.047631075233221055,0.047631,xcorr_short_ugr,0.764236,0.127046,0.63719,1800,5652,0.083578,0.875,0.0,884,6568,0.449726,0.875
+all,global_contrast,higher_better,0.7746478915214539,0.774648,xcorr_short_ugr,0.835087,0.265517,0.569569,202,7250,0.732796,0.875,0.0625,393,7059,0.270567,0.875
+all,blockiness,lower_better,-1.049810516834259,1.049811,xcorr_short_ugr,0.713508,0.181861,0.531647,1389,6063,nan,nan,nan,0,0,nan,0.875
+all,entropy,higher_better,7.377829766273498,7.37783,xcorr_short_ugr,0.898964,0.264525,0.634439,193,7259,7.096108,0.875,0.0625,508,6944,0.319927,0.875
+all,snr_db,higher_better,68.27852325439453,68.278523,xcorr_short_ugr,0.0,0.282092,-0.282092,30,7422,nan,nan,nan,0,0,nan,0.875
+all,noise_sigma,lower_better,-0.04177739471197128,0.041777,xcorr_short_ugr,0.0,0.282092,-0.282092,30,7422,nan,nan,nan,0,0,nan,0.875
+all,dog_snr_max,higher_better,43.09656524658203,43.096565,xcorr_short_ugr,0.280327,0.29964,-0.019313,7209,243,nan,nan,nan,0,0,nan,0.875

@@ -91,13 +91,13 @@ BASE = dict(
 #   trial_0031 → [Status: Superseded / Deprecated Baseline]
 #   trial_0080 (RC2) → [Status: Retired / Offline Historical Reference]
 #   trial_9863 → Baseline_v2.0（Non-GMC / <21 ms 唯一官方基线）
-BASE_V2_CKPT = '/mnt/data/siping/runs/npu20ms_offcal/trials/trial_2020035/weights/epoch5.pt'
+BASE_V2_CKPT = '/mnt/data/siping/runs/npu20ms_offcal/trials/trial_1990055/weights/epoch5.pt'
 BASE_V2 = dict(
-    name='Baseline_v3.0', trial=2020035, epoch=5, ckpt=BASE_V2_CKPT,
+    name='Baseline_v3.1', trial=1990055, epoch=5, ckpt=BASE_V2_CKPT,
     nano=0.7242438563327032, micro=0.83643009442583, small=0.8595286537809427, regular=0.9396551724137931, f1=0.8906832039622916, nano4=0.6609168241965974,
-    t1=0.8909238824339264, t1_fp=1473, t2=0.9931330731766344, t2_fp=4, t3=0.9488855869242199, t3_fp=76,
-    ms_delivery_board=19.306, ms_new_board=19.629, ms_new_board_t31_ref=None,
-    recipe='[SB3] soup(1608003@5:w0.5924,1612001@5:w0.0980,1530006@5:w0.2116,1623003@5:w0.0980)',
+    t1=0.8909238824339264, t1_fp=1473, t2=0.9931631171345595, t2_fp=3, t3=0.9488855869242199, t3_fp=76,
+    ms_delivery_board=19.306, ms_new_board=19.682, ms_new_board_t31_ref=None,
+    recipe='[SB3] soup(1608003@5:w0.6524,1612001@5:w0.0360,1530006@5:w0.2116,1623003@5:w0.1000)',
 )
 BASELINE_REGISTRY = [
     {"id": "Baseline_v2.3", "trial": 1106580, "status": "ACTIVE / OFFICIAL BASELINE",
@@ -406,11 +406,62 @@ except Exception:  # noqa: BLE001
 _LEDGER_LOCKFILE = f"{WORK}/ledger.lock"
 
 
+# 🔴🔴🔴 2026-11-23 08:50 —— **字段级合并**（修「整键覆盖吃掉真读数」的根因）
+#   现场事故（2026-11-20 18:05 → 2026-11-23 08:42 一路复现）：
+#     · 训练轴 / 汤批次 / 门禁通道三进程并发写台账；
+#     · 老口径 `merged[_tid] = {**_d, **_m}` 是**整键覆盖** ⇒ 内存快照里
+#       `picked = None`（或 `six_ok = False`）会把磁盘上**别的进程刚写进去的真读数**
+#       整个键覆盖掉 ⇒ 台账读数**持续丢失**（实测 13765 臂里 3951 臂 picked 缺失）。
+#     · 更糟的是 `_LEDGER_ARM_HASH` 在首次合并后没刷新 ⇒ 后续每次 save 都把
+#       「其实没改过」的臂误判成「改过」⇒ **每一轮 save 都在吃别人的写**。
+#   修法：
+#     ① **读数字段**（picked / nanobench / official / six_ok）用「**非 None 优先**」：
+#        内存里是 None / False ⇒ 保留磁盘上的真值；内存里有真值 ⇒ 内存赢。
+#        嵌套 dict（nanobench["5"]、picked）**递归**做同样的事。
+#     ② **非读数字段**保持老语义：改过的臂内存赢，没改过的臂磁盘赢。
+#     ③ 合并后**刷新 `_LEDGER_ARM_HASH`** ⇒ 后续 save 不再把「没改过」的臂误判成「改过」。
+_READING_KEYS = ("picked", "nanobench", "official", "six_ok")
+
+
+def _merge_reading(dv, mv):
+    """读数字段合并：**非 None 的内存值优先**；内存为 None / False 时保留磁盘真值。"""
+    if mv is None:
+        return dv
+    if isinstance(dv, dict) and isinstance(mv, dict):
+        out = dict(dv)
+        for k, v in mv.items():
+            if v is None:
+                out.setdefault(k, None)
+                continue
+            out[k] = _merge_reading(out[k], v) if k in out else v
+        return out
+    if mv is False and dv is True:
+        return dv                      # 判定类字段单调：磁盘已判过就不许被 False 打回
+    return mv
+
+
+def _merge_arm_fields(d: dict, m: dict, owned: bool) -> dict:
+    """逐字段合并一个臂的磁盘版(d)与内存版(m)。"""
+    out = dict(d)
+    for k, mv in m.items():
+        if k in _READING_KEYS:
+            out[k] = _merge_reading(d.get(k), mv)
+            continue
+        if k not in d:
+            out[k] = mv                 # 内存新增的键 ⇒ 保留
+            continue
+        if owned:
+            out[k] = mv                 # 改过 ⇒ 内存优先
+        # 没改过 ⇒ 保留磁盘版
+    return out
+
+
 def _merge_disk_ledger(led: dict) -> None:
+    global _LEDGER_ARM_HASH
     """把磁盘上台账的**其它进程新增内容**合并进内存态（内存态优先）。
 
     合并口径：
-      · arms   —— 按 trial 号逐臂覆盖（内存里的这一臂是最新的）
+      · arms   —— 按 trial 号**逐字段**合并（见 `_merge_arm_fields`）
       · rounds —— 按 round 号合并（磁盘已有的轮**不丢**）
       · waves  —— 并集
     """
@@ -435,9 +486,17 @@ def _merge_disk_ledger(led: dict) -> None:
                 continue
             # 本进程有没有改过这一臂？（指纹 vs load 时的快照）
             if _LEDGER_ARM_HASH.get(str(_tid)) == _arm_hash(_m):
-                merged[_tid] = _d          # 没改过 ⇒ 用磁盘版（可能含别人的更新）
+                # 没改过 ⇒ 磁盘版更可能含别人的更新；但**读数字段仍走字段级合并**
+                #   （内存快照里 picked=None 也不能把磁盘上的真读数吃掉）
+                merged[_tid] = _merge_arm_fields(_d, _m, owned=False)
             else:
-                merged[_tid] = {**_d, **_m}  # 改过 ⇒ 内存优先，磁盘新增键不丢
+                # 改过 ⇒ 内存优先，磁盘新增键不丢；**读数字段仍做「非 None 优先」**
+                merged[_tid] = _merge_arm_fields(_d, _m, owned=True)
+        # 🟢 合并后刷新指纹 ⇒ 后续 save 不会再把「其实没改过」的臂误判成「改过」
+        #   （老口径不刷新 ⇒ 每次 save 都整键覆盖 ⇒ 持续吃别人的写 ⇒ 读数持续丢失）
+        for _tid, _a in merged.items():
+            if isinstance(_a, dict):
+                _LEDGER_ARM_HASH[str(_tid)] = _arm_hash(_a)
         led["arms"] = merged
     d_rounds = {int(r.get("round", 0)): r for r in (disk.get("rounds") or []) if isinstance(r, dict)}
     m_rounds = {int(r.get("round", 0)): r for r in (led.get("rounds") or []) if isinstance(r, dict)}
@@ -501,37 +560,58 @@ def save_ledger(led: dict) -> None:
     """
     with _LEDGER_LOCK:
         os.makedirs(WORK, exist_ok=True)
-        # ④ 跨进程合并：先读盘，把「磁盘上别的进程写的、内存里没有的」补回来
-        try:
-            with open(_LEDGER_LOCKFILE, "w", encoding="utf-8") as lf:
-                fcntl.flock(lf, fcntl.LOCK_EX)
+
+        def _write_out() -> None:
+            """真正写盘（必须在跨进程锁内调用 ⇒ 「读-合并-写」是**一个事务**）。"""
+            # 基线升轨元信息（2026-11-11）⇒ 任何进程保存台账都自动带上，避免并发覆盖丢失
+            led.setdefault("baseline_v2", BASE_V2)
+            led.setdefault("baseline_registry", BASELINE_REGISTRY)
+            led.setdefault("beat_to_pass", {
+                "ref": "Baseline_v2.0(trial_9863)", "nano_min": BASE_V2["nano"],
+                "f1_min": BASE_V2["f1"], "t1_min": BASE_V2["t1"],
+                "t2_fp_max": BASE_V2["t2_fp"], "t3_min": BASE_V2["t3"],
+                "legacy_ref": "trial_0031", "legacy_nano_min": BASELINE_NANO_FLOOR["0031"],
+                "note": "后续所有探索统一以 Baseline_v2.0 的指标为 Beat-to-Pass 下限"})
+            tmp = f"{LEDGER}.tmp.{os.getpid()}.{threading.get_ident()}"
+            for attempt in range(6):
+                try:
+                    with open(tmp, "w", encoding="utf-8") as f:
+                        json.dump(led, f, ensure_ascii=False, indent=2)
+                    break
+                except RuntimeError:
+                    # dump 期间别的线程往 dict 里加臂 ⇒ 尺寸变了 ⇒ 重试
+                    if attempt == 5:
+                        raise
+                    time.sleep(0.05)
+            os.replace(tmp, LEDGER)
+
+        # 🔴🔴🔴 2026-11-20 09:30 **「读-合并-写」必须整体加 flock**（新基线被回滚的真根因）
+        #   事故（现场证据）：2026-11-20 08:59:09 升轨 trial_1990055 ⇒ 台账写成 Baseline_v3.1；
+        #     09:00:02 另一个进程（波次/门禁/T4 回写）把**合并前**读到的旧 baseline_v2（v3.0）
+        #     写回 ⇒ **新基线被静默回滚** ⇒ 09:09 守望又升轨一次 ⇒ **基线翻转环**（每 10 min 抖一次）。
+        #   根因：原实现 `flock` 只包住「读盘 + 合并」，**写盘（json.dump → os.replace）在锁外**
+        #     ⇒ 两个进程可交错成「A 读旧 → B 升轨写新 → A 写旧」⇒ 新基线丢失
+        #     ⇒ 且台账越大（22MB）写盘越慢 ⇒ 窗口越宽 ⇒ 越容易被回滚。
+        #   修法：把「读-合并-写」整体放进**同一把 flock** ⇒ 跨进程事务化 ⇒ 基线不可回滚。
+        #   兜底：`_merge_disk_ledger` 里已有「baseline_v2 取 promoted_at 更晚的那个」的规则，
+        #     但它在**无锁**环境下仍会被后写的旧进程覆盖 ⇒ 必须靠本事务化修复才成立。
+        if fcntl is None:                      # 无 fcntl 的平台：退化为原来的无锁行为
+            try:
+                _merge_disk_ledger(led)
+            except Exception as e:  # noqa: BLE001
+                log(f"[台账] 合并磁盘版本失败（继续写内存态）：{e}")
+            _write_out()
+            return
+        with open(_LEDGER_LOCKFILE, "w", encoding="utf-8") as lf:
+            fcntl.flock(lf, fcntl.LOCK_EX)
+            try:
                 try:
                     _merge_disk_ledger(led)
-                finally:
-                    fcntl.flock(lf, fcntl.LOCK_UN)
-        except Exception as e:  # noqa: BLE001
-            log(f"[台账] 合并磁盘版本失败（继续写内存态）：{e}")
-        # 基线升轨元信息（2026-11-11）⇒ 任何进程保存台账都自动带上，避免并发覆盖丢失
-        led.setdefault("baseline_v2", BASE_V2)
-        led.setdefault("baseline_registry", BASELINE_REGISTRY)
-        led.setdefault("beat_to_pass", {
-            "ref": "Baseline_v2.0(trial_9863)", "nano_min": BASE_V2["nano"],
-            "f1_min": BASE_V2["f1"], "t1_min": BASE_V2["t1"],
-            "t2_fp_max": BASE_V2["t2_fp"], "t3_min": BASE_V2["t3"],
-            "legacy_ref": "trial_0031", "legacy_nano_min": BASELINE_NANO_FLOOR["0031"],
-            "note": "后续所有探索统一以 Baseline_v2.0 的指标为 Beat-to-Pass 下限"})
-        tmp = f"{LEDGER}.tmp.{os.getpid()}.{threading.get_ident()}"
-        for attempt in range(6):
-            try:
-                with open(tmp, "w", encoding="utf-8") as f:
-                    json.dump(led, f, ensure_ascii=False, indent=2)
-                break
-            except RuntimeError:
-                # dump 期间别的线程往 dict 里加臂 ⇒ 尺寸变了 ⇒ 重试
-                if attempt == 5:
-                    raise
-                time.sleep(0.05)
-        os.replace(tmp, LEDGER)
+                except Exception as e:  # noqa: BLE001
+                    log(f"[台账] 合并磁盘版本失败（继续写内存态）：{e}")
+                _write_out()
+            finally:
+                fcntl.flock(lf, fcntl.LOCK_UN)
 
 
 def arm_state(led: dict, trial: int) -> dict:

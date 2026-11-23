@@ -5,7 +5,7 @@
 在**你自己的终端**（不是 agent 的沙箱，本机或笔记本均可，能 SSH 到服务器）执行：
 
 ```bash
-cd /media/manu/1TB-Volume/workspace/ultralytics
+cd /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics
 bash manu/tracking/lookahead/server_overnight/push_and_start.sh
 ```
 

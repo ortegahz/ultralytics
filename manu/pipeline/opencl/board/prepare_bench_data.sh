@@ -9,7 +9,7 @@
 set -uo pipefail
 
 SRC="/home/manu/mnt/data/siping/datasets/manu/龙泉山/frames_ir_jpg"
-OUT="/media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/opencl/board/.bench_bmp"
+OUT="/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/pipeline/opencl/board/.bench_bmp"
 FRAMES=400
 PY=/home/manu/anaconda3/bin/python
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

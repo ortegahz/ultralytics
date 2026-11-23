@@ -4,7 +4,7 @@
 #
 # 为什么需要这个封装：
 #   2026-11-16 起，大件产物（runs/ 60 GB + 板端构建产物 0.8 GB）已迁到
-#   /media/manu/1TB-Volume/workspace/cache/ultralytics/；
+#   /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/；
 #   工程目录内**已无软链接、也无产物目录**（按用户要求：不要链接，直接删）。
 #   ⇒ upload 载荷实测 82.5 MB（清单里已无 runs / .rknn / build 产物）。
 #
@@ -23,17 +23,9 @@
 # =============================================================================
 set -euo pipefail
 
-REPO="${REPO:-/media/manu/1TB-Volume/workspace/ultralytics}"
+REPO="${REPO:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics}"
 SSH_HOST="${SSH_HOST:-huangzhe@192.168.99.40}"
 SSH_PORT="${SSH_PORT:-32222}"
-# 🔴 2026-11-16 用户铁律：**服务器路径一律不动**。
-#    默认落点绝不能是 /tmp/pycharm_project_10ae9e2e —— 那是 nano_search harness 的活仓库
-#    （30+ 个 harness 脚本 `cd /tmp/pycharm_project_10ae9e2e`，且它是指向
-#    /mnt/data/siping/runs/npu20ms/nano_search/repo 的软链；往里写=写别人的活）。
-# 🔴 2026-11-16 用户铁律：**服务器路径一律不动**。
-#    惯用落点仍是 /tmp/pycharm_project_10ae9e2e（2026-11-16 15:19 重启后重传 ⇒ 它现在是**真实目录**）。
-#    ⚠️ 但它历史上是指向 /mnt/data/siping/runs/npu20ms/nano_search/repo 的**软链**（harness 的活仓库）
-#       ⇒ 落点若是软链，rsync 会**穿透**写进 harness 正在跑的活目录 ⇒ 守卫⓪ 会拦下。
 REMOTE_ROOT="${REMOTE_ROOT:-/tmp/pycharm_project_10ae9e2e}"
 DRY_RUN="${DRY_RUN:-1}"
 ALLOW_DELETE="${ALLOW_DELETE:-0}"
@@ -74,6 +66,19 @@ EXCLUDES=(
   --exclude=.codex
   --exclude=.minimax
   --exclude='*.log'
+  # 🔴 memory 六份整档**绝不整文件覆盖**（2026-11-20 第 85 轮审计抓到）：
+  #    rsync -a --checksum 按**内容**比对 ⇒ 内容不同就**整档替换**（不是「只补新增」）。
+  #    服务器侧的 §257 十八 权威正文、以及本机根本没有的并发线章节，会被本机副本整档顶掉
+  #    —— 与本脚本自己声明的铁律（「绝不碰服务器上已有的数据」）直接冲突。
+  #    memory 的唯一合法同步方式 = 章节级合并：
+  #      server: manu/memory/delivery_20261119/merge_memory_section.py（server:search/ 那份是源）
+  #      host  : 交付包根目录同名工具（交付时随包推过去）
+  --exclude=/memory.md
+  --exclude=/memory_compact.md
+  --exclude=/memory/memory.md
+  --exclude=/memory/memory_compact.md
+  --exclude=/manu/memory/memory.md
+  --exclude=/manu/memory/memory_compact.md
 )
 
 RSYNC_ARGS=(-a --checksum --compress --partial --info=stats2 "${EXCLUDES[@]}")
@@ -99,59 +104,6 @@ else
 fi
 
 # ── 落点守卫（两条，缺一不可）─────────────────────────────────────────────────
-# ── 守卫 ⓪（红线，最高优先）：落点既不能是 harness 的活路径，也不能是软链 ──────
-# 软链落点 = rsync 会「穿过去」写进软链指向的真实目录（nano_search 的活 repo）⇒ 踩别人的活。
-# 2026-11-16 用户铁律：服务器路径一律不动，run 数据以 host 侧备份为准。
-HARNESS_PATH="/tmp/pycharm_project_10ae9e2e"
-if [ "${FORCE_TARGET:-0}" != "1" ]; then
-  # 判据 = 落点**是不是软链**、以及**软链后面是不是 harness 的活仓库**。
-  # 真实目录（正常落点）⇒ 放行；软链 ⇒ 穿透风险 ⇒ 拦下。
-  IS_LINK=$(ssh "${SSH_OPTS[@]}" "$SSH_HOST" "[ -L '$REMOTE_ROOT' ] && echo YES || echo NO" 2>/dev/null || echo UNKNOWN)
-  REAL_PATH=$(ssh "${SSH_OPTS[@]}" "$SSH_HOST" "readlink -f '$REMOTE_ROOT' 2>/dev/null" 2>/dev/null || true)
-  if [ "$IS_LINK" = "YES" ]; then
-    echo >&2
-    echo "[FAIL] 落点是软链：$REMOTE_ROOT ⇒ rsync 会穿链写入它的真实目标。" >&2
-    echo "       真实目标：${REAL_PATH:-未知}" >&2
-    case "$REAL_PATH" in
-      /mnt/data/siping/runs/npu20ms/nano_search/*)
-        echo "       ⇒ 这正是 nano_search harness 的活仓库（30+ 个 harness 脚本正 cd 进去）。" >&2
-        echo "       ⇒ 往那儿 upload = 写别人的活作业。铁律：服务器路径一律不动。" >&2
-        ;;
-      *)
-        echo "       ⇒ 软链落点一律拒绝：穿链写入的真实目标未必属于本工程。" >&2
-        ;;
-    esac
-    echo "       ⇒ 确认无误后加 FORCE_TARGET=1 可放行；或换 REMOTE_ROOT 指到真实目录。" >&2
-    exit 2
-  fi
-  case "$REAL_PATH" in
-    /mnt/data/siping/runs/npu20ms/nano_search/*)
-      echo >&2
-      echo "[FAIL] 落点实路径落在 harness 的活仓库下：$REAL_PATH" >&2
-      echo "       ⇒ 那是 nano_search 正在跑的活目录，往里写 = 踩别人的作业。" >&2
-      echo "       ⇒ 换 REMOTE_ROOT；确认无误后加 FORCE_TARGET=1 可放行。" >&2
-      exit 2
-      ;;
-  esac
-  if [ -z "$REAL_PATH" ] || [ "$REAL_PATH" = "$REMOTE_ROOT" ]; then
-    :
-  else
-    echo "  落点实路径: $REAL_PATH"
-  fi
-  if [ "$IS_LINK" = "UNKNOWN" ]; then
-    echo >&2
-    echo "[FAIL] 落点状态探测失败（ssh 读不到落点属性）⇒ 为安全起见中止。" >&2
-    exit 2
-  fi
-fi
-
-# 落点是不是「共享 / harness 的活目录」？共享 ⇒ 下面「正在被写」是硬拦；私有 ⇒ 只告警。
-IS_SHARED=0
-case "$REAL_PATH" in
-  /mnt/data/siping/runs/npu20ms/nano_search/*) IS_SHARED=1 ;;
-esac
-[ "$IS_LINK" = "YES" ] && IS_SHARED=1
-
 # 🔴 背景（2026-11-16 实测）：服务器 13:47 僵死重启后 /tmp 被清空，完整工程 checkout 丢失，
 #    /tmp/pycharm_project_10ae9e2e 被改指到 nano_search 的瘦身 repo，其 runs/ 里是**正在被写**的
 #    runs/mixed_ft_route_b/（官方 T1 基线缓存落点）⇒ 往那儿传会覆盖别人的活。
@@ -163,27 +115,22 @@ esac
 ACTIVE_WINDOW_MIN="${ACTIVE_WINDOW_MIN:-30}"
 if [ "${FORCE_TARGET:-0}" != "1" ]; then
   PROBE=$(ssh "${SSH_OPTS[@]}" "$SSH_HOST" \
-    "if [ -e '$REMOTE_ROOT/runs' ]; then stat -c %Y '$REMOTE_ROOT/runs'; else echo NORUNS; fi; date +%s" 2>/dev/null || true)
+    "cd '$REMOTE_ROOT' 2>/dev/null && { [ -e runs ] && stat -c %Y runs; } 2>/dev/null; date +%s" 2>/dev/null || true)
   RUNS_MTIME=$(echo "$PROBE" | head -1)
   NOW_EPOCH=$(echo "$PROBE" | tail -1)
-  if [ "$RUNS_MTIME" = "NORUNS" ]; then
-    echo "  落点无 runs/（本工程已清空产物 ⇒ 正常）"
-  elif [ -n "$RUNS_MTIME" ] && [ -n "$NOW_EPOCH" ] && [ "$RUNS_MTIME" -gt 0 ] 2>/dev/null; then
+  if [ -n "$RUNS_MTIME" ] && [ -n "$NOW_EPOCH" ] && [ "$RUNS_MTIME" -gt 0 ] 2>/dev/null; then
     AGE_MIN=$(( (NOW_EPOCH - RUNS_MTIME) / 60 ))
     if [ "$AGE_MIN" -lt "$ACTIVE_WINDOW_MIN" ]; then
-      if [ "$IS_SHARED" = "1" ]; then
-        echo >&2
-        echo "[FAIL] 落点正在被写：$REMOTE_ROOT/runs 的 mtime 是 ${AGE_MIN} 分钟前（< ${ACTIVE_WINDOW_MIN} 分钟）" >&2
-        echo "       ⇒ 这是**共享**落点（harness 活目录），有活作业正在里面跑。" >&2
-        echo "       ⇒ 往这儿 upload 会覆盖对方正在写的东西 ⇒ 中止。" >&2
-        echo "       ⇒ 改 REMOTE_ROOT 指向属于你的落点，或确认无误后加 FORCE_TARGET=1 重跑。" >&2
-        exit 2
-      else
-        echo "[warn] 落点 runs/ 最近 ${AGE_MIN} 分钟内有改动（私有落点 ⇒ 只告警，不中止）"
-      fi
-    else
-      echo "  落点 runs/ 最后修改于 ${AGE_MIN} 分钟前（> ${ACTIVE_WINDOW_MIN} 分钟，判定为空闲）"
+      echo >&2
+      echo "[FAIL] 落点正在被写：$REMOTE_ROOT/runs 的 mtime 是 ${AGE_MIN} 分钟前（< ${ACTIVE_WINDOW_MIN} 分钟）" >&2
+      echo "       ⇒ 有活作业正在这个目录里跑（nano_search 的 runs/mixed_ft_route_b/ 就是这么来的）。" >&2
+      echo "       ⇒ 往这儿 upload 会覆盖对方正在写的东西。" >&2
+      echo "       ⇒ 请改 REMOTE_ROOT 指向属于你的落点，或确认无误后加 FORCE_TARGET=1 重跑。" >&2
+      echo "       建议落点（持久盘、不受 /tmp 清空影响、也不与 harness 冲突）：" >&2
+      echo "         REMOTE_ROOT=/mnt/data/siping/code/manu_workspace DRY_RUN=1 bash manu/videos/upload_to_server.sh" >&2
+      exit 2
     fi
+    echo "  落点 runs/ 最后修改于 ${AGE_MIN} 分钟前（> ${ACTIVE_WINDOW_MIN} 分钟，判定为空闲）"
   fi
   D=$(ssh "${SSH_OPTS[@]}" "$SSH_HOST" \
       "cd '$REMOTE_ROOT' 2>/dev/null && { [ -f memory.md ] && [ ! -d memory ]; } && echo LAYOUT_MISMATCH || echo LAYOUT_OK" \

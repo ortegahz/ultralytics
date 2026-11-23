@@ -30,7 +30,7 @@
 
 用法::
 
-    cd /media/manu/1TB-Volume/workspace/ultralytics
+    cd /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics
     source ~/anaconda3/etc/profile.d/conda.sh && conda activate uav
     PYTHONPATH=. python -m manu.tracking.async_dual_rate.three_arm \\
         --sequence VIDEO00007_19700101_001324 \\
@@ -66,7 +66,7 @@ __all__ = ["run_three_arm", "build_acceptance_table", "main"]
 # 默认路径（只读挂载的实验数据）
 # --------------------------------------------------------------------------
 
-DEFAULT_CACHE_ROOT = "/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/ms_cache"
+DEFAULT_CACHE_ROOT = "/home/manu/mnt/pycharm_project_a7d966e6/runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/ms_cache"
 DEFAULT_FRAMES_ROOT = "/home/manu/mnt/data/siping/datasets/manu/龙泉山/frames_ir_jpg"
 DEFAULT_LABELS_ROOT = "/home/manu/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010"
 

@@ -140,3 +140,98 @@ cat /etc/exports; cat /proc/fs/nfsd/exports; systemctl is-active nfs-server
 
 ⚠️ 两块板**不能混用 golden**：位级 golden 只对 EVM3588 成立（OpenCV 4.10 静态 + buildroot 9.3.0 工具链）。
 详见 `memory.md` §179。
+
+---
+
+## 🔄 2026-11-20 更正（13:xx 实测）：`.64` 是**唯一活着的板卡**；`.211` 仍离线；NPU 走 DRM 不走 `/dev/rknpu`
+
+> 本节**只增不改**前文任何内容；与前文冲突处**以本节为准**。
+> §1「旧板 `.64` 已 No route to host，彻底作废」已在 2026-11-18 作废过一次；**本节再作废一次，并补上实测数据**。
+> 完整取证（板卡 C++ ≡ 主机 C++ ≡ 服务器 Python 逐字节对齐）见 `manu/memory/memory.md` §262 与 `manu/memory/.slim_memory.md` §7。
+
+### 1) 两块板当前状态（2026-11-20 13:xx 实测）
+
+| 板卡 | IP | 身份 | 状态 | 关键环境（实测） |
+|:--|:--|:--|:--|:--|
+| **EVM3588（原始实验板）** | `192.168.0.64` | hostname **`evm3588`**，machine-id `27a1db91af4746b0a2b8ba93b052c60c` | ✅ **在线（当前唯一可用）** | Ubuntu **20.04.6 LTS** / kernel `5.10.160` (rockchip-rk3588) / aarch64 / **8 核 / 7.9 G**；**OpenCV 4.8**（`/root/mosaic/opencv/libopencv_*.so.408`）；librknnrt **2.3.0**（`c949ad889d@2024-11-07`）；**NPU 节点 = `/dev/dri/renderD129`**；根分区 16 G、**95% 满**（剩 <1 G）、`/tmp` tmpfs **3.9 G（剩 3.1 G）** |
+| **Orange Pi CM5（嵌入式同款）** | `192.168.0.211` | hostname `orangepicm5`（2026-11-10 记录） | ❌ **仍 `No route to host`（离线）** | 2026-11-20 复测不可达 ⇒ OpenCV **4.6** / `libopencv_*.so.406` / librknnrt 2.2.0 那一套**当前完全不可验** |
+
+### 2) 🔴 更正一：§3.1「NPU 设备节点缺失 ⇒ 跑不了 rknn 推理」**对 `.64` 不成立**
+
+§3.1 那一节描述的是 **`.211`**（Orange Pi CM5）。**`.64` 完全不同**：
+
+```text
+dmesg   : [drm] Initialized rknpu 0.9.8 20240828 for fdab0000.npu on minor 1   ✅
+/dev/dri/: card0  card1  renderD128  renderD129                                 ✅
+           minor 1 (=128+1) ⇒ NPU 设备节点就是 /dev/dri/renderD129
+```
+
+- RKNPU 驱动**内建在内核**（不是可加载模块），且注册在 **DRM** 名下 ⇒ **没有 `/dev/rknpu*` 是正常现象，不是故障**。
+- 实证：`.64` 上整条流水线**真跑通了 2500 帧 NPU 推理**（板端日志原文）：
+  ```
+  [i] rknn runtime api=2.3.0 (c949ad889d@2024-11-07T11:35:33) driver=0.9.8
+  [i] mosaic_pipeline created: model=/root/mosaic/runtime/ir_uav_det.rknn ...
+  [i] RGA native-tile self-check: OK
+  pipeline_frames=2500 wall_ms=514845.4 fps=4.856 dropped=0 features_dropped=0
+  ```
+- ⇒ **板端复测不是「做不了」，是「没人去跑」**。
+
+### 3) ⚠️ 更正二：OpenCV 版本口径 —— 「只发 `.so.406` 那份」的 Guidance **当前不适用于 `.64`**
+
+- `.64` 自带的 OpenCV 是 **4.8**（`.so.408`，位于 **`/root/mosaic/opencv/`**；**系统 `/usr/lib` 下没有** `libopencv_core.so.*`）
+  ⇒ `trial0080_board_fusion_preset_20261119.md` 里「板卡链接 OpenCV 4.6 ⇒ 只发 `.so.406` 那份」的 Guidance **对 `.64` 当前不适用**。
+- OpenCV **4.6**（`.so.406`）是 **`.211`** 那一套 ⇒ **`.so.406` 变体当前无处可验**（对应板未上电）。
+- 取证时务必按 `/root/mosaic/opencv/` 取路径，不要写 `/usr/lib/libopencv_core.so.*`（那会取不到）。
+
+### 4) 🟢 更正三：NFS 硬阻塞**有绕过路径**（不必等 `exportfs -ra`）
+
+| 方向 | 2026-11-20 实测 | 含义 |
+|:--|:--|:--|
+| 板卡 → 服务器 `192.168.99.40:32222` | ✅ **TCP 可达** | **帧可由服务器直接 scp 到板卡** ⇒ **不必等 host 的 NFS 导出表恢复** |
+| 板卡 → host `192.168.0.115:22` | ❌ `Connection refused` | 板卡不能直接拉 host 上的文件 |
+| host `/proc/fs/nfsd/exports` | ❌ **不存在**（`/proc/fs/nfsd` 挂成 `ro`，导出表未生效） | NFS 硬阻塞**依然存在** |
+| host `/etc/exports` | ✅ 条目已在：`/run/media/manu/SSD960-LOCAL/nfs *(rw,sync,no_root_squash)`（2026-11-20 11:49） | 条目在但**内核导出表没生效** |
+| host 导出盘 `/run/media/manu/SSD960-LOCAL` | ⚠️ 当前 **ro**（`ro,nosuid,nodev,relatime,errors=remount-ro`） | 需 `sudo mount -o remount,rw /run/media/manu/SSD960-LOCAL` |
+
+⇒ 恢复 NFS 仍需**用户 sudo**：`sudo exportfs -ra` + `sudo mount -o remount,rw /run/media/manu/SSD960-LOCAL`（铁律一：Agent 无法自行提权）；
+⇒ 但**板卡端跑评测不必等这一步** —— 走「服务器 → scp → 板卡」即可。
+
+### 5) 结论
+
+- **板卡身份以本节为准**：当前**唯一可用的板卡是 `192.168.0.64`**（EVM3588 / OpenCV **4.8** / librknnrt 2.3.0 / **NPU 可用**）；`192.168.0.211`（Orange Pi CM5）**仍离线**。
+- 任何「**板卡不可用 / NPU 不可用 / 必须等 NFS**」的说法，**若指的是 `.64`，一律以本节为准**：NPU 可用；搬帧走服务器 scp 即可，不必等 NFS。
+- §2 的身份对照表、§3 的两个硬阻塞，**对 `.64` 均以本节为准**；对 `.211` 仍然成立（它确实离线）。
+
+### 6) 复现命令（2026-11-20 实测，可直接复制执行）
+
+```bash
+cd /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace
+
+# ① 板卡身份 + NPU 设备节点 + OpenCV/librknnrt 版本 + 磁盘（经服务器跳板）
+#    ⚠️ 跳板会打印 ssh 的 post-quantum 警告，属正常噪声，不影响结果
+bash rk3588_app_base/board_sh.sh 'hostname; cat /etc/machine-id; head -2 /etc/os-release; \
+  uname -a; nproc; ls -l /dev/dri/; ls /root/mosaic/opencv/libopencv_core.so.*; \
+  strings /usr/lib/librknnrt.so | grep "librknnrt version"; dmesg | grep -i "Initialized rknpu"; \
+  df -h / /tmp | tail -2'
+# → evm3588 / 27a1db91af4746b0a2b8ba93b052c60c / Ubuntu 20.04.6 LTS / 5.10.160 aarch64 / 8 核
+# → /dev/dri/renderD129 存在；libopencv_core.so.408（OpenCV 4.8）
+# → librknnrt version: 2.3.0 (c949ad889d@2024-11-07)
+# → [drm] Initialized rknpu 0.9.8 20240828 for fdab0000.npu on minor 1
+# → / 16G 95%（剩 <1 G，随写入波动）；/tmp 3.9G 22% 3.1G
+
+# ② .211 仍离线（No route to host）
+timeout 5 bash -c 'cat < /dev/null > /dev/tcp/192.168.0.211/22' || echo "No route to host（.211 离线）"
+
+# ③ 板卡 → 服务器 / host 的 TCP 可达性（NFS 绕过路径的根据）
+bash rk3588_app_base/board_sh.sh 'timeout 5 bash -c "cat < /dev/null > /dev/tcp/192.168.99.40/32222" && echo SERVER_TCP_OK; \
+  timeout 5 bash -c "cat < /dev/null > /dev/tcp/192.168.0.115/22" || echo HOST_TCP_REFUSED'
+
+# ④ host 侧 NFS 现状（导出条目在 / 内核导出表未生效 / 导出盘 ro）
+cat /etc/exports; mount | grep nfsd; findmnt -no OPTIONS /run/media/manu/SSD960-LOCAL
+
+# ⑤ 板端运行时读回 9 个交付字段（交付参数组 cc2_md10）
+bash rk3588_app_base/board_sh.sh 'grep -h "track fusion ON" /root/verifyB4_20261120_133017.log'
+# → [i] track fusion ON: th_base=0.4800 th_salvage=0.0600 th_ground=0.2600 sky_ratio=1.000 \
+#     match_dist=10.00 tags=0x1 reorder_window=0 physical_frame_id=1 max_age_phys=-1 \
+#     r_slope=5.00 alpha_decay=1.000 confirm_consec=2 confirm_gap_tol=8
+```

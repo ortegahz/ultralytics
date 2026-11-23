@@ -98,7 +98,7 @@ def main():
 
     data_root = Path(args.data_root)
     if not data_root.exists():
-        alt_root = Path("/media/manu/1TB-Volume/data/anti-uav")
+        alt_root = Path("/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/data/anti-uav")
         if alt_root.exists():
             data_root = alt_root
         else:

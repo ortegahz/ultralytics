@@ -179,6 +179,19 @@ def parse_args() -> argparse.Namespace:
                    help="Track1 Anti-UAV 推理的 batch（默认 32；显存紧张时调小，不改变数值）")
     p.add_argument("--cache-batch-size", type=int, default=8,
                    help="龙泉山 val 热图缓存重建的 batch（默认 8）")
+    # 🟢🟢 2026-11-19 17:40 **门禁吞吐三旋钮**（默认全部保持历史行为 ⇒ 数值口径不变）
+    #   ① --cache-shards：龙泉山缓存分片数（0 = 跟随 --cache-gpus 卡数）。
+    #      缓存阶段实测是 **CPU-bound**（分片进程 99.7% CPU、GPU 利用≈0）⇒ 分片数不受 GPU 卡数限制，
+    #      可让多片共享同一张卡（GPU 只做 640×640 前向，显存/带宽都不是瓶颈）。
+    #   ② --cache-cpu-threads：分片的 OpenCV 线程数（默认 1）。缓存热循环在 cv2.resize/warp/absdiff
+    #      ⇒ 多线程可提速；**OpenCV 多线程不改数值**（每个 op 内部结果与线程数无关）。
+    #   ③ --cache-chunk-size：每块帧数（默认 64）。它只影响**峰值内存**（canvases = 帧数×3尺度×640×640）
+    #      ⇒ 调小可让每个分片 RSS 大幅下降，从而**开更多分片**；分批切分不变（都是 8 的倍数）
+    #      ⇒ **GPU batch 组成完全一致 ⇒ 数值逐位一致**。
+    p.add_argument("--cache-shards", type=int, default=0,
+                   help="龙泉山缓存分片数（0 = 跟随 --cache-gpus 卡数；>卡数时多片共享一卡）")
+    p.add_argument("--cache-cpu-threads", type=int, default=1,
+                   help="缓存分片的 OpenCV 线程数（默认 1 = 保持历史口径）")
     p.add_argument("--cache-chunk-size", type=int, default=64,
                    help="龙泉山 val 热图缓存重建的 chunk（默认 64）")
     p.add_argument(
@@ -405,10 +418,12 @@ def main() -> int:
         else:
             gpu_ids = list(range(ngpu))
         ngpu = len(gpu_ids)
+        # 🟢🟢 2026-11-19 17:40 **分片数与 GPU 卡数解耦**（缓存阶段 CPU-bound ⇒ 多片可共享一卡）
+        n_shards = args.cache_shards if (args.cache_shards and args.cache_shards > 0) else ngpu
         pids = []
         cmds = []
         logs = []
-        for i in range(ngpu):
+        for i in range(n_shards):
             cmds.append(
                 [
                     sys.executable,
@@ -418,7 +433,7 @@ def main() -> int:
                     "--cache-root",
                     str(cache_root),
                     "--shard",
-                    f"{i}/{ngpu}",
+                    f"{i}/{n_shards}",
                     "--scales",
                     "160,80",
                     "--region-threshold",
@@ -430,13 +445,13 @@ def main() -> int:
                     "--min-area",
                     "4",
                     "--device",
-                    str(gpu_ids[i]),
+                    str(gpu_ids[i % len(gpu_ids)]),
                     "--chunk-size",
                     str(args.cache_chunk_size),
                     "--batch-size",
                     str(args.cache_batch_size),
                     "--cpu-threads",
-                    "1",
+                    str(args.cache_cpu_threads),
                     "--hm-weights",
                     args.weights,
                     "--ablate-p0",
@@ -444,7 +459,8 @@ def main() -> int:
                 ]
             )
             logs.append(out / f"ms_cache_shard{i}.log")
-        print(f"[CACHE] 龙泉山 val 缓存重建：{ngpu} 片并行 …", flush=True)
+        print(f"[CACHE] 龙泉山 val 缓存重建：{n_shards} 片并行（GPU {gpu_ids}，"
+              f"cpu-threads={args.cache_cpu_threads}，chunk={args.cache_chunk_size}）…", flush=True)
         t_cache = time.time()
         codes = run_parallel(cmds, logs)
         for i, rc in enumerate(codes):

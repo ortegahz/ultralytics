@@ -5,8 +5,8 @@
 # 服务器端生成的划分清单/复核底稿不会自动出现在本地 ⇒ 经 SSHFS 桥拷回后提交。
 set -uo pipefail
 
-LOCAL=/media/manu/1TB-Volume/workspace/ultralytics
-BRIDGE=/home/manu/mnt/pycharm_project_10ae9e2e
+LOCAL=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics
+BRIDGE=/home/manu/mnt/pycharm_project_a7d966e6
 SERVER="huangzhe@192.168.99.40"
 PORT=32222
 FINAL_LOG=/mnt/data/siping/runs/zongheng_rc2_tracked_finalize.log

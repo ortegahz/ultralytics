@@ -2,7 +2,7 @@
 # ============================================================
 # ★ 把重活放到服务器跑（铁律十三）
 #   用法（在【用户自己的终端】执行，沙箱内出网被封）：
-#     cd /media/manu/1TB-Volume/workspace/ultralytics
+#     cd /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics
 #     bash manu/tracking/lookahead/server_overnight/run_eval_server.sh
 #
 #   流程：本地打包 → scp 到服务器 → 服务器预检 → 服务器跑 8 序列评测
@@ -17,7 +17,7 @@
 # ============================================================
 set -euo pipefail
 
-LOCAL_REPO="${LOCAL_REPO:-/media/manu/1TB-Volume/workspace/ultralytics}"
+LOCAL_REPO="${LOCAL_REPO:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics}"
 SSH_HOST="${SSH_HOST:-huangzhe@192.168.99.40}"
 SSH_PORT="${SSH_PORT:-32222}"          # ★ 服务器 sshd 在 32222，22 是关闭的
 REMOTE_ROOT="${REMOTE_ROOT:-/tmp/pycharm_project_10ae9e2e}"

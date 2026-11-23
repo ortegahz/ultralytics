@@ -1,0 +1,3 @@
+modality,tau_det_p10_good,calibration,n_clicks
+ir,4.327924,"P10 of per-click Laplacian variance over GOOD clips only (center+corner clicks, no click_mode filter)",6448
+vis,97.608749,"P10 of per-click Laplacian variance over GOOD clips only (center+corner clicks, no click_mode filter)",11056

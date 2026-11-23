@@ -10,7 +10,7 @@
 # because this question is about the transform estimation itself and the CPU arm
 # is the one that must stay bit-comparable with gmc_stream.cpp.
 set -u
-HERE=/media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/opencl/board
+HERE=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/pipeline/opencl/board
 BIN=/tmp/gmc_stream_ocl_cap
 B=$HERE/.bench_bmp
 K=$HERE/../kernels

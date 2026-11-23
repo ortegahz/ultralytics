@@ -14,10 +14,10 @@
 
 | 项 | 值 |
 |:--|:--|
-| 执行机 | **本地** `/media/manu/1TB-Volume/workspace/ultralytics`（分支 `manu_dev_v2`，git `a9eaca6e7`；`manu/tracking/` 未提交，在工作区） |
+| 执行机 | **本地** `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics`（分支 `manu_dev_v2`，git `a9eaca6e7`；`manu/tracking/` 未提交，在工作区） |
 | 环境 | conda env `uav`，Python 3.10.20，numpy 2.2.6，cv2 4.10，**无 pytest ⇒ 用 unittest** |
 | 模型 | **RC2 / trial_0080 / epoch3**（回放 `ms_cache/*.pkl`，**不重跑推理**） |
-| 缓存 | `/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/ms_cache`（**8 序列**，SSHFS 只读） |
+| 缓存 | `/home/manu/mnt/pycharm_project_a7d966e6/runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/ms_cache`（**8 序列**，SSHFS 只读） |
 | GT | `/home/manu/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010` |
 | 帧 | `/home/manu/mnt/data/siping/datasets/manu/龙泉山/frames_ir_jpg/<SEQ>/frame_%06d.jpg`（**只读**，≈7.4 ms/帧） |
 | 工作点 | `manu/evaluation/system_sota_longquan_trial0080_delivery_v3_params.json`（th_base 0.48 / sky_ratio 1.0 / th_ground 0.26 / confirm_consec 7） |
@@ -281,9 +281,9 @@
 ## 8. 复现命令
 
 ```bash
-cd /media/manu/1TB-Volume/workspace/ultralytics
+cd /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics
 source ~/anaconda3/etc/profile.d/conda.sh && conda activate uav
-CACHE=/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/ms_cache
+CACHE=/home/manu/mnt/pycharm_project_a7d966e6/runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/ms_cache
 GT=/home/manu/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010
 PARAMS=manu/evaluation/system_sota_longquan_trial0080_delivery_v3_params.json
 
@@ -512,7 +512,7 @@ done
 ## 15. 本轮的复现命令与产物
 
 ```bash
-CACHE=/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/ms_cache
+CACHE=/home/manu/mnt/pycharm_project_a7d966e6/runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/ms_cache
 GT=/home/manu/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010
 PARAMS=manu/evaluation/system_sota_longquan_trial0080_delivery_v3_params.json
 

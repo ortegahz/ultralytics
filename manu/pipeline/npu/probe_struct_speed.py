@@ -142,7 +142,7 @@ def sh(cmd: list[str], log: Path | None = None) -> tuple[int, str]:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--specs", default=str(HERE / "struct_speed_specs.json"))
-    ap.add_argument("--outdir", default="/media/manu/1TB-Volume/rknn_work/hm_speed/probes")
+    ap.add_argument("--outdir", default="/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/hm_speed/probes")
     ap.add_argument("--only", default="", help="逗号分隔的探针名")
     ap.add_argument("--no-board", action="store_true", help="只做导出/转换，不上板")
     args = ap.parse_args()

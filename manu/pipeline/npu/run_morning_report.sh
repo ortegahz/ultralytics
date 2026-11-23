@@ -227,9 +227,21 @@ else:
     lim = 19.989
     for k, v in sorted(d.items()):
         ms = v.get("ms")
-        ok = "PASS" if (ms is not None and ms <= lim) else "FAIL"
-        print("  %-12s ms=%-8s %s  (limit=%.3f)  %s" % (
-            k, ms, ok, lim, v.get("all_ms", "")))
+        # 🔴 2026-11-20（R8）：**必须读 `board_t4_watch` 已经算好的 `pass_t4`**
+        #   （= 绝对口径 OR 同会话相对基线口径；相对口径抵消板卡热漂移 ±0.5 ms）
+        #   ⇒ 早班报告与升轨链对同一批臂给出**两个相反结论** ⇒ 交付评审现场翻车。
+        #   老记录没有 `pass_t4` 时才退回绝对口径。
+        pv = v.get("pass_t4")
+        if pv is None:
+            ok = "PASS" if (ms is not None and ms <= lim) else "FAIL"
+        else:
+            ok = "PASS" if bool(pv) else "FAIL"
+        extra = ""
+        if v.get("ref_ms") is not None:
+            extra = "  ref=%.3f diff=%s tol=%s" % (
+                float(v["ref_ms"]), v.get("diff_ms"), v.get("diff_tol_ms"))
+        print("  %-12s ms=%-8s %s  (abs<=%.3f)%s  %s" % (
+            k, ms, ok, lim, extra, v.get("all_ms", "")))
 PYEOF3
   echo
   echo "--- ⑧a 板卡同会话实测（旧板 192.168.0.64 / evm3588，2026-11-12 16:40，历史参考）---"

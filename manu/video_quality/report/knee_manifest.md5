@@ -1,0 +1,48 @@
+# 膝点标定（第二子目标）＋ P0/P1/P2 审计修复 —— 产物 md5 清单
+# 服务器侧：huangzhe@192.168.99.40:32222  /tmp/pycharm_project_a7d966e6
+# 生成时间：2026-11-20 19:58
+# 主机侧拉回后：cd <仓库根> && md5sum -c manu/video_quality/report/knee_manifest.md5
+# 2026-11-23 刷新：以下 3 个 memory 文件在追加「膝点标定」段后哈希已变，已用 ssh 直连服务器逐字节复核（server md5 == local md5），再更新本清单：
+#   ssh -p 32222 huangzhe@192.168.99.40 'cd /tmp/pycharm_project_a7d966e6 && md5sum manu/memory/*.md manu/memory/.slim_memory.md'
+110ec3e25ac0e55b3025b002e2ba63ec  manu/memory/.slim_memory.md
+9b6c4f2cb6df486354730d73f5bb4d43  manu/memory/memory.md
+7eb8565e6d88b6932880c8a3d74bd342  manu/memory/memory_compact.md
+2f29835d7aa6534ef7a252bed72640e5  manu/memory/video_quality_metrics_20261119.md
+b911a7e488ab2f8bcc9c24b0205e0246  manu/video_quality/report/REPORT_视频质量指标.md
+de08bb6ab60eee7af903d4bb368684ac  manu/video_quality/report/chart_degrade_knee_ir_blockiness.png
+c26e9a978aa97cbaf68558cb36fe9802  manu/video_quality/report/chart_degrade_knee_ir_edge_density.png
+b2d100ec3d0570cc5b7095c7cc43a7bf  manu/video_quality/report/chart_degrade_knee_ir_entropy.png
+3f2d42d362fde4d837c2223bf75b02b6  manu/video_quality/report/chart_degrade_knee_ir_global_contrast.png
+559d6618614eca90038165e97db13c5d  manu/video_quality/report/chart_degrade_knee_ir_lap_var.png
+bc4058afb515e2f50cc0f1925676786d  manu/video_quality/report/chart_degrade_knee_vis_edge_density.png
+b64b6a48af26b9bb6a9ed696ee13dc4c  manu/video_quality/report/chart_degrade_knee_vis_global_contrast.png
+ecd0d50745079d0b607100d0030c2cb0  manu/video_quality/report/chart_degrade_knee_vis_lap_var.png
+2772032cc411a137a603eb3fb5b8027c  manu/video_quality/report/degrade_curve.csv
+47b4aba72fbc2fe7fe29f0d130bd09eb  manu/video_quality/report/degrade_lock.csv
+0be9515c45f37b37bf8496bbe716e599  manu/video_quality/report/degrade_variants.csv
+f0afce3eff227cf8a4f5bbcb945e99f2  manu/video_quality/report/degrade_windows.csv
+889b27b990a42e6a6c33c661030095cf  manu/video_quality/report/knee_blindtest.csv
+412058dedc2aaf899eb3f1f9bdc5dd91  manu/video_quality/report/knee_combos.csv
+ea398e9d57b9e9a79e61344fdcb5204f  manu/video_quality/report/knee_thresholds.csv
+628b833980222c1188c8e2caa2acfdea  manu/video_quality/report/sot_admission_lines.csv
+e74056f143a06ec1033009679826ad59  manu/video_quality/report/sot_admission_transfer.csv
+2ebe4d960b5a7d1630b4067222eeef32  manu/video_quality/report/sot_combined_rules.csv
+579028dbd16fbc76955aed7b41131edb  manu/video_quality/report/sot_percentile_rules.csv
+1a3725ec3255611d382359560068408e  manu/video_quality/report/sot_short/sot_admission_lines.csv
+aff247a6c69bb6fcd99694d7de0a4a0d  manu/video_quality/report/sot_short/sot_admission_transfer_short.csv
+2b7c45dc9298e43cba28f09e7f141a11  manu/video_quality/report/sot_short/sot_combined_rules.csv
+fa1b29f82dfc6a747146a2ec134fca1a  manu/video_quality/report/sot_short/sot_percentile_rules.csv
+c5ec4358a86cc5bc44e2f9f75e470282  manu/video_quality/report/sot_short/sot_thresholds.csv
+c4bec0070f0ecf719423e1b67db82ca4  manu/video_quality/report/sot_short/sot_thresholds_ir.csv
+4e8323476396d91d845cc2f96996a877  manu/video_quality/report/sot_short/sot_thresholds_vis.csv
+ad9b39e4f16cb5f662c61d4a7f917041  manu/video_quality/report/sot_tau_det.csv
+ff836a1c1b9bcde70e39390b20e0f4eb  manu/video_quality/vq_degrade_knee.py
+619dd401f07630e51cf7ef2bb504f6be  manu/video_quality/vq_degrade_prepare.py
+49bdfd987ae020f5813d81ec3c73fc64  manu/video_quality/vq_degrade_report.py
+d978a8bd2c771cf02342e785a72a493b  manu/video_quality/vq_metrics.py
+51dbf827c3aeee223952fcd5feeb9368  manu/video_quality/vq_sot_admission_verify.py
+560e41a39a5c3dcc03546894d0335870  manu/video_quality/vq_sot_compare.py
+ebc6aa0980d4951765ce95237376803d  manu/video_quality/vq_sot_link.py
+b1de859720c63b617bb01363a9eb183c  manu/video_quality/vq_sot_link_driver.py
+3e57e2bfc2c8e23374ca84f2799dce74  manu/video_quality/vq_sot_verify.py
+dd8aa950faca7dc94769745723bab0a5  manu/video_quality/vq_stats.py

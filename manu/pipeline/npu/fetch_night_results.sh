@@ -3,7 +3,7 @@
 #   用法：bash manu/pipeline/npu/fetch_night_results.sh [日期标签]
 #   拉回：台账 / 报告 / 夜间台账 / 可升轨候选 + md5 双侧比对
 set -u
-LOCAL_ROOT=/media/manu/1TB-Volume/workspace/ultralytics
+LOCAL_ROOT=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics
 TAG="${1:-$(date +%Y%m%d)}"
 SSH="ssh -F /dev/null -p 32222 -o ConnectTimeout=10 -o StrictHostKeyChecking=no huangzhe@192.168.99.40"
 SCP="scp -F /dev/null -P 32222 -o ConnectTimeout=10 -o StrictHostKeyChecking=no"

@@ -31,16 +31,45 @@ LEDGER = "/mnt/data/siping/runs/npu20ms/nano_search/nano_search_ledger.json"
 NAME_RE = re.compile(r"^NANO_(\d+)_ep(\d+(?:\.\d+)?)_official$")
 
 BASE = {
-    "nano": 0.7204631379962193,
-    "nano4": 0.6561909262759924,
-    "f1": 0.8904026831656356,
-    "t1": 0.8905731287190729,
-    "t3": 0.9485821744939873,
-    "t2_fp": 1,
+    "nano": 0.7242438563327032,
+    "nano4": 0.6609168241965974,
+    "f1": 0.8906832039622916,
+    "t1": 0.8909238824339264,
+    "t3": 0.9488855869242199,
+    "t2_fp": 3,
 }
 
 
+
+
+
+
+
+
+
+
+
 CRIT = ["nano", "nano4", "f1", "t1", "t2fp", "t3"]
+
+# 🟢🟢 2026-11-18 18:00 —— **修 T2 轴口径漂移（今晚升轨链的真正阻塞点 · 根因级修复）**
+#   现象：本模块 docstring 写明的口径就是「T2 虚警 ≤ 5」（与 `trackb_core.T2_USER`、
+#         `board_t4_watch.DELIVER` 的任务书交付红线 T2_fp ≤ 20 / 官方门禁 ≤ 36 一致），
+#         但 `judge()` 的实现却是 `t2_fp <= B["t2_fp"]` ⇒ **跟着当前基线漂移**。
+#   根因：9863 当年基线 t2_fp=5 ⇒ 两种写法等价；后来基线换成 t2_fp=1 的臂
+#         ⇒ 口径悄悄收紧成「T2 虚警必须 ≤1」⇒ 今晚所有真·更优候选（T2_fp=2~4，
+#         远低于任务书红线）被判 5/6 ⇒ 既进不了升轨链的六项计数，
+#         也过不了 `promote_candidate` 的种子复现关（`soup_family_six_ok` 用的就是本判据）
+#         ⇒ **整晚算力跑出来的更优臂永远升不了轨**（与板卡是否空闲无关）。
+#   修法：T2 轴 = `t2_fp <= max(基线 t2_fp, 5)` ⇒ 恢复文档口径，且**永不比基线更严**
+#         （基线 t2_fp 更高时自动取基线值）。与 `trackb_core.T2_USER = 5` 完全对齐。
+#   影响：六项全过臂数 2 → 6（1540030/1590013/1605008/1617002/1616005/1622004），
+#         升轨链的「同家族 n≥4 + 板卡 T4 + 种子复现」三关才有可能同时满足。
+T2_USER_CAP = 5
+
+
+def t2_cap(base: dict) -> int:
+    """T2 虚警上限：max(基线自身的 t2_fp, 用户口径 5) ⇒ 不比基线更严，也不低于 5。"""
+    return max(int((base or {}).get("t2_fp") or 0), T2_USER_CAP)
 
 
 def parse_report(path: str) -> dict | None:
@@ -147,7 +176,7 @@ def judge(r: dict, base: dict | None = None) -> tuple[int, list[str]]:
         (r["nano4"] is not None and r["nano4"] >= B["nano4"]),
         (r["f1"] is not None and r["f1"] >= B["f1"]),
         (r["t1"] >= B["t1"]),
-        (r["t2_fp"] <= B["t2_fp"]),
+        (r["t2_fp"] <= t2_cap(B)),
         (r["t3"] >= B["t3"]),
     ]
     miss = [n for n, ok in zip(CRIT, flags) if not ok]

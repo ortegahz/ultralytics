@@ -35,6 +35,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(
                                                 "..", "..", "..")))
 import nano_search as ns  # noqa: E402
 from adaptive_runner import recipe_key, recipe_stats, base_ref  # noqa: E402
+from manu.pipeline.npu import t4_criterion as T4  # noqa: E402（板卡 T4 红线唯一真源）
 
 PROMO_DIR = ns.WORK
 
@@ -201,6 +202,24 @@ def check_arm(led: dict, base: dict, trial: int) -> dict:
            "t3": of.get("t3"), "board_ms": st.get("board_ms"), "checks": {}, "ok": False,
            "seed_note": "", "warnings": []}
     c = res["checks"]
+    # 🔴🔴🔴 2026-11-20 15:35 —— **T2 判据与权威口径对齐**（修「升轨预检比六项审计更严」的漂移 bug）。
+    #   【现场事故】基线 `Baseline_v3.1`(trial_1990055) 的 `t2_fp = 3`；权威口径
+    #     `six_criteria_audit.t2_cap(base) = max(基线 t2_fp, 5)`（用户口径红线 `T2_USER = 5`，
+    #     2026-11-16 已明确「永不比基线更严」）。
+    #   而本文件老代码是 `of["t2_fp"] <= base["t2_fp"]`（严格 ≤3）⇒ **比权威口径更严**
+    #     ⇒ `t2_fp = 4` 的**合法六项全过臂**在本文件里被判 5/6 ⇒
+    #     `res["ok"] = False` ⇒ **合法候选被升轨预检拦下**
+    #     （正是本文件 docstring 描述过的「整晚算力跑出来的更优臂永远升不了轨」的坑；
+    #       2026-11-16 只修了 `six_criteria_audit` 那一侧，本侧漏修）。
+    #   【改法】本函数**唯一**的 T2 上限来源 = `six_criteria_audit.t2_cap(base)`（带兜底）。
+    #   【影响面】只放宽「t2_fp ∈ (基线, 5]」这一档 ⇒ 与权威审计口径**完全一致**；
+    #     升轨三关（种子复现 / 单臂严格支配 / 板端 T4 PASS）**全部保持不变** ⇒ 不会引入基线名通胀。
+    try:
+        from manu.pipeline.npu import six_criteria_audit as _A  # noqa: PLC0415（权威 T2 口径唯一真源）
+        _t2_cap = int(_A.t2_cap(base))
+    except Exception:  # noqa: BLE001
+        _t2_cap = max(int(base.get("t2_fp") or 0), 5)
+    res["t2_cap"] = _t2_cap
     if pk.get("nano") is not None:
         c["nano"] = pk["nano"] >= base["nano"]
     if pk.get("nano4") is not None:
@@ -210,7 +229,7 @@ def check_arm(led: dict, base: dict, trial: int) -> dict:
     if of.get("t1") is not None:
         c["t1"] = of["t1"] >= base["t1"]
     if of.get("t2_fp") is not None:
-        c["t2fp"] = of["t2_fp"] <= base["t2_fp"]
+        c["t2fp"] = of["t2_fp"] <= _t2_cap
     if of.get("t3") is not None:
         c["t3"] = of["t3"] >= base["t3"]
     # 板端时延
@@ -218,10 +237,52 @@ def check_arm(led: dict, base: dict, trial: int) -> dict:
     #   ⇒ 板端超线的臂照样判 ok=True ⇒ 板端红线形同虚设。
     #   修法：先算板端检查，再算 res["ok"]（有板端读数 ⇒ 时延进判定；没读数 ⇒ 保持原语义 + 警告）。
     ref = board_ref_ms(led)
-    if ref:
+    # 🔴🔴🔴 2026-11-20 14:40 —— **板端判定必须认「同会话相对基线」口径**。
+    #   现场事故（2026-11-20 14:00 实测）：板卡读数**热漂移 ±0.5 ms**
+    #   （逐小时中位数 11-13 19.68 → 11-19 18时 20.005 → 11-20 13时 19.831，批内 max 21.462），
+    #   而红线 19.989 ms 正落在漂移带中央 ⇒ **同一张计算图**（基线家族 bw10 克隆臂）
+    #   现在测出 19.94~21.46 ms ⇒ 绝对口径把它们**全部误判 FAIL** ⇒ **升轨链断链**。
+    #   `board_t4_watch` 已在台账写 `board_pass_t4` = `绝对口径 OR 同会话相对口径`
+    #   （相对口径用**同会话基线臂读数**抵消板卡整体漂移，语义仍是「不比 trial_0031×1.02 慢」）。
+    #   ⇒ 这里**以台账的 `board_pass_t4` 为准**，缺该字段时才退回旧的绝对/0031 参照口径。
+    _bpass = st.get("board_pass_t4")
+    res["board_pass_t4"] = _bpass
+    # 🔴 R3：换基线后，**打旧基线量出来的板端判定是过期的** ⇒ 判「需重测」，不许当 PASS。
+    _cur_base = int((led.get("baseline_v2") or {}).get("trial") or 0)
+    _ref_trial = str(st.get("board_ref_trial") or "")
+    _stale = False
+    if _bpass is not None and _ref_trial and _cur_base:
+        try:
+            _stale = int(_ref_trial) != _cur_base
+        except (TypeError, ValueError):
+            _stale = False
+    res["board_ref_trial"] = _ref_trial or None
+    res["board_stale"] = _stale
+    if _bpass is not None:
+        if res["board_ms"] is None:
+            res["warnings"].append("未测板端时延（arm 未进板卡会话）")
+            c["ms"] = False
+        elif _stale:
+            # 🔴 参照基线已换人 ⇒ 旧判定语义已变 ⇒ **保守判否**，等板卡重测（`board_t4_watch` 会补测）
+            res["warnings"].append(
+                f"板端判定打的是**旧基线**（trial {_ref_trial}），当前基线已换成 trial {_cur_base}"
+                f" ⇒ 判定过期，需重测")
+            c["ms"] = False
+        else:
+            c["ms"] = bool(_bpass)
+            if ref:
+                res["board_ref_ms"] = ref
+            res["board_ms_ref"] = st.get("board_ms_ref")
+            res["board_diff_ms"] = st.get("board_diff_ms")
+    elif ref:
+        # 🔴🔴 R5：老臂（只有 `board_ms`、没有 `board_pass_t4`）原先用 `ref * 1.02`，
+        #   而台账 `board_sessions` 里的 t31 是**已下线 .211 板**的 **23.528 ms**
+        #   ⇒ 预算 24.0 ms ⇒ **21.4 ms 的臂在预检里判 PASS**（比红线松 2 倍）⇒ 误放行。
+        #   ⇒ 老臂一律用**绝对红线**（`T4.LIMIT_MS`），并标注判定来源。
         res["board_ref_ms"] = ref
+        res["board_verdict_source"] = "legacy-absolute"
         if res["board_ms"] is not None:
-            c["ms"] = res["board_ms"] <= ref * 1.02
+            c["ms"] = res["board_ms"] <= T4.LIMIT_MS
         else:
             res["warnings"].append("未测板端时延（arm 未进板卡会话）")
     else:
@@ -286,6 +347,69 @@ def check_arm(led: dict, base: dict, trial: int) -> dict:
         if not res["seed_replicated"]:
             res["seed_note"] = (f"配方 n={g['n']} 均值 nano={g['mean_nano']:.6f} "
                                 f"vs 基线配方均值 {bg['mean_nano']:.6f} ⇒ 未复现")
+
+    # ============================================================================
+    # 🔴🔴🔴 2026-11-20 R1修复 —— **「单臂严格支配」升轨通道**（训练臂 / 抛光臂专用）
+    # ============================================================================
+    #
+    # 【实测证据】2026-11-20 14:39 服务器台账快照（12,096 臂，基线 Baseline_v3.1 / trial 1990055）：
+    #   · 按台账读数复算六项判据：**41** 个臂六项全过；
+    #     但其中**「至少一轴严格更优」的 = 0 个** ⇒ 这 41 个**全部是基线权重的逐位复现**（零改进）。
+    #   · 现有种子关要求「同族 n≥2」（汤臂）/「n_anchor≥2」（抛光臂）/「配方 n≥2」（普通训练臂）
+    #     ⇒ **单个严格支配基线的训练臂永远升不了轨**（它所在的族只有它自己）。
+    #   · `six_criteria_audit.py:70-72` 的权威口径是 `t2_fp ≤ max(基线 t2_fp, 5)`；
+    #     而本文件老代码 `c["t2fp"] = of["t2_fp"] <= base["t2_fp"]`（:213-214）
+    #     在基线 t2_fp=3 时**比权威口径更严** ⇒ 与审计口径**不一致**。
+    #
+    # 【改法】新增一条**只对训练臂/抛光臂开放**的通道（汤臂保持老口径不变）：
+    #   该臂**自身**
+    #     ① 六项全过：nano/nano4/f1 ≥ 基线、T1 ≥ 基线、**T2_fp ≤ max(基线, 5)（权威口径）**、T3 ≥ 基线；
+    #     ② **至少一轴严格更优**（否则是纯打平 ⇒ 基线名通胀，2026-11-18 事故 82 次重复升轨）；
+    #     ③ **板端判定 PASS**（`c["ms"]`，**沿用本函数已有的 `board_ref_trial` 新鲜度/stale 逻辑**）
+    #   ⇒ 允许它**无需 n_anchor ≥ 2** 直接升轨，并在 `seed_note` / `warnings` 里标注「单臂严格支配」。
+    #
+    # 【为什么 T2 在本通道用权威口径】老 `c["t2fp"]` 判据**保持不变**（老臂判定零变化）；
+    #   只有本通道**命中时**才按 `six_criteria_audit.t2_cap()` 的权威口径重算 `c["t2fp"]` 与 `res["ok"]`。
+    #   ⇒ 行为差异**仅限**「训练臂/抛光臂 + 自身六项全过 + 至少一轴严格更优 + 板卡 PASS」这一类，
+    #      而这正是本次要新增的能力。
+    #
+    # 【影响面】只新增一条 True 通路；**老逻辑（种子关 / 六项判据 / 板卡判据）一字未改**；
+    #   汤臂**完全不受影响**（`_is_soup` 判定 ⇒ 不进本通道）。
+    # 【回退】删除本段即可（该文件已被 git 跟踪 ⇒ `git checkout manu/pipeline/npu/promote_candidate.py`）。
+    res["single_arm_strict"] = False
+    _is_soup = bool(st.get("synth") or (st.get("soup_members") or []))
+    # （`_t2_cap` 已在函数头部按权威口径算好 ⇒ 此处直接复用，避免两处口径再次漂移）
+    _auth_axes = {
+        "nano": pk.get("nano") is not None and pk["nano"] >= base["nano"],
+        "nano4": pk.get("nano4") is not None and pk["nano4"] >= base["nano4"],
+        "f1": pk.get("f1") is not None and pk["f1"] >= base["f1"],
+        "t1": of.get("t1") is not None and of["t1"] >= base["t1"],
+        "t2fp": of.get("t2_fp") is not None and of["t2_fp"] <= _t2_cap,
+        "t3": of.get("t3") is not None and of["t3"] >= base["t3"],
+    }
+    _strictly_better = bool(
+        (pk.get("nano") or 0) > base["nano"]
+        or (pk.get("nano4") or 0) > base["nano4"]
+        or (pk.get("f1") or 0) > base["f1"]
+        or (of.get("t1") or 0) > base["t1"]
+        or (of.get("t3") or 0) > base["t3"]
+        or (of.get("t2_fp") is not None and of["t2_fp"] < int(base.get("t2_fp") or 0)))
+    res["strict_axes"] = _auth_axes
+    res["strictly_better"] = _strictly_better
+    if (not _is_soup) and all(_auth_axes.values()) and _strictly_better and c.get("ms") is True:
+        res["single_arm_strict"] = True
+        res["seed_replicated"] = True
+        res["seed_note"] = (
+            "**单臂严格支配路径**（R1修复新增）：该训练/抛光臂**自身**六项全过"
+            f"（T2 用权威口径 t2_fp ≤ {_t2_cap}）且**至少一轴严格优于基线**，"
+            f"板端 T4 判定 PASS（board_pass_t4={res.get('board_pass_t4')}，"
+            f"参照基线 trial {res.get('board_ref_trial')}，stale={res.get('board_stale')}）"
+            " ⇒ 无需「同族 n≥2 / n_anchor≥2」复现关即可升轨")
+        res["warnings"].append(
+            "单臂严格支配路径：未走种子复现关（该臂自身六项全过且至少一轴严格更优）")
+        # 权威 T2 口径下重算 ok（老 c["t2fp"] 比权威口径更严 ⇒ 本通道按权威口径）
+        c["t2fp"] = _auth_axes["t2fp"]
+        res["ok"] = bool(c) and all(c.values())
     return res
 
 
@@ -341,8 +465,28 @@ def cmd_promote(led: dict, base: dict, trial: int, name: str, force: bool, dry: 
         if bms is None:
             print("  ⇒ --require-board：候选臂**没有板端 T4 读数** ⇒ **拒绝升轨**")
             return
-        if float(bms) > 19.989:
-            print(f"  ⇒ --require-board：板端 {bms} ms > 19.989 ms 硬红线 ⇒ **拒绝升轨**")
+        # 🔴🔴 2026-11-20 14:40 —— **最终权威也要认「同会话相对基线」口径**。
+        #   `r["board_pass_t4"]` 来自台账，已含 `绝对 OR 同会话相对`；相对口径用于抵消板卡热漂移。
+        #   ⇒ 有该字段时以它为准；缺该字段（老臂）才退回绝对红线。
+        _bp = r.get("board_pass_t4")
+        if _bp is not None:
+            if not bool(_bp):
+                print(f"  ⇒ --require-board：板端 {bms} ms 未过 T4 判定"
+                      f"（绝对/同会话相对口径均不通过）⇒ **拒绝升轨**")
+                return
+        elif float(bms) > T4.LIMIT_MS:
+            print(f"  ⇒ --require-board：板端 {bms} ms > {T4.LIMIT_MS} ms 硬红线 ⇒ **拒绝升轨**")
+            return
+        # 🔴🔴 R3b：**新基线不得比旧基线慢**（相对口径放宽后，基线绝对读数可以漂到 ~21.5 ms
+        #   ⇒ 若不设这道闸，**交付基线的时延可以悄悄回退 1.5 ms** 并被固化进台账/源码常量/交付文档）。
+        _old_ms = (led.get("baseline_v2") or {}).get("ms_new_board")
+        try:
+            _old_ms = float(_old_ms)
+        except (TypeError, ValueError):
+            _old_ms = None
+        if _old_ms is not None and _old_ms > 5.0 and float(bms) > _old_ms:
+            print(f"  ⇒ --require-board：新基线板端 {bms} ms **比旧基线慢**"
+                  f"（旧基线 {_old_ms} ms）⇒ **拒绝升轨**（交付时延不得回退）")
             return
     if not r.get("seed_replicated") and not force:
         print("  ⇒ 未过种子复现关 ⇒ **拒绝升轨**（单臂 PASS*，需 --force 或再补 seed）")
@@ -363,6 +507,12 @@ def cmd_promote(led: dict, base: dict, trial: int, name: str, force: bool, dry: 
         "nano": r["nano"], "micro": r["micro"], "f1": r["f1"], "nano4": r["nano4"],
         "t1": r["t1"], "t2_fp": r["t2_fp"], "t3": r["t3"],
         "ms_new_board": r["board_ms"], "ms_new_board_t31_ref": r.get("board_ref_ms"),
+        # 🔴 R1：**干净参照**只允许「绝对达标」的读数写入（≤ 红线）；
+        #   相对口径过的臂（绝对 ms > 红线）写入的 `ms_new_board` **不是**干净参照
+        #   ⇒ `board_t4_watch.base_ref_ms()` 会拒绝用它（并告警）。
+        "ms_clean_ref": (r["board_ms"] if (r.get("board_ms") is not None
+                                           and float(r["board_ms"]) <= T4.LIMIT_MS) else None),
+        "board_ref_trial": r.get("board_ref_trial"),
         "recipe": r["desc"][:200],
         "promoted_at": time.strftime("%F %T"),
         "previous_baseline": {"name": old.get("name"), "trial": old.get("trial"),

@@ -48,7 +48,7 @@ ID_BASE=0
 LIMIT=0
 TH=0.25
 SKIP_BUILD=0
-OUT_ROOT="${OUT_ROOT:-/media/manu/1TB-Volume/rknn_work/hm}"
+OUT_ROOT="${OUT_ROOT:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/hm}"
 
 # ---- fixed wiring (single source of truth; every path below derives from these)
 RAW_ROOT_LOCAL="${RAW_ROOT_LOCAL:-/home/manu/mnt/data/siping/datasets/manu/anti-uav/train}"
@@ -56,14 +56,14 @@ FROZEN_ROOT="${FROZEN_ROOT:-/home/manu/mnt/data/siping/datasets/manu/uav_gmc_med
 LABEL_ROOT="${LABEL_ROOT:-/home/manu/mnt/data/siping/datasets/manu/uav_gmc_median/labels/val}"
 NFS_LOCAL="${NFS_LOCAL:-/run/media/manu/SSD960-LOCAL/nfs/npu/out/demo}"
 BOARD_NFS="/mnt/manu/npu/out/demo"
-WEIGHTS_DEFAULT="/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_p0_nas/trial_0474/weights/best.pt"
+WEIGHTS_DEFAULT="/home/manu/mnt/pycharm_project_a7d966e6/runs/optuna_p0_nas/trial_0474/weights/best.pt"
 MODEL="trial0474_hm_nop0_int8.rknn"
 MODEL_MD5="ef302edb1b5aff1d376204bb7ad77550"
 PUSH_OFFSET=1          # measured: dataset_id = push_index + 1 (see hm_index_probe.py)
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PIPE_ROOT="$(cd "$HERE/.." && pwd)"        # manu/pipeline  (this file lives in npu/)
-PY="${PY:-/media/manu/1TB-Volume/conda-envs/rknn230/bin/python}"
+PY="${PY:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/conda-envs/rknn230/bin/python}"
 
 usage() { sed -n '2,40p' "$0"; exit "${1:-0}"; }
 

@@ -6,7 +6,7 @@ mean and the p99 of each stage, plus the mean/p99 of the stages restricted to
 the frames that are over 40 ms (the tail) and over the 40 ms budget.
 """
 import sys
-sys.path.insert(0, '/media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu')
+sys.path.insert(0, '/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/pipeline/npu')
 from ff_summarize import load, stats, pctl
 
 STAGES = [("resize", "gpu_resize"), ("gFTT", "gpu_gftt"), ("select", "gpu_select"),

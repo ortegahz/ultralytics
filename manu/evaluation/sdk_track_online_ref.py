@@ -45,7 +45,7 @@ from pathlib import Path
 
 import numpy as np
 
-ULTRALYTICS_ROOT = "/media/manu/1TB-Volume/workspace/ultralytics"
+ULTRALYTICS_ROOT = "/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics"
 if ULTRALYTICS_ROOT not in sys.path:
     sys.path.insert(0, ULTRALYTICS_ROOT)
 

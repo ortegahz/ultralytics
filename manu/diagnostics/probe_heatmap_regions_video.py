@@ -53,7 +53,7 @@ def downsample_pad(feature: np.ndarray, target: int, out_size: int):
 
 
 def resolve_checkpoint(path: str) -> Path:
-    candidates = [Path(path), REPO_ROOT / path, Path("/home/manu/mnt/pycharm_project_10ae9e2e") / path]
+    candidates = [Path(path), REPO_ROOT / path, Path("/home/manu/mnt/pycharm_project_a7d966e6") / path]
     for candidate in candidates:
         if candidate.exists():
             return candidate

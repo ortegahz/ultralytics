@@ -253,7 +253,7 @@ manu/pipeline/npu/board/scratch/*.json
 #     仓库只留「源码 + 文档 + 小体积可审计证据文本」。**
 # 产物落盘位置：
 #   服务器  /mnt/data/siping/runs/<任务>/...
-#   本机    /media/manu/1TB-Volume/workspace/_artifacts/<仓库名>/...
+#   本机    /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/...
 # （已跟踪文件不受影响；本节只挡未来新增）
 
 # ① 模型权重 / 导出 / 量化 / 数据缓存产物（*.pt|*.onnx|*.rknn|*.tflite 上文已覆盖）
@@ -311,17 +311,142 @@ out/
 
 # ⑥ 说明：
 #   manu/pipeline/npu/board_sessions/ **保留跟踪** —— 板卡会话原始输出（十几 KB 级文本），
-#   是交付文档里延迟/虚警数字的**可审计证据**；大体积同类产物请放 _artifacts/ 或服务器。
+#   是交付文档里延迟/虚警数字的**可审计证据**；大体积同类产物请放 workspace/cache/ 或服务器。
 
 # --------------------------------------------------------------------------------------
 # 本工程补充（2026-11-16 · 大件产物外迁 workspace/cache）
 # --------------------------------------------------------------------------------------
 # 背景：本机工程目录曾达 61 GB，其中 60 GB 是 `runs/`（训练/推理产物）+ 0.8 GB 板端构建产物，
 #       导致每次向服务器 upload 代码都要搬运几十 GB。
-# 现状：产物实体已迁到 `/media/manu/1TB-Volume/workspace/cache/ultralytics/`，
+# 现状：产物实体已迁到 `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/`，
 #       工程目录内**不再有任何软链接或产物目录**（2026-11-16 按用户要求：不要链接，直接删）。
 #       ⇒ upload 载荷实测 82.5 MB（清单里已无 runs / .rknn / build 产物）。
 # 维护：代码里默认写 `runs/...` 的地方需改指到 cache（见 cache/README.md 的集中开关清单）。
 #       万一有脚本仍按默认值在本工程重建 `runs/`，靠下面两条继续挡住它进版本库：
 /runs
 runs/
+
+# --------------------------------------------------------------------------------------
+# 本工程补充（2026-11-23 · 重装系统后 .gitignore 补漏 —— 面向「提交前清理」）
+# --------------------------------------------------------------------------------------
+# 背景：2026-11-23 重装系统后，PyCharm 重建了 `.idea/`（`.idea/` 与 `*.iml` 上文 ⑤-1 已覆盖
+#       ⇒ **PyCharm 忽略规则本身并没有丢**，本次补的是根 .gitignore 覆盖不到的四类残留）。
+# 判定口径沿用《核心铁律十五》（manu/memory/rules.md §15）：
+#       **仓库只留「源码 + 文档 + 小体积可审计证据」；可复现的大件产物一律出工程目录。**
+# 实测基线：补漏前未跟踪 1081 个 / 657.0 MB；补漏后见本节末尾的复核命令。
+
+# ① 备份族：上文 `*.bak` 只挡「文件名正好以 .bak 结尾」，而本工程实际命名是
+#    `.bak_<时间戳/原因>`（.bak_preR2_20261120 / .bak_r89_pre / .bak_r88_pre /
+#    .bak_pre_sec285_xxx / .bak_pre_t1fix_20261120_1605 / .bak_preGain_20261120_1630 …，
+#    实测 30+ 种变体、122 个文件 / 35.3 MB）。**原始正本均已跟踪** ⇒ 纯历史快照，必须挡。
+#    ⚠️ 副作用：仓库里已跟踪 7 个同款 `.bak_*`（memory/memory*.bak_* 5 个 +
+#    manu/pipeline/npu/scripts/gen_w13_recipes.py.bak_* 2 个）会变成「已跟踪但被忽略」——
+#    **git 仍会继续跟踪、数据不会丢**，只是状态语义变怪；要彻底踢出需用户自行 `git rm --cached`。
+*.bak_*
+
+# ② 逐帧预测 dump：manu/memory/trial0080_alignment_20261119/eval/**/preds_*/
+#    = 23 个参数臂 × 25 个序列的逐帧 JSON（单文件 3.0~3.2 MB），合计 **589 MB / 93.4% 体积**。
+#    可由 manu/memory/trial0080_alignment_20261119/search/verify_all.py 整批重生成；
+#    参数结论已固化在 eval/*.json（cmp_* / winner_knobs）与 memory 正文 ⇒ 属可复现产物。
+manu/memory/**/preds_*/
+
+# ③ 逐帧检测/跟踪 TSV dump（*_cands.tsv / *_fused.tsv / *_tracked.tsv，单文件 20~895 KB，
+#    合计 9.7 MB / 41 个）。**与 manu/pipeline/opencl/board/.gitignore 的既有约定一致**：
+#    逐帧原始测量 = raw measurements，不入库；同目录的 MD5 清单（*_MD5.txt）、
+#    对账结论（*.json）与说明（*.md）才是证据链，继续入库。
+#    若日后要保留某个小体积 TSV 证据，在本行之后补 `!manu/memory/<dir>/<file>.tsv`（后写的规则优先）。
+manu/memory/**/*.tsv
+#    例外：cadence_ab_20261119/ 下的 13 个 KB 级 TSV 是**历史既有入库项**（板端 cadence A/B
+#    对账证据链，单文件 ≤ 35 KB），按仓库既有惯例继续保留跟踪 —— 后写的规则优先。
+!manu/memory/cadence_ab_20261119/**/*.tsv
+
+# ④ 画质退化的逐 1s 窗口大表（degrade_windows 4730 行 / degrade_lock 3938 行），
+#    可由 manu/video_quality/vq_degrade_knee.py 整批重生成（重跑命令见
+#    manu/video_quality/report/REPORT_视频质量指标.md 第 5 步「5-1~5-8」）；
+#    同批的**结论级**小表（degrade_curve / knee_thresholds / knee_blindtest / knee_combos）
+#    仍入库 ⇒ 证据链不断。
+manu/video_quality/report/degrade_windows.csv
+manu/video_quality/report/degrade_lock.csv
+#    短时程目录里的逐秒大表 = report/sot_windows.csv 的**逐字节副本**（md5 c00aa11f…）；
+#    父目录同名文件已挡，但带斜杠的模式锚定到目录根、匹配不到子目录 ⇒ 这里补漏 8.4 MB。
+manu/video_quality/report/sot_short/sot_windows.csv
+
+# ⑤ 报告图表反向规则（安全网）：上文有 `*.png`，而报告正文用相对路径引用这些图。
+#    manu/video_quality/.gitignore 里本有 `!report/*.png`，但**该嵌套文件目前未被 git 跟踪**
+#    ⇒ 新克隆会丢掉这条反向规则、导致报告 16 张图全部裂开。故在根 .gitignore 兜一份同样效果
+#    的规则，保证 clone 后依然自洽（不依赖嵌套文件是否入库）。
+!manu/video_quality/report/*.png
+
+# --------------------------------------------------------------------------------------
+# 本工程补充（2026-11-23 · 铁律二十五：中间产物出仓库目录，仓库只留「代码 + 长时实验 report」）
+# --------------------------------------------------------------------------------------
+# 用户裁决（2026-11-23）：
+#   ① **凡是代码产生的中间产物，一律不加入仓库**；
+#   ② **仓库只跟踪两类东西：代码（源码/配置/脚本）＋ 重要长时实验跑出来的 report**；
+#   ③ **中间结果不许留在仓库目录里**，统一落到本机
+#      `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/`。
+#
+# ⇒ 本节上面的规则只挡「未来新增」；本轮已把仓库目录里 **1486 个 / 949 MB** 中间产物
+#   实体迁到 `cache/ultralytics/repo-artifacts/<原仓库相对路径>`（1:1 保留，可原路还原）。
+#
+# 【本机产物区唯一 canonical 落点】（旧口径 `_artifacts/` 已废止，实体已折入 `cache/ultralytics/legacy-artifacts/`）：
+#   /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/
+#     ├── runs/               训练/推理产物
+#     ├── pipeline-artifacts/ 板端构建产物
+#     ├── repo-artifacts/     从仓库目录迁出的中间产物（按仓库相对路径镜像）
+#     └── legacy-artifacts/   旧 `_artifacts/` 实体
+#
+# 【服务器侧 canonical 落点】/mnt/data/siping/runs/<任务>/...
+#
+# ⚠️ 脚本默认值必须显式指向上面两个根之一，**禁止再写 `${PROJECT_DIR}/manu/...` 这种仓库内路径**。
+#
+#    【已修（顶层 ＋ 同名副本都改到位）】—— 统一走 PRODUCT_ROOT 环境变量，可本地/服务器分别覆盖：
+#      · manu/video_quality/vq_{launch_server,post_batch,grid_launch_server,grid_lk_launch_server}.sh
+#      · lookahead/eval_all_arms.sh                （顶层）
+#      · lookahead/run_delivery.sh、lookahead/render_osd_3arm.sh
+#        lookahead/osd/{run_stale_arm,render_osd_3arm,render_osd_one}.sh
+#        及其 manu/tracking/lookahead/ 下的同名副本
+#
+#    【⚠️ 已知未同步的旧副本（仍写 CWD 相对 `runs/lookahead/...`，属存量收口项）】
+#      · manu/tracking/lookahead/eval_all_arms.sh
+#        （`FRAMES_CACHE="runs/lookahead/frame_cache"` / `OUT="runs/lookahead/final"`）
+#
+#    【存量未收口 —— 不许写「已全部修完 / 零违规」】（2026-11-23 全量扫描）
+#      · tracked `.sh` CWD 相对赋值：**59 处**（其中 **≥22 处为真输出落点**）
+#      · tracked `.py` argparse 默认值仍指向仓库内：**9 处**
+#      · 分布（复核 agent 列出，未覆盖全部）：`manu/training/` 12 处、`lookahead/` 8 处、
+#        `manu/tracking/lookahead/` 8 处、`manu/videos/` 2 处
+#      · 收口方式：逐个改成 ${PRODUCT_ROOT:-…}（输入型路径绝对化到
+#        /home/manu/mnt/pycharm_project_a7d966e6/runs/…）
+#    📌 完整台账（含口径与复扫依据）见 `manu/memory/rules.md` ### 23. 第 3 条与第 8 条。
+
+# ⑥-1 交付契约放行（铁律二十五 §23-2：report 的判据＝机时成本＋结论价值，不是体积）
+#     这几份是**冻结的交付参数契约 / 交付清单**，被大量 tracked 脚本当硬依赖引用
+#     （lookahead/{eval_all_arms,run_delivery,check_newknobs_off}.sh、lookahead/osd/run_stale_arm.sh、
+#      lookahead/server_overnight/run_{eval_server,matrix_server,overnight_eval}.sh、
+#      lookahead/diag_abstain_scan.py、manu/evaluation/verify_delivery_evidence.py）⇒ 必须入库。
+#     ⚠️ 注意：`.git/info/exclude` 的优先级**高于** `.gitignore`，所以旧的本机排除规则已一并撤销。
+!manu/evaluation/system_sota_longquan_trial0080_delivery*_params.json
+!manu/memory/trial0080_longquan_delivery_manifest.json
+
+# ⑥-2 编辑器/工具临时文件（`*.md.new` 这类「写一半的副本」）：
+#     `memory/memory.md.new`（2026-11-12 的瘦身草稿，1.2 MB）曾被误提交 ⇒
+#     它既不是当前主档（`manu/memory/memory.md`），也不是 report，而是**编辑中间态** ⇒ 不入库。
+#     📌 **2026-11-23 实体已迁出**到 `cache/ultralytics/repo-artifacts/memory/memory.md.new`
+#        （按仓库相对路径 1:1 镜像，可原路还原）⇒ `git status` 会出现一条 `D memory/memory.md.new`，
+#        **待用户提交时确认删除**（内容在 cache 里保全，git 历史里也还在）。
+*.md.new
+
+# ⑥-3 memory 章节草稿（隐藏文件形式的「写了一半的 §xxx 摘要」）：
+#     `manu/memory/.vq_sec{260,271}_{main,compact}.md` —— §260 / §271 视频质量专题的**编辑中间态**，
+#     内容已合并进 `manu/memory/memory.md` 与 `manu/memory/memory_compact.md` 对应章节（实测逐字命中）：
+#       · `.vq_sec271_main.md`（8.5 KB）→ memory.md §271：精确 84/90、归一化 90/90；
+#       · `.vq_sec271_compact.md`（4.3 KB）→ memory_compact.md §271：精确 36/36（**100%**）；
+#       · `.vq_sec260_main.md`（10.0 KB）→ memory.md §260：精确 40/49，未命中的 9 行**全是已改写成
+#         `${VQ_PROD}` 的旧命令路径变体**（§260 段内已有 11 处 `VQ_PROD`）⇒ **语义 100% 覆盖**；
+#       · `.vq_sec260_compact.md`（5.0 KB）→ memory_compact.md §260：精确 11/11（**100%**）。
+#     ⇒ 既不是代码，也不是长时实验 report ⇒ 不入库。
+#     📌 **2026-11-23 实体已迁出**到 `cache/ultralytics/repo-artifacts/manu/memory/.vq_sec*.md`
+#        （按仓库相对路径 1:1 镜像，可原路还原；md5 `5a6205a0…` / `564408cf…` /
+#          `a97948be…` / `70a7ec21…`）。
+manu/memory/.vq_sec*.md

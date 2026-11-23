@@ -126,7 +126,7 @@ def main():
     data_root = Path(args.data_root)
     if not data_root.exists():
         # 如果 /mnt/ 不在本地，自动尝试回退检查 /media/ 本地目录
-        alt_root = Path("/media/manu/1TB-Volume/data/anti-uav")
+        alt_root = Path("/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/data/anti-uav")
         if alt_root.exists():
             print(f"[INFO] 路径 {data_root} 不存在，自动切换为本地目录: {alt_root}")
             data_root = alt_root

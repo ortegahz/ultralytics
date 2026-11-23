@@ -53,7 +53,7 @@ echo
 # ---------------------------------------------------------------------------
 # 占位符取值（与 build_lib.sh / build_demo.sh / copy_to_nfs.sh 的默认值一致）
 # ---------------------------------------------------------------------------
-TOOLCHAIN_V="${RK3588_TOOLCHAIN:-/media/manu/1TB-Volume/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu}"
+TOOLCHAIN_V="${RK3588_TOOLCHAIN:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu}"
 
 # ---------------------------------------------------------------------------
 # 板卡依赖的【定位】。
@@ -113,6 +113,10 @@ fill_placeholders() {
     -e "s|\{\{CLIENT_EXAMPLE_MD5\}\}|$CLIENT_EXAMPLE_MD5|g" \
     -e "s|\{\{ASYNC_EXAMPLE_MD5\}\}|$ASYNC_EXAMPLE_MD5|g" \
     -e "s|\{\{CONTRACT_TEST_MD5\}\}|$CONTRACT_TEST_MD5|g" \
+    -e "s|\{\{TRACK_FUSION_OBJ_MD5\}\}|$TRACK_FUSION_OBJ_MD5|g" \
+    -e "s|\{\{E2E_MD5\}\}|$E2E_MD5|g" \
+    -e "s|\{\{CADENCE_PROBE_MD5\}\}|$CADENCE_PROBE_MD5|g" \
+    -e "s|\{\{TRACK_DUMP_MD5\}\}|$TRACK_DUMP_MD5|g" \
     "$src" > "$dst"
 }
 
@@ -157,6 +161,8 @@ purpose_of() {
     src/npu/mosaic_async_client_example.cpp) echo "**多线程生产-消费 + 回调模板源**（嵌入式组的工程级集成骨架：相机线程不阻塞 + 严格一推一收 + 回调分发）" ;;
     src/npu/mosaic_contract_test.cpp) echo "契约测试源（验收门禁）" ;;
     src/npu/rknn_mosaic_e2e.cpp)  echo "**端到端测试程序源**（吞吐/延时测量，只调公开 C ABI）" ;;
+    src/npu/mosaic_cadence_probe.cpp) echo "**板卡验证探针源**（节奏 / Δn / 帧间隔 + 时空融合参数回读；**带交付工作点的显式 9 字段覆盖**）" ;;
+    src/npu/mosaic_track_dump.cpp) echo "**板卡验证探针源**（逐帧导出候选流 / 融合结果 TSV，供离线对 GT 打分；**带交付工作点的显式 9 字段覆盖**）" ;;
     src/cpp/gmc_stream_ocl.cpp)   echo "GMC/OpenCL 引擎（被 mosaic_pipeline.cpp 以 ../cpp/ 相对包含）" ;;
     src/cpp/md5.h)                echo "MD5 实现（被 gmc_stream_ocl.cpp 以 md5.h 相对包含）" ;;
     src/opencl/host/ocl_host.h)   echo "OpenCL host 封装（被 gmc_stream_ocl.cpp 以 ../opencl/host/ 相对包含）" ;;
@@ -186,6 +192,8 @@ out_note_of() {
     out/mosaic_async_client_example) echo "**多线程生产-消费 + 回调模板可执行文件**（工程级集成骨架；嵌入式组照着这份搭自己的相机线程）" ;;
     out/mosaic_contract_test)  echo "契约测试可执行文件（验收门禁）" ;;
     out/rknn_mosaic_e2e)       echo "端到端测试程序（吞吐/延时测量）" ;;
+    out/mosaic_cadence_probe)  echo "**板卡验证探针**（本地工具，不属于集成面）：逐帧推/收，量节奏（fps / Δn / 帧间隔）+ 打印时空融合的**有效参数回读**" ;;
+    out/mosaic_track_dump)     echo "**板卡验证探针**（本地工具，不属于集成面）：逐帧导出候选流 / 融合结果 TSV，供离线对 GT 打分" ;;
     *)                         echo "构建产物" ;;
   esac
 }
@@ -247,6 +255,8 @@ copy_one "$ROOT/mosaic_client_example.cpp"      "src/npu/mosaic_client_example.c
 copy_one "$ROOT/mosaic_async_client_example.cpp" "src/npu/mosaic_async_client_example.cpp"
 copy_one "$ROOT/mosaic_contract_test.cpp"       "src/npu/mosaic_contract_test.cpp"
 copy_one "$ROOT/rknn_mosaic_e2e.cpp"            "src/npu/rknn_mosaic_e2e.cpp"
+copy_one "$ROOT/mosaic_cadence_probe.cpp"       "src/npu/mosaic_cadence_probe.cpp"
+copy_one "$ROOT/mosaic_track_dump.cpp"          "src/npu/mosaic_track_dump.cpp"
 # 被相对包含的引擎 / 工具 / OpenCL host
 copy_one "$ROOT/../cpp/gmc_stream_ocl.cpp"      "src/cpp/gmc_stream_ocl.cpp"
 copy_one "$ROOT/../cpp/md5.h"                   "src/cpp/md5.h"
@@ -386,6 +396,10 @@ API_TEST_MD5=$(md5_or_placeholder "$DEST/out/mosaic_api_test")
 CLIENT_EXAMPLE_MD5=$(md5_or_placeholder "$DEST/out/mosaic_client_example")
 ASYNC_EXAMPLE_MD5=$(md5_or_placeholder "$DEST/out/mosaic_async_client_example")
 CONTRACT_TEST_MD5=$(md5_or_placeholder "$DEST/out/mosaic_contract_test")
+TRACK_FUSION_OBJ_MD5=$(md5_or_placeholder "$DEST/out/mosaic_track_fusion.o")
+E2E_MD5=$(md5_or_placeholder "$DEST/out/rknn_mosaic_e2e")
+CADENCE_PROBE_MD5=$(md5_or_placeholder "$DEST/out/mosaic_cadence_probe")
+TRACK_DUMP_MD5=$(md5_or_placeholder "$DEST/out/mosaic_track_dump")
 
 README_TMP="$(mktemp)"
 fill_placeholders "$README_TPL" "$README_TMP"

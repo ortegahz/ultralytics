@@ -11,7 +11,7 @@ Head 分支合并等价性自检 (`merge_head_branches`)。
 本脚本不依赖 rknn-toolkit2、不需要 checkpoint、不上板，只验证结构与数学等价。
 
 用法：
-  cd /media/manu/1TB-Volume/workspace/ultralytics
+  cd /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics
   /home/manu/anaconda3/envs/uav/bin/python manu/pipeline/npu/verify_merge_head_branches.py
 """
 

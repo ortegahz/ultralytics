@@ -2,7 +2,7 @@
 # 等待「纵横AI RC2 时空轨迹档」全链路完成：渲染 → 服务器收尾 → host 收集提交。
 # 以 setsid nohup 脱离运行，避免会话结束时被回收。
 set -uo pipefail
-LOCAL=/media/manu/1TB-Volume/workspace/ultralytics
+LOCAL=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics
 SERVER="huangzhe@192.168.99.40"
 PORT=32222
 OUT=/mnt/data/siping/datasets/manu/纵横AI数据采集_osd_rc2_tracked_th020_20261110

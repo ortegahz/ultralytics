@@ -1,0 +1,12 @@
+** WARNING: connection is not using a post-quantum key exchange algorithm.
+** This session may be vulnerable to "store now, decrypt later" attacks.
+** The server may need to be upgraded. See https://openssh.com/pq.html
+hostfile_replace_entries: mkstemp: Read-only file system
+update_known_hosts: hostfile_replace_entries failed for /home/manu/.ssh/known_hosts: Read-only file system
+/mnt/data/siping/datasets/manu/龙泉山/osd_sys_sota_trial0080_20261022  pass=21 un-pass=3  size=5.5G
+/mnt/data/siping/datasets/manu/龙泉山/osd_sys_sota_trial0080_th045_20261022  pass=20 un-pass=4  size=5.5G
+/mnt/data/siping/datasets/manu/龙泉山/osd_sys_sota_trial0080_v2_20261022  pass=21 un-pass=3  size=5.5G
+/mnt/data/siping/datasets/manu/龙泉山/osd_sys_sota_trial0080_v3_20261022  pass=21 un-pass=3  size=5.5G
+/mnt/data/siping/datasets/manu/龙泉山/osd_sys_sota_trial0080_v3_gapfit_20261119  pass=21 un-pass=3  size=2.1G
+/mnt/data/siping/datasets/manu/龙泉山/osd_sys_sota_trial0080_v3_optgapfit_20261119  pass=21 un-pass=3  size=5.5G
+/mnt/data/siping/datasets/manu/龙泉山/osd_sys_sota_trial0080_v3_optgapfit_md16_20261120  pass=21 un-pass=3  size=5.5G

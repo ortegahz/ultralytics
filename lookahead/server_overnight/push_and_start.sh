@@ -6,7 +6,7 @@
 # ============================================================
 set -euo pipefail
 
-SRC_REPO="${SRC_REPO:-/media/manu/1TB-Volume/workspace/ultralytics}"
+SRC_REPO="${SRC_REPO:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics}"
 SSH_HOST="${SSH_HOST:-huangzhe@192.168.99.40}"
 REMOTE_ROOT="${REMOTE_ROOT:-/tmp/pycharm_project_10ae9e2e}"
 SSH_PORT="${SSH_PORT:-32222}"   # 服务器 sshd 在 32222(历史记录确认), 22 是关闭的

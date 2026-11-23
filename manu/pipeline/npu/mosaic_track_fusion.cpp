@@ -3,7 +3,9 @@
 //
 //   参考：ultralytics/manu/evaluation/eval_bidirectional_track_fusion.py
 //         ultralytics/manu/evaluation/system_sota_longquan.py
-//   冻结参数：system_sota_longquan_trial0080_delivery_params.json（th_base=0.45）
+//   冻结参数：system_sota_longquan_trial0080_delivery_v3_optgapfit_params.json
+//             （2026-11-20 交付组 th_base=0.48 / match_dist=10.0 / r_slope=5.0 /
+//               confirm_consec=2 / confirm_gap_tol=8，params_md5 a1157e013ebb496731be805c72c95dd8）
 //
 //   本文件**零第三方依赖**：只用 <cmath> / <algorithm> / <vector> / <map>。
 //   ⇒ host 上可单独编译做精度对齐；板卡上可原生编译。
@@ -903,6 +905,39 @@ void TrackFusionEngine::Finalize(std::vector<std::vector<TrackFusionDet>>* out) 
 
   fused_ = filtered;
   *out = std::move(filtered);
+}
+
+// ---------------------------------------------------------------------------
+// 跨尺度候选合并（候选构造阶段）。
+//
+// 与服务器 `eval_multiscale_cache_th._merge_scale_rows` 的规则逐条等价：
+//   1. 候选池按分数降序**稳定**排序（Python 的 list.sort 是稳定排序）；
+//   2. 贪心保留：与已保留候选距离 <= radius 的候选被丢弃；
+//   3. radius <= 0 => 原样返回（不排序、不丢弃）。
+//
+// 距离比较在 double 上算：候选坐标是 float32，先升到 double 再相减，
+// 与 Python 侧 float64 的 `(x-px)**2 + (y-py)**2 <= radius**2` 逐位一致。
+// ---------------------------------------------------------------------------
+void MergeCandidatesByRadius(std::vector<TrackFusionCand>* cands, double radius) {
+  if (!cands || cands->empty() || radius <= 0.0) return;
+  const double radius_squared = radius * radius;
+  std::stable_sort(cands->begin(), cands->end(),
+                   [](const TrackFusionCand& a, const TrackFusionCand& b) { return a.score > b.score; });
+  std::vector<TrackFusionCand> kept;
+  kept.reserve(cands->size());
+  for (const TrackFusionCand& cand : *cands) {
+    bool covered = false;
+    for (const TrackFusionCand& k : kept) {
+      const double dx = (double)cand.x - (double)k.x;
+      const double dy = (double)cand.y - (double)k.y;
+      if (dx * dx + dy * dy <= radius_squared) {
+        covered = true;
+        break;
+      }
+    }
+    if (!covered) kept.push_back(cand);
+  }
+  *cands = std::move(kept);
 }
 
 }  // namespace mosaic

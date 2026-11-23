@@ -20,7 +20,7 @@ displayNames:
 
 Move the **live** Codex thread of this workspace to the training server so the server can keep
 working on it after this host is powered off. The scripts live in `handoff/` at the **workspace
-root** (`/media/manu/1TB-Volume/workspace/handoff/`), i.e. a sibling of this repo, because they
+root** (`/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/handoff/`), i.e. a sibling of this repo, because they
 touch the host-side Codex store, not the detector code.
 
 Facts (what happened, with numbers) live in `manu/memory/codex_handoff_to_server_20261103.md`;
@@ -92,7 +92,7 @@ The thread id is **never hardcoded** in the scripts: `handoff_to_server.sh` exit
 ### 2. Route A - the one command
 
 ```bash
-bash /media/manu/1TB-Volume/workspace/handoff/handoff_to_server.sh --session <thread-id>
+bash /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/handoff/handoff_to_server.sh --session <thread-id>
 ```
 
 It runs snapshot -> adopt -> local rehearsal -> ship -> server takeover -> verify, and prints the
@@ -108,7 +108,7 @@ git 2.53.0 - see `manu/memory/codex_handoff_to_server_20261103.md:332` and `:394
 
 ```bash
 # human, once, in a normal host terminal:
-bash /media/manu/1TB-Volume/workspace/handoff/prepare_host_repo.sh
+bash /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/handoff/prepare_host_repo.sh
 # the agent then calls codex_tui.create_worktree once; the hook fires and runs the same transfer
 ```
 
@@ -118,7 +118,7 @@ Two facts decide whether this route can work at all:
   directory must be inside a git repository. Git discovery walks upward while `.git` is an empty
   or invalid *directory*, so the repository may live one level above the workspace.
 - The workspace root here can never become a repository: `/`, `/media`, `/media/manu` and
-  `/media/manu/1TB-Volume` are read-only for the agent, and `workspace/.git` is a `ro` tmpfs
+  `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084` are read-only for the agent, and `workspace/.git` is a `ro` tmpfs
   mount (`mode=555`; even `chmod` fails with `EROFS`). **Creating the trigger repository is
   therefore a human action** - `prepare_host_repo.sh` does it.
 
@@ -135,7 +135,7 @@ the `-wal` sidecar to see recent writes, and `immutable=1` silently ignores it:
 M=/home/manu/mnt/data/.codex
 ls -l "$M/sessions/2026/11/03/" | grep <thread-id>
 sha256sum "$M/sessions/2026/11/03/rollout-...<thread-id>.jsonl"
-grep -c "/media/manu/1TB-Volume/workspace" "$M/sessions/2026/11/03/rollout-...<thread-id>.jsonl"   # expect 0
+grep -c "/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace" "$M/sessions/2026/11/03/rollout-...<thread-id>.jsonl"   # expect 0
 grep -o "/tmp/pycharm_project_10ae9e2e" "$M/sessions/2026/11/03/rollout-...<thread-id>.jsonl" | wc -l
 
 mkdir -p /tmp/threadcheck && cp "$M"/state_5.sqlite* "$M"/thread_history_1.sqlite* /tmp/threadcheck/
@@ -158,9 +158,9 @@ counts equal the rehearsal numbers printed by `handoff_to_server.sh`.
 ### 5. Verify with network
 
 ```bash
-bash /media/manu/1TB-Volume/workspace/handoff/server_continue.sh                # read-only proof
-bash /media/manu/1TB-Volume/workspace/handoff/server_continue.sh --probe-turn   # + one real turn
-bash /media/manu/1TB-Volume/workspace/handoff/server_continue.sh --resync       # + re-ship the snapshot
+bash /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/handoff/server_continue.sh                # read-only proof
+bash /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/handoff/server_continue.sh --probe-turn   # + one real turn
+bash /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/handoff/server_continue.sh --resync       # + re-ship the snapshot
 ```
 
 `--probe-turn` spends one turn of the server's model quota and is the only way to prove the
@@ -220,11 +220,11 @@ conversation exists only on the server. Bringing it back is a second, reverse tr
 
 ```bash
 # read-only comparison, writes nothing
-bash /media/manu/1TB-Volume/workspace/handoff/handoff_from_server.sh \
+bash /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/handoff/handoff_from_server.sh \
   --session 01a19eda-6f3b-7552-928d-b16b7e377893 --check
 
 # actually pull the server's copy back into this host
-bash /media/manu/1TB-Volume/workspace/handoff/handoff_from_server.sh \
+bash /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/handoff/handoff_from_server.sh \
   --session 01a19eda-6f3b-7552-928d-b16b7e377893 --adopt
 ```
 
@@ -236,7 +236,7 @@ What it does, and what it refuses to do:
   written to the server. The fetched copy lands in `/tmp/codex-pullback-XXXXXX/` and is removed
   on exit.
 - `handoff_helper.py adopt` rewrites the cwd back to the host's
-  (`/tmp/pycharm_project_10ae9e2e` -> `/media/manu/1TB-Volume/workspace`). Measured on the real
+  (`/tmp/pycharm_project_10ae9e2e` -> `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace`). Measured on the real
   server copy: 5640 lines, **zero** unparseable JSON, `session_meta.cwd` and all 17
   `turn_context.cwd` values are the host cwd, and the old server cwd occurs **0** times.
 - **liveness guard** - if the host's own copy was written within `--liveness-seconds`
@@ -260,7 +260,7 @@ Measured end to end on the host against the real server copy, into an isolated
 `CODEX_HOME=/tmp/pb_home2` (the real `~/.codex` was not touched): `verify` returned
 `ok: true`, `visible_in_picker: true`, `listed_threads: 1`, `turns: 11`, `items: 1704`,
 `first_user_message` = the first prompt of the thread, `list_cwd` =
-`/media/manu/1TB-Volume/workspace`.
+`/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace`.
 
 The file name must carry the thread id: codex resolves a thread by the id embedded in the
 rollout **file name** (the app-server scans `sessions/` for `rollout-*<id>.jsonl`). A staged file
@@ -271,7 +271,7 @@ After the pull-back the script prints the command to continue:
 
 ```bash
 export CODEX_HOME=<host codex home>
-cd /media/manu/1TB-Volume/workspace
+cd /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace
 codex resume 01a19eda-6f3b-7552-928d-b16b7e377893
 ```
 
@@ -332,7 +332,7 @@ ssh -F /dev/null -p 32222 huangzhe@192.168.99.40 \
   'export CODEX_HOME=/mnt/data/.codex PATH="$HOME/.local/bin:$PATH"; cd /tmp/pycharm_project_10ae9e2e && codex resume <id>'
 
 # pull back to the host next morning
-bash /media/manu/1TB-Volume/workspace/handoff/handoff_from_server.sh --session <id> --adopt --force
+bash /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/handoff/handoff_from_server.sh --session <id> --adopt --force
 ```
 
 Three traps that cost a full debugging round on 2026-11-03:
@@ -445,20 +445,20 @@ status=active" - as the evidence that the goal actually travelled.
 
 | Purpose | Command | Machine | Artefact |
 |:--|:--|:--|:--|
-| transfer (route A) | `bash /media/manu/1TB-Volume/workspace/handoff/handoff_to_server.sh --session <id>` | host terminal | server `$CODEX_HOME/sessions/<Y>/<M>/<D>/rollout-....jsonl` |
+| transfer (route A) | `bash /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/handoff/handoff_to_server.sh --session <id>` | host terminal | server `$CODEX_HOME/sessions/<Y>/<M>/<D>/rollout-....jsonl` |
 | local rehearsal only | same command plus `--dry-run` | any | stdout: expected `items` / `turns` |
 | server-side verify | `bash <remote>/verify_on_server.sh --thread <id>` | server | stdout JSON (`ok: true`) |
-| trigger repo (route B) | `bash /media/manu/1TB-Volume/workspace/handoff/prepare_host_repo.sh` | host terminal | `handoff/.host_repo_state` |
-| undo route B | `bash /media/manu/1TB-Volume/workspace/handoff/undo_host_repo.sh` | host terminal | - |
-| hook regression | `bash /media/manu/1TB-Volume/workspace/handoff/test_hook_regression.sh` | any | stdout `PASS: 90    FAIL: 0` |
-| read-only server forensics | `python3 /media/manu/1TB-Volume/workspace/handoff/server_state_check.py` | any (needs network) | stdout |
-| enable agent network | `bash /media/manu/1TB-Volume/workspace/handoff/enable_network.sh` | host terminal | `~/.codex/config.toml` + backup |
-| continue / re-sync | `bash /media/manu/1TB-Volume/workspace/handoff/server_continue.sh [--probe-turn|--resync]` | host terminal or networked agent | stdout |
-| pull back (compare only) | `bash /media/manu/1TB-Volume/workspace/handoff/handoff_from_server.sh --session <id> --check` | host terminal | stdout: side-by-side turn/byte table |
+| trigger repo (route B) | `bash /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/handoff/prepare_host_repo.sh` | host terminal | `handoff/.host_repo_state` |
+| undo route B | `bash /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/handoff/undo_host_repo.sh` | host terminal | - |
+| hook regression | `bash /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/handoff/test_hook_regression.sh` | any | stdout `PASS: 90    FAIL: 0` |
+| read-only server forensics | `python3 /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/handoff/server_state_check.py` | any (needs network) | stdout |
+| enable agent network | `bash /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/handoff/enable_network.sh` | host terminal | `~/.codex/config.toml` + backup |
+| continue / re-sync | `bash /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/handoff/server_continue.sh [--probe-turn|--resync]` | host terminal or networked agent | stdout |
+| pull back (compare only) | `bash /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/handoff/handoff_from_server.sh --session <id> --check` | host terminal | stdout: side-by-side turn/byte table |
 | overnight start | `ssh -F /dev/null -p 32222 huangzhe@192.168.99.40 'setsid nohup bash /mnt/data/codex-overnight/server_overnight_loop.sh --session <id> --until "2026-11-04 08:40" --cwd /tmp/pycharm_project_10ae9e2e > /mnt/data/codex-overnight/launcher.log 2>&1 < /dev/null &'` | host -> server | server `/mnt/data/codex-overnight/loop.log` |
 | overnight watch | `ssh -F /dev/null -p 32222 huangzhe@192.168.99.40 'tail -f /mnt/data/codex-overnight/loop.log'` | any | live stream of the server turns |
 | overnight stop | `ssh -F /dev/null -p 32222 huangzhe@192.168.99.40 'bash /mnt/data/codex-overnight/server_stop_session.sh --session <id>'` | any | `STOP` flag + in-flight turn killed |
-| pull back (install) | `bash /media/manu/1TB-Volume/workspace/handoff/handoff_from_server.sh --session <id> --adopt` | host terminal | host `<codex home>/sessions/<Y>/<M>/<D>/rollout-....jsonl` |
+| pull back (install) | `bash /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/handoff/handoff_from_server.sh --session <id> --adopt` | host terminal | host `<codex home>/sessions/<Y>/<M>/<D>/rollout-....jsonl` |
 
 ## Windows (win32) platform notes
 

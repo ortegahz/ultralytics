@@ -1,0 +1,22 @@
+{
+  "_note": "trial_0080 单帧臂（--no-pipeline, th_base=0.22, dedup_radius=768）基线，用于 --self-check-baseline。实测于 2026-11-19 重建缓存 /mnt/data/siping/runs/trial0080_onnx/ms_cache（24 序 / 165,223 帧 / GT 133,257），与 manu/evaluation/run_trial0080_longquan_eval.sh 第 3 段同一口径。",
+  "_fingerprint": {
+    "cache_root": "/mnt/data/siping/runs/trial0080_onnx/ms_cache",
+    "model": "trial_0080 epoch3 (ONNX stand-in hm_plain.onnx, md5 adf14c5b9af11c01dcdd023f2ffc3fb8)",
+    "radius": 768.0,
+    "threshold": 0.22,
+    "sequences": 24,
+    "num_frames": 165223
+  },
+  "tolerance": {"f1": 1e-05, "far_per_frame": 1e-06, "counts": 4},
+  "expected": {
+    "tp": 124855,
+    "fp": 12250,
+    "fn": 8402,
+    "gt": 133257,
+    "recall": 0.936948903247,
+    "precision": 0.910652419678,
+    "f1": 0.923613525569,
+    "far_per_frame": 0.074142219909
+  }
+}

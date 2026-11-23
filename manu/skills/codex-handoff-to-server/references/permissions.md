@@ -10,7 +10,7 @@ network_access = true
 
 The trap: if that line is written **after** another table header, TOML reads it as a dotted key
 *inside* that table and the setting silently does nothing. Measured on this host - the line sat
-under `[projects."/media/manu/1TB-Volume/workspace"]`, and `tomllib` reported
+under `[projects."/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace"]`, and `tomllib` reported
 `sandbox_workspace_write = None` while the real value hid inside the project entry. The sandbox
 kept blocking sockets even though the file "looked" correct.
 
@@ -24,7 +24,7 @@ warning: user (config.toml): `projects./media/.../workspace.network_access` is i
 Two distinct shapes of the mistake - **both** have to go:
 
 ```toml
-[projects."/media/manu/1TB-Volume/workspace"]
+[projects."/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace"]
 trust_level = "trusted"
 sandbox_workspace_write.network_access = true   # shape 1: dotted key inside a project table
 network_access = true                            # shape 2: bare key inside a project table
@@ -34,7 +34,7 @@ Fix and verify in one command (it backs the file up first, removes **both** shap
 real top-level table and re-parses the file with `tomllib`):
 
 ```bash
-bash /media/manu/1TB-Volume/workspace/handoff/enable_network.sh
+bash /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/handoff/enable_network.sh
 ```
 
 Measured on the real file: `misplaced lines removed: 2`,
@@ -67,7 +67,7 @@ writable_roots = ["/home/manu/.codex", "/home/manu/.minimax"]
 
 ```toml
 # wrong: inside a project table -> codex ignores it and says so
-[projects."/media/manu/1TB-Volume/workspace"]
+[projects."/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace"]
 trust_level = "trusted"
 writable_roots = ["/home/manu/.codex"]
 ```
@@ -104,10 +104,10 @@ grep -E "workspace/(\.codex|\.agents|\.git|\.aws)" /proc/mounts
 ```
 
 ```
-tmpfs /media/manu/1TB-Volume/workspace/.codex tmpfs ro,...,mode=555
-tmpfs /media/manu/1TB-Volume/workspace/.agents tmpfs ro,...,mode=555
-tmpfs /media/manu/1TB-Volume/workspace/.git   tmpfs ro,...,mode=555
-tmpfs /media/manu/1TB-Volume/workspace/.aws   tmpfs ro,...,mode=555
+tmpfs /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/.codex tmpfs ro,...,mode=555
+tmpfs /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/.agents tmpfs ro,...,mode=555
+tmpfs /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/.git   tmpfs ro,...,mode=555
+tmpfs /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/.aws   tmpfs ro,...,mode=555
 ```
 
 Writing into any of them fails with `Read-only file system (os error 30)`.
@@ -120,12 +120,12 @@ evidence, all measured on the host on 2026-11-03:
 - the app-server keeps writing `~/.codex/sessions/2026/11/03/rollout-....jsonl` (its mtime
   advances in real time) - it runs outside the sandbox;
 - the human edited `~/.codex/config.toml` by hand at 14:24 (mtime `2026-11-03 14:24:37`);
-- `/proc/mounts` shows `/media/manu/1TB-Volume` mounted `ro` while the `<workspace>` sub-path is a
+- `/proc/mounts` shows `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084` mounted `ro` while the `<workspace>` sub-path is a
   **rw** bind - the `ro` flag is per mount point and bwrap can bind a subtree as `rw`:
 
   ```
-  /dev/sdc1 /media/manu/1TB-Volume ext4 ro,nosuid,nodev,relatime 0 0
-  /dev/sdc1 /media/manu/1TB-Volume/workspace ext4 rw,nosuid,nodev,relatime 0 0
+  /dev/sdc1 /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084 ext4 ro,nosuid,nodev,relatime 0 0
+  /dev/sdc1 /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace ext4 rw,nosuid,nodev,relatime 0 0
   ```
 
 => **In the human's own terminal, `cp` into `~/.codex/skills/` always succeeds - no config change

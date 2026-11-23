@@ -1,0 +1,132 @@
+{
+  "osd_dir": "/mnt/data/siping/datasets/manu/龙泉山/osd_sys_sota_trial0080_v3_optgapfit_md16_20261120",
+  "role": "CANDIDATE -- not the delivered OSD set. The DELIVERED set is /mnt/data/siping/datasets/manu/龙泉山/osd_sys_sota_trial0080_v3_optgapfit_20261119 (match_dist=10.0); this one belongs to cc2_md16n (match_dist=16.0, full-caliber FAR 0.029348, only 2.2% headroom), kept switch-ready; switching waits for the board-side FAR re-check.",
+  "pass_count": 21,
+  "un_pass_count": 3,
+  "total": 24,
+  "total_bytes": 5798111900,
+  "total_mb": 5798.1,
+  "size_unit": "MB = 10^6 bytes (decimal); size_mb / total_mb 同口径, total_bytes 为真实字节数",
+  "files": [
+    {
+      "group": "pass",
+      "file": "VIDEO00002_19700101_001415_F1-98.532.mp4",
+      "size_mb": 565.0
+    },
+    {
+      "group": "pass",
+      "file": "VIDEO00003_19700101_002111_F1-92.108.mp4",
+      "size_mb": 394.4
+    },
+    {
+      "group": "pass",
+      "file": "VIDEO00004_19700101_002438_F1-97.055.mp4",
+      "size_mb": 768.8
+    },
+    {
+      "group": "pass",
+      "file": "VIDEO00005_19700101_002959_F1-98.618.mp4",
+      "size_mb": 374.1
+    },
+    {
+      "group": "pass",
+      "file": "VIDEO00006_19700101_000703_F1-99.514.mp4",
+      "size_mb": 57.1
+    },
+    {
+      "group": "pass",
+      "file": "VIDEO00007_19700101_000818_F1-100.000.mp4",
+      "size_mb": 224.9
+    },
+    {
+      "group": "pass",
+      "file": "VIDEO00007_19700101_001324_F1-90.072.mp4",
+      "size_mb": 284.0
+    },
+    {
+      "group": "pass",
+      "file": "VIDEO00008_19700101_001307_F1-99.959.mp4",
+      "size_mb": 109.9
+    },
+    {
+      "group": "pass",
+      "file": "VIDEO00008_19700101_002001_F1-96.092.mp4",
+      "size_mb": 382.7
+    },
+    {
+      "group": "pass",
+      "file": "VIDEO00009_19700101_001531_F1-99.567.mp4",
+      "size_mb": 4.1
+    },
+    {
+      "group": "pass",
+      "file": "VIDEO00009_19700101_003002_F1-98.555.mp4",
+      "size_mb": 17.5
+    },
+    {
+      "group": "pass",
+      "file": "VIDEO00010_19700101_001550_F1-98.733.mp4",
+      "size_mb": 84.9
+    },
+    {
+      "group": "pass",
+      "file": "VIDEO00011_19700101_001810_F1-99.898.mp4",
+      "size_mb": 101.9
+    },
+    {
+      "group": "pass",
+      "file": "VIDEO00028_19700101_013631_F1-99.960.mp4",
+      "size_mb": 147.5
+    },
+    {
+      "group": "pass",
+      "file": "VIDEO00029_19700101_014053_F1-99.747.mp4",
+      "size_mb": 17.6
+    },
+    {
+      "group": "pass",
+      "file": "VIDEO00030_19700101_014144_F1-98.054.mp4",
+      "size_mb": 23.5
+    },
+    {
+      "group": "pass",
+      "file": "VIDEO00031_19700101_014227_F1-99.420.mp4",
+      "size_mb": 73.9
+    },
+    {
+      "group": "pass",
+      "file": "VIDEO00032_19700101_014453_F1-99.880.mp4",
+      "size_mb": 146.1
+    },
+    {
+      "group": "pass",
+      "file": "VIDEO00033_19700101_015000_F1-99.805.mp4",
+      "size_mb": 25.9
+    },
+    {
+      "group": "pass",
+      "file": "VIDEO00034_19700101_015052_F1-100.000.mp4",
+      "size_mb": 28.9
+    },
+    {
+      "group": "pass",
+      "file": "VIDEO00035_19700101_015138_F1-96.664.mp4",
+      "size_mb": 203.3
+    },
+    {
+      "group": "un-pass",
+      "file": "VIDEO00006_19700101_000322_F1-79.007.mp4",
+      "size_mb": 1246.1
+    },
+    {
+      "group": "un-pass",
+      "file": "VIDEO00012_19700101_002251_F1-59.831.mp4",
+      "size_mb": 500.6
+    },
+    {
+      "group": "un-pass",
+      "file": "VIDEO00036_19700101_015740_F1-16.884.mp4",
+      "size_mb": 15.5
+    }
+  ]
+}

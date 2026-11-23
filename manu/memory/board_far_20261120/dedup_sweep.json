@@ -1,0 +1,174 @@
+{
+  "sequence": "VIDEO00007_19700101_001324",
+  "window": [
+    0,
+    2500
+  ],
+  "cands": "manu/memory/align_dn_20261120/real_0080/real_cands.tsv",
+  "server_preds": "/tmp/boardfar/preds_cc2_md10_VIDEO00007.json",
+  "labels_root": "/tmp/boardfar/gt",
+  "params": "manu/evaluation/system_sota_longquan_trial0080_delivery_v3_optgapfit_params.json",
+  "server": {
+    "tp": 1353,
+    "fp": 138,
+    "fn": 1067,
+    "fn_absent": 1067,
+    "fn_compete": 0,
+    "det": 1491,
+    "gt": 2420,
+    "recall": 0.5590909090909091,
+    "precision": 0.9074446680080482,
+    "f1": 0.6918946560981845,
+    "far_per_frame": 0.0552,
+    "frames": 2500
+  },
+  "rows": [
+    {
+      "radius": 0.0,
+      "candidates_kept": 26493,
+      "candidates_per_frame": 10.5972,
+      "board": {
+        "tp": 1343,
+        "fp": 958,
+        "fn": 1077,
+        "fn_absent": 1077,
+        "fn_compete": 0,
+        "det": 2301,
+        "gt": 2420,
+        "recall": 0.5549586776859504,
+        "precision": 0.5836592785745328,
+        "f1": 0.5689472569370897,
+        "far_per_frame": 0.3832,
+        "frames": 2500
+      },
+      "delta_f1": -0.12294739916109476,
+      "delta_far": 0.32799999999999996
+    },
+    {
+      "radius": 16.0,
+      "candidates_kept": 23598,
+      "candidates_per_frame": 9.4392,
+      "board": {
+        "tp": 1348,
+        "fp": 135,
+        "fn": 1072,
+        "fn_absent": 1072,
+        "fn_compete": 0,
+        "det": 1483,
+        "gt": 2420,
+        "recall": 0.5570247933884298,
+        "precision": 0.908968307484828,
+        "f1": 0.6907507045862158,
+        "far_per_frame": 0.054,
+        "frames": 2500
+      },
+      "delta_f1": -0.001143951511968666,
+      "delta_far": -0.0011999999999999997
+    },
+    {
+      "radius": 20.0,
+      "candidates_kept": 22686,
+      "candidates_per_frame": 9.0744,
+      "board": {
+        "tp": 1348,
+        "fp": 122,
+        "fn": 1072,
+        "fn_absent": 1072,
+        "fn_compete": 0,
+        "det": 1470,
+        "gt": 2420,
+        "recall": 0.5570247933884298,
+        "precision": 0.9170068027210885,
+        "f1": 0.6930591259640103,
+        "far_per_frame": 0.0488,
+        "frames": 2500
+      },
+      "delta_f1": 0.0011644698658258568,
+      "delta_far": -0.006399999999999996
+    },
+    {
+      "radius": 24.0,
+      "candidates_kept": 21902,
+      "candidates_per_frame": 8.7608,
+      "board": {
+        "tp": 1348,
+        "fp": 124,
+        "fn": 1072,
+        "fn_absent": 1072,
+        "fn_compete": 0,
+        "det": 1472,
+        "gt": 2420,
+        "recall": 0.5570247933884298,
+        "precision": 0.9157608695652174,
+        "f1": 0.6927029804727648,
+        "far_per_frame": 0.0496,
+        "frames": 2500
+      },
+      "delta_f1": 0.0008083243745803381,
+      "delta_far": -0.005600000000000001
+    },
+    {
+      "radius": 32.0,
+      "candidates_kept": 20623,
+      "candidates_per_frame": 8.2492,
+      "board": {
+        "tp": 1348,
+        "fp": 122,
+        "fn": 1072,
+        "fn_absent": 1072,
+        "fn_compete": 0,
+        "det": 1470,
+        "gt": 2420,
+        "recall": 0.5570247933884298,
+        "precision": 0.9170068027210885,
+        "f1": 0.6930591259640103,
+        "far_per_frame": 0.0488,
+        "frames": 2500
+      },
+      "delta_f1": 0.0011644698658258568,
+      "delta_far": -0.006399999999999996
+    },
+    {
+      "radius": 64.0,
+      "candidates_kept": 16705,
+      "candidates_per_frame": 6.682,
+      "board": {
+        "tp": 1357,
+        "fp": 119,
+        "fn": 1063,
+        "fn_absent": 1063,
+        "fn_compete": 0,
+        "det": 1476,
+        "gt": 2420,
+        "recall": 0.5607438016528926,
+        "precision": 0.9193766937669376,
+        "f1": 0.696611909650924,
+        "far_per_frame": 0.0476,
+        "frames": 2500
+      },
+      "delta_f1": 0.004717253552739553,
+      "delta_far": -0.007599999999999996
+    },
+    {
+      "radius": 768.0,
+      "candidates_kept": 2503,
+      "candidates_per_frame": 1.0012,
+      "board": {
+        "tp": 1287,
+        "fp": 49,
+        "fn": 1133,
+        "fn_absent": 1133,
+        "fn_compete": 0,
+        "det": 1336,
+        "gt": 2420,
+        "recall": 0.5318181818181819,
+        "precision": 0.9633233532934131,
+        "f1": 0.6853035143769968,
+        "far_per_frame": 0.0196,
+        "frames": 2500
+      },
+      "delta_f1": -0.006591141721187688,
+      "delta_far": -0.0356
+    }
+  ]
+}

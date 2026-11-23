@@ -23,7 +23,7 @@
 # Usage: bash zero_regression_pin.sh [OLD_BIN] [NEW_BIN]
 # ===========================================================================
 set -u
-HERE=/media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/opencl/board
+HERE=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/pipeline/opencl/board
 OLD=${1:-/tmp/gmc_stream_ocl_cap}
 NEW=${2:-/tmp/gmc_pin}
 B=$HERE/.bench_bmp

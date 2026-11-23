@@ -1,0 +1,44 @@
+{
+  "tau_det": {
+    "ir": 4.028514862060547,
+    "vis": 82.0396743774414
+  },
+  "detail": {
+    "ir": {
+      "tau_det": 4.028514862060547,
+      "rule": "P10 of the pooled per-cell Laplacian variance of the good clips of this modality",
+      "good_clips": [
+        "VIDEO00007_19700101_012038IR.h264",
+        "VIDEO00008_19700101_012152IR.h264",
+        "VIDEO00009_19700101_012439IR.h264",
+        "VIDEO00010_19700101_012614IR.h264",
+        "VIDEO00011_19700101_012742IR.h264",
+        "VIDEO00012_19700101_012759IR.h264"
+      ],
+      "good_cells": 39504,
+      "good_cell_p50": 41.399024963378906,
+      "good_cell_p90": 283.6045806884766
+    },
+    "vis": {
+      "tau_det": 82.0396743774414,
+      "rule": "P10 of the pooled per-cell Laplacian variance of the good clips of this modality",
+      "good_clips": [
+        "VIDEO00011_19700101_010155VIS.h264",
+        "VIDEO00012_19700101_010308VIS.h264",
+        "VIDEO00013_19700101_010416VIS.h264",
+        "VIDEO00014_19700101_010442VIS.h264",
+        "VIDEO00015_19700101_010552VIS.h264",
+        "VIDEO00016_19700101_010724VIS.h264",
+        "VIDEO00017_19700101_010835VIS.h264",
+        "VIDEO00018_19700101_011142VIS.h264",
+        "VIDEO00019_19700101_011317VIS.h264",
+        "VIDEO00020_19700101_011424VIS.h264",
+        "VIDEO00021_19700101_011542VIS.h264",
+        "VIDEO00022_19700101_011719VIS.h264"
+      ],
+      "good_cells": 68112,
+      "good_cell_p50": 1314.8912963867188,
+      "good_cell_p90": 5944.225048828127
+    }
+  }
+}

@@ -26,7 +26,7 @@ SERVER=huangzhe@192.168.99.40
 PORT=32222
 REPO=/tmp/pycharm_project_10ae9e2e
 SEQ=VIDEO00007_19700101_001324
-LOCAL_OUT=/media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu/results/svc_arms
+LOCAL_OUT=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/pipeline/npu/results/svc_arms
 
 ARMS=("$@")
 if [ ${#ARMS[@]} -eq 0 ]; then

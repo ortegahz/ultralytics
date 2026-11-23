@@ -89,7 +89,7 @@ def hook_all(model: nn.Module) -> tuple[list, list]:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--weights",
-                    default="/home/manu/mnt/pycharm_project_10ae9e2e/runs/optuna_p0_nas/"
+                    default="/home/manu/mnt/pycharm_project_a7d966e6/runs/optuna_p0_nas/"
                             "trial_0474/weights/best.pt")
     ap.add_argument("--imgsz", type=int, default=640)
     args = ap.parse_args()

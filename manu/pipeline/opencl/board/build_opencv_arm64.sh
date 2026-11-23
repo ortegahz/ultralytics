@@ -50,16 +50,16 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 JOBS="${1:-4}"
 
-SRC="${OPENCV_SRC:-/media/manu/1TB-Volume/workspace/opencv-4.10.0-arm64}"
-BUILD="${OPENCV_BUILD:-/media/manu/1TB-Volume/workspace/opencv-4.10.0-arm64-build}"
-INSTALL="${OPENCV_INSTALL:-/media/manu/1TB-Volume/workspace/opencv-4.10.0-arm64-install}"
+SRC="${OPENCV_SRC:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/opencv-4.10.0-arm64}"
+BUILD="${OPENCV_BUILD:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/opencv-4.10.0-arm64-build}"
+INSTALL="${OPENCV_INSTALL:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/opencv-4.10.0-arm64-install}"
 TOOLCHAIN="$HERE/rk3588-aarch64-toolchain.cmake"
 
 # The system CMake is 4.x, which hard-errors on OpenCV 4.10's
 # `cmake_minimum_required(VERSION 3.1)`. A local 3.x is used instead of patching
 # the worktree, so the source stays byte-identical to the 4.10.0 tag.
-CMAKE="${CMAKE:-/media/manu/1TB-Volume/workspace/tools/cmake-3.31.6-linux-x86_64/bin/cmake}"
-NINJA="${NINJA:-/media/manu/1TB-Volume/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu/bin/other_exe/ninja}"
+CMAKE="${CMAKE:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/tools/cmake-3.31.6-linux-x86_64/bin/cmake}"
+NINJA="${NINJA:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu/bin/other_exe/ninja}"
 
 die() { echo "[ERROR] $*" >&2; exit 1; }
 

@@ -1,0 +1,69 @@
+{
+  "sequence": "VIDEO00007_19700101_001324",
+  "board_tsv": "/tmp/boardfar/fused_dedup24.tsv",
+  "server_preds": "/tmp/boardfar/preds_cc2_md10_VIDEO00007.json",
+  "labels_root": "/tmp/boardfar/gt",
+  "tol": 8.0,
+  "window": [
+    0,
+    2500
+  ],
+  "board": {
+    "tp": 1348,
+    "fp": 124,
+    "fn": 1072,
+    "fn_absent": 1072,
+    "fn_compete": 0,
+    "det": 1472,
+    "gt": 2420,
+    "recall": 0.5570247933884298,
+    "precision": 0.9157608695652174,
+    "f1": 0.6927029804727648,
+    "far_per_frame": 0.0496,
+    "window": [
+      0,
+      2500
+    ],
+    "frames": 2500,
+    "frames_with_detection": 1402
+  },
+  "server": {
+    "tp": 1353,
+    "fp": 138,
+    "fn": 1067,
+    "fn_absent": 1067,
+    "fn_compete": 0,
+    "det": 1491,
+    "gt": 2420,
+    "recall": 0.5590909090909091,
+    "precision": 0.9074446680080482,
+    "f1": 0.6918946560981845,
+    "far_per_frame": 0.0552,
+    "window": [
+      0,
+      2500
+    ],
+    "frames": 2500,
+    "frames_with_detection": 1485
+  },
+  "delta": {
+    "f1": 0.0008083243745803381,
+    "far_per_frame": -0.005600000000000001,
+    "tp": -5,
+    "fp": -14,
+    "fn": 5
+  },
+  "agreement": {
+    "board_tracks": 1472,
+    "server_tracks": 1491,
+    "matched": 1231,
+    "match_rate_vs_board": 0.8362771739130435,
+    "match_rate_vs_server": 0.8256203890006707,
+    "pos_delta_mean": 1.5316551843261537,
+    "pos_delta_p95": 5.888046673573069,
+    "pos_delta_max": 7.966808970064809,
+    "score_delta_mean": 0.06419772143790026,
+    "score_delta_p95": 0.2909164430625001,
+    "score_delta_max": 0.57934951785
+  }
+}

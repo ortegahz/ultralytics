@@ -1,0 +1,21 @@
+{
+  "_winner": "cc2_md10",
+  "_why": "Among all candidates whose per-frame FAR stays under the 0.03 red line, this one has the highest JUMP-arm F1 among the FAR-compliant candidates (0.951398 on the 4000-frame caliber, deterministic zlib.crc32 re-measurement; the pre-fix sampler's 0.952015 is 作废) and it strictly dominates the previous gapfit set on BOTH per-frame metrics (FAR 0.0279 vs 0.0351, F1 94.498% vs 94.375%).",
+  "_knobs": {
+    "confirm_consec": 2,
+    "confirm_gap_tol": 8,
+    "max_age_phys": null,
+    "r_slope": 5.0,
+    "alpha_decay": 1.0,
+    "match_dist": 10.0,
+    "min_hits": 3
+  },
+  "_full_caliber": {
+    "frames": 165223, "gt": 133257, "tp": 123480, "fp": 4603, "fn": 9777,
+    "recall": 0.9266, "precision": 0.9641, "f1": 0.94498, "far_per_frame": 0.0279
+  },
+  "_v3_full_caliber": {
+    "frames": 165223, "gt": 133257, "tp": 123068, "fp": 3440, "fn": 10189,
+    "recall": 0.9235, "precision": 0.9728, "f1": 0.94753, "far_per_frame": 0.0208
+  }
+}

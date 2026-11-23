@@ -1,0 +1,363 @@
+{
+  "_what": "two-stage selection: the searcher maximises the jump arm on the truncated caliber; the DELIVERY judgement (FAR <= 0.03 on the FULL caliber) is applied here and is what actually decides the shipped parameters.",
+  "_why_two_stages": "the 4000-frame truncated caliber UNDER-reports FAR by about +0.005..0.006 absolute, so a set that is green on the truncated caliber can still break the 0.03 red line on the full caliber (measured: the run-2 objective-best scores FAR 0.029013 truncated but 0.0352 on the full caliber -> rejected).",
+  "delivery_criteria": {
+    "far_max": 0.03,
+    "f1_min": 0.88,
+    "recall_min": 0.85,
+    "f1_regression_vs_v3": "reported, must be small"
+  },
+  "v3_baseline_full_caliber": {
+    "f1": 0.9475333474486556,
+    "far_per_frame": 0.020820345835628213,
+    "recall": 0.9235387259205895,
+    "precision": 0.9728080437600785,
+    "tp": 123068,
+    "fp": 3440,
+    "fn": 10189,
+    "gt": 133257
+  },
+  "search_runs": {
+    "run1_hashseed": {
+      "search_json": "/mnt/data/siping/runs/trial0080_onnx/search/rt_search_t0080_v3.json",
+      "elapsed_s": 2212.4,
+      "objective_best_knobs": {
+        "confirm_consec": 7,
+        "confirm_gap_tol": 0,
+        "max_age_phys": 18,
+        "r_slope": 5.0,
+        "alpha_decay": 1.0,
+        "match_dist": 16.0,
+        "min_hits": 3
+      },
+      "note": "the searcher's own feasibility filter uses the TRUNCATED (4000-frame) caliber"
+    },
+    "run2_hashseed_other_cadence": {
+      "search_json": "/mnt/data/siping/runs/trial0080_onnx/search/rt_search_t0080_v3_final.json",
+      "elapsed_s": 2163.0,
+      "objective_best_knobs": {
+        "confirm_consec": 2,
+        "confirm_gap_tol": 8,
+        "max_age_phys": 10,
+        "r_slope": 5.0,
+        "alpha_decay": 1.0,
+        "match_dist": 16.0,
+        "min_hits": 3
+      },
+      "note": "the searcher's own feasibility filter uses the TRUNCATED (4000-frame) caliber"
+    },
+    "run3_crc32_fixed_seed": {
+      "search_json": "/mnt/data/siping/runs/trial0080_onnx/search/rt_search_t0080_v3_seedfix.json",
+      "elapsed_s": 2132.4,
+      "objective_best_knobs": {
+        "confirm_consec": 2,
+        "confirm_gap_tol": 8,
+        "max_age_phys": 10,
+        "r_slope": 5.0,
+        "alpha_decay": 1.0,
+        "match_dist": 16.0,
+        "min_hits": 3
+      },
+      "note": "the searcher's own feasibility filter uses the TRUNCATED (4000-frame) caliber"
+    }
+  },
+  "full_caliber_measurements": {
+    "cc2_md10": {
+      "knobs": {
+        "confirm_consec": 2,
+        "confirm_gap_tol": 8,
+        "max_age_phys": null,
+        "r_slope": 5.0,
+        "alpha_decay": 1.0,
+        "match_dist": 10.0,
+        "min_hits": 3
+      },
+      "full_caliber": {
+        "f1": 0.9449758934721054,
+        "far_per_frame": 0.02785931740738275,
+        "recall": 0.9266304959589365,
+        "precision": 0.9640623658096703,
+        "tp": 123480,
+        "fp": 4603,
+        "fn": 9777,
+        "gt": 133257
+      }
+    },
+    "cc2_md12": {
+      "knobs": {
+        "confirm_consec": 2,
+        "confirm_gap_tol": 8,
+        "max_age_phys": null,
+        "r_slope": 5.0,
+        "alpha_decay": 1.0,
+        "match_dist": 12.0,
+        "min_hits": 3
+      },
+      "full_caliber": {
+        "f1": 0.9451655203789441,
+        "far_per_frame": 0.028440350314423535,
+        "recall": 0.9276285673548106,
+        "precision": 0.9633783278259244,
+        "tp": 123613,
+        "fp": 4699,
+        "fn": 9644,
+        "gt": 133257
+      }
+    },
+    "cc2_md16n": {
+      "knobs": {
+        "confirm_consec": 2,
+        "confirm_gap_tol": 8,
+        "max_age_phys": null,
+        "r_slope": 5.0,
+        "alpha_decay": 1.0,
+        "match_dist": 16.0,
+        "min_hits": 3
+      },
+      "full_caliber": {
+        "f1": 0.9458040089766881,
+        "far_per_frame": 0.029348214231674767,
+        "recall": 0.9298273261442176,
+        "precision": 0.9623393266280921,
+        "tp": 123906,
+        "fp": 4849,
+        "fn": 9351,
+        "gt": 133257
+      }
+    },
+    "cc2_md8": {
+      "knobs": {
+        "confirm_consec": 2,
+        "confirm_gap_tol": 8,
+        "max_age_phys": null,
+        "r_slope": 5.0,
+        "alpha_decay": 1.0,
+        "match_dist": 8.0,
+        "min_hits": 3
+      },
+      "full_caliber": {
+        "f1": 0.944841624275972,
+        "far_per_frame": 0.026455154548700847,
+        "recall": 0.9248219605724277,
+        "precision": 0.9657471984954157,
+        "tp": 123239,
+        "fp": 4371,
+        "fn": 10018,
+        "gt": 133257
+      }
+    },
+    "cc3_md10": {
+      "knobs": {
+        "confirm_consec": 3,
+        "confirm_gap_tol": 8,
+        "max_age_phys": null,
+        "r_slope": 5.0,
+        "alpha_decay": 1.0,
+        "match_dist": 10.0,
+        "min_hits": 3
+      },
+      "full_caliber": {
+        "f1": 0.9450970769561083,
+        "far_per_frame": 0.02611621868626039,
+        "recall": 0.9249195164231523,
+        "precision": 0.9661746376413963,
+        "tp": 123252,
+        "fp": 4315,
+        "fn": 10005,
+        "gt": 133257
+      }
+    },
+    "cc3_md16": {
+      "knobs": {
+        "confirm_consec": 3,
+        "confirm_gap_tol": 8,
+        "max_age_phys": null,
+        "r_slope": 5.0,
+        "alpha_decay": 1.0,
+        "match_dist": 16.0,
+        "min_hits": 3
+      },
+      "full_caliber": {
+        "f1": 0.9459393346379648,
+        "far_per_frame": 0.02802878533860298,
+        "recall": 0.9286116301582656,
+        "precision": 0.9639259980525803,
+        "tp": 123744,
+        "fp": 4631,
+        "fn": 9513,
+        "gt": 133257
+      }
+    },
+    "cc4_md10": {
+      "knobs": {
+        "confirm_consec": 4,
+        "confirm_gap_tol": 8,
+        "max_age_phys": null,
+        "r_slope": 5.0,
+        "alpha_decay": 1.0,
+        "match_dist": 10.0,
+        "min_hits": 3
+      },
+      "full_caliber": {
+        "f1": 0.9453388545836228,
+        "far_per_frame": 0.025111515951169026,
+        "recall": 0.9242516340604996,
+        "precision": 0.9674107703908508,
+        "tp": 123163,
+        "fp": 4149,
+        "fn": 10094,
+        "gt": 133257
+      }
+    },
+    "cc5_md10": {
+      "knobs": {
+        "confirm_consec": 5,
+        "confirm_gap_tol": 8,
+        "max_age_phys": null,
+        "r_slope": 5.0,
+        "alpha_decay": 1.0,
+        "match_dist": 10.0,
+        "min_hits": 3
+      },
+      "full_caliber": {
+        "f1": 0.9454623659217555,
+        "far_per_frame": 0.024439696652403115,
+        "recall": 0.9237338376220386,
+        "precision": 0.9682377371550829,
+        "tp": 123094,
+        "fp": 4038,
+        "fn": 10163,
+        "gt": 133257
+      }
+    },
+    "cc6_md10": {
+      "knobs": {
+        "confirm_consec": 6,
+        "confirm_gap_tol": 8,
+        "max_age_phys": null,
+        "r_slope": 5.0,
+        "alpha_decay": 1.0,
+        "match_dist": 10.0,
+        "min_hits": 3
+      },
+      "full_caliber": {
+        "f1": 0.9455560082092592,
+        "far_per_frame": 0.023743667649177173,
+        "recall": 0.9231334939252722,
+        "precision": 0.9690949053467468,
+        "tp": 123014,
+        "fp": 3923,
+        "fn": 10243,
+        "gt": 133257
+      }
+    },
+    "cc7_md10": {
+      "knobs": {
+        "confirm_consec": 7,
+        "confirm_gap_tol": 8,
+        "max_age_phys": null,
+        "r_slope": 5.0,
+        "alpha_decay": 1.0,
+        "match_dist": 10.0,
+        "min_hits": 3
+      },
+      "full_caliber": {
+        "f1": 0.945803940272788,
+        "far_per_frame": 0.022872118288615993,
+        "recall": 0.9226232017830208,
+        "precision": 0.9701795225882817,
+        "tp": 122946,
+        "fp": 3779,
+        "fn": 10311,
+        "gt": 133257
+      }
+    },
+    "old_gapfit": {
+      "knobs": {
+        "confirm_consec": 2,
+        "confirm_gap_tol": 6,
+        "max_age_phys": 10,
+        "r_slope": 3.5,
+        "alpha_decay": 1.0,
+        "match_dist": 16.0,
+        "min_hits": 3
+      },
+      "full_caliber": {
+        "f1": 0.9437549371088291,
+        "far_per_frame": 0.0351282811715076,
+        "recall": 0.9324163083365227,
+        "precision": 0.9553727269232248,
+        "tp": 124251,
+        "fp": 5804,
+        "fn": 9006,
+        "gt": 133257
+      }
+    },
+    "rerun_selected": {
+      "knobs": {
+        "confirm_consec": 2,
+        "confirm_gap_tol": 8,
+        "max_age_phys": 10,
+        "r_slope": 5.0,
+        "alpha_decay": 1.0,
+        "match_dist": 16.0,
+        "min_hits": 3
+      },
+      "full_caliber": {
+        "f1": 0.9437486233375614,
+        "far_per_frame": 0.03515249087596763,
+        "recall": 0.9324313169289418,
+        "precision": 0.9553440308778188,
+        "tp": 124253,
+        "fp": 5808,
+        "fn": 9004,
+        "gt": 133257
+      }
+    }
+  },
+  "delivered": {
+    "name": "cc2_md10",
+    "params_file": "manu/evaluation/system_sota_longquan_trial0080_delivery_v3_optgapfit_params.json",
+    "knobs": {
+      "confirm_consec": 2,
+      "confirm_gap_tol": 8,
+      "max_age_phys": null,
+      "r_slope": 5.0,
+      "alpha_decay": 1.0,
+      "match_dist": 10.0,
+      "min_hits": 3
+    },
+    "full_caliber": {
+      "f1": 0.9449758934721054,
+      "far_per_frame": 0.02785931740738275,
+      "recall": 0.9266304959589365,
+      "precision": 0.9640623658096703,
+      "tp": 123480,
+      "fp": 4603,
+      "fn": 9777,
+      "gt": 133257
+    },
+    "jump_arm_f1_4000f": 0.951398,
+    "jump_arm_dense_f1_4000f": 0.93834,
+    "jump_arm_source": "shortlist_deterministic.json (deterministic zlib.crc32 sampler); the pre-fix hash() sampler's numbers are 作废 and are NOT repeated here",
+    "why": "highest JUMP-arm F1 among every candidate that holds the FAR red line on the FULL caliber (jump mean F1 0.951398, deterministic re-measurement); and it dominates the previous gapfit set on BOTH per-frame metrics (F1 94.4976% vs 94.3755%, FAR 0.0279 vs 0.0351)."
+  },
+  "_deterministic_remeasure_20261120": {
+    "why": "The jump-arm numbers quoted in the original _why were measured with the PRE-FIX cadence sampler (hash() -> zlib.crc32 landed at 21:23); they were re-measured on 2026-11-19 23:31~2026-11-20 00:08 with the deterministic sampler (one process, one cache load, 14 candidates, 1562.8 s). Products: shortlist_deterministic.json + rt_eval_delivered_armA.json (cross-checked cell by cell).",
+    "source": "shortlist_deterministic.json",
+    "v3_untuned_jump_physical_mean_f1": 0.084122,
+    "delivered_cc2_md10_jump_physical_mean_f1": 0.951398,
+    "delivered_cc2_md10_jump_dense_mean_f1": 0.93834,
+    "v3_base_jump_dense_mean_f1": 0.92206,
+    "perframe_ceiling_v3_truncated_f1": 0.960186,
+    "perframe_ceiling_v3_truncated_far": 0.017558,
+    "highest_jump_among_far_compliant": "cc2_md16n (0.951693, full FAR 0.029348)",
+    "selection_correction": "cc2_md16n beats the delivered cc2_md10 on BOTH the jump arm (0.951693 vs 0.951398, +0.03pp = noise) and the per-frame F1 (94.5804% vs 94.4976%), but leaves only 2.2% FAR headroom vs the delivered 7.1%. The delivery stays cc2_md10: 0.03pp of jump F1 for 3x the FAR margin. cc2_md16n is compliant and its full-caliber track run already exists (eval/shortlist/track_cc2_md16n.json) -- switch = new params file + re-render OSD.",
+    "delivery_judgement_unchanged": {
+      "f1": 0.944975893472,
+      "far_per_frame": 0.027859317407,
+      "v3_f1": 0.947533,
+      "v3_far": 0.02082
+    }
+  }
+}

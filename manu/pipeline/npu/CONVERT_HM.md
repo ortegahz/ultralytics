@@ -25,8 +25,8 @@
 根分区 `/dev/sda1` 仅剩 **15 GB / 93% 已用**；板卡 `/` 也只剩 **1.7 GB**。
 
 ```
-P=/media/manu/1TB-Volume/conda-envs/rknn230   # rknn-toolkit2 2.3.0（与板卡 runtime 同 commit c949ad889d）
-W=/media/manu/1TB-Volume/rknn_work/hm         # 中间产物 / 标定清单 / 参考臂输出
+P=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/conda-envs/rknn230   # rknn-toolkit2 2.3.0（与板卡 runtime 同 commit c949ad889d）
+W=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/hm         # 中间产物 / 标定清单 / 参考臂输出
 ```
 
 ⚠️ **toolkit 版本必须与板卡 `librknnrt` 对齐**，本轮是 **2.3.0**。
@@ -68,7 +68,7 @@ W=/media/manu/1TB-Volume/rknn_work/hm         # 中间产物 / 标定清单 / �
 **交付主线（复制即可，v3 去 p0）**：
 
 ```bash
-cd /media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu
+cd /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/pipeline/npu
 
 # 1) 导出 ONNX（训练后移除 P0 Highway）
 $P/bin/python hm_export_onnx.py --weights <best.pt> \
@@ -134,7 +134,7 @@ grep -oE '^[DWI] RKNN: \[[0-9:.]+\] [0-9]+ +[A-Za-z0-9_./]+ +[A-Z0-9]+ +(CPU|NPU
 ## 五、交叉编译
 
 ```bash
-cd /media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu
+cd /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/pipeline/npu
 ./build_rknn_heatmap_arm64.sh          # → out/rknn_heatmap_smoke
 ```
 
@@ -253,7 +253,7 @@ $P/bin/python hm_osd.py --mode single --image <feature.jpg> --ref $W/ref_val600 
 - [ ] 算子表里落 CPU 的**计算算子数 = 0**（`InputOperator` / `OutputOperator` 属 I/O 边界，**不计入**）
 
 ```bash
-L=/media/manu/1TB-Volume/rknn_work/hm/logs/build_nop0_final.log   # ← 改成你本次构建实际留下的日志
+L=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/hm/logs/build_nop0_final.log   # ← 改成你本次构建实际留下的日志
 test -s "$L" || { echo "❌ 日志不存在/为空，闸门无法判定"; exit 1; }   # 否则 grep 会静默判过
 grep -oE '^[DWI] RKNN: \[[0-9:.]+\] [0-9]+ +[A-Za-z0-9_./]+ +[A-Z0-9]+ +(CPU|NPU|GPU)' "$L" \
   | awk '{print $NF}' | sort | uniq -c
@@ -320,7 +320,7 @@ v1 的 **2 条** Transpose 超限警告被 toolkit **合并进了同一个 `Resh
 ### 10.2 一条命令的完整用法
 
 ```bash
-cd /media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu
+cd /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/pipeline/npu
 
 export RK3588_PASSWORD=...          # 只经环境变量传入，绝不落盘
 
@@ -338,7 +338,7 @@ export RK3588_PASSWORD=...          # 只经环境变量传入，绝不落盘
 | `--limit <n>` | GMC 侧只跑前 n 帧（调试用；正式跑必须 0） |
 | `--th <f>` | 检出阈值，默认 **0.25**，必须与 CPU 权威臂一致 |
 | `--skip-build` | 跳过两个交叉编译步骤 |
-| `OUT_ROOT` | host 侧 CPU 臂与报告的落盘根，默认 `/media/manu/1TB-Volume/rknn_work/hm` |
+| `OUT_ROOT` | host 侧 CPU 臂与报告的落盘根，默认 `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/hm` |
 | `RK3588_PASSWORD` | **只走环境变量**；不设脚本直接退出 |
 
 ⚠️ 脚本第 6 步会检查 `$OUT_ROOT/<seq>/ref_cpu/detections.json`；
@@ -348,13 +348,13 @@ export RK3588_PASSWORD=...          # 只经环境变量传入，绝不落盘
 ### 10.3 手工分步版（脚本失败时照这个走）
 
 ```bash
-PY=/media/manu/1TB-Volume/conda-envs/rknn230/bin/python
-BR=/media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/opencl/board/board_run.py
+PY=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/conda-envs/rknn230/bin/python
+BR=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/pipeline/opencl/board/board_run.py
 SEQ=34_1
 NFS_DIR=/run/media/manu/SSD960-LOCAL/nfs/npu/out/demo/$SEQ   # host 侧新导出 == 板卡的 /mnt/manu/npu/out/demo/$SEQ（旧 /home/manu/nfs 已不导出）
 BOARD_DIR=/mnt/manu/npu/out/demo/$SEQ
 FROZEN=/home/manu/mnt/data/siping/datasets/manu/uav_gmc_median/images/val
-WORK=/media/manu/1TB-Volume/rknn_work/hm/$SEQ
+WORK=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/hm/$SEQ
 
 # ① host：原始帧 → 8bit 灰度 BMP（放进板卡可见的 NFS）
 mkdir -p $NFS_DIR/raw/$SEQ

@@ -39,8 +39,8 @@ Input quantization contract (must match the board-side C++ exactly):
 
 Usage:
     python yolo26n_export_onnx.py \
-        --weights /media/manu/1TB-Volume/rknn_work/yolo26n/yolo26n.pt \
-        --out     /media/manu/1TB-Volume/rknn_work/yolo26n/yolo26n.onnx \
+        --weights /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/yolo26n/yolo26n.pt \
+        --out     /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/yolo26n/yolo26n.onnx \
         --imgsz 640 --opset 12
 """
 

@@ -185,7 +185,7 @@
 ### 6.3 构建命令
 
 ```bash
-cd /media/manu/1TB-Volume/workspace/ultralytics
+cd /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics
 export LC_ALL=C
 MOSAIC_NO_DEPLOY=1 bash manu/pipeline/npu/build_mosaic_pipeline_arm64.sh
 ```

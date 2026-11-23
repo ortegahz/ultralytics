@@ -86,7 +86,7 @@ def main():
     weights_path = Path(args.weights)
     if not weights_path.exists():
         # Fallback candidate for local mounts
-        cand = Path("/home/manu/mnt/pycharm_project_10ae9e2e") / args.weights
+        cand = Path("/home/manu/mnt/pycharm_project_a7d966e6") / args.weights
         if cand.exists():
             weights_path = cand
 

@@ -44,13 +44,14 @@ os.chdir(REPO)
 from manu.pipeline.npu import six_criteria_audit as A  # noqa: E402
 from manu.pipeline.npu import nano_search as ns  # noqa: PLC0415
 from manu.pipeline.npu import family_key as FK  # noqa: PLC0415  （家族键唯一权威口径）
+from manu.pipeline.npu import t4_criterion as T4  # noqa: PLC0415  （板卡 T4 红线唯一真源）
 
 PY = "/home/huangzhe/anaconda3/envs/uav/bin/python"
 RUNS = "/mnt/data/siping/runs/npu20ms/nano_search"
 LEDGER = f"{RUNS}/nano_search_ledger.json"
 MEASURED = "/mnt/data/siping/runs/npu20ms/board_measure_auto/measured.json"
 MEM = os.path.join(REPO, "manu", "memory", "memory.md")
-LIMIT_MS = 19.989
+LIMIT_MS = T4.LIMIT_MS
 
 
 def log(msg: str) -> None:
@@ -70,8 +71,19 @@ def family_key(row: dict, led: dict) -> str:
 
 
 def board_pass_map() -> dict:
+    """板卡 T4 判定表：{(trial, ep): (ms, pass)}。
+
+    🔴🔴🔴 2026-11-20 14:35 —— **必须用 `measured.json` 里已经算好的 `pass_t4`，不能自己重算绝对口径**。
+      旧版这里写死 `bool(float(ms) <= LIMIT_MS)` ⇒ **把「同会话相对基线」口径的结果整个丢掉**。
+      现场事故（2026-11-20 14:00 实测）：板卡读数**热漂移 ±0.5 ms**（红线 19.989 正落在漂移带中央）
+      ⇒ 同一张计算图（基线家族 bw10 克隆臂）现在测出 19.94~21.46 ms
+      ⇒ 绝对口径把它们**全部误判 FAIL** ⇒ `auto_promote` 永远凑不齐 T4 PASS ⇒ **升轨链断链**。
+      `board_t4_watch` 写出的 `pass_t4` 已经是 `ok_abs or ok_rel`（相对口径用同会话基线读数抵消漂移）
+      ⇒ 这里**只信它**；老条目没有 `pass_t4` 字段时才退回绝对口径。
+    """
     try:
-        d = json.load(open(MEASURED))
+        with open(MEASURED, encoding="utf-8") as fh:
+            d = json.load(fh)
     except Exception:  # noqa: BLE001
         return {}
     out = {}
@@ -81,7 +93,8 @@ def board_pass_map() -> dict:
             continue
         m = re.match(r"^(\d+)_ep(\d+)$", str(k))
         if m:
-            out[(int(m.group(1)), int(m.group(2)))] = (float(ms), bool(float(ms) <= LIMIT_MS))
+            ok = T4.stored_pass(v)
+            out[(int(m.group(1)), int(m.group(2)))] = (float(ms), ok)
     return out
 
 
@@ -333,8 +346,8 @@ def run_once() -> None:
         for r, ms in with_board:
             cands.append((r, key, len(members), ms))
     if best is None:
-        log("[结论] 无满足「n≥4 + 板卡 T4」的新候选 ⇒ 不动基线")
-        return
+        # 🔴 2026-11-20 R1修复：**不再直接 return** ⇒ 继续检查「单臂严格支配」通道
+        log("[结论] 无满足「n≥4 + 板卡 T4」的家族候选 ⇒ 继续检查「单臂严格支配」通道")
     # 🔴 2026-11-19 14:12 **候选同分时的决胜键**：nano 相同（同 soup 族）时
     #   按 t1 > t3 > nano4 > f1 选最优 ⇒ 同一族里挑「最强的那一票」，而不是碰运气。
     cands.sort(key=lambda c: (not seed_ok(c[0]), -(c[0].get("nano") or 0),
@@ -351,19 +364,102 @@ def run_once() -> None:
         "f1": float(base.get("f1") or 0), "t1": float(base.get("t1") or 0),
         "t3": float(base.get("t3") or 0),
     }
+    # 🟢🟢🟢 2026-11-19 16:40 —— **「严格更优」轴清单补上 T2 轨**（原来漏了！）
+    #   原实现只认 nano / nano4 / f1 / t1 / t3 五轴 ⇒ **T2（龙泉山金标准池）被完全无视**。
+    #   而六项判据里明明有 **T2 虚警数（t2_fp）** 这一项，且任务书红线就是 `t2_fp ≤ 5`。
+    #   ⇒ 后果：在 bw10 族里 nano/nano4/F1/T1/T3 全是**恒等/平台**（动不了），
+    #     **唯一还能变好的是 T2**（虚警 4 → 3，见 trial_2020036：T2 .9931631 > .9931331、t2_fp 3 < 4）
+    #     ⇒ 这类臂**永远会被当成「纯打平」剔掉** ⇒ 升轨链断在最后一环。
+    #   修法：把 t2_fp（更少虚警）与 t2（更高 F1）也算作「严格更优」轴。
+    #   ⚠️ **不放宽任何「≥ 基线」的门槛**（七项判据仍全部要过）⇒ 不会造成基线名通胀。
+    # ⚠️ 用**基线臂自己的官方读数**（arms[base_trial].official）作 T2 参照，
+    #   而不是 baseline_v2 摘要里的 t2（两者可能来自不同批次运行，差 ~6e-5）
+    #   ⇒ 避免把「只是比摘要值高一点」的臂误判成 T2 严格更优。
+    try:
+        _a98 = (led.get("arms") or {}).get(str(base_trial)) or {}
+        _o98 = _a98.get("official") or {}
+    except Exception:  # noqa: BLE001
+        _o98 = {}
+    _bm_t2 = float(_o98.get("t2") or base.get("t2") or 0)
+    _bm_t2fp = int(_o98.get("t2_fp") or base.get("t2_fp") or 0)
 
     def _strictly_better(r: dict) -> bool:
         if int(r.get("trial")) == base_trial:
             return False
-        return (float(r.get("nano") or 0) > _bm["nano"]
+        if (float(r.get("nano") or 0) > _bm["nano"]
                 or float(r.get("nano4") or 0) > _bm["nano4"]
                 or float(r.get("f1") or 0) > _bm["f1"]
                 or float(r.get("t1") or 0) > _bm["t1"]
-                or float(r.get("t3") or 0) > _bm["t3"])
+                or float(r.get("t3") or 0) > _bm["t3"]):
+            return True
+        # T2 轨：虚警更少（金标准池）/ F1 更高
+        if _bm_t2fp > 0 and int(r.get("t2_fp") or 999) < _bm_t2fp:
+            return True
+        if _bm_t2 > 0 and float(r.get("t2") or 0) > _bm_t2 + 1e-12:
+            return True
+        return False
 
     _n0 = len(cands)
     cands = [c for c in cands if _strictly_better(c[0])]
     log(f"[过滤] 剔除「基线本体/纯打平」候选 {_n0} ⇒ {len(cands)}（防基线名通胀）")
+
+    # ============================================================================
+    # 🔴🔴🔴 2026-11-20 R1修复 —— **「单臂严格支配」候选通道**（训练臂 / 抛光臂）
+    # ============================================================================
+    #
+    # 【实测证据】2026-11-20 14:39 服务器台账快照（12,096 臂）：
+    #   · 按台账读数复算六项判据：**41** 个臂六项全过，但**至少一轴严格更优的 = 0**
+    #     ⇒ 这 41 个全部是「基线权重的逐位复现」（零改进）⇒ 现有家族通道（n≥4）**结构上**拿不到票。
+    #   · 训练臂/抛光臂若自己**严格支配**基线（nano/nano4/f1 ≥ 基线、T1 ≥ 基线、
+    #     **T2_fp ≤ max(基线,5)（权威口径 `six_criteria_audit.t2_cap()`）**、T3 ≥ 基线），
+    #     且**至少一轴严格更优**、且**板端 T4 判定 PASS** ⇒ 它所在的族只有它自己 ⇒ 老通道必然拒绝。
+    #     ⇒ `promote_candidate.check_arm` 新增了同口径的「单臂严格支配」通道（R1修复），
+    #        本守望必须**能把这类臂送进预检**，否则新通道永远没人用。
+    #
+    # 【改法】在家族候选之外，额外扫描「单臂严格支配 + 板卡 PASS」的**训练臂/抛光臂**，
+    #   以 `key="single-strict"` 追加进候选队列（汤臂**不走**本通道 ⇒ 老通道行为完全不变）。
+    #   判据与 `promote_candidate.check_arm` 的新通道**逐条同口径**（T2 用权威口径）。
+    #
+    # 【实测现状】今天该通道 **0 候选**（41 个六项全过臂全是纯打平）⇒ 本次是**补能力**不是**补候选**；
+    #   一旦下一轮训练臂真的严格支配了基线，守望就能自动把它升上去。
+    #
+    # 【影响面】只**新增**一条候选来源；家族通道（n≥4）与老候选的判定/排序**完全不变**。
+    # 【回退】删除本段即可（该文件已被 git 跟踪 ⇒ `git checkout manu/pipeline/npu/auto_promote_watch.py`）。
+    _t2cap = max(int(base.get("t2_fp") or 0), 5)
+    _singles = []
+    for _r in rows:
+        _t = int(_r.get("trial") or 0)
+        if _t == base_trial:
+            continue
+        _st = (led.get("arms") or {}).get(str(_t)) or {}
+        if _st.get("synth") or (_st.get("soup_members") or []):
+            continue                      # 汤臂走老通道（家族 n≥4）
+        _pk = _st.get("picked") or {}
+        _of = _st.get("official") or {}
+        if _pk.get("nano") is None or _of.get("t1") is None or _of.get("t3") is None:
+            continue
+        _axes_ok = (
+            float(_pk["nano"]) >= _bm["nano"] and float(_pk.get("nano4") or 0) >= _bm["nano4"]
+            and float(_pk.get("f1") or 0) >= _bm["f1"]
+            and float(_of["t1"]) >= _bm["t1"]
+            and _of.get("t2_fp") is not None and int(_of["t2_fp"]) <= _t2cap
+            and float(_of["t3"]) >= _bm["t3"])
+        if not _axes_ok:
+            continue
+        if not _strictly_better(_r):
+            continue                      # 纯打平 ⇒ 基线名通胀，防不住就不升
+        _ep = _r.get("ep") if _r.get("ep") is not None else _r.get("epoch")
+        _b = board.get((_t, int(float(_ep)))) if _ep is not None else None
+        if not (_b and _b[1]):
+            continue                      # 板端 T4 未 PASS ⇒ 不许升
+        _singles.append((_r, "single-strict", 1, _b[0]))
+    if _singles:
+        log(f"[单臂通道] 严格支配基线且板卡 T4 PASS 的训练/抛光臂 {len(_singles)} 个："
+            f"{[int(x[0].get('trial')) for x in _singles][:8]}")
+    cands.extend(_singles)
+    if not cands:
+        log("[结论] 无满足「n≥4 + 板卡 T4」的新候选 ⇒ 不动基线")
+        return
     # 2026-11-17 18:10: 基线名必须动态递增(原来硬编码 Baseline_v2.1
     #   => 与历史名 Baseline_v2.1(trial_69913) 撞车, 且从 v2.2 升上去却叫 v2.1)
     try:
@@ -427,7 +523,8 @@ def run_once() -> None:
         json.dump(rec, f, ensure_ascii=False, indent=2)
     append_memory(u"\n### 🟢🟢 自动升轨记录（%s）\n* **%s = trial_%d@%d**（家族 %s，同配方六项全过 n=%d，板卡 T4 %.3f ms）\n"
                  u"* 指标：nano %.6f / nano4 %.6f / F1 %.6f（前基线 trial_%d）\n"
-                 u"* 判据：六项全过（nano/nano4/F1/T1/T2_fp/T3 对前基线）+ 板卡 T4 ≤ %.3f ms\n"
+                 u"* 判据：六项全过（nano/nano4/F1/T1/T2_fp/T3 对前基线）+ 板卡 T4"
+                 u"（绝对 ≤ %.3f ms **或** 同会话相对基线口径；后者抵消板卡热漂移 ±0.5 ms）\n"
                  % (rec["ts"], name, trial, epoch, key, nmem, rec["board_ms"] or 0.0,
                     cand.get("nano") or 0, cand.get("nano4") or 0, cand.get("f1") or 0, base_trial, LIMIT_MS))
     log("[完成] 升轨完成")

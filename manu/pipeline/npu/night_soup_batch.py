@@ -236,9 +236,19 @@ def main() -> None:
             _pk = _st.get("picked") or {}
             # 🟢 2026-11-17 16:45：判据改成**非严格 >=**（与「严格六项全过」口径一致：
             #   六项全过允许**恰好打平**基线 ⇒ 这里用 > 会把「打平也能过」的候选臂漏掉）
-            if not (_pk.get("nano", 0) >= base["nano"] and _pk.get("nano4", 0) >= base["nano4"]
-                    and _pk.get("f1", 0) >= base["f1"]):
-                continue                      # 只打三轴全过的
+            # 🔴🔴 2026-11-19 11:30：**门禁队列与 gate_prio.py 对齐（严格 ∪ 近线）**
+            #   根因：gate_prio.py 交来的是「严格 ∪ 近线」两段队列，但这里又用**严格三轴**过滤一遍
+            #         ⇒ 近线臂全被丢掉 ⇒ pending_gate 恒为空 ⇒ 门禁通道 **1 秒空转**（白烧卡）。
+            #   近线臂本身不能升轨（nano/nano4/F1 低于基线 ⇒ 七项必挂），但价值在于
+            #         **锚点发现**：它们的 T1/T3 读数能定位「哪个成员集能顶起 T1/T3」，
+            #         供 refresh_prio 的锚点机制 + 后续 w7 供体设计使用。
+            _strict3 = (_pk.get("nano", 0) >= base["nano"] and _pk.get("nano4", 0) >= base["nano4"]
+                        and _pk.get("f1", 0) >= base["f1"])
+            _near3 = (_pk.get("nano", 0) >= base["nano"] - 1.5e-3
+                      and _pk.get("nano4", 0) >= base["nano4"] - 3.0e-3
+                      and _pk.get("f1", 0) >= base["f1"] - 4.0e-4)
+            if not (_strict3 or _near3):
+                continue                      # 严格 ∪ 近线（容差同 gate_prio.py）
             pending_gate.append((margin(_pk, base), _sid, _st.get("soup_family") or "?", _pk))
         if args.gate_family_prefix:
             # 🟢🟢 2026-11-18 10:25 支持**逗号分隔多前缀** ⇒ 可把同一家族的不同权重段拆给不同门禁通道
@@ -403,7 +413,43 @@ def main() -> None:
     for item in pending:
         by_fam.setdefault(item[2], []).append(item)
     # 家族排序 = 该家族最好成员的边际（先押最有希望的家族）
-    fam_order = sorted(by_fam.items(), key=lambda kv: -kv[1][0][0])
+    # 🔴🔴 2026-11-19 13:50 **门禁家族排序加「可升轨家族」加权**（根因修复）
+    #   现场事故：2026-11-19 13:30 门禁 A 通道拿到了 5 个 **bw10 族**（含 1940007 同族兄弟）
+    #     的臂，但批次内部按 `margin` 排序 ⇒ **已判死的针族（1102033）因为 nano4 高 1.2e-2
+    #     ⇒ margin 2.27** 反而排到最前（bw10 臂 margin 仅 0.13）⇒ 门禁机时全烧在死路上。
+    #   修法：先算「可升轨家族」= 族内存在**六项全过且至少一轴严格优于基线**的臂
+    #     （纯打平的臂不算 —— bw08 的 9 个六项全过臂全是纯打平，测它们毫无价值）；
+    #     可升轨家族整体提到最前，族内仍按 margin 降序。
+    _promotable_fams: set[str] = set()
+    try:
+        _led = NS.load_ledger()
+        _base = NS.BASE_V2
+        for _st in ((_led.get("arms") or {}).values()):
+            _of = _st.get("official") or {}
+            if not _of.get("six_ok"):
+                continue
+            _sf = str(_st.get("soup_family") or "")
+            if not _sf:
+                continue
+            _pk = _st.get("picked") or {}
+            _strict = False
+            for _k in ("nano", "nano4", "f1"):
+                if (_pk.get(_k) or 0) > (_base.get(_k) or 0) + 1e-12:
+                    _strict = True
+            for _k in ("t1", "t3"):
+                if (_of.get(_k) is not None) and (_base.get(_k) is not None) \
+                        and _of[_k] > _base[_k] + 1e-12:
+                    _strict = True
+            if _of.get("t2_fp") is not None and _base.get("t2_fp") is not None \
+                    and _of["t2_fp"] < _base["t2_fp"]:
+                _strict = True
+            if _strict:
+                _promotable_fams.add(_sf)
+        log(f"[汤批次] 可升轨家族 {len(_promotable_fams)} 个：{sorted(_promotable_fams)[:6]}")
+    except Exception as exc:  # noqa: BLE001
+        log(f"[汤批次] 可升轨家族判定失败（退回原排序）：{exc}")
+    fam_order = sorted(by_fam.items(),
+                       key=lambda kv: (0 if kv[0] in _promotable_fams else 1, -kv[1][0][0]))
     quota = max(1, args.gate_family_quota)
     ordered = []
     for fam, items in fam_order:

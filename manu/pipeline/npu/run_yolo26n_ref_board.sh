@@ -15,7 +15,7 @@
 #                                this is the only per-frame figure for it)
 #     4. rknn_yolo26n_smoke      on the stock YOLO26n int8 model
 #     5. rknn_yolo26n_smoke      on every built A/B arm in
-#                                /media/manu/1TB-Volume/rknn_work/yolo26n/arms/
+#                                /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/yolo26n/arms/
 #                                (baseline / sram / compress / sram_compress /
 #                                 nbuf_high / sram_nbuf -- whichever exist)
 #     so the sram_prefer / compress_weight / nbuf_prefer knobs are measured on
@@ -64,10 +64,10 @@ BOARD_DIR="${RKNPU_BOARD_DIR:-/root/yolo26n_ref}"
 NFS_HOST_DIR="${RKNPU_NFS_DIR:-/run/media/manu/SSD960-LOCAL/nfs/npu/yolo26n_ref}"
 NFS_BOARD_DIR="/mnt/manu/npu/yolo26n_ref"
 
-SDK="${RKNN_SDK:-/media/manu/1TB-Volume/rk3588/rk3588_sdk/EVM3588-A_20250815/02Linux软件资料/SDK&Image/SDK/evm3588_linux_sdk_v2.1.1.0/external/rknpu2}"
-MODELS_SRC="${RKNPU_MODELS_SRC:-/media/manu/1TB-Volume/rknn_work/models}"
-ARMS_SRC="${RKNPU_ARMS_SRC:-/media/manu/1TB-Volume/rknn_work/yolo26n/arms}"
-YOLO26N_SRC="${RKNPU_YOLO26N_SRC:-/media/manu/1TB-Volume/rknn_work/yolo26n}"
+SDK="${RKNN_SDK:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rk3588/rk3588_sdk/EVM3588-A_20250815/02Linux软件资料/SDK&Image/SDK/evm3588_linux_sdk_v2.1.1.0/external/rknpu2}"
+MODELS_SRC="${RKNPU_MODELS_SRC:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/models}"
+ARMS_SRC="${RKNPU_ARMS_SRC:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/yolo26n/arms}"
+YOLO26N_SRC="${RKNPU_YOLO26N_SRC:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/yolo26n}"
 NFS_ROOT="$(dirname "$NFS_HOST_DIR")"          # for bus.jpg and the good lib
 
 # --- binaries (built by scripts in this directory) --------------------------

@@ -1,0 +1,143 @@
+{
+  "sequence": "VIDEO00007_19700101_001324",
+  "cands": "memory/align_dn_20261120/real_0080/real_cands.tsv",
+  "params": "memory/align_dn_20261120/params_delivery.txt",
+  "source_dir": "/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/rk3588_app_base/mosaic_sdk/src/npu",
+  "labels_root": "/tmp/boardfar/gt",
+  "window": [
+    0,
+    2500
+  ],
+  "rows": [
+    {
+      "radius": 0.0,
+      "fused_tsv_md5": "839e1f437be0196e5fb4c54da6105d9e",
+      "fused_tsv": "/tmp/board_merge_verify_ypl6i85h/fused_cpp_r0.tsv",
+      "board": {
+        "tp": 1343,
+        "fp": 958,
+        "fn": 1077,
+        "fn_absent": 1077,
+        "fn_compete": 0,
+        "det": 2301,
+        "gt": 2420,
+        "recall": 0.5549586776859504,
+        "precision": 0.5836592785745328,
+        "f1": 0.5689472569370897,
+        "far_per_frame": 0.3832,
+        "window": [
+          0,
+          2500
+        ],
+        "frames": 2500,
+        "frames_with_detection": 1397
+      },
+      "python_mirror_tsv": "/tmp/boardfar/probe/fused_r0.tsv",
+      "identical_to_python_mirror": true
+    },
+    {
+      "radius": 16.0,
+      "fused_tsv_md5": "56795b4da23c7c032a649e373c12ae04",
+      "fused_tsv": "/tmp/board_merge_verify_ypl6i85h/fused_cpp_r16.tsv",
+      "board": {
+        "tp": 1348,
+        "fp": 135,
+        "fn": 1072,
+        "fn_absent": 1072,
+        "fn_compete": 0,
+        "det": 1483,
+        "gt": 2420,
+        "recall": 0.5570247933884298,
+        "precision": 0.908968307484828,
+        "f1": 0.6907507045862158,
+        "far_per_frame": 0.054,
+        "window": [
+          0,
+          2500
+        ],
+        "frames": 2500,
+        "frames_with_detection": 1402
+      },
+      "python_mirror_tsv": "/tmp/boardfar/probe/fused_r16.tsv",
+      "identical_to_python_mirror": true
+    },
+    {
+      "radius": 20.0,
+      "fused_tsv_md5": "dd55cb09a844f41408322374ddc232cf",
+      "fused_tsv": "/tmp/board_merge_verify_ypl6i85h/fused_cpp_r20.tsv",
+      "board": {
+        "tp": 1348,
+        "fp": 122,
+        "fn": 1072,
+        "fn_absent": 1072,
+        "fn_compete": 0,
+        "det": 1470,
+        "gt": 2420,
+        "recall": 0.5570247933884298,
+        "precision": 0.9170068027210885,
+        "f1": 0.6930591259640103,
+        "far_per_frame": 0.0488,
+        "window": [
+          0,
+          2500
+        ],
+        "frames": 2500,
+        "frames_with_detection": 1402
+      },
+      "python_mirror_tsv": "/tmp/boardfar/probe/fused_r20.tsv",
+      "identical_to_python_mirror": true
+    },
+    {
+      "radius": 24.0,
+      "fused_tsv_md5": "8202cf02712fdf3140c35e0fe5cabe76",
+      "fused_tsv": "/tmp/board_merge_verify_ypl6i85h/fused_cpp_r24.tsv",
+      "board": {
+        "tp": 1348,
+        "fp": 124,
+        "fn": 1072,
+        "fn_absent": 1072,
+        "fn_compete": 0,
+        "det": 1472,
+        "gt": 2420,
+        "recall": 0.5570247933884298,
+        "precision": 0.9157608695652174,
+        "f1": 0.6927029804727648,
+        "far_per_frame": 0.0496,
+        "window": [
+          0,
+          2500
+        ],
+        "frames": 2500,
+        "frames_with_detection": 1402
+      },
+      "python_mirror_tsv": "/tmp/boardfar/probe/fused_r24.tsv",
+      "identical_to_python_mirror": true
+    },
+    {
+      "radius": 32.0,
+      "fused_tsv_md5": "98082b4701d4d1047ee90427320ca0ef",
+      "fused_tsv": "/tmp/board_merge_verify_ypl6i85h/fused_cpp_r32.tsv",
+      "board": {
+        "tp": 1348,
+        "fp": 122,
+        "fn": 1072,
+        "fn_absent": 1072,
+        "fn_compete": 0,
+        "det": 1470,
+        "gt": 2420,
+        "recall": 0.5570247933884298,
+        "precision": 0.9170068027210885,
+        "f1": 0.6930591259640103,
+        "far_per_frame": 0.0488,
+        "window": [
+          0,
+          2500
+        ],
+        "frames": 2500,
+        "frames_with_detection": 1400
+      },
+      "python_mirror_tsv": "/tmp/boardfar/probe/fused_r32.tsv",
+      "identical_to_python_mirror": true
+    }
+  ]
+}

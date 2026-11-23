@@ -15,8 +15,11 @@ set -eu
 cd "$(dirname "$0")/../../.."        # → 项目根（manu/tracking/lookahead → 上三级）
 export PYTHONPATH=. MPLCONFIGDIR=/tmp/mpl OMP_NUM_THREADS=8 MKL_NUM_THREADS=8
 PY=${PY:-/home/huangzhe/anaconda3/envs/uav/bin/python}
-C8=runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/ms_cache
-C24=runs/optuna_mix_ratio/trials/trial_0080/lq_eval_fpv8/ms_cache
+# 产物落点（铁律二十五）：中间产物一律出仓库目录。
+# 默认 = SSHFS 映射下的服务器产品区；本机跑时用 PRODUCT_ROOT 覆盖到 workspace/cache/ultralytics/。
+PRODUCT_ROOT="${PRODUCT_ROOT:-/home/manu/mnt/pycharm_project_a7d966e6/runs/lookahead}"
+C8="${C8:-/home/manu/mnt/pycharm_project_a7d966e6/runs/optuna_mix_ratio/trials/trial_0080/gate/epoch3/ms_cache}"
+C24="${C24:-/home/manu/mnt/pycharm_project_a7d966e6/runs/optuna_mix_ratio/trials/trial_0080/lq_eval_fpv8/ms_cache}"
 GT="${GT:-/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010}"
 FRAMES="${FRAMES:-/mnt/data/siping/datasets/manu/龙泉山/frames_ir_jpg}"
 # 帧缓存（memmap）：sshfs 上读+解码 11.3 ms/帧，memmap ~0.1 ms/帧。
@@ -27,7 +30,7 @@ if [ -d "$FC" ]; then
   FRAME_ARGS="--frames-cache $FC"
 fi
 PARAMS=manu/evaluation/system_sota_longquan_trial0080_delivery_v3_params.json
-OUT=runs/lookahead/final
+OUT="${OUT:-${PRODUCT_ROOT}/final}"
 WHICH=${1:-both}
 mkdir -p "$OUT/final8" "$OUT/final24"
 

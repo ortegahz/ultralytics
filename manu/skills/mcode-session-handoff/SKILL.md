@@ -14,7 +14,7 @@ description: 把当前 MCode/MiniMax Code 对话交接到训练服务器，让�
 
 ```bash
 # 一键端到端（export → 传输 → import → verify → 实际加载测试）
-bash /media/manu/1TB-Volume/workspace/ultralytics/manu/skills/mcode-session-handoff/scripts/mcode_handoff_to_server.sh \
+bash /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/skills/mcode-session-handoff/scripts/mcode_handoff_to_server.sh \
      --session mvs_<会话ID> --exec
 ```
 
@@ -33,7 +33,7 @@ bash .../scripts/mcode_pullback_from_server.sh --session mvs_<会话ID> --force 
 三步命令（要自己控制每一步时）：
 
 ```bash
-cd /media/manu/1TB-Volume/workspace/handoff/mcode
+cd /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/handoff/mcode
 
 # ① 本机抽出（生成含逐文件 sha256 的包）
 python3 mcode_handoff.py export --session mvs_<ID> --out /tmp/pack.json
@@ -302,7 +302,7 @@ Sub-agent Sessions are internal and cannot be opened.
 查询可搬的会话：
 
 ```bash
-python3 mcode_handoff.py list --workspace /media/manu/1TB-Volume/workspace
+python3 mcode_handoff.py list --workspace /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace
 ```
 
 ---
@@ -419,8 +419,8 @@ MINIMAX_DATA_DIR=/tmp/xxx mcode exec --session <id> --output-format json --max-s
 | `scripts/mcode_session_tool.mjs` | 指纹计算 + 打包（**必须用 Node，不要用 Python 重写**） |
 | `scripts/mcode_handoff_to_server.sh` | 一键端到端：host → server |
 | `scripts/mcode_pullback_from_server.sh` | 一键端到端：server → host（带差异预览 + `--force` 保护） |
-| `/media/manu/1TB-Volume/workspace/handoff/mcode/` | 同上三个脚本的工作副本（md5 一致） |
-| `/media/manu/1TB-Volume/workspace/handoff/README.md` | Codex 版交接文档（本 skill 的姊妹篇） |
+| `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/handoff/mcode/` | 同上三个脚本的工作副本（md5 一致） |
+| `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/handoff/README.md` | Codex 版交接文档（本 skill 的姊妹篇） |
 | `~/.minimax/v2/observability/logs/runtime-*.log` | 目标机加载失败时的真实报错出处 |
 
 ---

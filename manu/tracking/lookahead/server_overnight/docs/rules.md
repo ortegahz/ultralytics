@@ -16,15 +16,15 @@
 
   | 角色 | 路径 | 允许的操作 |
   | :--- | :--- | :--- |
-  | **本地工程 checkout（唯一可写编辑区）** | `/media/manu/1TB-Volume/workspace/ultralytics/`（内含完整 `manu/`，含 `manu/memory/`） | ✅ **所有 Edit/Write 都发生在这里** |
-  | 服务器代码镜像（SSHFS） | `/home/manu/mnt/pycharm_project_10ae9e2e/` | ⛔ **只读 + 同步落地目标，禁止 Edit/Write** |
+  | **本地工程 checkout（唯一可写编辑区）** | `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/`（内含完整 `manu/`，含 `manu/memory/`） | ✅ **所有 Edit/Write 都发生在这里** |
+  | 服务器代码镜像（SSHFS） | `/home/manu/mnt/pycharm_project_a7d966e6/` | ⛔ **只读 + 同步落地目标，禁止 Edit/Write** |
   | 服务器数据集（SSHFS） | `/home/manu/mnt/data/` | ⛔ 只读 |
   | RK3588 板卡 ↔ 本机数据交换区（host NFS 导出，**2026-10-12 起板卡反挂此目录**；**2026-10-14 迁至 SSD960-LOCAL 大盘**） | `/run/media/manu/SSD960-LOCAL/nfs/` | ⛔ 非编辑区，只放数据/产物；挂载与权限见 1b |
 
 - **标准工作流（强制三步，不可跳步）**：
-  1. **本地编辑**：在 `/media/manu/1TB-Volume/workspace/ultralytics/` 下用 Edit/Write 完成全部修改；
+  1. **本地编辑**：在 `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/` 下用 Edit/Write 完成全部修改；
   2. **本地校验**：在本地跑通 `grep`/`diff`/语法检查，确认改动确实落在这里；
-  3. **同步落地**：`cp -av <本地文件> /home/manu/mnt/pycharm_project_10ae9e2e/<同一相对路径>`，
+  3. **同步落地**：`cp -av <本地文件> /home/manu/mnt/pycharm_project_a7d966e6/<同一相对路径>`，
      同步后 `md5sum` 双侧比对确认一致，并向用户报告「已同步」。
 
 - **为什么这条必须排在铁律三（自动同步）之前**：铁律三要求「本地改完立即同步到服务器」，
@@ -133,10 +133,10 @@
   - 全量 31,613 帧的 `.pkl` 文件体积必须严格限制在 **15MB ~ 50MB（至多不超过 100MB）**，确保加载在 1 秒内完成、内存零压力。
 
 ### 3. 【核心铁律三】本地代码修改后必须自动无感同步至服务器映射目录！
-- **前置声明**：本条是第〇节（本地优先铁律）的执行细则。**「本地」= `/media/manu/1TB-Volume/workspace/ultralytics/`（唯一可写编辑区）；
-  「服务器映射目录」= `/home/manu/mnt/pycharm_project_10ae9e2e/`（只读 + 同步落地区）。
+- **前置声明**：本条是第〇节（本地优先铁律）的执行细则。**「本地」= `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/`（唯一可写编辑区）；
+  「服务器映射目录」= `/home/manu/mnt/pycharm_project_a7d966e6/`（只读 + 同步落地区）。
   编辑动作一律发生在本地，本条只负责把本地成果送过去。**
-- **自动同步义务**：本地任何代码、脚本、配置或文档在完成修改/新建后，Assistant 必须**立即主动将其复制同步到服务器 SSHFS 挂载工作目录**（`/home/manu/mnt/pycharm_project_10ae9e2e/`）；
+- **自动同步义务**：本地任何代码、脚本、配置或文档在完成修改/新建后，Assistant 必须**立即主动将其复制同步到服务器 SSHFS 挂载工作目录**（`/home/manu/mnt/pycharm_project_a7d966e6/`）；
 - **杜绝用户二次操作**：用户无需手动复制或同步代码，保证服务器端环境永远处于最新的就绪状态。
 - **同步后必须校验**：用 `md5sum` 或 `diff` 确认本地与服务器两侧字节一致，并向用户明示「已同步」；
   **禁止把「已同步」当作「本地已改」**——2026-10-10 实测事故正是跳过本地、直接改服务器造成的静默分叉。
@@ -180,7 +180,7 @@
 - ✅ **用户授权（2026-10-14）**：token 预算充足，**鼓励多开子 Agent、优先并行而非串行**。本条为交互纪律，不是可选项。
 
 > 🔴 **2026-10-12 用户要求删除原「铁律八：每次读 memory 前校验三条挂载链路，缺失即自动补挂」，该条已废止。**
-> 原因：memory 的**权威副本在本地 checkout**（`/media/manu/1TB-Volume/workspace/ultralytics/manu/memory/`），
+> 原因：memory 的**权威副本在本地 checkout**（`/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/memory/`），
 > 读 memory 不再依赖任何 SSHFS/NFS 挂载；自动补挂会因远端不可达而产生噪音，
 > 且与铁律零「本地是唯一编辑区」叠加后语义重复。
 > 保留的只有一条弱形式：**读取失败时先确认自己读的是本地副本，而不是去补挂**。
@@ -381,7 +381,7 @@ mount -t nfs 192.168.0.115:/run/media/manu/SSD960-LOCAL/nfs /mnt/manu -o nolock,
   - **为什么输出也走 NFS（关键收益）**：跨架构对比的产物动辄几十 MB。若板卡写本地再 scp 回 host，就是「占板卡磁盘 + 双份传输」；写 `/mnt/manu` 后 host 侧直接比对，**板卡不必为了把结果送回去而再存一份**。
     🔴 ~~**但 NFS 不等于不占磁盘**（2026-10-09 实测更正过一次自我错误）~~ —— **该结论已于 2026-10-12 作废**：当时 `/mnt/manu` 是**板卡本地目录**，与 `/` 同一文件系统，202 MB dump 使板卡可用空间从 1.7G → 1.5G。**现在 `/mnt/manu` 是 host 导出目录，物理上占用的是 host 磁盘**；**2026-10-14 起更是换到 SSD960-LOCAL 独立大盘（`782G` 可用）** ⇒ 结论反转为「NFS 数据确实省板卡磁盘，且 host 侧空间已不成约束」。旧数字（根分区 15G）**仅在引用旧路径历史时**有效。
   - ⚠️ **属主坑（2026-10-14 复现坐实）**：`/mnt/manu` 指向 host 的 `manu:manu 0777` 目录，板卡 root（`no_root_squash`）**可直接 `mkdir`**；但板卡建出的文件在 host 上**实测属 `root:root`**，host 侧 `manu` 删改需 sudo 或由板卡侧 `chown 1000:1000`。
-  - ⚠️ **铁律三同步义务仍只覆盖 x86 服务器**（`/home/manu/mnt/pycharm_project_10ae9e2e/`）。`/mnt/manu` 只是数据交换区，**不含代码仓库**；代码改动仍须显式 scp/rsync，NFS 不能替代代码同步。
+  - ⚠️ **铁律三同步义务仍只覆盖 x86 服务器**（`/home/manu/mnt/pycharm_project_a7d966e6/`）。`/mnt/manu` 只是数据交换区，**不含代码仓库**；代码改动仍须显式 scp/rsync，NFS 不能替代代码同步。
 - ⚠️ 板卡上**任何 `runs/` 权重都不存在**（权重只在 x86 的 `runs/optuna_p0_nas/trial_0474/weights/best.pt`，`runs/` 从未纳入同步链路）。涉及板卡推理的交付，必须把**权重与数据双端就位**列为前置检查项。
 - ✅ **首次接触摸底已完成（2026-10-09 实测，非推测）**，主机名 **`evm3588`**：
   - **SoC/CPU**：8 核 = 4× Cortex-A76（CPU part `0xd05`）+ 4× Cortex-A55（`0xd0b`），implementer `0x41`；A76 max 2352 MHz / min 408 MHz。
@@ -413,8 +413,8 @@ mount -t nfs 192.168.0.115:/run/media/manu/SSD960-LOCAL/nfs /mnt/manu -o nolock,
 ### 2. 本地 SSHFS 挂载映射配置
 - **远端代码映射**：
   ```bash
-  mkdir -p /home/manu/mnt/pycharm_project_10ae9e2e
-  sshfs -p 32222 huangzhe@192.168.99.40:/tmp/pycharm_project_10ae9e2e /home/manu/mnt/pycharm_project_10ae9e2e
+  mkdir -p /home/manu/mnt/pycharm_project_a7d966e6
+  sshfs -p 32222 huangzhe@192.168.99.40:/tmp/pycharm_project_10ae9e2e /home/manu/mnt/pycharm_project_a7d966e6
   ```
 - **远端数据集映射**：
   ```bash
@@ -423,8 +423,8 @@ mount -t nfs 192.168.0.115:/run/media/manu/SSD960-LOCAL/nfs /mnt/manu -o nolock,
   ```
 
 ### 2b. RK3588 交叉编译器与 SDK 本地路径（2026-10-09 用户提供）
-- **交叉编译器**：`/media/manu/1TB-Volume/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu`
-- **SDK 资料**：`/media/manu/1TB-Volume/rk3588/rk3588_sdk`（解包后 `EVM3588-A_20250815/{01硬件资料, 02Linux软件资料, 03工具}`，03 工具为烧录/串口/制卡/test 程序）
+- **交叉编译器**：`/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu`
+- **SDK 资料**：`/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rk3588/rk3588_sdk`（解包后 `EVM3588-A_20250815/{01硬件资料, 02Linux软件资料, 03工具}`，03 工具为烧录/串口/制卡/test 程序）
 - ⚠️ 编译器本体与 SDK **只放 x86 本地**，严禁拷到板卡（板卡磁盘仅剩 1.7G，见 1b）。
 - **实测补充（2026-10-09 交叉编译板卡 OpenCL 探针时核实）**：
   - GCC **9.3.0**（Buildroot 2018.02-rc3-g548dfbfc13-dirty）。**同时并存多套前缀**（2026-10-09 逐一实测更正，取代早期「板卡对应 `rockchip930-`」的推断——**那条是错的**）：
@@ -1175,7 +1175,7 @@ grep -ic 'fallback' build.log     # 期望 0
 > 本节每一条都曾让一条**已交付的命令当场跑不起来**，或让一个产物**无法作为证据引用**。
 
 1. **交付命令前必须实测该路径存在**。本项目 CLion 编到**本地** checkout
-   （`/media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/cpp/cmake-build-debug/`），
+   （`/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/pipeline/cpp/cmake-build-debug/`），
    而**服务器 SSHFS 挂载上没有任何编译产物**（`manu/pipeline/cpp/build/` 同样不存在）。
    ⇒ `--cpp-bin` 之类参数**必须给绝对路径**；脚本里的默认值不可信，必须逐个验证。
    这是第三节「代码已同步 ≠ 权重已就位」在**编译产物**上的同型翻版。

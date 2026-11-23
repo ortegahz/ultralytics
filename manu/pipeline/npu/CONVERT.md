@@ -20,11 +20,11 @@ conda 默认装在 `/home/manu/anaconda3`，而根分区 `/dev/sda1` **只剩 15
 两个 rknn 环境都建在 1 TB 卷上：
 
 ```
-/media/manu/1TB-Volume/conda-envs/rknn     # toolkit 1.4.0（SDK 自带 wheel，产出被 NPU 拒绝，见第六节）
-/media/manu/1TB-Volume/conda-envs/rknn230  # toolkit 2.3.0（可用，与板卡 runtime 同 commit）
+/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/conda-envs/rknn     # toolkit 1.4.0（SDK 自带 wheel，产出被 NPU 拒绝，见第六节）
+/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/conda-envs/rknn230  # toolkit 2.3.0（可用，与板卡 runtime 同 commit）
 ```
 
-工作区：`/media/manu/1TB-Volume/rknn_work/`（wheels / models / 中间产物）
+工作区：`/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/`（wheels / models / 中间产物）
 
 ## 三、源模型与目标模型不是同一个
 
@@ -104,8 +104,8 @@ I librknnc version: 2.3.0 (c949ad889d@2024-11-07T11:39:30)   ← 与板卡 runti
 
 ```bash
 # 1) 环境（1 TB 卷，不碰根分区）
-conda create -y -p /media/manu/1TB-Volume/conda-envs/rknn230 python=3.8
-P=/media/manu/1TB-Volume/conda-envs/rknn230
+conda create -y -p /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/conda-envs/rknn230 python=3.8
+P=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/conda-envs/rknn230
 $P/bin/pip install --no-deps rknn-toolkit2==2.3.0
 $P/bin/pip install torch==2.4.1 torchvision==0.19.1 --index-url https://download.pytorch.org/whl/cpu
 $P/bin/pip install numpy==1.23.5 protobuf==4.25.4 opencv-python==4.8.1.78 \
@@ -115,7 +115,7 @@ $P/bin/pip install numpy==1.23.5 protobuf==4.25.4 opencv-python==4.8.1.78 \
 python3 clear_execstack.py --scan $P/lib/python3.8/site-packages/onnxruntime
 
 # 2) 转换
-cd /media/manu/1TB-Volume/rknn_work
+cd /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work
 $P/bin/python convert_yolov5_to_rknn.py --out models/yolov5s_rknn230.rknn
 
 # 3) 上板（数据走 NFS）
@@ -186,8 +186,8 @@ average run 26.236600 ms
 重新量化出第三个模型，与前两个一并对比。
 
 ```
-标定集：/media/manu/1TB-Volume/rknn_work/calib/coco_cal/   （120 张，随机种子 20261013）
-留出集：/media/manu/1TB-Volume/rknn_work/calib/coco_test/  （10 张，未参与标定）
+标定集：/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/calib/coco_cal/   （120 张，随机种子 20261013）
+留出集：/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/calib/coco_test/  （10 张，未参与标定）
 新模型：yolov5s_rknn230_coco120.rknn
 ```
 

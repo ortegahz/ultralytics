@@ -8,15 +8,18 @@ export PYTHONPATH=. MPLCONFIGDIR=/tmp/mpl OMP_NUM_THREADS=4 MKL_NUM_THREADS=4
 PY=${PY:-/home/huangzhe/anaconda3/envs/uav/bin/python}
 GT="${GT:-/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010}"
 FRAMES="${FRAMES:-/mnt/data/siping/datasets/manu/龙泉山/frames_ir_jpg}"
-FINAL=runs/lookahead/final
-OUT=runs/lookahead/osd
+# 产物落点（铁律二十五）：中间产物一律出仓库目录。
+# 默认 = SSHFS 映射下的服务器产品区；本机跑时用 PRODUCT_ROOT 覆盖到 workspace/cache/ultralytics/。
+PRODUCT_ROOT="${PRODUCT_ROOT:-/home/manu/mnt/pycharm_project_a7d966e6/runs/lookahead}"
+FINAL="${FINAL:-${PRODUCT_ROOT}/final}"
+OUT="${OUT:-${PRODUCT_ROOT}/osd}"
 SEQ=${1:?usage: render_osd_3arm.sh <SEQ> [window]}
 WINDOW=${2:-300}
 mkdir -p "$OUT/videos" "$OUT/windows" "$OUT/logs"
 
 STALE="$FINAL/preds_final_stale"
 REPLAY="$FINAL/final8/preds_delivery"
-ORIG=runs/lookahead/ref/preds_original_v3
+ORIG="${ORIG:-${PRODUCT_ROOT}/ref/preds_original_v3}"
 
 $PY manu/tracking/lookahead/osd/pick_osd_window_3arm.py \
   --labels-root "$GT" --seq "$SEQ" --window "$WINDOW" \

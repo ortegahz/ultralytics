@@ -11,8 +11,11 @@ export PYTHONPATH=. MPLCONFIGDIR=/tmp/mpl OMP_NUM_THREADS=4 MKL_NUM_THREADS=4
 PY=${PY:-/home/huangzhe/anaconda3/envs/uav/bin/python}
 GT="/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010"
 FRAMES="/mnt/data/siping/datasets/manu/龙泉山/frames_ir_jpg"
-F=runs/lookahead/final
-OUT=runs/lookahead/osd
+# 产物落点（铁律二十五）：中间产物一律出仓库目录。
+# 默认 = SSHFS 映射下的服务器产品区；本机跑时用 PRODUCT_ROOT 覆盖到 workspace/cache/ultralytics/。
+PRODUCT_ROOT="${PRODUCT_ROOT:-/home/manu/mnt/pycharm_project_a7d966e6/runs/lookahead}"
+F="${F:-${PRODUCT_ROOT}/final}"
+OUT="${OUT:-${PRODUCT_ROOT}/osd}"
 TAG=${1:-8}
 case "$TAG" in
   8)  DELIV="$F/final8/preds_delivery"; STALE="$F/preds_final_stale"; OFF="$F/preds_off" ;;

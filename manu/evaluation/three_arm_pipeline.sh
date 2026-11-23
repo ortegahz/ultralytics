@@ -19,8 +19,8 @@ SRV_HOST=192.168.99.40
 SRV_PORT=32222
 SRV_USER=huangzhe
 
-LOCAL_REPO=/media/manu/1TB-Volume/workspace/ultralytics
-MIRROR=/home/manu/mnt/pycharm_project_10ae9e2e
+LOCAL_REPO=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics
+MIRROR=/home/manu/mnt/pycharm_project_a7d966e6
 NFS_TSV=/run/media/manu/SSD960-LOCAL/nfs/npu_pcfeat
 SRV_ROOT=/tmp/pycharm_project_10ae9e2e
 SRV_TSV=$SRV_ROOT/runs/npu_pcfeat_tsv

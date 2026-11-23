@@ -3,7 +3,7 @@
 # ★ 服务器端「变体矩阵」评测（铁律十三：重活一律上服务器）
 #
 #   用法（用户在自己终端执行）：
-#     cd /media/manu/1TB-Volume/workspace/ultralytics
+#     cd /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics
 #     bash manu/tracking/lookahead/server_overnight/run_matrix_server.sh
 #
 #   一次推送 → 服务器连跑 N 个变体（每个都是完整 8 序列）→ 全部拉回本地
@@ -16,7 +16,7 @@
 # ============================================================
 set -euo pipefail
 
-LOCAL_REPO="${LOCAL_REPO:-/media/manu/1TB-Volume/workspace/ultralytics}"
+LOCAL_REPO="${LOCAL_REPO:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics}"
 SSH_HOST="${SSH_HOST:-huangzhe@192.168.99.40}"
 SSH_PORT="${SSH_PORT:-32222}"
 REMOTE_ROOT="${REMOTE_ROOT:-/tmp/pycharm_project_10ae9e2e}"

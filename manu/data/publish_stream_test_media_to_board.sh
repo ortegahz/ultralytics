@@ -15,7 +15,7 @@
 #   bash publish_stream_test_media_to_board.sh <host 源目录> [板卡] [并发数] [板卡侧目录名]
 # 例:
 #   bash publish_stream_test_media_to_board.sh \
-#        /media/manu/1TB-Volume/workspace/delivery/stream_test_media_th045_pass \
+#        /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/delivery/stream_test_media_th045_pass \
 #        root@192.168.0.64 3 stream_test_media_th045_pass
 set -uo pipefail
 

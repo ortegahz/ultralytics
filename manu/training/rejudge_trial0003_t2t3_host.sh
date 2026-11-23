@@ -20,13 +20,13 @@
 # ==============================================================================
 set -uo pipefail
 
-REPO="${REPO:-/media/manu/1TB-Volume/workspace/ultralytics}"
+REPO="${REPO:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics}"
 MNT="${MNT:-/home/manu/mnt}"
 SRC_OUT="$MNT/data/siping/runs/nogmc_struct4"
 TRIAL="${TRIAL:-trial_0003}"
 EPOCH="${EPOCH:-epoch20}"
 OUT_ROOT="${OUT_ROOT:-$MNT/data/siping/runs/nogmc_struct4_rejudge}"
-PY="${PY:-/media/manu/1TB-Volume/conda-envs/rknn230/bin/python}"
+PY="${PY:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/conda-envs/rknn230/bin/python}"
 BASELINE_CACHE="$MNT/data/siping/runs/nogmc_ref_weekend/uav_cache_base.pkl"
 REF_FRAME="$MNT/data/siping/runs/nogmc_ref_weekend/reference_frame.json"
 

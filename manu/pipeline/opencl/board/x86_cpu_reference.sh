@@ -9,10 +9,10 @@
 # in-process A/B can establish on its own.
 set -uo pipefail
 
-BMP=/media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/opencl/board/.bench_bmp
-K=/media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/opencl/kernels
+BMP=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/pipeline/opencl/board/.bench_bmp
+K=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/pipeline/opencl/kernels
 BIN=/tmp/gmc_stream_ocl_profiled
-OUT=/media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/opencl/board/.bench_out
+OUT=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/pipeline/opencl/board/.bench_out
 LIMIT=${1:-400}
 
 mkdir -p "$OUT"

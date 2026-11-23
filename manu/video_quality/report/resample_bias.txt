@@ -1,0 +1,45 @@
+--- bad IR  120BT-04-红外02  120BT-04-红外02.mp4  (crop -> (1030, 1280))
+    noise_sigma        native=     0.03329  canonical640=     0.06422  ratio= 1.9292
+    snr_db             native=    68.29509  canonical640=    62.60881  ratio= 0.9167
+    grad_energy_ratio  native=     0.00640  canonical640=     0.01160  ratio= 1.8137
+    lap_var            native=    12.36729  canonical640=    24.86930  ratio= 2.0109
+--- bad IR  130CT-02红外_IRT  130CT-02红外_IRT.mp4  (crop -> (1030, 1280))
+    noise_sigma        native=     0.04209  canonical640=     0.07764  ratio= 1.8448
+    snr_db             native=    66.55141  canonical640=    61.21980  ratio= 0.9199
+    grad_energy_ratio  native=     0.00792  canonical640=     0.01437  ratio= 1.8129
+    lap_var            native=    19.05544  canonical640=    39.48519  ratio= 2.0721
+--- good IR VIDEO00007  VIDEO00007_19700101_012038IR.h264  (crop -> (512, 640))
+    noise_sigma        native=     0.17498  canonical640=     0.17498  ratio= 1.0000
+    snr_db             native=    57.65371  canonical640=    57.65371  ratio= 1.0000
+    grad_energy_ratio  native=     0.01712  canonical640=     0.01712  ratio= 1.0000
+    lap_var            native=    53.82487  canonical640=    53.82487  ratio= 1.0000
+--- good IR VIDEO00008  VIDEO00008_19700101_012152IR.h264  (crop -> (512, 640))
+    noise_sigma        native=     0.10805  canonical640=     0.10805  ratio= 1.0000
+    snr_db             native=    62.76071  canonical640=    62.76071  ratio= 1.0000
+    grad_energy_ratio  native=     0.00908  canonical640=     0.00908  ratio= 1.0000
+    lap_var            native=    25.48697  canonical640=    25.48697  ratio= 1.0000
+--- bad VIS 130CT-02可见光_OSDT  130CT-02可见光_OSDT.mp4  (crop -> (1030, 1280))
+    noise_sigma        native=     0.04207  canonical640=     0.07784  ratio= 1.8504
+    snr_db             native=    66.55819  canonical640=    61.18541  ratio= 0.9193
+    grad_energy_ratio  native=     0.00792  canonical640=     0.01437  ratio= 1.8147
+    lap_var            native=    18.96576  canonical640=    39.45816  ratio= 2.0805
+--- bad VIS 120BT-04-可见光  120BT-04-可见光.mp4  (crop -> (1080, 1920))
+    noise_sigma        native=     0.15767  canonical640=     0.42345  ratio= 2.6857
+    snr_db             native=    57.38170  canonical640=    48.80173  ratio= 0.8505
+    grad_energy_ratio  native=     0.03579  canonical640=     0.08811  ratio= 2.4616
+    lap_var            native=    16.83856  canonical640=   101.16947  ratio= 6.0082
+--- good VIS VIDEO00011  VIDEO00011_19700101_010155VIS.h264  (crop -> (1080, 1920))
+    noise_sigma        native=     0.38361  canonical640=     1.02237  ratio= 2.6652
+    snr_db             native=    49.61534  canonical640=    41.10019  ratio= 0.8284
+    grad_energy_ratio  native=     0.06222  canonical640=     0.11905  ratio= 1.9134
+    lap_var            native=   257.45880  canonical640=  1855.28262  ratio= 7.2061
+--- good VIS VIDEO00015  VIDEO00015_19700101_010552VIS.h264  (crop -> (1080, 1920))
+    noise_sigma        native=     0.35465  canonical640=     0.89130  ratio= 2.5132
+    snr_db             native=    50.52711  canonical640=    42.51796  ratio= 0.8415
+    grad_energy_ratio  native=     0.05631  canonical640=     0.10315  ratio= 1.8319
+    lap_var            native=   192.70597  canonical640=  1388.42309  ratio= 7.2049
+--- good VIS VIDEO00019  VIDEO00019_19700101_011317VIS.h264  (crop -> (1080, 1920))
+    noise_sigma        native=     0.39986  canonical640=     0.96499  ratio= 2.4133
+    snr_db             native=    49.58117  canonical640=    41.92816  ratio= 0.8456
+    grad_energy_ratio  native=     0.06037  canonical640=     0.10668  ratio= 1.7673
+    lap_var            native=   214.25906  canonical640=  1492.65510  ratio= 6.9666

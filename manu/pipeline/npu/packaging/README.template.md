@@ -44,11 +44,15 @@
 │                      （板上先 cat 到 /tmp/p0_off_A_none.rknn 再用）
 └── out/               ← 产物落在这里
     ├── mosaic_pipeline.o
+    ├── mosaic_track_fusion.o
     ├── libmosaic_pipeline.so      ← **共享库**（SONAME=libmosaic_pipeline.so）
     ├── mosaic_api_test
     ├── mosaic_client_example
+    ├── mosaic_async_client_example
     ├── mosaic_contract_test
-    └── rknn_mosaic_e2e
+    ├── rknn_mosaic_e2e
+    ├── mosaic_cadence_probe       ← **板卡验证探针**（本地工具，见下）
+    └── mosaic_track_dump          ← **板卡验证探针**（本地工具，见下）
 ```
 
 > ℹ️ **本包不携带任何第三方 .so/.a**（**没有第三方依赖目录**）：
@@ -56,13 +60,14 @@
 > （见「板卡依赖矩阵」）。
 
 > **交付到 NFS 时是整棵树一起拷**（不是只拷几个产物文件）：板卡侧看到的目录
-> 结构与这里一一对应——`src/ include/ runtime/ models/ out/` + 顶层 6 个文件
+> 结构与这里一一对应——`src/ include/ runtime/ models/ out/` + 顶层 7 个文件
 > （`README.md` / `MANIFEST.md` / `build_lib.sh` / `build_demo.sh` /
-> `copy_to_nfs.sh` / `known_hosts`）。
+> `copy_to_nfs.sh` / `fetch_board_libs.sh` / `known_hosts`）。
 
 交付包磁盘上共 **{{TOTAL_COUNT}}** 个文件 = 受管 **{{FILE_COUNT}}** 个
 （源码 **{{SRC_COUNT}}** 个（`src/`）+ 第三方头 **{{HDR_COUNT}}** 个
-（`include/`）+ kernel 资产 **{{KERNEL_COUNT}}** 个（`runtime/`）+ 顶层 6 个文件
+（`include/`）+ kernel 资产 **{{KERNEL_COUNT}}** 个（`runtime/`）
++ 模型 **1** 个（`models/`）+ 顶层 6 个文件（含本 README）
 + `MANIFEST.md` 自身）+ `out/` 编译产物 **{{OUT_COUNT}}** 个。
 
 产物（全部 aarch64 ELF）：
@@ -75,10 +80,27 @@
 | `out/mosaic_async_client_example` | **多线程生产-消费 + 回调模板**：相机线程（25 FPS）不等算法、Worker 严格「一推一收」、结果走业务方自己的回调；**嵌入式组真实工程集成的骨架** |
 | `out/mosaic_contract_test` | **库的契约测试**（验收门禁） |
 | `out/rknn_mosaic_e2e` | **端到端测试程序**：测吞吐/延时（fps / 延时分位就是它测的），只调公开 C ABI |
+| `out/mosaic_cadence_probe` | **板卡验证探针**（本地工具，不属于集成面）：逐帧推 / 收，量节奏（fps / Δn / 间隔）与时空融合参数回读 |
+| `out/mosaic_track_dump` | **板卡验证探针**（本地工具，不属于集成面）：逐帧导出候选流 / 融合结果 TSV，用于离线对 GT 打分 |
 
-> ℹ️ **五个**测试程序用 `-lmosaic_pipeline` + `-Wl,-rpath,'$ORIGIN'` 链接**同目录**的
-> `out/libmosaic_pipeline.so` ⇒ **整包搬到任何目录都能直接跑**，不用设
-> `LD_LIBRARY_PATH`（`readelf -d` 实测 RPATH = `$ORIGIN`）。
+> 🔴 **两个探针的源码在 `src/npu/`**（`mosaic_cadence_probe.cpp` /
+> `mosaic_track_dump.cpp`），**探针里带交付工作点的显式 9 字段覆盖**
+> （`th_base 0.48` / `th_salvage 0.06` / `th_ground 0.26` / `sky_ratio 1.0` /
+> `confirm_consec 2` / `confirm_gap_tol 8` / `r_slope 5.0` / `match_dist 10.0` /
+> `max_age_phys -1`），**不依赖 `.so` 里编译进去的默认值**。
+> 这两个探针**零 OpenCV 依赖**（`readelf -d` 实测 NEEDED 里没有 `libopencv_*`）
+> ⇒ **ocv46 / ocv48 / ocv42 三个变体通用**。
+
+> ℹ️ **五个**测试程序（外加上面那两个板卡验证探针）用 `-lmosaic_pipeline` +
+> `-Wl,-rpath,'$ORIGIN'` 链接**同目录**的 `out/libmosaic_pipeline.so`
+> ⇒ **整包搬到任何目录都能直接跑**，不用设
+> `LD_LIBRARY_PATH`（`readelf -d` 实测 RUNPATH = `$ORIGIN`）。
+>
+> ⚠️ **动态库搜索顺序**：`RUNPATH($ORIGIN)` 排在 `LD_LIBRARY_PATH` **之后**
+> ⇒ 若 `LD_LIBRARY_PATH` 里另有同名 `libmosaic_pipeline.so`，**它会盖掉本目录这份**
+> （实测踩过：`LD_LIBRARY_PATH` 含 `/root/mosaic` 时，探针实际加载的是 `/root/mosaic`
+> 那份而不是 `out/` 这份 ⇒ 两个变体跑出同一份输出，差点误判成「等价」）。
+> 验收时用 `LD_TRACE_LOADED_OBJECTS=1 <探针>` 实证实际加载的是哪一个。
 
 当前产物的 md5（**本次构建的快照**；`.so` **没有** `ar` 归档时间戳那种
 「每次构建都变」的问题，见文末「md5 的三个已知差异」）：
@@ -86,14 +108,18 @@
 | 文件 | md5 |
 |---|---|
 | `out/mosaic_pipeline.o` | `{{OBJ_MD5}}` |
+| `out/mosaic_track_fusion.o` | `{{TRACK_FUSION_OBJ_MD5}}` |
 | `out/libmosaic_pipeline.so` | `{{LIB_SO_MD5}}` |
 | `out/mosaic_api_test` | `{{API_TEST_MD5}}` |
 | `out/mosaic_client_example` | `{{CLIENT_EXAMPLE_MD5}}` |
 | `out/mosaic_async_client_example` | `{{ASYNC_EXAMPLE_MD5}}` |
 | `out/mosaic_contract_test` | `{{CONTRACT_TEST_MD5}}` |
+| `out/rknn_mosaic_e2e` | `{{E2E_MD5}}` |
+| `out/mosaic_cadence_probe` | `{{CADENCE_PROBE_MD5}}` |
+| `out/mosaic_track_dump` | `{{TRACK_DUMP_MD5}}` |
 
 > ℹ️ **本表读的是「当前磁盘上已有的产物」**（`make_build_dir.sh` 不编译，只**读**
-> `$DEST/out/*` 已存在的产物算 md5）⇒ **五行都有基线**：产物**已经随交付包一起**
+> `$DEST/out/*` 已存在的产物算 md5）⇒ **十行都有基线**：产物**已经随交付包一起**
 > 落在 `out/` 里（`out/` 整棵树会一起拷到 NFS），不是「包里没有」。
 >
 > **若某个产物还没编出来**，对应行会显示占位文本「（尚未编译）」而**不是留空**
@@ -104,6 +130,15 @@
 > 已实测）。这不是包坏了。想拿**跨机器一致**的 md5，见文末「md5 的三个已知差异」
 > 一节（相对路径编）。
 > ⚠️ 另外它**不是跨版本恒定值**：改了源码，md5 就会变（表中这一行随包更新）。
+>
+> 🔴 **`out/` 里的 `.so` 与两个 `.o` 的构建方式决定它的 md5**：可能是宿主机
+> `build_lib.sh` 交叉编译的产物，也可能是**在 RK3588 板卡上原生重编**的
+> （板上有 `aarch64-linux-gnu-g++`，源码 = 本包 `src/npu/` 的同一版）。
+> 后者会把**板卡路径**烤进二进制（`__FILE__`）⇒ **md5 与交叉编译版不同**，
+> 但**行为逐字节等价**（实测：两版 `.so` 在同一段 250 帧上，候选流与融合结果的
+> md5 **完全相同**，见 MANIFEST「板卡实测记录」）。
+> 两个**探针**是板上原生编的（`RUNPATH=$ORIGIN`、**零 OpenCV 依赖** ⇒ 三个变体通用）。
+> 想拿到与上表一致的 md5，请在自己目录跑 `build_lib.sh` / 重编探针。
 >
 > ℹ️ **本版交付的是共享库 `.so`**：`.so` 里没有 `ar` 的归档
 > 时间戳 ⇒ **同一个包根路径**下重编，md5 是**稳定**的。

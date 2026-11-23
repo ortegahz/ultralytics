@@ -8,7 +8,7 @@
 #   replay:original    the external replay arm drifts onto the wrong thing (dark hover)
 #
 # Steps: pick the window where the stale arm is worst while the replay arm holds, then render the
-# three arms over that window into runs/lookahead/osd/videos/<SEQ>_<arm>.mp4 (h264) with the
+# three arms over that window into ${PRODUCT_ROOT}/osd/videos/<SEQ>_<arm>.mp4 (h264) with the
 # renderer's per-frame match JSON next to each video.
 set -u
 cd /tmp/pycharm_project_10ae9e2e
@@ -16,8 +16,11 @@ export PYTHONPATH=. MPLCONFIGDIR=/tmp/mpl OMP_NUM_THREADS=4 MKL_NUM_THREADS=4
 PY=/home/huangzhe/anaconda3/envs/uav/bin/python
 GT="/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010"
 FRAMES="/mnt/data/siping/datasets/manu/龙泉山/frames_ir_jpg"
-FINAL=runs/lookahead/final
-OUT=runs/lookahead/osd
+# 产物落点（铁律二十五）：中间产物一律出仓库目录。
+# 默认 = SSHFS 映射下的服务器产品区；本机跑时用 PRODUCT_ROOT 覆盖到 workspace/cache/ultralytics/。
+PRODUCT_ROOT="${PRODUCT_ROOT:-/home/manu/mnt/pycharm_project_a7d966e6/runs/lookahead}"
+FINAL="${FINAL:-${PRODUCT_ROOT}/final}"
+OUT="${OUT:-${PRODUCT_ROOT}/osd}"
 SEQ=${1:?usage: render_osd_one.sh <SEQ> [window] [criterion]}
 WINDOW=${2:-300}
 CRITERION=${3:-stale:replay}

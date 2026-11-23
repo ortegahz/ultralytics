@@ -1,0 +1,135 @@
+line_id,line_type,arm,horizon,modality,n_metrics,rule,all_reliable,n_good_windows,good_window_reject_pct,good_above_line_n,good_above_line_tpr,n_bad_windows,bad_window_reject_pct,bad_above_line_n,bad_above_line_tpr,n_good_clips,good_clip_reject_pct,n_bad_clips,bad_clip_reject_pct,scope_note
+knee_short_ir_global_contrast,new_knee,short,short,ir,1,global_contrast >= 0.577855,1,403,26.055,298,0.9597,3220,88.789,361,0.6648,6,16.667,2,100.0,
+knee_short_ir_edge_density,new_knee,short,short,ir,1,edge_density >= 0.01999,0,403,16.625,336,0.9405,3220,75.839,778,0.7519,6,16.667,2,100.0,
+knee_short_ir_lap_var,new_knee,short,short,ir,1,lap_var >= 6.49303,1,403,0.0,403,0.8213,3220,0.0,3220,0.2186,6,0.0,2,0.0,
+knee_short_ir_blockiness,new_knee,short,short,ir,1,blockiness <= 1.04709,0,403,52.605,191,0.9895,3220,100.0,0,0.0,6,50.0,2,100.0,
+knee_short_ir_entropy,new_knee,short,short,ir,1,entropy >= 7.11468,0,403,19.603,324,0.9506,3220,97.702,74,0.7973,6,16.667,2,100.0,
+knee_short_ir_global_contrast & knee_short_ir_edge_density,new_knee_combo,short,short,ir,2,global_contrast >= 0.577855 AND edge_density >= 0.01999,0,403,26.055,298,0.9597,3220,90.217,315,0.7175,6,16.667,2,100.0,
+knee_short_ir_global_contrast & knee_short_ir_lap_var,new_knee_combo,short,short,ir,2,global_contrast >= 0.577855 AND lap_var >= 6.49303,1,403,26.055,298,0.9597,3220,88.789,361,0.6648,6,16.667,2,100.0,
+knee_short_ir_global_contrast & knee_short_ir_blockiness,new_knee_combo,short,short,ir,2,global_contrast >= 0.577855 AND blockiness <= 1.04709,0,403,56.576,175,0.9943,3220,100.0,0,0.0,6,66.667,2,100.0,
+knee_short_ir_global_contrast & knee_short_ir_entropy,new_knee_combo,short,short,ir,2,global_contrast >= 0.577855 AND entropy >= 7.11468,0,403,28.784,287,0.9686,3220,97.702,74,0.7973,6,16.667,2,100.0,
+knee_short_ir_edge_density & knee_short_ir_lap_var,new_knee_combo,short,short,ir,2,edge_density >= 0.01999 AND lap_var >= 6.49303,0,403,16.625,336,0.9405,3220,75.839,778,0.7519,6,16.667,2,100.0,
+knee_short_ir_edge_density & knee_short_ir_blockiness,new_knee_combo,short,short,ir,2,edge_density >= 0.01999 AND blockiness <= 1.04709,0,403,52.605,191,0.9895,3220,100.0,0,0.0,6,50.0,2,100.0,
+knee_short_ir_edge_density & knee_short_ir_entropy,new_knee_combo,short,short,ir,2,edge_density >= 0.01999 AND entropy >= 7.11468,0,403,21.092,318,0.956,3220,97.733,73,0.7945,6,16.667,2,100.0,
+knee_short_ir_lap_var & knee_short_ir_blockiness,new_knee_combo,short,short,ir,2,lap_var >= 6.49303 AND blockiness <= 1.04709,0,403,52.605,191,0.9895,3220,100.0,0,0.0,6,50.0,2,100.0,
+knee_short_ir_lap_var & knee_short_ir_entropy,new_knee_combo,short,short,ir,2,lap_var >= 6.49303 AND entropy >= 7.11468,0,403,19.603,324,0.9506,3220,97.702,74,0.7973,6,16.667,2,100.0,
+knee_short_ir_blockiness & knee_short_ir_entropy,new_knee_combo,short,short,ir,2,blockiness <= 1.04709 AND entropy >= 7.11468,0,403,52.605,191,0.9895,3220,100.0,0,0.0,6,50.0,2,100.0,
+knee_short_ir_global_contrast & knee_short_ir_edge_density & knee_short_ir_lap_var,new_knee_combo,short,short,ir,3,global_contrast >= 0.577855 AND edge_density >= 0.01999 AND lap_var >= 6.49303,0,403,26.055,298,0.9597,3220,90.217,315,0.7175,6,16.667,2,100.0,
+knee_short_ir_global_contrast & knee_short_ir_edge_density & knee_short_ir_blockiness,new_knee_combo,short,short,ir,3,global_contrast >= 0.577855 AND edge_density >= 0.01999 AND blockiness <= 1.04709,0,403,56.576,175,0.9943,3220,100.0,0,0.0,6,66.667,2,100.0,
+knee_short_ir_global_contrast & knee_short_ir_edge_density & knee_short_ir_entropy,new_knee_combo,short,short,ir,3,global_contrast >= 0.577855 AND edge_density >= 0.01999 AND entropy >= 7.11468,0,403,28.784,287,0.9686,3220,97.733,73,0.7945,6,16.667,2,100.0,
+knee_short_ir_global_contrast & knee_short_ir_lap_var & knee_short_ir_blockiness,new_knee_combo,short,short,ir,3,global_contrast >= 0.577855 AND lap_var >= 6.49303 AND blockiness <= 1.04709,0,403,56.576,175,0.9943,3220,100.0,0,0.0,6,66.667,2,100.0,
+knee_short_ir_global_contrast & knee_short_ir_lap_var & knee_short_ir_entropy,new_knee_combo,short,short,ir,3,global_contrast >= 0.577855 AND lap_var >= 6.49303 AND entropy >= 7.11468,0,403,28.784,287,0.9686,3220,97.702,74,0.7973,6,16.667,2,100.0,
+knee_short_ir_global_contrast & knee_short_ir_blockiness & knee_short_ir_entropy,new_knee_combo,short,short,ir,3,global_contrast >= 0.577855 AND blockiness <= 1.04709 AND entropy >= 7.11468,0,403,56.576,175,0.9943,3220,100.0,0,0.0,6,66.667,2,100.0,
+knee_short_ir_edge_density & knee_short_ir_lap_var & knee_short_ir_blockiness,new_knee_combo,short,short,ir,3,edge_density >= 0.01999 AND lap_var >= 6.49303 AND blockiness <= 1.04709,0,403,52.605,191,0.9895,3220,100.0,0,0.0,6,50.0,2,100.0,
+knee_short_ir_edge_density & knee_short_ir_lap_var & knee_short_ir_entropy,new_knee_combo,short,short,ir,3,edge_density >= 0.01999 AND lap_var >= 6.49303 AND entropy >= 7.11468,0,403,21.092,318,0.956,3220,97.733,73,0.7945,6,16.667,2,100.0,
+knee_short_ir_edge_density & knee_short_ir_blockiness & knee_short_ir_entropy,new_knee_combo,short,short,ir,3,edge_density >= 0.01999 AND blockiness <= 1.04709 AND entropy >= 7.11468,0,403,52.605,191,0.9895,3220,100.0,0,0.0,6,50.0,2,100.0,
+knee_short_ir_lap_var & knee_short_ir_blockiness & knee_short_ir_entropy,new_knee_combo,short,short,ir,3,lap_var >= 6.49303 AND blockiness <= 1.04709 AND entropy >= 7.11468,0,403,52.605,191,0.9895,3220,100.0,0,0.0,6,50.0,2,100.0,
+knee_short_vis_global_contrast,new_knee,short,short,vis,1,global_contrast >= 0.708696,0,691,83.502,114,0.9474,3138,95.284,148,0.0,12,91.667,2,100.0,
+knee_short_vis_edge_density,new_knee,short,short,vis,1,edge_density >= 0.11124,0,691,43.271,392,0.9719,3138,95.666,136,0.75,12,41.667,2,100.0,
+knee_short_vis_lap_var,new_knee,short,short,vis,1,lap_var >= 306.474,1,691,0.579,687,0.9199,3138,92.894,223,0.8206,12,0.0,2,100.0,
+knee_short_vis_global_contrast & knee_short_vis_edge_density,new_knee_combo,short,short,vis,2,global_contrast >= 0.708696 AND edge_density >= 0.11124,0,691,92.475,52,1.0,3138,100.0,0,0.0,12,100.0,2,100.0,
+knee_short_vis_global_contrast & knee_short_vis_lap_var,new_knee_combo,short,short,vis,2,global_contrast >= 0.708696 AND lap_var >= 306.474,0,691,83.502,114,0.9474,3138,99.936,2,0.0,12,91.667,2,100.0,
+knee_short_vis_edge_density & knee_short_vis_lap_var,new_knee_combo,short,short,vis,2,edge_density >= 0.11124 AND lap_var >= 306.474,0,691,43.271,392,0.9719,3138,97.929,65,0.7692,12,41.667,2,100.0,
+knee_short_vis_global_contrast & knee_short_vis_edge_density & knee_short_vis_lap_var,new_knee_combo,short,short,vis,3,global_contrast >= 0.708696 AND edge_density >= 0.11124 AND lap_var >= 306.474,0,691,92.475,52,1.0,3138,100.0,0,0.0,12,100.0,2,100.0,
+knee_long_ir_global_contrast,new_knee,long,long,ir,1,global_contrast >= 0.573831,1,403,24.566,304,0.6086,3220,88.137,382,0.1257,6,16.667,2,100.0,
+knee_long_ir_edge_density,new_knee,long,long,ir,1,edge_density >= 0.007345,1,403,6.452,377,0.5438,3220,69.099,995,0.2271,6,0.0,2,50.0,
+knee_long_ir_lap_var,new_knee,long,long,ir,1,lap_var >= 7.84325,1,403,0.0,403,0.5087,3220,0.031,3219,0.0708,6,0.0,2,0.0,
+knee_long_ir_blockiness,new_knee,long,long,ir,1,blockiness <= 1.05606,1,403,45.161,221,0.7738,3220,100.0,0,0.0,6,33.333,2,100.0,
+knee_long_ir_entropy,new_knee,long,long,ir,1,entropy >= 7.11878,0,403,19.851,323,0.6161,3220,97.795,71,0.0704,6,16.667,2,100.0,
+knee_long_ir_global_contrast & knee_long_ir_edge_density,new_knee_combo,long,long,ir,2,global_contrast >= 0.573831 AND edge_density >= 0.007345,1,403,24.814,303,0.6106,3220,88.447,372,0.129,6,16.667,2,100.0,
+knee_long_ir_global_contrast & knee_long_ir_lap_var,new_knee_combo,long,long,ir,2,global_contrast >= 0.573831 AND lap_var >= 7.84325,1,403,24.566,304,0.6086,3220,88.137,382,0.1257,6,16.667,2,100.0,
+knee_long_ir_global_contrast & knee_long_ir_blockiness,new_knee_combo,long,long,ir,2,global_contrast >= 0.573831 AND blockiness <= 1.05606,1,403,49.38,204,0.7794,3220,100.0,0,0.0,6,33.333,2,100.0,
+knee_long_ir_global_contrast & knee_long_ir_entropy,new_knee_combo,long,long,ir,2,global_contrast >= 0.573831 AND entropy >= 7.11878,0,403,28.04,290,0.6276,3220,97.795,71,0.0704,6,16.667,2,100.0,
+knee_long_ir_edge_density & knee_long_ir_lap_var,new_knee_combo,long,long,ir,2,edge_density >= 0.007345 AND lap_var >= 7.84325,1,403,6.452,377,0.5438,3220,69.099,995,0.2271,6,0.0,2,50.0,
+knee_long_ir_edge_density & knee_long_ir_blockiness,new_knee_combo,long,long,ir,2,edge_density >= 0.007345 AND blockiness <= 1.05606,1,403,45.161,221,0.7738,3220,100.0,0,0.0,6,33.333,2,100.0,
+knee_long_ir_edge_density & knee_long_ir_entropy,new_knee_combo,long,long,ir,2,edge_density >= 0.007345 AND entropy >= 7.11878,0,403,19.851,323,0.6161,3220,97.795,71,0.0704,6,16.667,2,100.0,
+knee_long_ir_lap_var & knee_long_ir_blockiness,new_knee_combo,long,long,ir,2,lap_var >= 7.84325 AND blockiness <= 1.05606,1,403,45.161,221,0.7738,3220,100.0,0,0.0,6,33.333,2,100.0,
+knee_long_ir_lap_var & knee_long_ir_entropy,new_knee_combo,long,long,ir,2,lap_var >= 7.84325 AND entropy >= 7.11878,0,403,19.851,323,0.6161,3220,97.795,71,0.0704,6,16.667,2,100.0,
+knee_long_ir_blockiness & knee_long_ir_entropy,new_knee_combo,long,long,ir,2,blockiness <= 1.05606 AND entropy >= 7.11878,0,403,45.161,221,0.7738,3220,100.0,0,0.0,6,33.333,2,100.0,
+knee_long_ir_global_contrast & knee_long_ir_edge_density & knee_long_ir_lap_var,new_knee_combo,long,long,ir,3,global_contrast >= 0.573831 AND edge_density >= 0.007345 AND lap_var >= 7.84325,1,403,24.814,303,0.6106,3220,88.447,372,0.129,6,16.667,2,100.0,
+knee_long_ir_global_contrast & knee_long_ir_edge_density & knee_long_ir_blockiness,new_knee_combo,long,long,ir,3,global_contrast >= 0.573831 AND edge_density >= 0.007345 AND blockiness <= 1.05606,1,403,49.38,204,0.7794,3220,100.0,0,0.0,6,33.333,2,100.0,
+knee_long_ir_global_contrast & knee_long_ir_edge_density & knee_long_ir_entropy,new_knee_combo,long,long,ir,3,global_contrast >= 0.573831 AND edge_density >= 0.007345 AND entropy >= 7.11878,0,403,28.04,290,0.6276,3220,97.795,71,0.0704,6,16.667,2,100.0,
+knee_long_ir_global_contrast & knee_long_ir_lap_var & knee_long_ir_blockiness,new_knee_combo,long,long,ir,3,global_contrast >= 0.573831 AND lap_var >= 7.84325 AND blockiness <= 1.05606,1,403,49.38,204,0.7794,3220,100.0,0,0.0,6,33.333,2,100.0,
+knee_long_ir_global_contrast & knee_long_ir_lap_var & knee_long_ir_entropy,new_knee_combo,long,long,ir,3,global_contrast >= 0.573831 AND lap_var >= 7.84325 AND entropy >= 7.11878,0,403,28.04,290,0.6276,3220,97.795,71,0.0704,6,16.667,2,100.0,
+knee_long_ir_global_contrast & knee_long_ir_blockiness & knee_long_ir_entropy,new_knee_combo,long,long,ir,3,global_contrast >= 0.573831 AND blockiness <= 1.05606 AND entropy >= 7.11878,0,403,49.38,204,0.7794,3220,100.0,0,0.0,6,33.333,2,100.0,
+knee_long_ir_edge_density & knee_long_ir_lap_var & knee_long_ir_blockiness,new_knee_combo,long,long,ir,3,edge_density >= 0.007345 AND lap_var >= 7.84325 AND blockiness <= 1.05606,1,403,45.161,221,0.7738,3220,100.0,0,0.0,6,33.333,2,100.0,
+knee_long_ir_edge_density & knee_long_ir_lap_var & knee_long_ir_entropy,new_knee_combo,long,long,ir,3,edge_density >= 0.007345 AND lap_var >= 7.84325 AND entropy >= 7.11878,0,403,19.851,323,0.6161,3220,97.795,71,0.0704,6,16.667,2,100.0,
+knee_long_ir_edge_density & knee_long_ir_blockiness & knee_long_ir_entropy,new_knee_combo,long,long,ir,3,edge_density >= 0.007345 AND blockiness <= 1.05606 AND entropy >= 7.11878,0,403,45.161,221,0.7738,3220,100.0,0,0.0,6,33.333,2,100.0,
+knee_long_ir_lap_var & knee_long_ir_blockiness & knee_long_ir_entropy,new_knee_combo,long,long,ir,3,lap_var >= 7.84325 AND blockiness <= 1.05606 AND entropy >= 7.11878,0,403,45.161,221,0.7738,3220,100.0,0,0.0,6,33.333,2,100.0,
+knee_long_vis_global_contrast,new_knee,long,long,vis,1,global_contrast >= 0.27881,1,691,0.289,689,0.402,3138,38.751,1922,0.0853,12,0.0,2,0.0,
+knee_long_vis_edge_density,new_knee,long,long,vis,1,edge_density >= 0.078302,1,691,26.194,510,0.5196,3138,92.511,235,0.6128,12,25.0,2,100.0,
+knee_long_vis_lap_var,new_knee,long,long,vis,1,lap_var >= 171.384,1,691,0.0,691,0.4009,3138,84.959,472,0.3835,12,0.0,2,100.0,
+knee_long_vis_global_contrast & knee_long_vis_edge_density,new_knee_combo,long,long,vis,2,global_contrast >= 0.27881 AND edge_density >= 0.078302,1,691,26.194,510,0.5196,3138,94.869,161,0.5342,12,25.0,2,100.0,
+knee_long_vis_global_contrast & knee_long_vis_lap_var,new_knee_combo,long,long,vis,2,global_contrast >= 0.27881 AND lap_var >= 171.384,1,691,0.289,689,0.402,3138,89.452,331,0.2447,12,0.0,2,100.0,
+knee_long_vis_edge_density & knee_long_vis_lap_var,new_knee_combo,long,long,vis,2,edge_density >= 0.078302 AND lap_var >= 171.384,1,691,26.194,510,0.5196,3138,95.124,153,0.5359,12,25.0,2,100.0,
+knee_long_vis_global_contrast & knee_long_vis_edge_density & knee_long_vis_lap_var,new_knee_combo,long,long,vis,3,global_contrast >= 0.27881 AND edge_density >= 0.078302 AND lap_var >= 171.384,1,691,26.194,510,0.5196,3138,97.482,79,0.3038,12,25.0,2,100.0,
+old_admission_combo_long_ir,old_admission_combo,long,long,ir,1,blockiness <= 1.03192,1,403,78.908,85,0.9059,3220,100.0,0,0.0,6,100.0,2,100.0,
+old_admission_combo_short_ir,old_admission_combo,short,short,ir,3,global_contrast >= 0.776744 AND blockiness <= 1.14537 AND entropy >= 7.37059,1,403,67.99,129,0.9922,3220,100.0,0,0.0,6,66.667,2,100.0,
+old_admission_combo_short_vis,old_admission_combo,short,short,vis,2,lap_var >= 2789.84 AND global_contrast >= 0.703448,1,691,94.067,41,1.0,3138,100.0,0,0.0,12,100.0,2,100.0,
+old_percentile_long_ir_P10,old_percentile_combo,long,long,ir,5,global_contrast >= 0.51601 AND edge_density >= 0.014121 AND lap_var >= 37.825 AND blockiness <= 1.0246 AND entropy >= 6.7471,1,403,89.826,41,0.9756,3220,100.0,0,0.0,6,100.0,2,100.0,
+old_percentile_long_vis_P10,old_percentile_combo,long,long,vis,5,global_contrast >= 0.56166 AND edge_density >= 0.046798 AND lap_var >= 699.94 AND blockiness <= 1.0089 AND entropy >= 5.7573,1,691,93.922,42,0.6905,3138,100.0,0,0.0,12,100.0,2,100.0,
+old_percentile_short_ir_P10,old_percentile_combo,short,short,ir,5,global_contrast >= 0.51601 AND edge_density >= 0.014121 AND lap_var >= 37.825 AND blockiness <= 1.0246 AND entropy >= 6.7471,1,403,89.826,41,1.0,3220,100.0,0,0.0,6,100.0,2,100.0,
+old_percentile_short_vis_P10,old_percentile_combo,short,short,vis,5,global_contrast >= 0.56166 AND edge_density >= 0.046798 AND lap_var >= 699.94 AND blockiness <= 1.0089 AND entropy >= 5.7573,1,691,93.922,42,1.0,3138,100.0,0,0.0,12,100.0,2,100.0,
+old_old_rec_long_all_lap_var,old_rec,long,long,ir,1,lap_var >= 2418.66,1,403,100.0,0,0.0,3220,100.0,0,0.0,6,100.0,2,100.0,pooled
+old_old_safe_long_all_lap_var,old_safe,long,long,ir,1,lap_var >= 1427.01,1,403,100.0,0,0.0,3220,100.0,0,0.0,6,100.0,2,100.0,pooled
+old_old_rec_long_all_edge_density,old_rec,long,long,ir,1,edge_density >= 0.196943,1,403,100.0,0,0.0,3220,100.0,0,0.0,6,100.0,2,100.0,pooled
+old_old_safe_long_all_edge_density,old_safe,long,long,ir,1,edge_density >= 0.196943,1,403,100.0,0,0.0,3220,100.0,0,0.0,6,100.0,2,100.0,pooled
+old_old_rec_long_all_global_contrast,old_rec,long,long,ir,1,global_contrast >= 0.757254,1,403,41.439,236,0.6314,3220,99.907,3,0.0,6,33.333,2,100.0,pooled
+old_old_safe_long_all_global_contrast,old_safe,long,long,ir,1,global_contrast >= 0.757254,1,403,41.439,236,0.6314,3220,99.907,3,0.0,6,33.333,2,100.0,pooled
+old_old_rec_long_all_entropy,old_rec,long,long,ir,1,entropy >= 7.36423,1,403,48.387,208,0.7308,3220,99.969,1,0.0,6,33.333,2,100.0,pooled
+old_old_safe_long_all_entropy,old_safe,long,long,ir,1,entropy >= 7.30877,1,403,34.739,263,0.6768,3220,99.596,13,0.0,6,16.667,2,100.0,pooled
+old_old_rec_long_all_snr_db,old_rec,long,long,ir,1,snr_db >= 49.0116,1,403,13.4,349,0.4527,3220,20.528,2559,0.009,6,0.0,2,0.0,pooled
+old_old_safe_long_all_snr_db,old_safe,long,long,ir,1,snr_db >= 49.0116,1,403,13.4,349,0.4527,3220,20.528,2559,0.009,6,0.0,2,0.0,pooled
+old_old_rec_long_all_noise_sigma,old_rec,long,long,ir,1,noise_sigma <= 0.389123,1,403,2.233,394,0.5051,3220,20.528,2559,0.009,6,0.0,2,0.0,pooled
+old_old_safe_long_all_noise_sigma,old_safe,long,long,ir,1,noise_sigma <= 0.389123,1,403,2.233,394,0.5051,3220,20.528,2559,0.009,6,0.0,2,0.0,pooled
+old_old_rec_long_all_dog_snr_max,old_rec,long,long,ir,1,dog_snr_max >= 218.672,1,403,26.551,296,0.5439,3220,35.28,2084,0.0024,6,0.0,2,50.0,pooled
+old_old_safe_long_all_dog_snr_max,old_safe,long,long,ir,1,dog_snr_max >= 158.445,1,403,2.233,394,0.5203,3220,22.267,2503,0.0076,6,0.0,2,0.0,pooled
+old_old_rec_long_ir_global_contrast,old_rec,long,long,ir,1,global_contrast >= 0.753877,1,403,39.95,242,0.6364,3220,99.814,6,0.0,6,33.333,2,100.0,
+old_old_safe_long_ir_global_contrast,old_safe,long,long,ir,1,global_contrast >= 0.753877,1,403,39.95,242,0.6364,3220,99.814,6,0.0,6,33.333,2,100.0,
+old_old_admission_long_ir_blockiness,old_admission,long,long,ir,1,blockiness <= 1.03192,1,403,78.908,85,0.9059,3220,100.0,0,0.0,6,100.0,2,100.0,
+old_old_rec_long_ir_blockiness,old_rec,long,long,ir,1,blockiness <= 1.02355,1,403,90.819,37,1.0,3220,100.0,0,0.0,6,100.0,2,100.0,
+old_old_safe_long_ir_blockiness,old_safe,long,long,ir,1,blockiness <= 1.14537,1,403,23.077,310,0.6581,3220,100.0,0,0.0,6,16.667,2,100.0,
+old_old_rec_long_ir_entropy,old_rec,long,long,ir,1,entropy >= 7.35461,1,403,44.913,222,0.7297,3220,99.907,3,0.0,6,16.667,2,100.0,
+old_old_safe_long_ir_entropy,old_safe,long,long,ir,1,entropy >= 7.30157,1,403,33.995,266,0.6767,3220,99.565,14,0.0,6,16.667,2,100.0,
+old_old_rec_long_ir_snr_db,old_rec,long,long,ir,1,snr_db >= 48.082,1,403,1.241,398,0.5025,3220,20.528,2559,0.009,6,0.0,2,0.0,
+old_old_safe_long_ir_snr_db,old_safe,long,long,ir,1,snr_db >= 48.082,1,403,1.241,398,0.5025,3220,20.528,2559,0.009,6,0.0,2,0.0,
+old_old_rec_long_ir_noise_sigma,old_rec,long,long,ir,1,noise_sigma <= 0.384831,1,403,4.218,386,0.5052,3220,20.528,2559,0.009,6,0.0,2,0.0,
+old_old_safe_long_ir_noise_sigma,old_safe,long,long,ir,1,noise_sigma <= 0.392797,1,403,1.241,398,0.505,3220,20.528,2559,0.009,6,0.0,2,0.0,
+old_old_rec_long_ir_dog_snr_max,old_rec,long,long,ir,1,dog_snr_max >= 220.305,1,403,28.04,290,0.5414,3220,36.025,2060,0.0024,6,16.667,2,50.0,
+old_old_safe_long_ir_dog_snr_max,old_safe,long,long,ir,1,dog_snr_max >= 149.526,1,403,1.241,398,0.5151,3220,21.491,2528,0.0079,6,0.0,2,0.0,
+old_old_rec_long_vis_lap_var,old_rec,long,long,vis,1,lap_var >= 2384.46,1,691,58.032,290,0.6586,3138,99.713,9,0.0,12,50.0,2,100.0,
+old_old_safe_long_vis_lap_var,old_safe,long,long,vis,1,lap_var >= 1386.07,1,691,34.009,456,0.5548,3138,99.012,31,0.0,12,33.333,2,100.0,
+old_old_rec_long_vis_edge_density,old_rec,long,long,vis,1,edge_density >= 0.197635,1,691,80.029,138,0.8188,3138,99.618,12,0.0,12,83.333,2,100.0,
+old_old_safe_long_vis_edge_density,old_safe,long,long,vis,1,edge_density >= 0.197635,1,691,80.029,138,0.8188,3138,99.618,12,0.0,12,83.333,2,100.0,
+old_old_rec_long_vis_global_contrast,old_rec,long,long,vis,1,global_contrast >= 0.70597,1,691,81.91,125,0.344,3138,95.156,152,0.0066,12,91.667,2,100.0,
+old_old_safe_long_vis_global_contrast,old_safe,long,long,vis,1,global_contrast >= 0.69697,1,691,77.279,157,0.3248,3138,94.71,166,0.006,12,75.0,2,100.0,
+old_old_admission_short_all_lap_var,old_admission,short,short,ir,1,lap_var >= 2792.77,1,403,100.0,0,0.0,3220,100.0,0,0.0,6,100.0,2,100.0,pooled
+old_old_rec_short_all_lap_var,old_rec,short,short,ir,1,lap_var >= 2792.77,1,403,100.0,0,0.0,3220,100.0,0,0.0,6,100.0,2,100.0,pooled
+old_old_safe_short_all_lap_var,old_safe,short,short,ir,1,lap_var >= 2792.77,1,403,100.0,0,0.0,3220,100.0,0,0.0,6,100.0,2,100.0,pooled
+old_old_admission_short_all_global_contrast,old_admission,short,short,ir,1,global_contrast >= 0.777757,1,403,61.787,154,0.9805,3220,100.0,0,0.0,6,66.667,2,100.0,pooled
+old_old_rec_short_all_global_contrast,old_rec,short,short,ir,1,global_contrast >= 0.802817,1,403,79.653,82,1.0,3220,100.0,0,0.0,6,100.0,2,100.0,pooled
+old_old_safe_short_all_global_contrast,old_safe,short,short,ir,1,global_contrast >= 0.777757,1,403,61.787,154,0.9805,3220,100.0,0,0.0,6,66.667,2,100.0,pooled
+old_old_admission_short_all_entropy,old_admission,short,short,ir,1,entropy >= 7.374,1,403,51.117,197,0.9848,3220,100.0,0,0.0,6,50.0,2,100.0,pooled
+old_old_rec_short_all_entropy,old_rec,short,short,ir,1,entropy >= 7.40717,1,403,69.975,121,0.9917,3220,100.0,0,0.0,6,66.667,2,100.0,pooled
+old_old_safe_short_all_entropy,old_safe,short,short,ir,1,entropy >= 7.374,1,403,51.117,197,0.9848,3220,100.0,0,0.0,6,50.0,2,100.0,pooled
+old_old_rec_short_all_snr_db,old_rec,short,short,ir,1,snr_db >= 55.8844,1,403,80.893,77,0.3506,3220,38.292,1987,0.0126,6,83.333,2,50.0,pooled
+old_old_safe_short_all_snr_db,old_safe,short,short,ir,1,snr_db >= 55.8844,1,403,80.893,77,0.3506,3220,38.292,1987,0.0126,6,83.333,2,50.0,pooled
+old_old_rec_short_all_noise_sigma,old_rec,short,short,ir,1,noise_sigma <= 0.151064,1,403,94.541,22,0.0909,3220,35.062,2091,0.0163,6,100.0,2,50.0,pooled
+old_old_safe_short_all_noise_sigma,old_safe,short,short,ir,1,noise_sigma <= 0.151064,1,403,94.541,22,0.0909,3220,35.062,2091,0.0163,6,100.0,2,50.0,pooled
+old_old_admission_short_ir_global_contrast,old_admission,short,short,ir,1,global_contrast >= 0.776744,1,403,59.553,163,0.9816,3220,100.0,0,0.0,6,66.667,2,100.0,
+old_old_rec_short_ir_global_contrast,old_rec,short,short,ir,1,global_contrast >= 0.802616,1,403,76.923,93,1.0,3220,100.0,0,0.0,6,83.333,2,100.0,
+old_old_safe_short_ir_global_contrast,old_safe,short,short,ir,1,global_contrast >= 0.776744,1,403,59.553,163,0.9816,3220,100.0,0,0.0,6,66.667,2,100.0,
+old_old_admission_short_ir_blockiness,old_admission,short,short,ir,1,blockiness <= 1.14537,1,403,23.077,310,0.9677,3220,100.0,0,0.0,6,16.667,2,100.0,
+old_old_rec_short_ir_blockiness,old_rec,short,short,ir,1,blockiness <= 1.03771,1,403,66.998,133,1.0,3220,100.0,0,0.0,6,66.667,2,100.0,
+old_old_safe_short_ir_blockiness,old_safe,short,short,ir,1,blockiness <= 1.14537,1,403,23.077,310,0.9677,3220,100.0,0,0.0,6,16.667,2,100.0,
+old_old_admission_short_ir_entropy,old_admission,short,short,ir,1,entropy >= 7.37059,1,403,50.124,201,0.9801,3220,100.0,0,0.0,6,33.333,2,100.0,
+old_old_rec_short_ir_entropy,old_rec,short,short,ir,1,entropy >= 7.40712,1,403,69.975,121,0.9917,3220,100.0,0,0.0,6,66.667,2,100.0,
+old_old_safe_short_ir_entropy,old_safe,short,short,ir,1,entropy >= 7.37059,1,403,50.124,201,0.9801,3220,100.0,0,0.0,6,33.333,2,100.0,
+old_old_rec_short_ir_snr_db,old_rec,short,short,ir,1,snr_db >= 56.2303,1,403,83.871,65,0.2769,3220,40.031,1931,0.0098,6,83.333,2,50.0,
+old_old_safe_short_ir_snr_db,old_safe,short,short,ir,1,snr_db >= 56.2303,1,403,83.871,65,0.2769,3220,40.031,1931,0.0098,6,83.333,2,50.0,
+old_old_admission_short_vis_lap_var,old_admission,short,short,vis,1,lap_var >= 2789.84,1,691,75.977,166,1.0,3138,99.777,7,0.0,12,83.333,2,100.0,
+old_old_rec_short_vis_lap_var,old_rec,short,short,vis,1,lap_var >= 2789.84,1,691,75.977,166,1.0,3138,99.777,7,0.0,12,83.333,2,100.0,
+old_old_safe_short_vis_lap_var,old_safe,short,short,vis,1,lap_var >= 2789.84,1,691,75.977,166,1.0,3138,99.777,7,0.0,12,83.333,2,100.0,
+old_old_admission_short_vis_global_contrast,old_admission,short,short,vis,1,global_contrast >= 0.703448,1,691,79.74,140,0.9357,3138,95.029,156,0.0064,12,83.333,2,100.0,
+old_old_rec_short_vis_global_contrast,old_rec,short,short,vis,1,global_contrast >= 0.737747,1,691,95.948,28,1.0,3138,97.992,63,0.0,12,100.0,2,100.0,
+old_old_safe_short_vis_global_contrast,old_safe,short,short,vis,1,global_contrast >= 0.703448,1,691,79.74,140,0.9357,3138,95.029,156,0.0064,12,83.333,2,100.0,

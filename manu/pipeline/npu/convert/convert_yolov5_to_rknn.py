@@ -40,7 +40,7 @@ import tempfile
 
 from rknn.api import RKNN
 
-SDK_RKNN = "/media/manu/1TB-Volume/rk3588/rk3588_sdk/EVM3588-A_20250815/02Linux软件资料/SDK&Image/SDK/evm3588_linux_sdk_v2.1.1.0"
+SDK_RKNN = "/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rk3588/rk3588_sdk/EVM3588-A_20250815/02Linux软件资料/SDK&Image/SDK/evm3588_linux_sdk_v2.1.1.0"
 SRC_DIR = os.path.join(SDK_RKNN, "external/rknn-toolkit2/examples/onnx/yolov5")
 ONNX_MODEL = os.path.join(SRC_DIR, "yolov5s.onnx")
 DATASET = os.path.join(SRC_DIR, "dataset.txt")

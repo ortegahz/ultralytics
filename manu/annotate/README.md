@@ -39,12 +39,12 @@ manu/annotate/
 ## 快速开始
 
 ```bash
-cd /media/manu/1TB-Volume/workspace/ultralytics
+cd /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics
 
 # 1) 启动服务（--root 会被递归扫描）
 /home/manu/anaconda3/bin/python -m manu.annotate.server \
     --root /path/to/原始视频文件夹 \
-    --workspace /home/manu/mnt/pycharm_project_10ae9e2e/manu/annotate_workspace \
+    --workspace /home/manu/mnt/pycharm_project_a7d966e6/manu/annotate_workspace \
     --port 8777
 
 # 2) 浏览器打开
@@ -52,7 +52,7 @@ cd /media/manu/1TB-Volume/workspace/ultralytics
 ```
 
 `--workspace` 默认取 `<root>/../annotate_workspace`。**预标注需要 workspace 位于 SSHFS 挂载内**
-（`/home/manu/mnt/data` 或 `/home/manu/mnt/pycharm_project_10ae9e2e`），否则训练服务器看不到它，
+（`/home/manu/mnt/data` 或 `/home/manu/mnt/pycharm_project_a7d966e6`），否则训练服务器看不到它，
 接口会直接报出这个原因而不是静默失败。
 
 ## 部署在 GPU 服务器上（推荐：取帧和推理同机）
@@ -71,7 +71,7 @@ cd /tmp/pycharm_project_10ae9e2e          # 服务器上的仓库路径
 ```
 
 注意服务器上的路径前缀和本机**不同**：`/home/manu/mnt/data` ↔ `/mnt/data`，
-`/home/manu/mnt/pycharm_project_10ae9e2e` ↔ `/tmp/pycharm_project_10ae9e2e`。
+`/home/manu/mnt/pycharm_project_a7d966e6` ↔ `/tmp/pycharm_project_10ae9e2e`。
 
 此时预标注走 `--inference-mode auto`（默认）的自动分支：`jobs.py` 比对 SSH 目标和本机网卡地址，
 认出「自己就是目标服务器」后改为**就地 `bash -lc` 起 worker**，不再发 SSH。原因是服务器上没有存着自己的
@@ -267,7 +267,7 @@ cd /tmp/pycharm_project_10ae9e2e && ~/anaconda3/envs/uav/bin/python -m manu.anno
 
 ```bash
 SRC=/home/manu/mnt/data/siping/datasets/manu/龙泉山/preannot_v1/labels/train
-DST=/home/manu/mnt/pycharm_project_10ae9e2e/manu/annotate_workspace/prelabels
+DST=/home/manu/mnt/pycharm_project_a7d966e6/manu/annotate_workspace/prelabels
 mkdir -p "$DST"
 for d in "$SRC"/*/; do seq=$(basename "$d"); mkdir -p "$DST/$seq"; cp "$d"*.txt "$DST/$seq/" 2>/dev/null; done
 ```

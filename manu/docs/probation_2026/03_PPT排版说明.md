@@ -9,7 +9,7 @@
 | **版本** | v1（2026-11-17） |
 | **落点** | `manu/docs/probation_2026/03_PPT排版说明.md` |
 | **内容基准** | `manu/docs/probation_2026/2026-11-17_转正答辩_工作亮点总结.md`（548 行 / 11 亮点） |
-| **视觉基准** | 沿用本仓库既有 house style：`manu/report/03_幻灯片设计_15页版.md` v6（工程化阶段汇报）＋ 参考稿 `/media/manu/1TB-Volume/report/ppt/RK3588红外弱小无人机检测工程化交付.pptx`（深色科技风 / Gemini 位图） |
+| **视觉基准** | 沿用本仓库既有 house style：`manu/report/03_幻灯片设计_15页版.md` v6（工程化阶段汇报）＋ 参考稿 `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/report/ppt/RK3588红外弱小无人机检测工程化交付.pptx`（深色科技风 / Gemini 位图） |
 | **复用资产** | `manu/report/assets/svg_source/`（21 页 SVG 源页）· `manu/report/assets/html/`（21 页 HTML）· `manu/report/assets/outline.json` |
 | **流水线** | `ppt-master/skills/ppt-master/scripts/svg_quality_checker.py` → `svg_to_pptx.py` → `export_outline_md.py` |
 | **画布** | `viewBox="0 0 1280 720"`（对应 `CANVAS_FORMATS["ppt169"]`），输出 PPTX 尺寸 16256000 × 9144000 EMU（17.78 × 10.0 in） |

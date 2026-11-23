@@ -550,6 +550,10 @@ struct MosaicPipeline {
   // travels with the result, so the caller can see the physical gap.
   std::unique_ptr<mosaic::TrackFusionEngine> fusion;
   MosaicTrackFusionConfig fusion_cfg{};
+  // The CROSS-SCALE CANDIDATE MERGE radius (px).  0 = OFF (the default:
+  // the candidate stream reaches the engine exactly as the back-projection
+  // produced it).  See mosaic_pipeline_set_candidate_dedup_radius().
+  double fusion_cand_dedup_radius = 0.0;
   std::mutex m_fusion;
   // The frame axis the engine is fed with (see FusionAxisPicker).
   FusionAxisPicker fusion_axis;
@@ -2221,6 +2225,13 @@ struct MosaicPipeline {
       cand.score = c.peak;
       cands.push_back(cand);
     }
+    // CROSS-SCALE CANDIDATE MERGE (candidate construction, OFF by default).
+    // The server's multiscale chain merges the peaks of the three scales
+    // BEFORE the fusion (merge_scales(dedup_radius)); without it one target
+    // that fires on several scales becomes several tracks (board FAR
+    // 0.3832 vs the server's 0.0279 on the same window).  radius <= 0 keeps
+    // the stream untouched.
+    mosaic::MergeCandidatesByRadius(&cands, fusion_cand_dedup_radius);
     if (fusion_cfg.reorder_window > 0) {
       // HOLD the frame until the buffer is over the window, then release the
       // OLDEST one: the tracker then sees the frames in ASCENDING camera
@@ -4328,7 +4339,7 @@ int32_t mosaic_pipeline_set_detect_threshold(MosaicPipeline* p, const double* th
 // v10.5: the spatio-temporal track fusion -- the public API.
 // ---------------------------------------------------------------------------
 
-// The C++ kernel's defaults ARE the frozen th045/v1 parameters, so the
+// The C++ kernel's defaults ARE the 2026-11-20 DELIVERY parameters, so the
 // defaults of the C struct are taken FROM the kernel: there is exactly one
 // place where a parameter value is written down.
 static mosaic::TrackFusionParams ToFusionParams(const MosaicTrackFusionConfig& c) {
@@ -4375,7 +4386,7 @@ static mosaic::TrackFusionParams ToFusionParams(const MosaicTrackFusionConfig& c
 void mosaic_pipeline_track_fusion_defaults(MosaicTrackFusionConfig* cfg) {
   if (!cfg) return;
   memset(cfg, 0, sizeof(*cfg));
-  const mosaic::TrackFusionParams d;  // the frozen th045/v1 defaults
+  const mosaic::TrackFusionParams d;  // the 2026-11-20 DELIVERY defaults
   cfg->version = MOSAIC_TRACK_FUSION_VERSION;
   cfg->enable = 1;
   cfg->tag_mask = 0x7;  // all three scales: the validated candidate stream
@@ -4446,13 +4457,62 @@ int32_t mosaic_pipeline_set_track_fusion(MosaicPipeline* p, const MosaicTrackFus
   p->fusion_finalized = false;
   p->fused_frames.clear();
   p->fused_pos = 0;
-  fprintf(stderr, "[i] track fusion ON: th_base=%.4f th_ground=%.4f sky_ratio=%.3f tags=0x%x "
+  fprintf(stderr, "[i] track fusion ON: th_base=%.4f th_salvage=%.4f th_ground=%.4f "
+                  "sky_ratio=%.3f match_dist=%.2f tags=0x%x "
                   "reorder_window=%d physical_frame_id=%d max_age_phys=%d r_slope=%.2f "
                   "alpha_decay=%.3f confirm_consec=%d confirm_gap_tol=%d\n",
-          p->fusion_cfg.th_base, p->fusion_cfg.th_ground, p->fusion_cfg.sky_ratio,
+          p->fusion_cfg.th_base, p->fusion_cfg.th_salvage, p->fusion_cfg.th_ground,
+          p->fusion_cfg.sky_ratio, p->fusion_cfg.match_dist,
           p->fusion_cfg.tag_mask, p->fusion_cfg.reorder_window, p->fusion_cfg.use_physical_frame_id,
           p->fusion_cfg.max_age_phys, p->fusion_cfg.r_slope, p->fusion_cfg.alpha_decay,
           p->fusion_cfg.confirm_consec, p->fusion_cfg.confirm_gap_tol);
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
+// The CROSS-SCALE CANDIDATE MERGE radius (px) -- the board's counterpart of
+// the server's `merge_scales(dedup_radius)`.
+//
+//   0 (the default) = OFF: the candidates reach the fusion engine exactly as
+//       the back-projection produced them (today's behaviour, bit for bit).
+//   > 0 = the candidates of a frame are merged greedily: pooled, sorted by
+//       descending score (stable), and a candidate lying within `radius` of
+//       an already kept one is dropped -- the server's rule, bit for bit.
+//
+// WHY it matters: the server's FAR is calibrated on a MERGED candidate
+// stream; the board fed the fusion engine the RAW one, so one target that
+// fired on several scales became several tracks => board FAR 0.3832 against
+// the 0.03 red line (12.8x) on the same 2500-frame window, while the
+// fusion engine itself was proven equivalent to the server's.
+//
+// WHY a separate call and not a new field of MosaicTrackFusionConfig: the
+// config version is checked strictly, so a new field would mean a version
+// bump and every caller built against v2 would be REJECTED with -2 (the
+// fusion would silently stay off).  This keeps the delivered ABI intact.
+//
+// The board's delivery value is 20 px (16~24 px is the accepted band).  The
+// server's own delivery caliber uses 768 px, which is WRONG on the board:
+// 768 px is longer than any two points of a 640x512 frame, so it would keep
+// a single candidate per frame and drop the secondary targets (recall
+// 0.557 -> 0.532).
+// ---------------------------------------------------------------------------
+int32_t mosaic_pipeline_set_candidate_dedup_radius(MosaicPipeline* p, double radius) {
+  if (!p) return -1;
+  if (!(radius >= 0.0) || radius > 4096.0) {
+    fprintf(stderr, "[FATAL] candidate dedup radius %.3f is out of range (0..4096 px)\n", radius);
+    return -3;
+  }
+  std::lock_guard<std::mutex> lk(p->m_fusion);
+  p->fusion_cand_dedup_radius = radius;
+  if (radius > 0.0) {
+    fprintf(stderr, "[i] candidate dedup ON: radius=%.1f px (cross-scale merge)\n", radius);
+  } else {
+    fprintf(stderr,
+            "[warn] candidate dedup OFF (radius=0): the candidate stream reaches the tracker "
+            "UNMERGED => one target that fires on several scales becomes several tracks "
+            "(board FAR 0.3832 against the 0.03 red line on the 2500-frame window; the server "
+            "gets 0.0552). Use 16~24 px on the board (20 px = the delivery value).\n");
+  }
   return 0;
 }
 

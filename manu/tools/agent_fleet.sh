@@ -24,8 +24,8 @@
 set -euo pipefail
 
 HERMES_BIN="${HERMES_BIN:-hermes}"
-REPO_ROOT="${REPO_ROOT:-/media/manu/1TB-Volume/workspace/ultralytics}"
-WT_ROOT="${WT_ROOT:-/media/manu/1TB-Volume/workspace/.hermes-fleet}"
+REPO_ROOT="${REPO_ROOT:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics}"
+WT_ROOT="${WT_ROOT:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/.hermes-fleet}"
 STATE_DIR="${WT_ROOT}/.state"
 ROLE_DEFAULT="worker"
 

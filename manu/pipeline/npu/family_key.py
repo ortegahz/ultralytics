@@ -60,6 +60,48 @@ def _soup_family_key(arm: dict) -> str:
     return "soup:%s|%s@%s" % (sf, ms, ",".join("%.3f" % float(x) for x in w))
 
 
+def polish_family_key(arm: dict) -> str:
+    """**抛光家族键 = 抛光配方指纹（**不含锚点**）**。
+
+    🔴🔴🔴 2026-11-20 R1修复 —— **把锚点从家族键里拿掉**
+    --------------------------------------------------
+    【实测证据】2026-11-20 14:39 服务器台账快照（12,096 臂）：
+      · 抛光臂（`polish` 标记或 `params.warm_key`）共 **785** 个，**全部**带
+        `source_anchor` / `warm_anchor`（= 老键里那个「锚点」分量）。
+      · 按**老键**（`polish:<锚点>|<配方段>`）分组 ⇒ **161** 个家族 ⇒
+        其中 **54 个臂独自成族（族内 n = 1）** ⇒ 这 54 个臂的
+        `auto_promote_watch`「同族 n≥4」复现关**结构性不可达**
+        ⇒ 抛光臂即使自己六项全过也**永远升不了轨**。
+      · 按**新键**（纯配方段）分组 ⇒ **34** 个家族（33 个配方段 + 1 个既带
+        `soup_members` 又带 `warm_key` 的臂，它走汤臂分支 —— **老键同样如此，非本次引入**）。
+      · **老家族 ⊆ 新家族**（老键 = 锚点+配方段，新键 = 配方段）⇒
+        老键下 n≥4 的家族在新键下 n **只增不减** ⇒ 复现关**只会更容易过**，不会更难。
+      · 语义可识别性（新键）：**33** 个配方段中 **28 个含 ≥2 个不同锚点**，
+        最大组 `lr0.2|l20.001|fb1|ep1` 含 **23 个不同锚点**
+        ⇒ 「同一抛光配方作用在 ≥2 个不同锚点」**可被识别为同族**（老键下不可识别）。
+      · 误合并检查：**新键相同但配方段不同的臂 = 0** ⇒ 不同配方**不会**被误判成同族。
+    【改法】家族键 = `warm_key` 去掉「首个锚点字段」与「末尾 repN 换种子后缀」后的**配方段**；
+      没有 `warm_key` 时退回 params 的四个抛光超参（lr / anchor_l2 / freeze_bn / epochs）。
+    【为什么不误判同族】配方段里含 lr / λ / freeze_bn / epochs（以及 cp 变体后缀）
+      ⇒ **不同配方 ⇒ 不同配方段 ⇒ 不同族**；只有「同一配方作用在不同锚点」才同族
+      —— 而这正是要的语义（memory 写的就是「同一套抛光配方作用在 ≥2 个不同锚点」）。
+    【影响面】只改**抛光臂**的分组键；**汤臂**（`_soup_family_key`）与
+      **普通训练臂**（`base:` 含 init —— 不同底座 = 不同盆地）**完全不变**。
+    【回退】`git checkout manu/pipeline/npu/family_key.py`
+    """
+    arm = arm or {}
+    p = arm.get("params") or {}
+    wk = str(p.get("warm_key") or "")
+    if wk and "|" in wk:
+        # 去掉首个锚点字段（`w<anchor>e<ep>`），再去掉 repN 换种子后缀
+        cfg = re.sub(r"\|rep\d+$", "", wk.split("|", 1)[-1])
+        return "polish:" + cfg
+    return "polish:lr=%s|l2=%s|fb=%s|ep=%s" % (norm_value(p.get("lr")),
+                                               norm_value(p.get("anchor_l2")),
+                                               norm_value(p.get("freeze_bn")),
+                                               norm_value(p.get("epochs")))
+
+
 def arm_family_key(arm: dict) -> str:
     """按**台账 arm** 算家族键。"""
     arm = arm or {}
@@ -67,12 +109,12 @@ def arm_family_key(arm: dict) -> str:
     if arm.get("synth") and (arm.get("soup_members") or []):
         return _soup_family_key(arm)
     wk = p.get("warm_key")
-    if wk:
-        # 抛光臂：配方 = 锚点 + 抛光配置（锚点不同 ⇒ 不同盆地）
-        # 且去掉 repN 后缀 ⇒ rep1/rep2/rep3（换种子复现）算同一个家族
-        cfg = str(wk).split("|", 1)[-1]
-        cfg = re.sub(r"\|rep\d+$", "", cfg)
-        return "polish:%s|%s" % (arm.get("source_anchor") or p.get("warm_anchor") or "?", cfg)
+    if wk or arm.get("polish"):
+        # 🔴 2026-11-20 R1修复：抛光臂的家族键**不再含锚点**（见 polish_family_key 注释块）
+        #   老键 = "polish:<锚点>|<配方段>" ⇒ 不同锚点 ⇒ 不同族 ⇒ n 恒 1 ⇒ n≥4 永远凑不齐。
+        #   新键 = "polish:<配方段>" ⇒ 同一配方作用在不同锚点 ⇒ 同族 ⇒ 复现关可达。
+        #   （repN 换种子后缀已在 polish_family_key 内去掉 ⇒ rep1/rep2/rep3 算同一个家族。）
+        return polish_family_key(arm)
     # 普通臂：配方键必须含 init（底座 ckpt）—— 不同底座 = 不同盆地
     return "base:%s|%s" % (p.get("init"), "|".join(norm_value(p.get(k)) for k in BASE_KEYS))
 

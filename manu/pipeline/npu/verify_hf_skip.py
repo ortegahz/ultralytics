@@ -17,7 +17,7 @@
 不依赖 GPU / rknn-toolkit2 / checkpoint，纯 CPU 可跑。
 
 用法：
-  cd /media/manu/1TB-Volume/workspace/ultralytics
+  cd /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics
   python manu/pipeline/npu/verify_hf_skip.py                 # 默认 P3 头（head_src=p3）
   python manu/pipeline/npu/verify_hf_skip.py --head-src p2_fused --hf-skip-src b0
 """

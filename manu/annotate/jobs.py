@@ -32,7 +32,7 @@ from pathlib import Path
 
 # Local (workstation, SSHFS view) prefix -> server prefix. Longest matching prefix wins.
 PATH_MAP: list[tuple[str, str]] = [
-    ("/home/manu/mnt/pycharm_project_10ae9e2e", "/tmp/pycharm_project_10ae9e2e"),
+    ("/home/manu/mnt/pycharm_project_a7d966e6", "/tmp/pycharm_project_10ae9e2e"),
     ("/home/manu/mnt/data", "/mnt/data"),
 ]
 

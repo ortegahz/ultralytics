@@ -110,9 +110,11 @@ for sequence in sorted(sequences):
             mismatched.append(sequence)
     rows.append((sequence, f1, recall, precision, far, gt, tp, fp, fn))
 
-global_params = " ".join(
-    f"{key}={params[key]}" for key in
-    ("th_base", "th_salvage", "th_ground", "sky_ratio", "confirm_consec") if key in params)
+# Record the COMPLETE working point.  A hard-coded key list used to be used here, which silently
+# dropped every delta-n knob (confirm_gap_tol / r_slope / match_dist / alpha_decay / max_age_phys):
+# the TSV then claimed a working point it did not document, and anyone reading it would assume the
+# legacy defaults.  Derive the list from the params dict itself -- there is nothing to keep in sync.
+global_params = " ".join(f"{key}={params[key]}" for key in sorted(params))
 print("# global params: " + (global_params or "(not available -- search JSON missing or empty)"))
 print("sequence\tf1_pct\trecall_pct\tprecision_pct\tfar\tgt\ttp\tfp\tfn\tgroup\t"
       "th_base\tth_salvage\tth_ground\tsky_ratio\tconfirm_consec")

@@ -1,0 +1,5 @@
+scope,line_kind,rule,n_metrics,good_trackable_rate,good_coverage,good_windows_passed,good_windows_total,bad_false_accept_rate,bad_windows_passed,bad_windows_total
+ir,recommended,global_contrast >= 0.75388 AND blockiness <= 1.0235 AND entropy >= 7.3546,3,1.0000,0.0596,24,403,,0,3220
+ir,red_line,global_contrast >= 0.75388 AND blockiness <= 1.1454 AND entropy >= 7.3016,3,0.7136,0.5112,206,403,,0,3220
+vis,recommended,global_contrast >= 0.70597 AND edge_density >= 0.19763 AND lap_var >= 2384.5,3,,,0,691,,0,3138
+vis,red_line,global_contrast >= 0.69697 AND edge_density >= 0.19763 AND lap_var >= 1386.1,3,,,0,691,,0,3138

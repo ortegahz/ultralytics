@@ -37,7 +37,9 @@ std::string Trim(const std::string& s) {
 }
 
 // 参数覆盖文件：每行 `key value` 或 `key=value`，# 开头是注释。
-void LoadParams(const char* path, mosaic::TrackFusionParams* p) {
+// `dedup_radius` 不是融合引擎的参数，而是**候选构造**阶段的跨尺度合并半径，
+// 所以单独传进来（与 mosaic_pipeline_set_candidate_dedup_radius() 同一个语义）。
+void LoadParams(const char* path, mosaic::TrackFusionParams* p, double* dedup_radius) {
   FILE* f = fopen(path, "r");
   if (!f) Die("cannot open params file");
   char line[512];
@@ -82,6 +84,7 @@ void LoadParams(const char* path, mosaic::TrackFusionParams* p) {
     else if (key == "max_age_phys") p->max_age_phys = (int32_t)v;
     else if (key == "r_slope") p->r_slope = v;
     else if (key == "alpha_decay") p->alpha_decay = v;
+    else if (key == "dedup_radius") *dedup_radius = v;
     else {
       fprintf(stderr, "[warn] unknown param key '%s' (ignored)\n", key.c_str());
     }
@@ -95,25 +98,29 @@ int main(int argc, char** argv) {
   const char* cands = nullptr;
   const char* out = nullptr;
   const char* params_path = nullptr;
+  double dedup_radius = 0.0;  // 跨尺度候选合并半径（px）；0 = 关
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
     const bool nx = (i + 1 < argc);
     if (a == "--cands" && nx) cands = argv[++i];
     else if (a == "--out" && nx) out = argv[++i];
     else if (a == "--params" && nx) params_path = argv[++i];
+    else if (a == "--dedup-radius" && nx) dedup_radius = atof(argv[++i]);
     else {
       fprintf(stderr,
-              "用法: %s --cands <cands.tsv> --out <fused.tsv> [--params <params.txt>]\n", argv[0]);
+              "用法: %s --cands <cands.tsv> --out <fused.tsv> [--params <params.txt>]\n"
+              "          [--dedup-radius R]  跨尺度候选合并半径(px)，0=关\n", argv[0]);
       return 2;
     }
   }
   if (!cands || !out) {
-    fprintf(stderr, "用法: %s --cands <cands.tsv> --out <fused.tsv> [--params <params.txt>]\n", argv[0]);
+    fprintf(stderr, "用法: %s --cands <cands.tsv> --out <fused.tsv> [--params <params.txt>]\n"
+                    "          [--dedup-radius R]  跨尺度候选合并半径(px)，0=关\n", argv[0]);
     return 2;
   }
 
   mosaic::TrackFusionParams params;
-  if (params_path) LoadParams(params_path, &params);
+  if (params_path) LoadParams(params_path, &params, &dedup_radius);
 
   // ---- 读候选流 ----
   FILE* f = fopen(cands, "r");
@@ -157,7 +164,11 @@ int main(int argc, char** argv) {
   // ---- 跑时空融合 ----
   mosaic::TrackFusionEngine engine(params);
   for (const auto& fr : frames) {
-    engine.Step(fr.idx, fr.cands.data(), fr.cands.size());
+    // 候选构造阶段：跨尺度合并（服务器 merge_scales 的等价规则）。
+    // radius <= 0 => 原样喂进去（与本工具引入前的行为逐位一致）。
+    std::vector<mosaic::TrackFusionCand> cands = fr.cands;
+    mosaic::MergeCandidatesByRadius(&cands, dedup_radius);
+    engine.Step(fr.idx, cands.data(), cands.size());
   }
   std::vector<std::vector<mosaic::TrackFusionDet>> fused;
   engine.Finalize(&fused);

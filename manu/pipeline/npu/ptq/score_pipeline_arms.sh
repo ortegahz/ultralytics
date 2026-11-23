@@ -44,7 +44,7 @@ REPO_SRV=/tmp/pycharm_project_10ae9e2e
 SEQ=VIDEO00007_19700101_001324
 ARM_SRV_ROOT=$REPO_SRV/manu/pipeline/npu/ptq/board_tsv_svc
 OUT_SRV_ROOT=/mnt/data/siping/ptq_work/final_report_svc
-LOCAL_OUT=/media/manu/1TB-Volume/workspace/ultralytics/manu/pipeline/npu/results/svc_arms
+LOCAL_OUT=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/manu/pipeline/npu/results/svc_arms
 # The board publishes here, and it is the same directory the server sees.
 PUB_LOCAL=/mnt/srv2/psearch/results
 

@@ -35,10 +35,12 @@
 │               rga/×18, CL/×20
 ├── runtime/kernels/    warp_median_fused.cl, sortnet_generated.inc, gmc_feature_gpu.cl
 ├── models/    p0_off_A_none.rknn（**RKNN 模型，随包交付**）
-├── out/        mosaic_pipeline.o, libmosaic_pipeline.so,
+├── out/        mosaic_pipeline.o, mosaic_track_fusion.o,
+│               libmosaic_pipeline.so,
 │               mosaic_api_test, mosaic_client_example,
 │               mosaic_async_client_example,
-│               mosaic_contract_test, rknn_mosaic_e2e
+│               mosaic_contract_test, rknn_mosaic_e2e,
+│               mosaic_cadence_probe, mosaic_track_dump
 └── 兼容别名（相对符号链接）：
     mosaic_api_test       -> out/mosaic_api_test
     mosaic_async_client_example -> out/mosaic_async_client_example
@@ -53,7 +55,7 @@
   `out/` 整树照搬）。
 * 顶层那 5 个**兼容别名是符号链接**（不是副本），分别指向 `out/` 与 `src/npu/`，
   为的是**旧的平铺命令**（`./mosaic_api_test --kernel-dir ./kernels`）继续可用。
-* `out/` 的 6 个产物在交付包里**已预编译**（RK3588 / aarch64），嵌入式组
+* `out/` 的 {{OUT_COUNT}} 个产物在交付包里**已预编译**（RK3588 / aarch64），嵌入式组
   **不必**先编译即可直接跑；确实要重编时在交付目录原地编（见 §B、§F）。
 * ⚠️ **本包不携带任何第三方 .so/.a**（**没有第三方依赖目录**）：OpenCV /
   RKNN Runtime / RGA / OpenCL 全部**动态链接板卡自带的库**（见 §C 的
@@ -67,6 +69,19 @@
   （**我们内部 NFS 的路径**）⇒ 客户照抄命令必然失败；现已改为包内路径。
   ⚠️ 模型在 NFS 上是 **soft 挂载**，**板卡直读会被读坏** ⇒ 板上使用前仍须
   先 `cat` 到板卡 `/tmp`。
+
+### 板卡实测记录（RK3588 `evm3588` @ 192.168.0.64，2026-11-20）
+
+> 这块板自带 **OpenCV 4.8**（`libopencv_core.so.408`）⇒ 板卡上原生重编 / 实测的是 **ocv48 变体**；
+> 另两个变体（ocv46 / ocv42）的 `.so` 是宿主交叉编译产物，与 ocv48 版**行为逐字节等价**
+> （下面两行 md5 对三个变体通用），差异只在**运行时参数回读行**是否多打两个字段。
+
+| 项 | 结果 |
+|---|---|
+| `out/` 包内自带 `.so` + 探针跑 2500 帧 | `ship_td_fused.tsv` md5 `5a317dab22bb28497e93b3db77927270`、`ship_td_cands.tsv` md5 `0e511a4c66a7f2842c79c0a9f73fe613` —— 与板上独立跑的参照**逐字节相同** |
+| 运行时参数回读 | `th_base=0.4800 th_salvage=0.0600 th_ground=0.2600 sky_ratio=1.000 match_dist=10.00 tags=0x7 … max_age_phys=-1 r_slope=5.00 alpha_decay=1.000 confirm_consec=2 confirm_gap_tol=8`（**9 字段全在**） |
+| 旧 `.so` vs 板端重编 `.so` | 同 250 帧：候选流 md5 `959963cad3d9d520d01d7b84e123b834`、融合 md5 `b1e8eb4401fb6dcd518d827cdec2a2dc` —— **两版完全相同 ⇒ 行为逐字节等价**；差异仅在回读行多打 `th_salvage` / `match_dist` |
+| ABI 兼容性 | 旧 `.so` 读新结构体的**全部已知字段值都正确**（`th_base/th_ground/sky_ratio/r_slope/alpha_decay/confirm_consec/confirm_gap_tol/max_age_phys`）⇒ **结构体无错位** |
 
 <!-- MD5_TABLE:BEGIN -->
 （本段由 `make_build_dir.sh` 自动生成，勿手改）

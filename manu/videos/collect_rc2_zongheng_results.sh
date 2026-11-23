@@ -2,9 +2,9 @@
 # 纵横AI RC2 OSD —— 渲染完成后把产物收进**本地仓库**并提交（**在 host 上跑**）
 #
 # 为什么必须在 host 上做这一步：
-#   服务器的 /tmp/pycharm_project_10ae9e2e 与本地仓库 /media/manu/1TB-Volume/workspace/ultralytics
+#   服务器的 /tmp/pycharm_project_10ae9e2e 与本地仓库 /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics
 #   是**两份独立 checkout**（inode 不同）⇒ 服务器端生成的 split / 复核底稿不会自动出现在本地仓库。
-#   中间那层 SSHFS（host 上的 /home/manu/mnt/pycharm_project_10ae9e2e ↔ 服务器同一路径）才是桥。
+#   中间那层 SSHFS（host 上的 /home/manu/mnt/pycharm_project_a7d966e6 ↔ 服务器同一路径）才是桥。
 #   ⇒ 收尾链路 = 服务器写 → SSHFS 桥 → host 拷进本地仓库 → 提交。
 #
 # 用法（每个工作点一次，产物名各自不同）：
@@ -15,8 +15,8 @@ set -uo pipefail
 
 SERVER="huangzhe@192.168.99.40"
 PORT=32222
-LOCAL=/media/manu/1TB-Volume/workspace/ultralytics
-BRIDGE=/home/manu/mnt/pycharm_project_10ae9e2e
+LOCAL=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics
+BRIDGE=/home/manu/mnt/pycharm_project_a7d966e6
 
 # 产物名后缀：默认（交付档）无后缀；敏感档用 _th020 / -th020
 SPLIT_SUFFIX="${SPLIT_SUFFIX:-}"

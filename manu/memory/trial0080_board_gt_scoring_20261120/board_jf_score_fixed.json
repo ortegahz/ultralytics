@@ -1,0 +1,34 @@
+{
+  "all": {
+    "tp": 1028,
+    "fp": 183,
+    "fn": 1392,
+    "fn_absent": 1392,
+    "fn_compete": 0,
+    "det": 1211,
+    "gt": 2420,
+    "recall": 0.42479338842975206,
+    "precision": 0.8488852188274154,
+    "f1": 0.5662351969154502,
+    "far_per_frame": 0.0732
+  },
+  "delivered": {
+    "tp": 368,
+    "fp": 68,
+    "fn": 363,
+    "fn_absent": 363,
+    "fn_compete": 0,
+    "det": 436,
+    "gt": 731,
+    "recall": 0.5034199726402189,
+    "precision": 0.8440366972477065,
+    "f1": 0.6306769494430163,
+    "far_per_frame": 0.09176788124156546
+  },
+  "total_frames": 2500,
+  "delivered_frames": 741,
+  "delivered_frames_with_output": 420,
+  "gt_frames": 10535,
+  "sequence": "VIDEO00007_19700101_001324",
+  "fused_tsv": "/tmp/boardwork/board_jf_fused.tsv"
+}

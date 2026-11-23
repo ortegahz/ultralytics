@@ -47,7 +47,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 DATASET_ROOT = Path("/home/manu/mnt/data/siping/datasets/manu/uav_gmc_median")
 DEFAULT_ONNX = REPO_ROOT / "runs/onnx/trial0474_hm.onnx"
-WORK_ROOT = Path("/media/manu/1TB-Volume/rknn_work/hm")
+WORK_ROOT = Path("/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/hm")
 
 
 def seq_of(path: Path) -> str:

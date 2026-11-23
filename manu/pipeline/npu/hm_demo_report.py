@@ -33,8 +33,8 @@ Usage:
         --sequence 34_1 \\
         --board-feat /run/media/manu/SSD960-LOCAL/nfs/npu/out/demo34/feat \\
         --frozen-feat /home/manu/mnt/data/siping/datasets/manu/uav_gmc_median/images/val \\
-        --ref /media/manu/1TB-Volume/rknn_work/hm/demo34/ref_cpu \\
-        --perframe /media/manu/1TB-Volume/rknn_work/hm/demo34/board_perframe.json \\
+        --ref /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/hm/demo34/ref_cpu \\
+        --perframe /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rknn_work/hm/demo34/board_perframe.json \\
         --gmc-csv /run/media/manu/SSD960-LOCAL/nfs/npu/out/demo34/gmc_profile.csv \\
         --npu-log /run/media/manu/SSD960-LOCAL/nfs/npu/out/demo34/npu_run.log \\
         --gmc-log /run/media/manu/SSD960-LOCAL/nfs/npu/out/demo34/gmc_run.log \\

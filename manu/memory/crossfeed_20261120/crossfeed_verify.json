@@ -1,0 +1,619 @@
+{
+  "tsv_dir": "/mnt/data/siping/runs/trial0080_board24_20261120/tsv",
+  "params_json": "manu/evaluation/system_sota_longquan_trial0080_delivery_v3_optgapfit_params.json",
+  "params_flat": "manu/memory/align_dn_20261120/params_delivery.txt",
+  "labels_root": "/mnt/data/siping/datasets/manu/龙泉山/label/Final_Labels_merged_20261010",
+  "tol": 8.0,
+  "rows": [
+    {
+      "sequence": "VIDEO00007_19700101_001324",
+      "window": [
+        0,
+        11810
+      ],
+      "frames": 11810,
+      "board_fused_tsv": "/mnt/data/siping/runs/trial0080_board24_20261120/tsv/VIDEO00007_19700101_001324_fused.tsv",
+      "board_fused_md5": "9e087698b5b855315f8efeea1bea60ee",
+      "board_fused_nonempty_md5": "9e087698b5b855315f8efeea1bea60ee",
+      "board": {
+        "tp": 8471,
+        "fp": 700,
+        "fn": 2064,
+        "fn_absent": 2064,
+        "fn_compete": 0,
+        "det": 9171,
+        "gt": 10535,
+        "recall": 0.8040816326530612,
+        "precision": 0.9236724457529168,
+        "f1": 0.85973815081701,
+        "far_per_frame": 0.05927180355630821,
+        "window": [
+          0,
+          11810
+        ],
+        "frames": 11810,
+        "frames_with_detection": 8804
+      },
+      "radii": [
+        {
+          "radius": 20.0,
+          "python_mirror_tsv": "/tmp/crossfeed/work/VIDEO00007_19700101_001324/fused_py_r20.tsv",
+          "python_mirror_nonempty_md5": "9e087698b5b855315f8efeea1bea60ee",
+          "cpp_align_tsv": "/tmp/crossfeed/work/VIDEO00007_19700101_001324/fused_cpp_r20.tsv",
+          "cpp_align_nonempty_md5": "9e087698b5b855315f8efeea1bea60ee",
+          "python_identical_to_board": true,
+          "cpp_identical_to_board": true,
+          "python_identical_to_cpp": true,
+          "python": {
+            "tp": 8471,
+            "fp": 700,
+            "fn": 2064,
+            "fn_absent": 2064,
+            "fn_compete": 0,
+            "det": 9171,
+            "gt": 10535,
+            "recall": 0.8040816326530612,
+            "precision": 0.9236724457529168,
+            "f1": 0.85973815081701,
+            "far_per_frame": 0.05927180355630821,
+            "window": [
+              0,
+              11810
+            ],
+            "frames": 11810,
+            "frames_with_detection": 8804
+          },
+          "cpp": {
+            "tp": 8471,
+            "fp": 700,
+            "fn": 2064,
+            "fn_absent": 2064,
+            "fn_compete": 0,
+            "det": 9171,
+            "gt": 10535,
+            "recall": 0.8040816326530612,
+            "precision": 0.9236724457529168,
+            "f1": 0.85973815081701,
+            "far_per_frame": 0.05927180355630821,
+            "window": [
+              0,
+              11810
+            ],
+            "frames": 11810,
+            "frames_with_detection": 8804
+          },
+          "diff_board_vs_python": {
+            "frames_only_left": 0,
+            "frames_only_right": 3006,
+            "frames_common": 8804,
+            "frames_common_count_mismatch": 0,
+            "max_pos_delta": 0.0,
+            "max_score_delta": 0.0,
+            "sample_only_left": [],
+            "sample_only_right": [
+              434,
+              435,
+              436,
+              437,
+              438,
+              439,
+              440,
+              441,
+              442,
+              443
+            ]
+          },
+          "diff_board_vs_cpp": {
+            "frames_only_left": 0,
+            "frames_only_right": 3006,
+            "frames_common": 8804,
+            "frames_common_count_mismatch": 0,
+            "max_pos_delta": 0.0,
+            "max_score_delta": 0.0,
+            "sample_only_left": [],
+            "sample_only_right": [
+              434,
+              435,
+              436,
+              437,
+              438,
+              439,
+              440,
+              441,
+              442,
+              443
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "sequence": "VIDEO00009_19700101_001531",
+      "window": [
+        0,
+        191
+      ],
+      "frames": 191,
+      "board_fused_tsv": "/mnt/data/siping/runs/trial0080_board24_20261120/tsv/VIDEO00009_19700101_001531_fused.tsv",
+      "board_fused_md5": "91defe63547b0dedd4cb31bf481ba595",
+      "board_fused_nonempty_md5": "91defe63547b0dedd4cb31bf481ba595",
+      "board": {
+        "tp": 115,
+        "fp": 1,
+        "fn": 0,
+        "fn_absent": 0,
+        "fn_compete": 0,
+        "det": 116,
+        "gt": 115,
+        "recall": 1.0,
+        "precision": 0.9913793103448276,
+        "f1": 0.9956709956709957,
+        "far_per_frame": 0.005235602094240838,
+        "window": [
+          0,
+          191
+        ],
+        "frames": 191,
+        "frames_with_detection": 116
+      },
+      "radii": [
+        {
+          "radius": 20.0,
+          "python_mirror_tsv": "/tmp/crossfeed/work/VIDEO00009_19700101_001531/fused_py_r20.tsv",
+          "python_mirror_nonempty_md5": "91defe63547b0dedd4cb31bf481ba595",
+          "cpp_align_tsv": "/tmp/crossfeed/work/VIDEO00009_19700101_001531/fused_cpp_r20.tsv",
+          "cpp_align_nonempty_md5": "91defe63547b0dedd4cb31bf481ba595",
+          "python_identical_to_board": true,
+          "cpp_identical_to_board": true,
+          "python_identical_to_cpp": true,
+          "python": {
+            "tp": 115,
+            "fp": 1,
+            "fn": 0,
+            "fn_absent": 0,
+            "fn_compete": 0,
+            "det": 116,
+            "gt": 115,
+            "recall": 1.0,
+            "precision": 0.9913793103448276,
+            "f1": 0.9956709956709957,
+            "far_per_frame": 0.005235602094240838,
+            "window": [
+              0,
+              191
+            ],
+            "frames": 191,
+            "frames_with_detection": 116
+          },
+          "cpp": {
+            "tp": 115,
+            "fp": 1,
+            "fn": 0,
+            "fn_absent": 0,
+            "fn_compete": 0,
+            "det": 116,
+            "gt": 115,
+            "recall": 1.0,
+            "precision": 0.9913793103448276,
+            "f1": 0.9956709956709957,
+            "far_per_frame": 0.005235602094240838,
+            "window": [
+              0,
+              191
+            ],
+            "frames": 191,
+            "frames_with_detection": 116
+          },
+          "diff_board_vs_python": {
+            "frames_only_left": 0,
+            "frames_only_right": 75,
+            "frames_common": 116,
+            "frames_common_count_mismatch": 0,
+            "max_pos_delta": 0.0,
+            "max_score_delta": 0.0,
+            "sample_only_left": [],
+            "sample_only_right": [
+              116,
+              117,
+              118,
+              119,
+              120,
+              121,
+              122,
+              123,
+              124,
+              125
+            ]
+          },
+          "diff_board_vs_cpp": {
+            "frames_only_left": 0,
+            "frames_only_right": 75,
+            "frames_common": 116,
+            "frames_common_count_mismatch": 0,
+            "max_pos_delta": 0.0,
+            "max_score_delta": 0.0,
+            "sample_only_left": [],
+            "sample_only_right": [
+              116,
+              117,
+              118,
+              119,
+              120,
+              121,
+              122,
+              123,
+              124,
+              125
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "sequence": "VIDEO00029_19700101_014053",
+      "window": [
+        0,
+        722
+      ],
+      "frames": 722,
+      "board_fused_tsv": "/mnt/data/siping/runs/trial0080_board24_20261120/tsv/VIDEO00029_19700101_014053_fused.tsv",
+      "board_fused_md5": "1641aa1bdcb5f47d5c1a0d291f467548",
+      "board_fused_nonempty_md5": "1641aa1bdcb5f47d5c1a0d291f467548",
+      "board": {
+        "tp": 592,
+        "fp": 0,
+        "fn": 0,
+        "fn_absent": 0,
+        "fn_compete": 0,
+        "det": 592,
+        "gt": 592,
+        "recall": 1.0,
+        "precision": 1.0,
+        "f1": 1.0,
+        "far_per_frame": 0.0,
+        "window": [
+          0,
+          722
+        ],
+        "frames": 722,
+        "frames_with_detection": 592
+      },
+      "radii": [
+        {
+          "radius": 20.0,
+          "python_mirror_tsv": "/tmp/crossfeed/work/VIDEO00029_19700101_014053/fused_py_r20.tsv",
+          "python_mirror_nonempty_md5": "1641aa1bdcb5f47d5c1a0d291f467548",
+          "cpp_align_tsv": "/tmp/crossfeed/work/VIDEO00029_19700101_014053/fused_cpp_r20.tsv",
+          "cpp_align_nonempty_md5": "1641aa1bdcb5f47d5c1a0d291f467548",
+          "python_identical_to_board": true,
+          "cpp_identical_to_board": true,
+          "python_identical_to_cpp": true,
+          "python": {
+            "tp": 592,
+            "fp": 0,
+            "fn": 0,
+            "fn_absent": 0,
+            "fn_compete": 0,
+            "det": 592,
+            "gt": 592,
+            "recall": 1.0,
+            "precision": 1.0,
+            "f1": 1.0,
+            "far_per_frame": 0.0,
+            "window": [
+              0,
+              722
+            ],
+            "frames": 722,
+            "frames_with_detection": 592
+          },
+          "cpp": {
+            "tp": 592,
+            "fp": 0,
+            "fn": 0,
+            "fn_absent": 0,
+            "fn_compete": 0,
+            "det": 592,
+            "gt": 592,
+            "recall": 1.0,
+            "precision": 1.0,
+            "f1": 1.0,
+            "far_per_frame": 0.0,
+            "window": [
+              0,
+              722
+            ],
+            "frames": 722,
+            "frames_with_detection": 592
+          },
+          "diff_board_vs_python": {
+            "frames_only_left": 0,
+            "frames_only_right": 130,
+            "frames_common": 592,
+            "frames_common_count_mismatch": 0,
+            "max_pos_delta": 0.0,
+            "max_score_delta": 0.0,
+            "sample_only_left": [],
+            "sample_only_right": [
+              592,
+              593,
+              594,
+              595,
+              596,
+              597,
+              598,
+              599,
+              600,
+              601
+            ]
+          },
+          "diff_board_vs_cpp": {
+            "frames_only_left": 0,
+            "frames_only_right": 130,
+            "frames_common": 592,
+            "frames_common_count_mismatch": 0,
+            "max_pos_delta": 0.0,
+            "max_score_delta": 0.0,
+            "sample_only_left": [],
+            "sample_only_right": [
+              592,
+              593,
+              594,
+              595,
+              596,
+              597,
+              598,
+              599,
+              600,
+              601
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "sequence": "VIDEO00030_19700101_014144",
+      "window": [
+        0,
+        1026
+      ],
+      "frames": 1026,
+      "board_fused_tsv": "/mnt/data/siping/runs/trial0080_board24_20261120/tsv/VIDEO00030_19700101_014144_fused.tsv",
+      "board_fused_md5": "5246ad87c79c8c5aaba1a71d6a96f7fd",
+      "board_fused_nonempty_md5": "5246ad87c79c8c5aaba1a71d6a96f7fd",
+      "board": {
+        "tp": 753,
+        "fp": 4,
+        "fn": 7,
+        "fn_absent": 7,
+        "fn_compete": 0,
+        "det": 757,
+        "gt": 760,
+        "recall": 0.9907894736842106,
+        "precision": 0.9947159841479525,
+        "f1": 0.9927488464073829,
+        "far_per_frame": 0.003898635477582846,
+        "window": [
+          0,
+          1026
+        ],
+        "frames": 1026,
+        "frames_with_detection": 756
+      },
+      "radii": [
+        {
+          "radius": 20.0,
+          "python_mirror_tsv": "/tmp/crossfeed/work/VIDEO00030_19700101_014144/fused_py_r20.tsv",
+          "python_mirror_nonempty_md5": "5246ad87c79c8c5aaba1a71d6a96f7fd",
+          "cpp_align_tsv": "/tmp/crossfeed/work/VIDEO00030_19700101_014144/fused_cpp_r20.tsv",
+          "cpp_align_nonempty_md5": "5246ad87c79c8c5aaba1a71d6a96f7fd",
+          "python_identical_to_board": true,
+          "cpp_identical_to_board": true,
+          "python_identical_to_cpp": true,
+          "python": {
+            "tp": 753,
+            "fp": 4,
+            "fn": 7,
+            "fn_absent": 7,
+            "fn_compete": 0,
+            "det": 757,
+            "gt": 760,
+            "recall": 0.9907894736842106,
+            "precision": 0.9947159841479525,
+            "f1": 0.9927488464073829,
+            "far_per_frame": 0.003898635477582846,
+            "window": [
+              0,
+              1026
+            ],
+            "frames": 1026,
+            "frames_with_detection": 756
+          },
+          "cpp": {
+            "tp": 753,
+            "fp": 4,
+            "fn": 7,
+            "fn_absent": 7,
+            "fn_compete": 0,
+            "det": 757,
+            "gt": 760,
+            "recall": 0.9907894736842106,
+            "precision": 0.9947159841479525,
+            "f1": 0.9927488464073829,
+            "far_per_frame": 0.003898635477582846,
+            "window": [
+              0,
+              1026
+            ],
+            "frames": 1026,
+            "frames_with_detection": 756
+          },
+          "diff_board_vs_python": {
+            "frames_only_left": 0,
+            "frames_only_right": 270,
+            "frames_common": 756,
+            "frames_common_count_mismatch": 0,
+            "max_pos_delta": 0.0,
+            "max_score_delta": 0.0,
+            "sample_only_left": [],
+            "sample_only_right": [
+              723,
+              724,
+              725,
+              726,
+              727,
+              728,
+              729,
+              730,
+              731,
+              732
+            ]
+          },
+          "diff_board_vs_cpp": {
+            "frames_only_left": 0,
+            "frames_only_right": 270,
+            "frames_common": 756,
+            "frames_common_count_mismatch": 0,
+            "max_pos_delta": 0.0,
+            "max_score_delta": 0.0,
+            "sample_only_left": [],
+            "sample_only_right": [
+              723,
+              724,
+              725,
+              726,
+              727,
+              728,
+              729,
+              730,
+              731,
+              732
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "sequence": "VIDEO00036_19700101_015740",
+      "window": [
+        0,
+        996
+      ],
+      "frames": 996,
+      "board_fused_tsv": "/mnt/data/siping/runs/trial0080_board24_20261120/tsv/VIDEO00036_19700101_015740_fused.tsv",
+      "board_fused_md5": "4c0b6935d8ce1a228a5e3c90b86aa3eb",
+      "board_fused_nonempty_md5": "4c0b6935d8ce1a228a5e3c90b86aa3eb",
+      "board": {
+        "tp": 121,
+        "fp": 327,
+        "fn": 610,
+        "fn_absent": 610,
+        "fn_compete": 0,
+        "det": 448,
+        "gt": 731,
+        "recall": 0.16552667578659372,
+        "precision": 0.2700892857142857,
+        "f1": 0.2052586938083121,
+        "far_per_frame": 0.32831325301204817,
+        "window": [
+          0,
+          996
+        ],
+        "frames": 996,
+        "frames_with_detection": 448
+      },
+      "radii": [
+        {
+          "radius": 20.0,
+          "python_mirror_tsv": "/tmp/crossfeed/work/VIDEO00036_19700101_015740/fused_py_r20.tsv",
+          "python_mirror_nonempty_md5": "4c0b6935d8ce1a228a5e3c90b86aa3eb",
+          "cpp_align_tsv": "/tmp/crossfeed/work/VIDEO00036_19700101_015740/fused_cpp_r20.tsv",
+          "cpp_align_nonempty_md5": "4c0b6935d8ce1a228a5e3c90b86aa3eb",
+          "python_identical_to_board": true,
+          "cpp_identical_to_board": true,
+          "python_identical_to_cpp": true,
+          "python": {
+            "tp": 121,
+            "fp": 327,
+            "fn": 610,
+            "fn_absent": 610,
+            "fn_compete": 0,
+            "det": 448,
+            "gt": 731,
+            "recall": 0.16552667578659372,
+            "precision": 0.2700892857142857,
+            "f1": 0.2052586938083121,
+            "far_per_frame": 0.32831325301204817,
+            "window": [
+              0,
+              996
+            ],
+            "frames": 996,
+            "frames_with_detection": 448
+          },
+          "cpp": {
+            "tp": 121,
+            "fp": 327,
+            "fn": 610,
+            "fn_absent": 610,
+            "fn_compete": 0,
+            "det": 448,
+            "gt": 731,
+            "recall": 0.16552667578659372,
+            "precision": 0.2700892857142857,
+            "f1": 0.2052586938083121,
+            "far_per_frame": 0.32831325301204817,
+            "window": [
+              0,
+              996
+            ],
+            "frames": 996,
+            "frames_with_detection": 448
+          },
+          "diff_board_vs_python": {
+            "frames_only_left": 0,
+            "frames_only_right": 548,
+            "frames_common": 448,
+            "frames_common_count_mismatch": 0,
+            "max_pos_delta": 0.0,
+            "max_score_delta": 0.0,
+            "sample_only_left": [],
+            "sample_only_right": [
+              0,
+              1,
+              2,
+              36,
+              37,
+              38,
+              39,
+              40,
+              41,
+              42
+            ]
+          },
+          "diff_board_vs_cpp": {
+            "frames_only_left": 0,
+            "frames_only_right": 548,
+            "frames_common": 448,
+            "frames_common_count_mismatch": 0,
+            "max_pos_delta": 0.0,
+            "max_score_delta": 0.0,
+            "sample_only_left": [],
+            "sample_only_right": [
+              0,
+              1,
+              2,
+              36,
+              37,
+              38,
+              39,
+              40,
+              41,
+              42
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

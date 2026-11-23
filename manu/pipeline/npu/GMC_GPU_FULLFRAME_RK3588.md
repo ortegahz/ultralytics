@@ -327,8 +327,8 @@
 cd manu/pipeline/npu && ./build_probe_only.sh
 
 # 1) 同步（普通 cp，不要 cp -p）+ 三侧 md5
-REPO=/media/manu/1TB-Volume/workspace/ultralytics
-MIR=/home/manu/mnt/pycharm_project_10ae9e2e
+REPO=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics
+MIR=/home/manu/mnt/pycharm_project_a7d966e6
 cp "$REPO/manu/pipeline/opencl/kernels/gmc_feature_gpu.cl" "$MIR/manu/pipeline/opencl/kernels/"
 cp "$REPO/manu/pipeline/npu/out/gmc_gpu_probe"              "$MIR/manu/pipeline/npu/out/"
 scp -P 22 "$MIR/manu/pipeline/opencl/kernels/gmc_feature_gpu.cl" root@192.168.0.64:/root/kernels/

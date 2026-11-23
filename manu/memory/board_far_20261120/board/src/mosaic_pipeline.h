@@ -1,0 +1,1588 @@
+/* ==========================================================================
+ * mosaic_pipeline.h -- RK3588 f16 multi-scale mosaic inference pipeline.
+ *
+ * PUBLIC C ABI.  This is the interface the embedded team calls.  It is plain
+ * C (no C++ types, no exceptions, no STL) so it can be bound from C, C++,
+ * Python (ctypes) or any FFI.
+ *
+ * WHAT IT DOES
+ * ------------
+ *   raw infrared frame (8-bit grayscale, 640x512)
+ *     -> GMC feature extraction on the Mali GPU (OpenCL fused tail)
+ *     -> RGA multi-scale mosaic (native 640x512 + thumb160 + thumb80 into one
+ *        640x640 canvas)
+ *     -> RKNN fp16 NPU, ONE forward for all scales
+ *     -> CPU float32 back-projection + 8-connected components
+ *     -> detections in NATIVE frame pixels
+ *
+ * The pipeline is STREAMING: the GMC engine is causal (it needs the frame
+ * history), so frames must be pushed in order.  push() does not block; the
+ * internal threads overlap the GMC of frame N+1 with the NPU of frame N.
+ *
+ * THE SERVICE TOPOLOGY, AND WHERE A FRAME MAY BE LOST
+ * ----------------------------------------------------
+ *
+ *   camera 25 fps
+ *      |  push()   -- never blocks, never drops
+ *      v
+ *   [ camera queue ]  (bounded; on overflow it drops the OLDEST frame -- see
+ *      |               below, this is the ONE drop that breaks the pipeline)
+ *      v
+ *   [ GMC SERVICE ]   2 engines, each with its own OpenCL context.  THIS
+ *      |               STAGE MUST NOT LOSE A FRAME.  Its transform chain is
+ *      |               built from the frame history, so a frame lost here
+ *      |               mis-registers every frame after it.
+ *      |  feature
+ *      v
+ *   [ jitter buffer ] (bounded; on overflow it drops the OLDEST FEATURE --
+ *      |               the GMC service never waits for the inference)
+ *      v
+ *   [ NPU SERVICES ]  2 services, each with its own RKNN context and its own
+ *      |               RGA canvas.  THIS STAGE MAY SKIP FRAMES: a forward
+ *      |               pass is per-frame independent, so a skipped frame
+ *      |               costs one missed detection and nothing else.
+ *      |  heatmap
+ *      v
+ *   [ POST SERVICE ]  back-projection + 8-connected components.  May skip too.
+ *      v
+ *   detections -> the result callback
+ *
+ * WHY THE DROP SITS BELOW THE GMC: the inference stage is the slow one
+ * (measured: 64.1 ms per frame of critical path with two NPU services, i.e.
+ * 15.6 fps), while the GMC service keeps up with a 25 fps source (measured:
+ * 31.9 ms per frame with two engines, i.e. 31.4 fps).  A live pipeline
+ * therefore lets the INFERENCE skip frames and keeps the GMC complete:
+ * every frame gets a correctly registered feature, and the detections arrive
+ * as fast as the NPU can produce them.
+ *
+ * The counters tell the two cases apart:
+ *   timing.dropped            -- the camera queue overflowed.  THE GMC
+ *                                registration chain is broken.  Must be 0;
+ *                                the library prints a [WARN] when it fires.
+ *   timing.features_dropped   -- the inference skipped a frame.  Benign.
+ *   timing.detections_dropped -- the back-projection skipped a frame.  Benign.
+ *   timing.gmc_groups_done    -- the frames the GMC service really computed a
+ *                                feature for.  THE AUTHORITATIVE denominator
+ *                                for "how many results should I get": it is
+ *                                NOT the number of pushed frames, because the
+ *                                OPPORTUNISTIC scheduler computes the newest
+ *                                frame only and skips the ones it could not
+ *                                keep up with.
+ *   timing.gmc_frames_skipped -- the frames that were seeded into the history
+ *                                but never computed (the engine was busy with
+ *                                a newer frame).  NOT an error: this is what
+ *                                "opportunistic" means.
+ *   timing.gmc_void_frames    -- the frames whose 21-frame history was NOT
+ *                                whole (overwritten by a producer that ran
+ *                                too far ahead, or a camera frame that was
+ *                                lost).  They are VOIDED, never fitted on
+ *                                torn data.  Must stay 0 in a healthy run.
+ *
+ * THREADING CONTRACT
+ * ------------------
+ *   * push() and collect() are thread-safe against each other, but frames
+ *     must be pushed in order and each pushed frame must be collected
+ *     exactly once.
+ *   * collect() returns frames in COMPLETION order, not push order (with
+ *     npu_workers > 1 the two NPU contexts finish out of order).  The frame
+ *     id is returned so the caller can restore the original order.
+ *   * destroy() drains nothing: call flush() first if you need every frame.
+ *
+ * ERROR HANDLING
+ * --------------
+ *   Every call returns a negative value on failure; the human-readable reason
+ *   is available from mosaic_pipeline_last_error().  Nothing throws across
+ *   the ABI boundary.
+ * ========================================================================== */
+#ifndef MOSAIC_PIPELINE_H
+#define MOSAIC_PIPELINE_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* v10: THE THREE-STAGE DECOUPLED PIPELINE.
+ *
+ * MosaicPipelineConfig gained decoupled_stages, buffer_a_depth, buffer_b_depth,
+ * pre_threads, buf_a_mode, pre_affinity and npu_stage_affinity, and
+ * MosaicPipelineTiming gained stage1_ms, stage1_wait_ms, stage2_ms,
+ * stage2_wait_ms, bufA_upload_ms, bufA_dropped, bufA_full_drops, bufB_dropped
+ * and npu_busy_ms, so BOTH STRUCT LAYOUTS changed.  The new fields are
+ * APPENDED at the END of both structs, so the older fields keep their offsets
+ * and an old reader still sees the same numbers in the same places -- but the
+ * version is checked in mosaic_pipeline_create() and a mismatch is rejected
+ * instead of silently reading the wrong fields, so a caller built against v9
+ * must be recompiled.
+ *
+ * The DEFAULT is decoupled_stages=0, which is the FUSED worker of v9, byte for
+ * byte: the fused path is the certified arm and it must stay comparable.
+ *
+ * The v9 note below still stands:
+ * v9: MosaicPipelineTiming gained gmc_void_frames and gmc_frames_skipped,
+ * and MosaicPipelineConfig's gmc_compute_stride was RENAMED to gmc_min_stride
+ * (same slot, same type -- the MEANING changed: it is no longer a fixed
+ * cadence but the minimum physical-frame gap between two GMC groups), so
+ * BOTH STRUCT LAYOUTS changed.  A caller built against v8 must be recompiled:
+ * the version is checked in mosaic_pipeline_create() and a mismatch is
+ * rejected instead of silently reading the wrong fields.
+ *
+ * The v8 note below still stands:
+ * v8: MosaicPipelineTiming gained gmc_groups_done, so the STRUCT LAYOUT
+ * changed.  A caller built against v7 must be recompiled: the version is
+ * checked in mosaic_pipeline_create() and a mismatch is rejected instead of
+ * silently reading the wrong fields.
+ *
+ * The v7 note below still stands:
+ * v7: MosaicPipelineConfig gained gmc_compute_stride (renamed to gmc_min_stride
+ * in v9), so the STRUCT LAYOUT
+ * changed.  A caller built against v6 must be recompiled: the version is
+ * checked in mosaic_pipeline_create() and a mismatch is rejected instead of
+ * silently reading the wrong fields.
+ *
+ * v6: MosaicPipelineConfig gained gmc_phys_anchor and gmc_input_drop_policy,
+ * and MosaicPipelineTiming gained gmc_history_gaps, so BOTH STRUCT LAYOUTS
+ * changed.  A caller built against v5 must be recompiled: the version is
+ * checked in mosaic_pipeline_create() and a mismatch is rejected instead of
+ * silently reading the wrong fields.
+ *
+ * The v5 note below still stands:
+ * v5: MosaicPipelineConfig gained gmc_anchor_threads, gmc_affinity_group and
+ * npu_core_mask, and MosaicPipelineTiming gained the rknn_run distribution
+ * (p50/p95/p99/max/samples), so BOTH STRUCT LAYOUTS changed.  A caller built
+ * against v4 must be recompiled: the version is checked in
+ * mosaic_pipeline_create() and a mismatch is rejected instead of silently
+ * reading the wrong fields.
+ *
+ * The v4 note below still stands:
+ * v4: MosaicPipelineConfig gained gmc_ring_slack and MosaicPipelineTiming
+ * gained the ingest breakdown counters, so the STRUCT LAYOUT changed.  A
+ * caller built against v3 must be recompiled: the version is checked in
+ * mosaic_pipeline_create() and a mismatch is rejected instead of silently
+ * reading the wrong fields. */
+#define MOSAIC_API_VERSION 10
+
+/* ---- canvas modes ------------------------------------------------------- */
+enum {
+  /* native 640x512 at (0,0) + thumb160 160x128 at (0,512) + thumb80 80x64 at
+   * (160,512) on a 640x640 canvas whose background is 114 in all 3 channels.
+   * ONE forward sees all three scales. */
+  MOSAIC_CANVAS_MOSAIC = 0,
+  /* the PC-side native letterbox replica: native 640x512 at (0,64), tag 0
+   * only -- the single-scale reference layout. */
+  MOSAIC_CANVAS_SINGLE = 1
+};
+
+/* ---- input upload modes ------------------------------------------------- */
+enum {
+  /* uint8 NHWC upload through rknn_inputs_set.  The runtime does the
+   * uint8->fp16 widening itself, which measured 12.78 ms/frame on the board
+   * and sat on the NPU's critical path. */
+  MOSAIC_INPUT_SET = 0,
+  /* Same numbers, a fraction of the host time: WE widen uint8->fp16 with
+   * integer NEON (every 0..255 is exact in fp16, so there is no rounding to
+   * disagree about) and hand the runtime a FLOAT16 buffer.  MEASURED: the
+   * runtime's rknn_inputs_set copies at only ~60-75 MB/s, so handing it
+   * FLOAT16 (2.45 MB) is SLOWER than handing it uint8 (0.98 MB) -- 41 ms
+   * against 12.8 ms.  The widening is not the cost; the copy is.  Use the
+   * io-mem mode below to take the copy off the host's critical path. */
+  MOSAIC_INPUT_SET_F16 = 1,
+  MOSAIC_INPUT_IO_MEM_NCHW = 2,
+  /* The input tensor is bound to host memory and WE write it: the u8->fp16
+   * widening costs ~0.8 ms of host time and the runtime's staging into NPU
+   * memory happens inside rknn_run -- where the CPU is blocked anyway.  The
+   * upload therefore leaves the host's critical path. */
+  MOSAIC_INPUT_IO_MEM_NHWC = 3,
+  /* v10: APPENDED, the existing values keep their numbers.  The same widened
+   * fp16 buffer as MOSAIC_INPUT_SET_F16, but handed over with pass_through=1:
+   * the runtime performs NO conversion and NO copy, it takes the bytes as they
+   * are.  That is only legal when the buffer already IS the model's layout
+   * (NHWC fp16 for our model), so the mode refuses an NCHW model instead of
+   * silently feeding garbage.  It is the host-memory arm of the decoupled
+   * pipeline (buf_a_mode=1), the counterpart of binding a Buffer A DMA slot
+   * with rknn_set_io_mem(). */
+  MOSAIC_INPUT_SET_F16_PT = 4
+};
+
+/* ---- one detection, in NATIVE frame pixels (640x512 coordinates) --------- */
+typedef struct {
+  int32_t tag;   /* 0 = native tile, 1 = thumb160, 2 = thumb80 */
+  float cx;      /* centroid x */
+  float cy;      /* centroid y */
+  int32_t w;     /* bbox width  */
+  int32_t h;     /* bbox height */
+  int32_t area;  /* component pixel count */
+  float peak;    /* max heatmap value inside the component */
+  float sum;     /* heatmap integral over the component */
+} MosaicDet;
+
+/* ---- post-processing mode -----------------------------------------------
+ * THE NUMBERS ARE CONTRACTUAL: they must stay equal to the
+ * mosaic::kPostModeDense / kPostModeSparse / kPostModeVerify constants of
+ * mosaic_core.h, so the C ABI and the C++ core speak the same mode numbers.
+ * A new value is APPENDED (never renumbered). */
+typedef enum {
+  MOSAIC_POST_DENSE  = 0, /* full-image back-projection + 8-connected CCL (today) */
+  MOSAIC_POST_SPARSE = 1, /* CPU sparse path (NEON)                              */
+  MOSAIC_POST_VERIFY = 2, /* dense + sparse, compare field by field (diagnostic) */
+  MOSAIC_POST_GPU    = 3  /* OpenCL local-maximum path on Mali                    */
+} MosaicPostMode;
+
+/* ---- configuration ------------------------------------------------------ */
+typedef struct {
+  int32_t version; /* must be MOSAIC_API_VERSION */
+
+  /* model */
+  const char* model_path; /* .rknn file, e.g. /tmp/p0_off_A_none.rknn（板上先从交付目录 cat 到 tmpfs） */
+
+  /* GMC feature engine */
+  const char* kernel_dir;     /* OpenCL kernel pair dir, e.g. /root/kernels */
+  const char* sequence;       /* sequence name, used only in the md5-out lines */
+  int32_t gmc_window;         /* median window, frozen = 21               */
+  int32_t gmc_stride_step;    /* frozen = 2                              */
+  int32_t gmc_anchor_step;    /* 2 = "official" per-lag semantics (THE DEFAULT):
+                                 every lag is fitted DIRECTLY over the long
+                                 baseline, with zero composition, so the board
+                                 output is BIT-IDENTICAL to the server's frozen
+                                 official features.
+                                 10 = "tree" anchor cascade (6.19 fits/frame):
+                                 ~3.4x cheaper, but NOT equivalent (40.7% of
+                                 the frames differ from the server reference). */
+  int32_t gmc_downscale;      /* frozen = 2                              */
+  int32_t gmc_fit_corners;    /* frozen = 600                            */
+  int32_t gmc_fit_win;        /* frozen = 15                             */
+  int32_t gmc_fit_level;      /* frozen = 2                              */
+  int32_t gmc_fit_iters;      /* frozen = 20                             */
+  /* Fit gate: reject a GMC fit whose centre shift exceeds
+   * gmc_gate_shift x frame width (or whose scale leaves
+   * [gmc_gate_min, gmc_gate_max]).  The C++ reference default is 1.0
+   * (kDefaultMaxShiftFrac) and the Python reference has NO gate at all, so
+   * 1.0 is the value that keeps the gate from ever firing on healthy motion.
+   * DO NOT lower it: a 0.25 gate rejects real FPV motion, the transform
+   * degrades to identity and the GMC features stop being registered. */
+  int32_t gmc_gate_shift;   /* 1000 == 1.0; 0 == disable the gate */
+  int32_t gmc_gate_min;     /* 500 == 0.5 */
+  int32_t gmc_gate_max;     /* 2000 == 2.0 */
+  /* Wall-clock watchdog for ONE frame's GMC fit, in milliseconds.
+   * 0 = OFF (the default, and what the accuracy validation uses: with the
+   * watchdog on, a frame that blows its budget DEGRADES -- the transform
+   * falls back to identity or to the last good one -- so the output stops
+   * being bit-reproducible).
+   *
+   * This is the real-time safety valve: the source is a 25 fps camera, so
+   * the feature stage has a 40 ms budget per frame.  Set it above the
+   * expected fit time (the measured fit is ~60 ms per frame on ONE engine,
+   * ~30 ms with two engines working on interleaved frames) so it only fires
+   * in a pathological case, and a pathological frame degrades instead of
+   * stalling the whole stream.
+   */
+  int32_t gmc_deadline_ms;
+  /* RANSAC sampling cap for the GMC fit.  0 = OFF (the reference's own
+   * default, and what the bit-exactness contract requires).  A positive
+   * value bounds the sampling iterations so a pathological frame cannot spin
+   * -- but it CHANGES THE NUMBERS, so it must be reported as a deviation. */
+  int32_t gmc_ransac_max_iters;
+  /* Reuse the per-frame half-res image, the Shi-Tomasi corners and the
+   * optical-flow pyramid across fits.  The GMC header states this is
+   * BIT-EXACT vs the uncached path -- it only removes recomputation.
+   * VERIFIED, not assumed: on the 11,810-frame val3 track the cached and
+   * uncached runs produce BYTE-IDENTICAL detection TSVs (md5
+   * 0bf598a1d890040bcfa8d157dc69c032), and the per-frame transform chain
+   * (mats) and all three feature channels match bit for bit over 60 frames.
+   * Default 1 (on): it cuts the GMC fit from 71.4 to 60.1 ms/frame
+   * (12.507 fps vs 11.855 fps end to end) at zero accuracy cost.
+   * Set 0 to fall back to the reference implementation's default. */
+  int32_t gmc_pyr_cache;
+  /* Reserve the OpenCL device images once for a pad of N pixels, so the frame
+   * loop can never reallocate.  0 = off. */
+  int32_t gmc_prealloc_pad;
+  /* Compute the per-frame feature fingerprint (the rolling MD5 over the
+   * PRE-ENCODE channel planes).  1 = on (the default; the audit tools need
+   * it), 0 = off.  Turning it off saves ~5-7 ms of CPU per frame in the GMC
+   * service -- pure instrumentation overhead, no effect on any number. */
+  int32_t gmc_feature_fingerprint;
+
+  /* inference */
+  int32_t canvas_mode;   /* MOSAIC_CANVAS_*                          */
+  int32_t input_mode;    /* MOSAIC_INPUT_*                           */
+  int32_t npu_workers;   /* 1 or 2.  The board tolerates exactly TWO
+                          * concurrent RKNN contexts; a third trips the 6 s
+                          * job timeout and soft-resets the NPU. */
+  int32_t region_threshold; /* connected-component threshold, 0.06      */
+  int32_t min_area;         /* component pixel floor, 4                 */
+  int32_t max_detections;   /* components kept per frame, 100           */
+
+  /* ---- the services -------------------------------------------------------
+   * Every stage of the pipeline is a service: its own bounded queue, its own
+   * worker pool, its own scratch.  The frame API stays push/collect; these
+   * knobs only size the pools.  Defaults are the measured board values.
+   */
+  int32_t gmc_workers;   /* feature service: engines, each computes INTERLEAVED frames
+                           * (the per-frame computation depends only on pixels, so
+                           *  several engines may work on different frames).
+                           * DEFAULT 1: the board A/B showed 1 engine and 2 engines
+                           * produce byte-identical GMC features, and the NPU stage
+                           * is the bottleneck, so the second engine buys nothing.
+                           * The hard cap stays 2.
+                           *
+                           * THE OPPORTUNISTIC SCHEDULER FORCES THIS TO 1 (v9).
+                           * WHY: several engines would all grab the SAME newest
+                           * frame (they share one history and one head), so the
+                           * extra engines would produce DUPLICATE results, not
+                           * extra throughput; and two engines measured the GMC
+                           * fit's p99 at 695 ms against 200 ms with one, because
+                           * they fight over the same CPU.  A request for more
+                           * than one is forced down to one and logged. */
+  /* THE HISTORY RING'S SLACK, in frames.
+   *
+   * WHAT IT IS NOW (v9): one of the two terms of the ring's depth --
+   * ring_depth = max(GMC_RING_BUFFER_SIZE = 64, max_lag + 1 + gmc_ring_slack).
+   * It is no longer a "the ingest must not outrun the engines" budget: under
+   * the OPPORTUNISTIC scheduler the ingest NEVER waits, so it runs ahead
+   * freely, and the ring's depth is what keeps that freedom SAFE.
+   *
+   * WHY the depth matters now more than ever: seeding frame S overwrites the
+   * slot that held S - ring_depth, and the engine computing frame J still
+   * needs frames J-42..J.  The engine checks that the whole history is still
+   * there (history_complete) and VOIDS the frame if it is not, so a producer
+   * that runs too far ahead costs a frame instead of producing wrong pixels.
+   *
+   * THE EFFECTIVE SLACK of the default configuration: ring_depth 64 - 43
+   * frames the algorithm reads = 21 frames of producer headroom = 840 ms at
+   * 25 fps, against a worst measured GMC stall of 250 ms.  A gmc_ring_slack
+   * above 21 only deepens the ring (more raw frames stay alive: ring_depth x
+   * 640x512 B); it buys no accuracy.
+   *
+   * 0 = AUTO (the default): the library derives it from gmc_workers as
+   * max(64, 32*gmc_workers).
+   *
+   * THE AUTO RULE IS RESOLVED BY THE LIBRARY, ONCE.  A request of 0 is
+   * resolved during create()'s sanitize stage, and
+   * mosaic_pipeline_effective_config() then reports the RESOLVED budget -- so
+   * a caller reads the budget in force instead of re-deriving the rule (a
+   * second copy of the formula would drift, and the report would then state
+   * a budget the pipeline does not use). */
+  int32_t gmc_ring_slack;
+  int32_t post_workers;  /* back-projection + connected components service   */
+  int32_t queue_depth;   /* depth of the queues BETWEEN the services         */
+  /* THE JITTER BUFFER: the queue between the GMC service and the NPU
+   * services, and its depth in frames (8 is the default).
+   *
+   * WHY: the GMC's per-frame cost is NOT flat.  The anchor frames pay for the
+   * full Shi-Tomasi + pyramidal LK + RANSAC solve, the others only for the
+   * cheap composition, and a texture-heavy scene makes even the cheap ones
+   * expensive.  Without a buffer between the stages, one expensive frame
+   * reaches the NPU as a stall: the NPU service drains its queue, idles,
+   * and is then hit by the accumulated burst.  With the buffer the GMC may
+   * run AHEAD by `jitter_depth` frames, so the burst is absorbed there and
+   * the NPU sees a flat stream.  The proof is in the timing report:
+   * npu_wait_ms / frames == 0 means the NPU never starved.
+   *
+   * IT IS ALSO THE DROP POINT.  When the NPU services cannot keep up with a
+   * 25 fps source, this queue overflows and the OLDEST feature is dropped --
+   * the GMC service never waits for the inference.  That is deliberate: the
+   * inference stage is per-frame independent, so skipping a frame costs one
+   * missed detection, whereas dropping the frame at the CAMERA queue costs
+   * the GMC registration of every frame after it.
+   *
+   * IT MUST BE DEEPER THAN THE PRODUCER'S IN-FLIGHT WINDOW, or a healthy
+   * self-paced run would overflow it and skip frames the producer had every
+   * right to expect a result for.  8 against an in-flight window of 4.
+   */
+  int32_t jitter_depth;
+  int32_t input_queue;   /* camera-facing queue depth.  On overflow the OLDEST
+                           * frame is dropped -- the camera must never stall.
+                           * This is the LAST RESORT: with the GMC service
+                           * keeping up, it never overflows, and if it ever
+                           * does, the GMC registration chain is broken. */
+  /* Per-NPU-service CPU list, comma separated, one entry per NPU service:
+   * "4,5" pins NPU service 0 to core 4 and service 1 to core 5.  NULL/empty
+   * = inherit cpu_affinity.
+   *
+   * IMPLEMENTED in API v3 (it was declared but never consumed in v2 -- a dead
+   * knob is worse than no knob: the caller believes it took effect).
+   *
+   * WHY it matters: the stages have very different profiles.  An NPU service
+   * spends most of its wall time BLOCKED on the NPU hardware, while a GMC
+   * fit is a 60 ms CPU burst that must not be preempted.  Measured on the
+   * board: with every thread on the same four cores the two GMC engine
+   * threads each received only ~0.85 of a core and the feature stage ran at
+   * 23.3 fps -- below the 25 fps the camera delivers -- so the camera queue
+   * overflowed and the registration chain broke.  Pinning the GMC engines to
+   * their own cores is a SCHEDULING change only: it cannot alter a single
+   * number (the fit result does not depend on which core runs it). */
+  const char* npu_affinity;
+
+  /* Per-GMC-engine CPU list, comma separated, one entry per GMC engine:
+   * "4,5" pins GMC engine 0 to core 4 and engine 1 to core 5.  NULL/empty =
+   * inherit cpu_affinity.  See npu_affinity for why this exists.
+   *
+   * NOTE the scope: ONE core per engine.  A GMC engine that is pinned to a
+   * single core cannot use the anchor parallelism below -- the anchor workers
+   * would all share that one core.  Use gmc_affinity_group for that. */
+  const char* gmc_affinity;
+
+  /* Per-GMC-engine CPU GROUP, ';'-separated, one group per GMC engine:
+   * "4-5;6-7" gives engine 0 the cores {4,5} and engine 1 the cores {6,7}.
+   * Within a group the engine's ANCHOR WORKERS are spread over the group's
+   * cores: the engine thread takes the first core, the anchor helpers the
+   * rest.  NULL/empty = no groups (the engines are placed by gmc_affinity,
+   * or inherit cpu_affinity).
+   *
+   * WHY a GROUP and not one core: the GMC fit is 5 anchor fits, and their LK
+   * stages can run concurrently (see gmc_anchor_threads).  On a single core
+   * there is nothing to run them on, so the parallelism buys nothing -- the
+   * knob exists so that the anchor workers have real cores to land on.
+   *
+   * This is a SCHEDULING change only: it cannot alter a single number. */
+  const char* gmc_affinity_group;
+
+  /* The number of WORKERS of the anchor LK stage, per GMC engine, the engine's
+   * own thread INCLUDED: 1 == the reference's serial anchor loop, 5 == one
+   * worker per anchor (the shipping anchor grid has 5 anchors).
+   *
+   * WHAT IT DOES: the 5 anchor fits are split into an LK stage and a RANSAC
+   * stage.  The LK stages run CONCURRENTLY (each anchor still runs the very
+   * same single-threaded OpenCV code on the very same bytes); the RANSAC
+   * stages then run SEQUENTIALLY, in the anchor order, in the engine thread.
+   * That order is what keeps the output BIT-IDENTICAL: RANSAC is the only
+   * consumer of OpenCV's global RNG, so the draws must happen in the same
+   * order as before.  The result is a faster fit with the SAME numbers.
+   *
+   * The effective worker count is capped by the engine's core group (see
+   * gmc_affinity_group): more workers than cores would just oversubscribe
+   * them.  1 (the default) is the reference behaviour. */
+  int32_t gmc_anchor_threads;
+
+  /* The NPU core mask (rknn_core_mask) for EVERY NPU context:
+   *   0 = the shipped behaviour -- rknn_set_core_mask is NOT called and the
+   *       runtime picks the cores itself (RKNN_NPU_CORE_AUTO).  THIS IS THE
+   *       DEFAULT and the certified baseline was measured this way.
+   *   1 = RKNN_NPU_CORE_0, 2 = RKNN_NPU_CORE_1, 4 = RKNN_NPU_CORE_2,
+   *   3 = CORE_0_1, 6 = CORE_1_2, 5 = CORE_0_2, 7 = CORE_0_1_2.
+   *
+   * WHY the knob exists: the RK3588 has THREE NPU cores and the runtime was
+   * never told which ones to use.  A single 640x640 fp16 forward pass costs
+   * ~108-112 ms, and the NPU stage -- not the GMC -- is what caps the
+   * pipeline at ~15.8 fps.  This is the only lever left on the NPU side.
+   *
+   * DEVIATION: a non-zero mask may change the throughput AND the numerics (a
+   * different core is a different execution path).  A run with it is a
+   * measured deviation and must be reported as one. */
+  int32_t npu_core_mask;
+
+  const char* cpu_affinity; /* e.g. "4-7", or NULL.  Affects speed only. */
+
+  /* THE PHYSICAL-FRAME-NUMBER ANCHOR of the GMC history.  0 = OFF (the
+   * default, and the certified behaviour): the GMC engine anchors its
+   * 21-frame history on the CONSUMPTION counter, i.e. "the frame the engine
+   * ingested N steps ago".  1 = ON: the engine anchors on the camera's
+   * PHYSICAL frame number, i.e. "the frame the camera took N steps ago".
+   *
+   * WHY IT EXISTS: the two indexings only differ when a frame is LOST.  The
+   * camera queue drops a frame when the pipeline cannot keep up, and the id
+   * of that frame is gone for good: with the consumption counter the engine
+   * cannot tell, so its "lag 2" silently becomes a physical lag 3 and the
+   * 21-frame median window is stretched without anybody noticing (that is
+   * the mechanism behind "the registration chain is broken").  With the
+   * physical anchor the engine KNOWS: the ring is indexed by the physical
+   * frame number and every slot carries the number it holds, so a missing
+   * frame is a DETECTED hole (counted in timing.gmc_history_gaps, and
+   * reported per frame on stderr) instead of a silently wrong frame.
+   *
+   * OFF BY DEFAULT: the switch exists so the new behaviour can be validated
+   * on the board before it becomes the default.  With no frame ever lost,
+   * the two indexings select the SAME pixels, so turning it on does not
+   * change a single bit of the feature stream.
+   *
+   * NOTE: this only changes WHICH frames the GMC reads; it never changes the
+   * frame ids the caller sees (mosaic_pipeline_push still returns the camera
+   * frame id) and it never changes the artifact order. */
+  int32_t gmc_phys_anchor;
+
+  /* WHAT THE CAMERA QUEUE DOES WHEN IT OVERFLOWS.  0 = EVICT THE OLDEST
+   * (the default, and the shipped behaviour): the freshest frame is kept and
+   * the stalest queued frame is thrown away.  1 = REJECT THE NEWEST: the
+   * queued frames are kept and the incoming frame is thrown away.
+   *
+   * The camera is NEVER blocked (a 25 fps camera must not be stalled by the
+   * pipeline), so a frame MUST be lost when the queue is full -- the only
+   * question is which one.
+   *
+   * WHY 0 IS THE DEFAULT: the queue is the camera's hand-off to a service
+   * that may not keep up, and a live stream wants FRESH data, not a complete
+   * but increasingly stale one.  Under a sustained overload, policy 1 keeps
+   * the queue full of OLD frames and the GMC service falls further and
+   * further behind (unbounded latency), while policy 0 keeps the GMC service
+   * working on the newest frames (bounded latency, bounded staleness).
+   *
+   * WHAT BOTH POLICIES COST: the physical frame id is consumed at push time,
+   * so a lost frame leaves a HOLE in the id sequence either way, and the
+   * frames whose 21-frame history reaches across that hole have a stretched
+   * temporal window.  gmc_phys_anchor=1 is what makes that hole visible
+   * instead of silent; the policy only decides WHICH frames are lost and
+   * how stale the output is. */
+  int32_t gmc_input_drop_policy;
+
+  /* THE MINIMUM GAP BETWEEN TWO GMC GROUPS, in frames.
+   *
+   * THIS IS NOT A CADENCE ANY MORE.  Under the OPPORTUNISTIC latest-frame
+   * scheduler there is no fixed grid: the engine computes whatever the
+   * NEWEST frame is when it becomes free, and this number only says how far
+   * apart two consecutive groups have to be.
+   *
+   * 1 (the default) = NO LIMIT: the engine grabs the newest frame the moment
+   * it is free.  This is the ADAPTIVE mode -- the service always works on the
+   * freshest data and its throughput is whatever the hardware allows, and the
+   * frames it could not keep up with are simply SKIPPED (they still seed the
+   * history, so skipping never punches a hole in it).
+   *
+   * >1 = an artificial rate limit: the engine waits until the newest frame is
+   * at least N frames past the one it computed last (2 = at least two frames
+   * between two groups).  Use it only to pin a frame rate that the caller
+   * needs downstream; it buys nothing in accuracy and it makes the output
+   * older.
+   *
+   * The gap is counted in the SAME index space the engine computes in: the
+   * camera's physical frame number when gmc_phys_anchor=1, the dense
+   * consumption counter otherwise.
+   *
+   * RENAMED in v9 from gmc_compute_stride, whose meaning was the opposite
+   * (a fixed "every Nth frame" cadence on the physical grid).  Same slot, same
+   * type -- the layout is unchanged, only the semantics are. */
+  int32_t gmc_min_stride;
+
+  /* ---- v10: THE THREE-STAGE DECOUPLED PIPELINE ----------------------------
+   *
+   * The fused worker of v9 does the RGA compose, the upload and the rknn_run
+   * in ONE thread.  Measured on the board, that thread's upload bucket is not
+   * a fixed cost: it was 41.56 ms/frame with the GMC running at full width and
+   * 20.58 ms/frame with the GMC narrowed to one anchor thread -- the upload
+   * bucket was being INFLATED by the CPU and memory-bandwidth contention with
+   * the GMC and the other business on the board.  Splitting the stages gives
+   * the upload its own core group, which is the point of the exercise.
+   *
+   * The new fields are APPENDED at the END of the struct so the older fields
+   * keep their offsets. */
+
+  /* 0 = the FUSED worker of v9 (Stage 1 + Stage 2 in one thread).  This is the
+   * certified arm and it stays byte for byte comparable.  1 = the three-stage
+   * pipeline: Stage 1 (pre-process) -> Buffer A -> Stage 2 (NPU) -> Buffer B
+   * -> Stage 3 (post-process). */
+  int32_t decoupled_stages;
+
+  /* Buffer A: the ring of NPU-ready slots between Stage 1 and Stage 2.  1..64,
+   * default 3.  Each slot holds one model input (2,457,600 B for the 640x640x3
+   * fp16 model), so depth 3 is ~7 MB and D=16 is 78.7 MB for the two services. */
+  int32_t buffer_a_depth;
+
+  /* Buffer B: the ring of raw heatmaps between Stage 2 and Stage 3.  1..8,
+   * default 3.  It is the heat_q of the fused pipeline, which used the
+   * queue_depth knob (8); the fused mode keeps its 8. */
+  int32_t buffer_b_depth;
+
+  /* The number of Stage 1 threads.  In the decoupled mode it is FORCED to
+   * npu_workers: the stages are paired 1:1 (Stage 1 thread i feeds NPU
+   * service i), because every NPU service owns its own Buffer A ring and its
+   * own RKNN context, and a slot may only be bound to the context that
+   * created it.  0 = AUTO (= npu_workers). */
+  int32_t pre_threads;
+
+  /* Where Buffer A's slots live.  0 = DMA (rknn_create_mem, the recommended
+   * arm: the widened fp16 is written straight into the slot and the cross
+   * thread hand-off costs nothing).  1 = host memory (a plain buffer, fed to
+   * the runtime with pass_through=1) -- the A/B arm. */
+  int32_t buf_a_mode;
+
+  /* The core list for Stage 1 AND Stage 3, e.g. "6-7".  NULL = do not pin.
+   * Stage 3 is here because the post-processing is CPU work of the same
+   * family as the pre-processing; keeping them apart from the NPU stage is
+   * the whole point of the split. */
+  const char* pre_affinity;
+
+  /* The core list for Stage 2 (the NPU).  NULL = follow pre_affinity. */
+  const char* npu_stage_affinity;
+} MosaicPipelineConfig;
+
+/* ---- accumulated timing, milliseconds ------------------------------------ */
+typedef struct {
+  double gmc_fit_ms;
+  /* The work the GMC service does AFTER the fit: the plane->interleaved
+   * conversion, the optional per-frame feature fingerprint and the hand-off
+   * to the NPU queue.  It is NOT part of gmc_total_ms (which measures the
+   * algorithm inside process_frame), and it is NOT negligible: measured on
+   * the board it was ~22 ms of CPU per frame, which is what pushed the
+   * feature stage below the 25 fps of the camera. */
+  double gmc_post_ms;
+  /* The INGEST thread: it is the only thing between the camera queue and the
+   * GMC engines, and it is where a starvation shows up first.  These counters
+   * say WHICH gate it is stuck on:
+   *   gmc_ingest_ms        the ingest's total wall time
+   *   gmc_window_blocks    times it waited for the history-window guard
+   *   gmc_space_blocks     times it waited for room in an engine's job queue
+   * A "window_blocks" that grows with the run means the pipeline's RATE is
+   * capped by the guard, not by the work.
+   *
+   * v9: under the OPPORTUNISTIC scheduler the ingest NEVER WAITS -- it seeds
+   * the history and moves on.  The two block counters are therefore KEPT (the
+   * layout is frozen) but they are never incremented any more, and their
+   * reading of 0 IS the evidence that the back-pressure path is gone: the
+   * camera queue is no longer stalled by the GMC service. */
+  double gmc_ingest_ms;
+  int64_t gmc_window_blocks;
+  int64_t gmc_space_blocks;
+  /* WHERE the ingest's wall time went.  gmc_ingest_ms is the ingest's TOTAL
+   * wall time; these three split it into the waits it was blocked on:
+   *   gmc_ingest_in_wait_ms  waiting for the camera queue to deliver a frame
+   *                          (large = the pipeline is STARVED, i.e. it is
+   *                          faster than the source -- the healthy case)
+   *   gmc_ingest_window_ms   blocked by the history-window guard (the
+   *                          lookahead budget was exhausted: the ingest was
+   *                          faster than the engines)
+   *   gmc_ingest_space_ms    blocked by an engine's job queue being full
+   * The sum of the three plus the ingest's own work is gmc_ingest_ms, so the
+   * split is a COMPLETE accounting of the ingest, not an estimate.
+   *
+   * v9: the ingest does not block any more, so the last two are always 0 --
+   * they are KEPT (the layout is frozen) and their reading of 0 is the
+   * evidence that the back-pressure is gone. */
+  double gmc_ingest_in_wait_ms;
+  double gmc_ingest_window_ms;
+  double gmc_ingest_space_ms;
+  /* The depth of the engine job queue AT THE MOMENT the engine popped a job
+   * (the popped job included).  THIS IS THE PROOF THAT THE ENGINES ARE NOT
+   * STARVING: a mean of ~1 means every engine picked its job up off an empty
+   * queue (it was waiting for work), a mean well above 1 means the engine had
+   * a backlog and never went idle.  gmc_queue_samples is the number of pops
+   * the average is over.
+   *
+   * v9: there IS no job queue any more (the engine grabs the newest frame
+   * straight from the history ring), so these two counters are never
+   * incremented: they read 0 / 0.  They are KEPT so the layout stays frozen
+   * and so an old reader sees a zero instead of a wild number. */
+  double gmc_queue_depth_sum;
+  int64_t gmc_queue_samples;
+  double gmc_warp_ms;
+  double gmc_median_ms;
+  double gmc_total_ms;
+  double rga_import_ms;
+  double rga_improcess_ms;
+  double upload_ms;
+  double run_ms;
+  double outputs_ms;
+  double backproj_ms;
+  int64_t frames;   /* frames that finished the whole path */
+  double wall_ms;   /* the ELAPSED time since create().
+                     * ⚠️ It only BECOMES the elapsed time inside
+                     *    mosaic_pipeline_flush(): before that this field holds the
+                     *    START TIMESTAMP (a monotonic clock reading), not a
+                     *    duration.  mosaic_pipeline_destroy() does NOT convert it
+                     *    (and frees the handle, so nothing can be read afterwards)
+                     *    -- so call flush() first, then read the timing. */
+  int64_t dropped;  /* frames dropped at the CAMERA queue because the pipeline
+                     * could not keep up.  The camera is never stalled, so this
+                     * is the back-pressure valve of a real-time stream.
+                     *
+                     * THIS IS THE ONE DROP THAT BREAKS THE PIPELINE: a frame
+                     * lost here never reaches the GMC, so the transform chain
+                     * loses a step and every later frame is mis-registered.
+                     * It must stay 0 in a healthy run; a non-zero value means
+                     * the GMC service could not keep up with the source. */
+  /* Frames dropped DOWNSTREAM of the GMC service.  These are benign: the GMC
+   * feature stream is complete and correctly registered, only the NPU (or the
+   * back-projection) skipped a frame it could not process in time.  This is
+   * the intended behaviour of a live pipeline: the inference stage runs as
+   * fast as it can and skips what it cannot keep up with, because the
+   * detection of a skipped frame costs nothing but a missed target, whereas
+   * a frame lost at the GMC costs the registration of every frame after it. */
+  int64_t features_dropped;   /* a GMC feature the NPU services never saw    */
+  int64_t detections_dropped; /* a heatmap the back-projection never saw     */
+  /* Starvation: how long each service waited for work.  In a healthy
+   * pipeline these are ~0 -- that is what the jitter buffer is for. */
+  double gmc_wait_ms;   /* the GMC engines waiting for a frame to compute   */
+  double npu_wait_ms;   /* the NPU services waiting for a feature frame    */
+  double post_wait_ms;  /* the post workers waiting for a heatmap          */
+  double gmc_fit_max_ms;/* the worst SINGLE GMC fit (the jitter spike)      */
+  /* The distribution of the per-frame GMC fit, over every frame the GMC
+   * service fitted.  NEAREST-RANK percentiles (a percentile is always a
+   * value some frame actually took -- an interpolated p99 is not an
+   * observation, and a WCET claim has to be made of one).  The max alone is
+   * not enough: a mean of 60 ms with a p99 of 75 ms and a max of 216 ms says
+   * the stage has a long tail, and the tail is what a jitter buffer and a
+   * watchdog have to absorb. */
+  double gmc_fit_p50_ms;
+  double gmc_fit_p95_ms;
+  double gmc_fit_p99_ms;
+  int64_t gmc_fit_samples;  /* how many frames the distribution is over */
+  /* The distribution of the per-frame rknn_run, over every frame the NPU
+   * services ran.  SAME shape and the same reason as the fit distribution:
+   * the NPU is the pipeline's critical path, and a mean alone (112 ms) hides
+   * whether the stage has a long tail.  It is also the measurement the NPU
+   * core mask is judged on: a mask that only makes the MEAN faster is not a
+   * throughput win if the tail grows. */
+  double rknn_run_p50_ms;
+  double rknn_run_p95_ms;
+  double rknn_run_p99_ms;
+  double rknn_run_max_ms;
+  int64_t rknn_run_samples;  /* how many frames the distribution is over */
+  /* WHY the fit costs what it costs: the Shi-Tomasi corner budget and how
+   * often a frame saturates it.  The GMC fit cost is CONTENT-DRIVEN, not a
+   * constant: on a sparse-texture sequence the same code fits in ~24 ms/frame,
+   * on a dense one the corner budget saturates and the same code needs ~72
+   * ms/frame.  Quoting a mean without these two numbers invites a "the GMC is
+   * too slow" conclusion that the next sequence will contradict. */
+  double gmc_corner_mean;     /* mean corners per detection, over the run */
+  int64_t gmc_corner_capped;  /* frames that hit the corner budget        */
+  int64_t gmc_deadline_blows; /* frames whose GMC fit blew the wall-clock
+                               * watchdog and therefore DEGRADED.  In a healthy
+                               * run this is 0: a degraded frame is a frame
+                               * whose transform fell back to identity. */
+  /* MISSING PHYSICAL HISTORY FRAMES, counted per LOOKUP (one frame can miss
+   * several of its 21 lags).  It is 0 unless gmc_phys_anchor=1: with the
+   * consumption-counter anchor the index sequence is dense by construction,
+   * so a lost camera frame is INVISIBLE to the engine -- which is why the
+   * loss used to be silent.  With the physical anchor the engine sees the
+   * hole and counts it here, and the affected frames are printed on stderr
+   * as they are computed.  In a healthy run this is 0. */
+  int64_t gmc_history_gaps;
+  /* The GMC GROUPS the GMC service ACTUALLY COMPLETED: the number of frames
+   * for which a feature was really computed.
+   *
+   * WHAT IT COUNTS: one increment per GMC group that came out of the GMC
+   * service, i.e. per frame whose feature exists.
+   *
+   * WHAT IT DOES NOT COUNT:
+   *   * the frames the CAMERA queue dropped -- they never reached the GMC
+   *     service, so they have no feature at all (that is timing.dropped);
+   *   * the frames that were only SEEDED into the history ring without
+   *     becoming a group -- under the OPPORTUNISTIC scheduler the engine
+   *     computes the newest frame and SKIPS the ones it could not keep up
+   *     with; those skipped frames are still seeded (so they are history and
+   *     nothing else).  See gmc_frames_skipped and gmc_min_stride in
+   *     MosaicPipelineConfig.
+   *
+   * WHY IT EXISTS: it is the AUTHORITATIVE denominator for "how many frames
+   * SHOULD have produced a result".  The number of PUSHED frames is NOT that
+   * number once frames are skipped, so a caller that checks the delivered
+   * results against the pushed frames is wrong by construction.  With this
+   * counter the caller computes
+   *     expected results = gmc_groups_done - features_dropped
+   *                       - detections_dropped
+   * which holds for every scheduler. */
+  int64_t gmc_groups_done;
+  /* The frames the engine FOUND but refused to compute: their 21-frame
+   * history was not whole.
+   *
+   * WHY IT CAN HAPPEN: the engine computes the NEWEST frame, and the producer
+   * (the ingest) is never blocked, so the producer may run ahead of the
+   * engine.  Once it is more than (ring_depth - 43) frames ahead, the frames
+   * the engine still needs have been OVERWRITTEN in the history ring -- and
+   * then the frame is VOIDED rather than fitted against torn pixels.  A
+   * camera frame that was lost does the same thing to the frames whose
+   * history reaches across the hole (with the physical anchor).
+   *
+   * It is 0 in a healthy run: the ring's 21 frames of producer headroom
+   * (840 ms at 25 fps) cover the worst measured GMC stall (250 ms).  A
+   * non-zero value means the producer outran the ring -- look at
+   * gmc_frames_skipped and at the ingest's wall time. */
+  int64_t gmc_void_frames;
+  /* The frames that were SEEDED into the history but never became a group:
+   * the engine was busy with a newer frame and simply moved on.
+   *
+   * THIS IS NOT AN ERROR.  It is the definition of the opportunistic
+   * scheduler: the engine always works on the FRESHEST frame it can, and the
+   * frames it skipped are still in the history (they are the lags the next
+   * fit reads), so skipping never punches a hole in the history.
+   *
+   * It is computed as
+   *     seeded frames - groups done - void frames
+   * and is therefore the number of frames the camera delivered that the
+   * engine deliberately did not compute. */
+  int64_t gmc_frames_skipped;
+
+  /* ---- v10: THE THREE-STAGE DECOUPLED PIPELINE ----------------------------
+   *
+   * These counters are the WHOLE POINT of the split: they say how much time
+   * each stage really costs once it is no longer sharing a thread with the
+   * others, and they say how much the bounded buffers had to throw away.
+   *
+   * In the FUSED mode (decoupled_stages=0) they all stay 0: the fused worker
+   * keeps reporting into the old buckets (npu_wait_ms, upload_ms, run_ms), so
+   * the certified arm's numbers do not move. */
+
+  /* Stage 1's total wall clock: the RGA compose + the fp16 widening + the
+   * publish into the Buffer A slot. */
+  double stage1_ms;
+  /* Stage 1's time spent WAITING for a feature.  This is a CONSUMER waiting
+   * for work, never the other way round: the GMC never waits for Stage 1. */
+  double stage1_wait_ms;
+  /* Stage 2's total wall clock: the slot binding + rknn_run + the outputs. */
+  double stage2_ms;
+  /* Stage 2's time spent WAITING for a Buffer A slot.  Also a consumer waiting
+   * for work. */
+  double stage2_wait_ms;
+  /* The fp16 widening + the write into the slot: the part of Stage 1 that
+   * replaces the fused mode's upload bucket. */
+  double bufA_upload_ms;
+  /* The Buffer A slots that were overwritten because Stage 2 did not take
+   * them in time: the OLDEST READY slot is reclaimed and its frame is lost. */
+  int64_t bufA_dropped;
+  /* The frames Stage 1 had to drop because EVERY slot was in flight (there
+   * was not even an old READY slot to reclaim). */
+  int64_t bufA_full_drops;
+  /* The heatmaps Buffer B dropped because Stage 3 did not take them in time.
+   * These are ALSO counted in detections_dropped, because a lost heatmap is
+   * exactly a lost detection. */
+  int64_t bufB_dropped;
+  /* The summed rknn_run wall clock of every NPU service: the NPU's own busy
+   * time, the numerator of the utilisation. */
+  double npu_busy_ms;
+} MosaicPipelineTiming;
+
+/* ---- opaque handle ------------------------------------------------------ */
+typedef struct MosaicPipeline MosaicPipeline;
+
+/* Result callback.
+ *
+ * Invoked from a dedicated dispatcher thread as soon as a frame's detections
+ * are ready -- in COMPLETION order, not frame order (with more than one NPU
+ * service the frames finish out of order; `frame_id` says which frame this
+ * is).  `dets` is valid ONLY for the duration of the call: copy what you
+ * need.
+ *
+ * `frame_id` is THE CALLER'S OWN FRAME NUMBER (the one handed to
+ * mosaic_pipeline_push_frame(); for a mosaic_pipeline_push() caller it is the
+ * library's own dense number).  Because the library is slower than the
+ * camera, this is the only reliable way to know which camera frame a
+ * detection belongs to.
+ *
+ * The callback runs on a pipeline thread, so keep it short.  A slow callback
+ * does not stall the pipeline (the results queue in front of it is unbounded),
+ * it only delays the delivery of the results that come after it.
+ *
+ * Registering a callback switches the result path: the results are then
+ * delivered to the callback and are NOT buffered for mosaic_pipeline_collect(),
+ * which would otherwise hand the same frame out twice.
+ */
+typedef void (*MosaicResultCallback)(void* user, int64_t frame_id, const MosaicDet* dets,
+                                      int32_t n_dets);
+
+/* The result callback that ALSO carries the caller's per-frame pointer.
+ *
+ * `frame_user` is the opaque pointer the caller handed to
+ * mosaic_pipeline_push_frame_ptr() for the frame this result belongs to --
+ * the SAME frame whose number is `frame_id`.  It is NULL for a frame pushed
+ * through mosaic_pipeline_push() / mosaic_pipeline_push_frame().
+ *
+ * The library NEVER dereferences it and NEVER frees it.
+ *
+ * This is an ADDITION: MosaicResultCallback and
+ * mosaic_pipeline_set_result_callback() are UNCHANGED and keep behaving
+ * exactly as before. */
+typedef void (*MosaicResultCallbackEx)(void* user, int64_t frame_id, void* frame_user,
+                                        const MosaicDet* dets, int32_t n_dets);
+
+/* Feature fingerprint.
+ * The rolling MD5 over the GMC's PRE-ENCODE 3 x (H*W) channel planes, computed
+ * exactly like the reference implementation's --md5-out (gmc_stream_ocl.cpp:
+ * "Comparing decoded JPGs would only measure JPEG quantisation, a storage
+ * artefact, not feature drift").  It is the fingerprint that proves the
+ * on-board feature engine is bit-identical to the reference.  Returns a
+ * 32-char hex string, or "" if the pipeline is NULL. */
+const char* mosaic_pipeline_feature_md5(MosaicPipeline* p);
+
+/* Optional per-frame feature fingerprint file, in the reference's --md5-out
+ * format:  <seq>\t<index>\t<md5>  (one line per pushed frame).  The hash is
+ * over the GMC's PRE-ENCODE 3 x (H*W) channel planes, so it measures FEATURE
+ * drift and not the storage codec.  Pass NULL to disable. */
+void mosaic_pipeline_set_feature_md5_out(MosaicPipeline* p, const char* path);
+
+/* Optional per-frame feature DUMP, in the reference implementation's --out-dir
+ * layout:  <dir>/<seq>_%06d.bmp
+ * The file is an 8-bit 3-channel image whose channel order is
+ * [Ch0 I_t, Ch1 diff, Ch2 residual] -- byte-for-byte the same array and the
+ * same cv::imwrite call the reference uses, so the two sides are directly
+ * comparable with a per-pixel diff (the MD5 stream cannot answer "how far
+ * apart": a single flipped bit changes the whole hash).
+ * Pass NULL to disable.  Costs one BMP encode per frame. */
+void mosaic_pipeline_set_feature_dump_out(MosaicPipeline* p, const char* dir);
+
+/* Optional dump of the GMC transform chain, in the reference implementation's
+ * --mats-all format: a RAW float32 stream, 21 lags x 6 floats per frame
+ * (a, b, tx, b, a, ty), lags in ascending order -- byte-for-byte the same
+ * layout the reference writes, so the two sides are directly comparable.
+ * This is the instrument that separates "the fit differs" from "the warp
+ * differs": the transforms are the only thing the fit produces.
+ * Pass NULL to disable. */
+void mosaic_pipeline_set_mats_dump_out(MosaicPipeline* p, const char* path);
+
+/* Fill cfg with the frozen defaults (frozen GMC knobs, mosaic canvas,
+ * input_mode=set, npu_workers=2, region_threshold=0.06, min_area=4,
+ * max_detections=100).  model_path and kernel_dir are NOT set. */
+void mosaic_pipeline_config_defaults(MosaicPipelineConfig* cfg);
+
+/* Create the pipeline.  Returns NULL on failure; the reason is written into
+ * errbuf (if errbuf != NULL and errlen > 0). */
+MosaicPipeline* mosaic_pipeline_create(const MosaicPipelineConfig* cfg, char* errbuf,
+                                        size_t errlen);
+
+/* Last error message of this pipeline ("" if none). */
+const char* mosaic_pipeline_last_error(MosaicPipeline* p);
+
+/* TEST HOOK -- make the pipeline fail on purpose.  Returns 0 on success.
+ *
+ * WHY IT EXISTS (measured: a hung board cost a full validation round)
+ *   A FATAL error inside the library -- an NPU submit the driver refuses, for
+ *   instance -- must ABORT the pipeline, not wedge it.  That path was SILENT:
+ *   the error was recorded and the abort flag was set, but every other thread
+ *   stayed asleep on its condition variable for ever, because a predicate is
+ *   only re-evaluated when the thread is woken.  The pipeline hung with no
+ *   message and the caller waited for a result that would never come.
+ *
+ *   Reproducing that needs a failing NPU, which is not something a test may
+ *   arrange safely (the board tolerates exactly two contexts and a third
+ *   takes the whole NPU down with it).  So the abort path is driven directly
+ *   instead: this hook is the SAME set_error() the NPU service calls.
+ *
+ * IT IS A TEST HOOK.  It exists to prove the abort path and it must never be
+ * called in production. */
+int32_t mosaic_pipeline_inject_fault(MosaicPipeline* p, const char* why);
+
+/* The configuration the pipeline ACTUALLY applied, i.e. AFTER the out-of-range
+ * clamping mosaic_pipeline_create() performs.  A caller that asked for
+ * something impossible needs to see what was really used, not what it
+ * requested; the contract test asserts on this.  Returns 0 on success. */
+int32_t mosaic_pipeline_effective_config(MosaicPipeline* p, MosaicPipelineConfig* out);
+
+/* Enqueue one raw grayscale frame.  `gray` holds w*h bytes, 8-bit, and is
+ * COPIED (the caller keeps ownership).  Returns the frame id (>= 0) or -1 on
+ * error.  Frames must be pushed in order.
+ *
+ * NEVER BLOCKS.  The camera must not be stalled by a pipeline that cannot keep
+ * up, so when the camera-facing queue is full the OLDEST frame is dropped
+ * (the freshest data wins) and the drop is counted in
+ * mosaic_pipeline_get_timing().  The queues BETWEEN the services do apply
+ * back-pressure -- the pipeline paces itself, the camera never does.
+ *
+ * If the pipeline cannot take the frame at all (no pipeline, bad size), -1 is
+ * returned and the reason is available from mosaic_pipeline_last_error().
+ */
+int64_t mosaic_pipeline_push(MosaicPipeline* p, const uint8_t* gray, int32_t w, int32_t h);
+
+/* Enqueue one raw grayscale frame WITH THE CALLER'S OWN FRAME NUMBER.
+ *
+ * WHY IT EXISTS: the library is much slower than the camera (8-12 fps of
+ * inference behind a 25 fps camera), so the caller CANNOT assume that the
+ * results come back in the order the frames went in, and it cannot count
+ * them either -- the opportunistic scheduler decides how many frames are
+ * actually computed.  An OSD / servo / streamer therefore has to be told
+ * WHICH of its frames a detection belongs to, otherwise it draws the target
+ * on the wrong image.
+ *
+ * `client_frame_id` is carried through the whole pipeline and handed back
+ * unchanged by mosaic_pipeline_collect() and by MosaicResultCallback.  It may
+ * be ANY number (it is opaque to the library) and it does NOT have to be
+ * dense: the library keeps its own dense internal numbering for the GMC
+ * history anchor, so a caller that skips frame numbers does NOT make the
+ * engine report a hole and does NOT degrade the fit.
+ *
+ * Returns the library's OWN dense handle (0, 1, 2, ... in push order) or -1 on
+ * error -- exactly what mosaic_pipeline_push() returns, so the two entry
+ * points behave alike.  The CALLER's frame number comes back with the RESULT
+ * (mosaic_pipeline_collect() / MosaicResultCallback), not with the handle.
+ *
+ * This is an ADDITION: mosaic_pipeline_push() is unchanged and keeps
+ * numbering the frames itself (0, 1, 2, ... in push order).  A caller that
+ * uses push() keeps getting that number back.
+ */
+int64_t mosaic_pipeline_push_frame(MosaicPipeline* p, const uint8_t* gray, int32_t w, int32_t h,
+                                   int64_t client_frame_id);
+
+/* Enqueue one raw grayscale frame WITH THE CALLER'S OWN FRAME NUMBER **AND**
+ * THE CALLER'S OWN OPAQUE PER-FRAME POINTER.
+ *
+ * `frame_user` is an arbitrary pointer the caller owns.  The library NEVER
+ * dereferences it and NEVER frees it: it only carries it, unchanged, from
+ * this call to the result (mosaic_pipeline_collect_ex() /
+ * mosaic_pipeline_set_result_callback_ex()), where it arrives TOGETHER WITH
+ * the frame number of the SAME frame.
+ *
+ * WHY: a camera pipeline usually has one object per frame (a DMA buffer
+ * handle, an image, a downstream request).  Without a way to carry it, the
+ * caller has to keep its own side table from frame id to pointer -- and that
+ * table races with the results (a result can arrive before the table is
+ * written) and has to be maintained forever.  Carrying the pointer with
+ * the frame removes the table entirely.
+ *
+ * The pointer rides in the SAME internal record as the frame number, so a
+ * result can never pair one frame's id with another frame's pointer.
+ *
+ * This is an ADDITION: mosaic_pipeline_push() and
+ * mosaic_pipeline_push_frame() are UNCHANGED (they push with a NULL
+ * pointer, and their results carry a NULL pointer back). */
+/*
+ * MINIMAL USE -- the whole point of the pointer:
+ *
+ *   // 1) push: hand the pointer over TOGETHER with the frame
+ *   mosaic_pipeline_push_frame_ptr(pipe, gray, w, h, frame_id, my_ptr);
+ *   ...
+ *   // 2) collect: the SAME pointer comes back with the SAME frame
+ *   void* p = NULL;
+ *   int64_t id = 0;
+ *   int32_t n = mosaic_pipeline_collect_ex(pipe, &id, &p, dets, 128);
+ *   //   id == frame_id  and  p == my_ptr   (for that very frame)
+ *
+ * The callback flavour carries the very same pair:
+ *
+ *   static void on_det(void* user, int64_t frame_id, void* frame_user,
+ *                      const MosaicDet* dets, int32_t n) {
+ *     // frame_user is the pointer that was pushed with THIS frame
+ *   }
+ *   mosaic_pipeline_set_result_callback_ex(pipe, on_det, my_user);
+ *
+ * The library never dereferences the pointer and never frees it; the caller
+ * keeps it alive until the result for that frame has been consumed. */
+int64_t mosaic_pipeline_push_frame_ptr(MosaicPipeline* p, const uint8_t* gray, int32_t w, int32_t h,
+                                       int64_t client_frame_id, void* frame_user);
+
+/* Register the result callback (see MosaicResultCallback).  Passing NULL
+ * removes it and switches the result path back to mosaic_pipeline_collect().
+ * The callback is invoked from a dedicated dispatcher thread; it must not call
+ * back into the pipeline's own functions that take the result lock. */
+int32_t mosaic_pipeline_set_result_callback(MosaicPipeline* p, MosaicResultCallback cb,
+                                            void* user);
+
+/* Register the result callback that also carries the per-frame pointer (see
+ * MosaicResultCallbackEx).  Passing NULL removes it and switches the result
+ * path back to mosaic_pipeline_collect().
+ *
+ * Registering the Ex callback CLEARS the plain one (and vice versa): there is
+ * exactly ONE result path at a time, so a frame is never handed out twice.
+ *
+ * This is an ADDITION: mosaic_pipeline_set_result_callback() is UNCHANGED. */
+int32_t mosaic_pipeline_set_result_callback_ex(MosaicPipeline* p, MosaicResultCallbackEx cb,
+                                               void* user);
+
+/* Block until the next frame has finished and copy its detections out.
+ * `out` may be NULL if the caller only wants the count.  Returns the number
+ * of detections (>= 0), or -1 on error.  *frame_id receives the id of the
+ * frame (pass NULL to ignore it). */
+/* Collect the next finished frame.
+ *
+ * `frame_id` (may be NULL) receives THE CALLER'S OWN FRAME NUMBER: the number
+ * that was handed to mosaic_pipeline_push_frame(), or -- for a caller that
+ * uses mosaic_pipeline_push() -- the library's own dense number (0, 1, 2, ...
+ * in push order).  It is the number of the frame the detections belong to.
+ */
+int32_t mosaic_pipeline_collect(MosaicPipeline* p, int64_t* frame_id, MosaicDet* out,
+                                int32_t max_out);
+
+/* Collect the next finished frame AND THE CALLER'S PER-FRAME POINTER.
+ *
+ * `frame_user` (may be NULL) receives the pointer that was handed to
+ * mosaic_pipeline_push_frame_ptr() for THIS frame -- the very same frame
+ * whose number lands in `frame_id`.  It is NULL for a frame pushed through
+ * mosaic_pipeline_push() / mosaic_pipeline_push_frame().
+ *
+ * `*frame_user` is ALWAYS written: it is set to NULL first, so reading it
+ * after a -1 (timeout / abort / flush) yields a defined NULL rather than
+ * an uninitialized value.
+ *
+ * This is an ADDITION: mosaic_pipeline_collect() is UNCHANGED and keeps
+ * behaving exactly as before. */
+int32_t mosaic_pipeline_collect_ex(MosaicPipeline* p, int64_t* frame_id, void** frame_user,
+                                   MosaicDet* out, int32_t max_out);
+
+/* Stop accepting frames, wait for every queued frame to finish, and join the
+ * internal threads.  Returns 0 on success.  collect() may still be called
+ * afterwards to drain the results. */
+int32_t mosaic_pipeline_flush(MosaicPipeline* p);
+
+/* Accumulated timing.  Returns 0 on success. */
+int32_t mosaic_pipeline_get_timing(MosaicPipeline* p, MosaicPipelineTiming* out);
+
+/* ---- v10.3: the post-processing timing DISTRIBUTION --------------------
+ *
+ * mosaic_pipeline_get_timing() gives the ACCUMULATED post-processing time and
+ * the frame count, so it can only produce a mean.  The mean hides the thing
+ * that actually matters in a real-time pipeline: the JITTER.  One frame that
+ * takes 120 ms blows the latency budget even when the average looks fine.
+ *
+ * These two calls return the per-frame distribution of the post-processing
+ * time (and, for the GPU path, the breakdown into upload / kernel / readback).
+ *
+ * Both are PURELY ADDITIVE: no existing struct grew, no existing field moved.
+ */
+typedef struct {
+  int32_t frames;      /* 采样帧数                                    */
+  double  total_ms;    /* 累计（= MosaicPipelineTiming.backproj_ms）  */
+  double  mean_ms;     /* 平均                                        */
+  double  stddev_ms;   /* **标准差 —— 波动幅度**                     */
+  double  min_ms;
+  double  p50_ms;
+  double  p90_ms;
+  double  p95_ms;
+  double  p99_ms;
+  double  max_ms;
+} MosaicPostTiming;
+
+/* The GPU path's per-frame breakdown (all four are per-frame distributions).
+ * `frames` is the number of frames the GPU path actually processed. */
+typedef struct {
+  int32_t frames;                 /* GPU 路径跑过的帧数        */
+  MosaicPostTiming upload;        /* 热图 -> GPU buffer       */
+  MosaicPostTiming kernel;        /* 派发 -> clFinish() 返回 */
+  MosaicPostTiming readback;      /* 阻塞回读候选点          */
+  MosaicPostTiming total;         /* GPU 段整体              */
+  int64_t peaks_dropped;          /* 超过 max_peaks 被丢的   */
+} MosaicGpuPostTiming;
+
+/* Per-frame distribution of the post-processing time.  Returns 0 on success. */
+int32_t mosaic_pipeline_get_post_timing(MosaicPipeline* p, MosaicPostTiming* out);
+
+/* Per-frame distribution of the GPU path's segments.  Returns 0 on success. */
+int32_t mosaic_pipeline_get_gpu_post_timing(MosaicPipeline* p, MosaicGpuPostTiming* out);
+
+/* Switch the post-processing algorithm of a live pipeline.
+   MOSAIC_POST_SPARSE : CPU sparse path (NEON), bit-identical output to DENSE
+                        -- **THE DEFAULT** (measured: 37.856 -> 0.531 ms/frame
+                        on the RK3588 board, worst frame 1.037 vs 40.665 ms)
+   MOSAIC_POST_DENSE  : full-image back-projection + 8-connected components
+                        (the reference implementation; identical results)
+   MOSAIC_POST_VERIFY : run DENSE and SPARSE and compare them field by field
+   MOSAIC_POST_GPU    : OpenCL local-maximum path on the Mali GPU
+   Returns 0 on success, non-zero on invalid arguments.  Safe to call at any time;
+   a frame already being processed keeps the mode it started with. */
+int32_t mosaic_pipeline_set_post_mode(MosaicPipeline* p, int32_t mode);
+
+/* Set the connected-component detection threshold of a live pipeline.
+   This is the runtime twin of MosaicPipelineConfig.region_threshold: the
+   connected components are grown on the normalised heatmap, a pixel is a
+   candidate when heatmap >= threshold, so a HIGHER threshold means FEWER
+   (and tighter) detections and a LOWER one means more of them.
+     threshold  must point to a double in (0, 1]; the default is 0.06.
+   Every NPU service of the pipeline gets the new value, so the two services
+   never disagree.  Returns 0 on success, -1 on a NULL argument, -2 when the
+   value is out of range.  Safe to call at any time: the new value is picked
+   up by the next frame; a frame already being processed keeps the threshold
+   it started with.
+   NOTE: MosaicPipelineConfig.region_threshold is an int32_t, so it can only
+   carry integer-valued thresholds; this API is the way to set a fractional
+   one (0.06, 0.08, ...) at run time. */
+int32_t mosaic_pipeline_set_detect_threshold(MosaicPipeline* p, const double* threshold);
+
+/* ===========================================================================
+ * v10.5 -- THE SPATIO-TEMPORAL TRACK FUSION (时空融合后处理).
+ *
+ * WHAT IT IS: the three-pass temporal logic of the reference pipeline
+ * ("osd_sys_sota_trial0080_th045_20261022") as an ADD-ON to the detection
+ * pipeline:
+ *   Pass 1  the online adaptive tracker (Kalman association + two-tier salvage)
+ *   Pass 2  the bidirectional smoother (tracklet stitching, internal-hole
+ *           interpolation, rigid-junk pruning)
+ *   Pass 3  the consecutive-frame confirmation
+ * The C++ kernel lives in src/npu/mosaic_track_fusion.{h,cpp} and is
+ * BIT-IDENTICAL to the Python reference on the same candidate stream
+ * (measured: 400 frames / 1764 candidates / 859 detections, identical MD5 on
+ * Python, x86-64 and aarch64).
+ *
+ * CONTRACT:
+ *  - PURELY ADDITIVE.  No existing struct gains a field, no existing
+ *    function changes its behaviour, MOSAIC_API_VERSION STAYS 10.
+ *  - The fusion runs in the POST stage, right after the back-projection: it
+ *    costs ~10 us per frame on the RK3588 board (measured), i.e. 0.015 % of
+ *    the 123 ms frame period -- it does NOT change the frame rate.
+ *  - OFF by default: a pipeline that never calls
+ *    mosaic_pipeline_set_track_fusion() behaves EXACTLY as before.
+ * =========================================================================== */
+
+/* The version of MosaicTrackFusionConfig.  Bumped only when a field is
+ * removed or its meaning changes; appending fields at the END keeps the old
+ * binaries working (they pass an older, smaller struct -- the caller sets
+ * `version` and the library only reads the fields it knows).
+ *
+ * v2 (2026-11-19): appended `max_age_phys` / `r_slope` / `alpha_decay` (the
+ * physical-frame-gap knobs) and `use_physical_frame_id`.  A caller built
+ * against v1 is REJECTED with -2 (the version is checked before the struct is
+ * copied), so the library never reads a field it does not know. */
+#define MOSAIC_TRACK_FUSION_VERSION 2
+
+typedef struct {
+  int32_t version; /* must be MOSAIC_TRACK_FUSION_VERSION */
+  int32_t enable;  /* 1 = on, 0 = off (the same as passing NULL) */
+
+  /* WHICH detections feed the tracker.  bit0 = tag 0 (the native 640x512
+   * tile), bit1 = tag 1 (the 160 px thumbnail), bit2 = tag 2 (the 80 px
+   * thumbnail).  The default (0x7) is ALL THREE: that is the candidate
+   * stream the precision alignment was validated on (the reference merges
+   * the three scales the same way). */
+  int32_t tag_mask;
+
+  /* THE ORDER THE TRACKER SEES THE FRAMES IN.
+   *   0 = ARRIVAL order (the default): the tracker is updated the moment a
+   *       frame's back-projection is done.  Zero added latency.
+   *   >0 = hold up to N frames and feed the tracker in ASCENDING camera-frame
+   *       order.  Needed when npu_workers > 1: two NPU services can finish
+   *       two frames OUT OF ORDER, and a tracker that sees them swapped
+   *       associates the wrong pair.  Costs N frames of latency. */
+  int32_t reorder_window;
+
+  /* ---- the parameters, one by one with the Python reference's params ----
+   * Every field carries the 2026-11-20 DELIVERY value as its default (the
+   * trial_0080 bottom + the v3 working point + the delta-n re-search);
+   * see mosaic_pipeline_track_fusion_defaults(). */
+  double th_base;          /* the sky-region confidence threshold        (0.48) */
+  double th_salvage;       /* the sky-region weak-pulse salvage          (0.06) */
+  double th_ground;        /* the ground-region threshold                (0.26) */
+  double sky_ratio;        /* the sky/ground split = img_h * sky_ratio   (1.00) */
+  int32_t img_h;           /* the frame height the thresholds assume       (512) */
+  int32_t max_age;         /* the UPDATES a track survives without a hit    (3) */
+  int32_t min_hits;        /* the hits before a track is confirmed          (3) */
+  double match_dist;       /* the association gate                         (10.0) */
+  double max_match_dist;   /* the association gate's upper bound           (24.0) */
+  double min_track_score;  /* the score floor of a track                   (0.08) */
+  double instant_conf;     /* the score that confirms a track at once      (0.25) */
+  double min_displacement; /* the static-junk filter on the ground         (2.5) */
+  double th_deep;          /* the deep-salvage threshold (0 = off)         (0.0) */
+  int32_t min_hits_deep;   /* the hits the deep salvage needs                (3) */
+  int32_t stitch_gap;      /* the largest gap two tracklets may be stitched across (6) */
+  double stitch_max_dist;  /* the spatial tolerance of a stitch            (25.0) */
+  int32_t infill_gap;      /* the largest internal hole that may be filled   (3) */
+  int32_t min_hits_infill; /* the hits before a track may be filled           (5) */
+  double min_rigid_disp;   /* the displacement of a rigid-junk point         (2.0) */
+  double max_rigid_var;    /* the coordinate variance of a rigid-junk point  (1.0) */
+  int32_t min_hits_prune;  /* the observations before the pruning starts      (4) */
+  double min_rigid_disp_sky; /* <0 = None (the legacy branch)               (-1.0) */
+  int32_t confirm_consec;  /* the consecutive hits that confirm a track       (2) */
+  int32_t confirm_gap_tol; /* the extra gap the confirmation tolerates       (8) */
+  int32_t confirm_trim_prefix; /* 1 = drop the detections before the confirmation (1) */
+
+  /* THE FRAME AXIS THE ENGINE IS FED WITH.
+   *   1 (the default): the CAMERA's PHYSICAL frame number -- the number the
+   *       caller pushed the frame with (mosaic_pipeline_push_frame()'s
+   *       client_frame_id).  The engine then sees the REAL frame gap (the
+   *       physical frame difference dn): the Kalman step, the association
+   *       gate, the score decay and the track age are all computed in
+   *       physical frames.
+   *   0: the legacy DENSE update counter (0, 1, 2, ...): the gapless
+   *       sequence the reference implementation saw.
+   * The engine falls back to the dense counter ON ITS OWN when the frame
+   * numbers are not usable (a negative id, or the same id three times in a
+   * row), so a caller without real frame numbers keeps working. */
+  int32_t use_physical_frame_id;
+
+  /* ---- the physical-frame-gap (delta-n) knobs, appended in v2 ----
+   *   The detector does not deliver every camera frame (the board computes
+   *   ~8 fps out of a 25 fps source), so the engine has to compensate the
+   *   REAL frame gap:
+   *   max_age_phys : the PHYSICAL frames a track survives without a hit
+   *                  (< 0 = off: the legacy per-update age);
+   *   r_slope      : the pixels the association gate is widened by for
+   *                  every extra physical frame (the gate is
+   *                  match_dist + r_slope * (dn - 1), capped by
+   *                  max_match_dist);
+   *   alpha_decay  : the score retention per physical frame.
+   *   The defaults are the values of the 2026-11-20 DELIVERY set
+   *   (-1 = off / 5.0 / 1.0).  The 2026-11-19 random-FPS search had said
+   *   (10 / 3.5 / 1.0), but its objective-best scored FAR 0.0352 on the
+   *   full 165,223-frame caliber and was REJECTED by the delivery gate. */
+  int32_t max_age_phys;
+  double r_slope;
+  double alpha_decay;
+} MosaicTrackFusionConfig;
+
+/* One tracked detection.  `x`/`y` are the NATIVE frame pixels (640x512). */
+typedef struct {
+  int32_t track_id; /* the track's id (stable for the track's life) */
+  float x;          /* the centroid x */
+  float y;          /* the centroid y */
+  double score;     /* the track's score */
+  int32_t infilled; /* 1 = a SYNTHESISED (interpolated) frame, not an observation */
+} MosaicTrackedDet;
+
+/* Fill `cfg` with the 2026-11-20 DELIVERY defaults (the trial_0080 bottom +
+ * the v3 working point + the delta-n re-search; params_md5
+ * a1157e013ebb496731be805c72c95dd8).  Call it FIRST, then change
+ * the fields you care about:
+ *     MosaicTrackFusionConfig cfg;
+ *     mosaic_pipeline_track_fusion_defaults(&cfg);
+ *     cfg.th_base = 0.48;
+ *     mosaic_pipeline_set_track_fusion(p, &cfg);
+ * Safe on NULL. */
+void mosaic_pipeline_track_fusion_defaults(MosaicTrackFusionConfig* cfg);
+
+/* Turn the spatio-temporal track fusion ON (or OFF).
+ * `cfg` == NULL => OFF.  `cfg->enable == 0` => OFF.
+ * Returns 0 on success, -1 on a NULL pipeline, -2 on a wrong version.
+ * The engine is (re)created, so the tracked output starts from scratch: call
+ * it BEFORE the first push, otherwise the tracks of the frames already in
+ * flight are lost.
+ * OFF by default: a pipeline that never calls this behaves exactly as before. */
+int32_t mosaic_pipeline_set_track_fusion(MosaicPipeline* p, const MosaicTrackFusionConfig* cfg);
+
+/* Collect the next frame's TRACKED output (the ONLINE fusion: the confirmed
+ * tracks that were OBSERVED in that frame -- no synthesised frames).
+ * The blocking semantics are the ones of mosaic_pipeline_collect(): it waits
+ * for the next frame that has one, and it returns -1 when the pipeline is
+ * aborted, or flushed and drained.
+ * `frame_id` receives the CALLER'S OWN frame number -- the same number
+ * mosaic_pipeline_collect() returns for the same frame.
+ * The caller MUST drain this queue: the tracked output of a frame that is
+ * never collected stays in memory. */
+int32_t mosaic_pipeline_collect_tracked(MosaicPipeline* p, int64_t* frame_id, MosaicTrackedDet* out,
+                                        int32_t max_out);
+
+/* Collect the next frame's FINAL (offline) fusion result -- the two-pass
+ * smoother plus the consecutive-frame confirmation, i.e. the output of the
+ * Python reference's `run_system_sota`.  It only exists AFTER
+ * mosaic_pipeline_flush(): the smoother needs the whole sequence.
+ * `frame_id` receives the frame's AXIS:
+ *   - `use_physical_frame_id == 1` (the DEFAULT): the CAMERA's PHYSICAL
+ *     frame number -- the same number mosaic_pipeline_collect() returns for
+ *     the same frame.  The offline result is indexed by that number, so it
+ *     is SPARSE (its length is the largest frame number + 1) and the frame
+ *     numbers the camera never delivered carry nothing: they are SKIPPED,
+ *     so the caller only sees the frames that hold a result.
+ *   - `use_physical_frame_id == 0`: the frame's index in the update
+ *     sequence (0, 1, 2, ...), exactly as before.
+ * Returns -1 when nothing is left (or before the flush). */
+int32_t mosaic_pipeline_collect_fused(MosaicPipeline* p, int64_t* frame_id, MosaicTrackedDet* out,
+                                      int32_t max_out);
+
+/* Release the pipeline.  Safe on NULL.  Does NOT flush: call flush() first if
+ * the queued frames matter. */
+void mosaic_pipeline_destroy(MosaicPipeline* p);
+
+/* ===========================================================================
+ * v10.1 -- THE EXAMPLE-DEMO SUPPORT API.
+ *
+ * WHY: `mosaic_api_test.cpp` is handed to third parties as an EXAMPLE DEMO.
+ * Its first screen used to be a wall of hand-written environment checks and
+ * hand-set default knobs.  The checks and the presets now live HERE, in the
+ * library, so the demo's main() is three calls:
+ *
+ *     MosaicPipelineConfig cfg;
+ *     mosaic_pipeline_config_preset(&cfg, MOSAIC_PRESET_REALTIME);
+ *     mosaic_pipeline_config_set_paths(&cfg, model, kernels, sequence);
+ *     MosaicEnvReport env;
+ *     mosaic_pipeline_env_check(&cfg, raw_root, &env);
+ *
+ * CONTRACT (read before touching anything):
+ *  - This section is PURELY ADDITIVE.  No existing struct gains a field, no
+ *    existing default changes, no existing function changes its behaviour.
+ *    `MOSAIC_API_VERSION` therefore STAYS 10 -- an old binary built against
+ *    v10 keeps working, and the library is a STATIC archive anyway, so every
+ *    binary carries its own copy.
+ *  - `preset` is an int32_t, NOT the enum type: the size of a C enum is
+ *    compiler-defined (C++ would pick `unsigned char` for three values, C
+ *    would pick `unsigned int`), so passing the enum BY VALUE would be an
+ *    ABI landmine.  Callers pass the MOSAIC_PRESET_* constants.
+ *  - The affinity strings the presets install point to STRING LITERALS
+ *    (static storage) -> they outlive any config.  The path strings the
+ *    caller installs are NOT copied: the caller keeps them alive.
+ * ========================================================================= */
+typedef enum {
+  MOSAIC_PRESET_BASELINE   = 0, /* the certified FUSED worker (== the defaults) */
+  MOSAIC_PRESET_REALTIME   = 1, /* 实战在线闭环档: 3-stage + round-robin + D=3   */
+  MOSAIC_PRESET_THROUGHPUT = 2  /* 吞吐交付档:     3-stage + round-robin + D=64  */
+} MosaicPreset;
+
+/* The environment check-out report.  A NEW type on purpose: it must never be
+ * folded into MosaicPipelineConfig (that struct is passed BY POINTER and the
+ * library writes into it -- growing it would write past a caller's buffer). */
+typedef struct {
+  int32_t ok;           /* 1 = every HARD requirement is met                   */
+  int32_t model_ok;     /* the model file exists and is readable              */
+  int32_t kernel_ok;    /* the OpenCL kernel directory exists                 */
+  int32_t raw_root_ok;  /* the raw-frame root directory exists                */
+  int32_t sequence_ok;  /* <raw_root>/<sequence> exists                       */
+  int32_t frame_count;  /* frames found there (-1 = not scanned)              */
+  int32_t npu_ok;       /* an NPU device node is present  (INFORMATIONAL)     */
+  int32_t rga_ok;       /* librga can be loaded           (INFORMATIONAL)     */
+  char    summary[512]; /* a human-readable summary, '\n'-separated           */
+} MosaicEnvReport;
+
+typedef void (*MosaicFrameCallback)(void* user, int32_t index, const char* frame_path);
+
+int32_t mosaic_pipeline_config_preset(MosaicPipelineConfig* cfg, int32_t preset);
+int32_t mosaic_pipeline_config_set_paths(MosaicPipelineConfig* cfg, const char* model_path,
+                                         const char* kernel_dir, const char* sequence);
+
+/* Set the RESOLUTION the GMC estimates at (gmc_downscale).
+ *
+ * WHAT IT IS: the 640x512 feature frame is downscaled by this factor BEFORE any
+ * corner detection / LK fitting happens.  The transform is scaled back up when
+ * it is applied, so the mosaic alignment stays in native pixels.
+ *
+ *   2 = the FROZEN production value -> the GMC fits at **320x256**
+ *       (gmc_stream_ocl.cpp: "half-res already: 640x512 -> 320x256 before any
+ *       fitting").  This is what the certified arm used.
+ *   4 -> the GMC fits at **160x128** (a quarter of the pixels, and a quarter of
+ *       the corner-finding and LK work).
+ *
+ * ⚠️ This is NOT a free knob: a different resolution means a different
+ * transform, so the mosaic alignment -- and therefore the detections -- CHANGE.
+ * Any accuracy claim made with it must be measured, not assumed.
+ *
+ * Returns 0 on success, non-zero on invalid arguments (NULL cfg, out of range).
+ */
+int32_t mosaic_pipeline_config_set_gmc_downscale(MosaicPipelineConfig* cfg, int32_t downscale);
+
+/* Set the GMC anchor step (how many lags each fit is chained over).
+ *
+ *   2 = the FROZEN production value -> every lag of the 21-frame window
+ *       (lags 2,4,...,42) is fitted DIRECTLY over the long baseline, with zero
+ *       composition, so the board output is BIT-IDENTICAL to the server's frozen
+ *       official features.  That is 21 anchors per fit.
+ *   10 = the "tree" anchor cascade -> only lags 10,20,30,40 and 42 are fitted
+ *       (5 anchors) and the other 16 lags are composed from them.  Roughly 3.4x
+ *       cheaper, but NOT equivalent: 40.7% of the frames differ from the server
+ *       reference, so it breaks the certification chain.
+ *
+ * ⚠️ anchor_step must be a multiple of stride_step (2), or the chain recursion
+ * would not land exactly on the anchors (the engine refuses to start).
+ *
+ * Returns 0 on success, non-zero on invalid arguments (NULL cfg, out of range).
+ */
+int32_t mosaic_pipeline_config_set_gmc_anchor_step(MosaicPipelineConfig* cfg, int32_t anchor_step);
+
+int32_t mosaic_pipeline_env_check(const MosaicPipelineConfig* cfg, const char* raw_root,
+                                   MosaicEnvReport* out);
+int32_t mosaic_pipeline_list_frames(const char* seq_dir, MosaicFrameCallback cb, void* user,
+                                    int32_t max_frames);
+
+/* ===========================================================================
+ * v10.2 -- THE FACADE, PART 1: the field reference and the contract.
+ *
+ * WHAT THIS IS FOR: the client does NOT want to know about presets, about the
+ * environment check, or about the order of the configuration calls.  It wants
+ * ONE function that takes a filled-in options struct and returns a ready
+ * pipeline, plus push / collect / destroy.
+ *
+ * THAT IS THE WHOLE CLIENT CODE: one open + push + collect + destroy.  See
+ * the example right below.
+ *
+ * THE FIELD REFERENCE (MosaicOpenOptions):
+ *
+ *   version     : must be MOSAIC_API_VERSION.  A mismatch is REJECTED (the
+ *                 handle is not created and errbuf says so): a struct that
+ *                 does not match the library is an ABI landmine, not a
+ *                 warning.
+ *   preset      : which shipped configuration to start from --
+ *                 MOSAIC_PRESET_BASELINE (the certified fused worker),
+ *                 MOSAIC_PRESET_REALTIME (the live online loop) or
+ *                 MOSAIC_PRESET_THROUGHPUT (the delivery arm).  An unknown
+ *                 value is REJECTED.
+ *   check_env   : 1 = run the environment check BEFORE creating the pipeline;
+ *                 0 = skip it.  The check is only run when `raw_root` is
+ *                 given as well (see below).
+ *   model_path  : the .rknn model file.  REQUIRED -- create() refuses to
+ *                 build a pipeline without one.
+ *   kernel_dir  : the OpenCL kernel pair directory.  NULL selects the
+ *                 library default ("/root/kernels").
+ *   sequence    : the sequence name; it appears in the md5-out lines and it
+ *                 is the second half of the environment check's sequence
+ *                 directory (<raw_root>/<sequence>).
+ *   raw_root    : the raw-frame root directory.  IT SERVES THE ENVIRONMENT
+ *                 CHECK ONLY, and it MAY BE NULL (or empty): in that case
+ *                 the check is SKIPPED, NOT FAILED -- a client that streams
+ *                 live frames has no frame directory to point at and must
+ *                 still be able to open the pipeline.
+ *
+ * THE PATH STRINGS ARE NOT COPIED: the struct holds the caller's pointers,
+ * so the caller keeps the strings alive until mosaic_pipeline_destroy().
+ *
+ * THE errbuf CONTRACT: `errbuf` may be NULL and `errcap` may be 0 -- then
+ * no message is written and nothing crashes.  Otherwise errbuf receives a
+ * human-readable reason and is ALWAYS NUL-terminated, even when the reason
+ * does not fit (it is truncated).
+ *
+ * CONTRACT (read before touching anything):
+ *  - This section is PURELY ADDITIVE.  No existing struct gains a field, no
+ *    existing default changes, no existing function changes its behaviour.
+ *    `MOSAIC_API_VERSION` therefore STAYS 10 -- an old binary built against
+ *    v10 keeps working, and the library is a STATIC archive anyway, so every
+ *    binary carries its own copy.
+ *  - `preset` is an int32_t, NOT the enum type: the size of a C enum is
+ *    compiler-defined, so passing the enum BY VALUE would be an ABI
+ *    landmine.  Callers pass the MOSAIC_PRESET_* constants.
+ * ========================================================================= */
+/* ===========================================================================
+ * v10.2 -- THE SIMPLE FACADE: the four calls a CLIENT writes.
+ *
+ *     MosaicOpenOptions opt;
+ *     memset(&opt, 0, sizeof(opt));
+ *     opt.version    = MOSAIC_API_VERSION;
+ *     opt.preset     = MOSAIC_PRESET_REALTIME;      // or _THROUGHPUT / _BASELINE
+ *     opt.model_path = "/path/to/model.rknn";
+ *     opt.kernel_dir = "/path/to/kernels";
+ *     opt.sequence   = "VIDEO00007_19700101_001324";
+ *     opt.raw_root   = "/path/to/frames";           // the env check needs it
+ *     opt.check_env  = 1;                           // check BEFORE creating
+ *
+ *     char err[512];
+ *     MosaicPipeline* p = mosaic_pipeline_open(&opt, err, sizeof(err));
+ *     if (!p) { fprintf(stderr, "%s\n", err); return 1; }   // err says WHY
+ *
+ *     mosaic_pipeline_push(p, gray, w, h);            // one frame in
+ *     mosaic_pipeline_collect(p, &frame_id, dets, 16); // the detections out
+ *     mosaic_pipeline_destroy(p);                     // done
+ *
+ * That is the whole client API: ONE call to configure + check the environment
+ * + create, then push / collect / destroy.
+ * ========================================================================= */
+typedef struct {
+  int32_t version;      /* must be MOSAIC_API_VERSION                       */
+  int32_t preset;       /* MOSAIC_PRESET_*                                  */
+  int32_t check_env;    /* 1 = run the environment check before creating    */
+  const char* model_path;
+  const char* kernel_dir;
+  const char* sequence;
+  const char* raw_root; /* the environment check only; may be NULL          */
+} MosaicOpenOptions;
+
+MosaicPipeline* mosaic_pipeline_open(const MosaicOpenOptions* opt, char* errbuf, size_t errcap);
+
+/* ===========================================================================
+ * 后处理模式开关（post-processing mode）
+ *
+ * 这是「后处理稀疏化」这条线对外的开关：同一个流水线可以在运行过程中换后处理
+ * 算法。四种模式的语义是：
+ *
+ *   MOSAIC_POST_DENSE  (0) —— 参考实现。全图回投 + 8 连通域标记，就是原来这条
+ *                              已认证的 CPU 路径。所有和历史结果的对比都以它
+ *                              为基准，它的输出不许变。
+ *   MOSAIC_POST_SPARSE (1) —— **默认值**。CPU 稀疏路径（NEON）。只处理可能命中
+ *                              的候选区域，不再扫全图。它的输出与 DENSE
+ *                              **逐比特一致**（实测：host 对拍 906 例 / 板卡 600 帧
+ *                              / 零不一致，检测 TSV 的 md5 相同），
+ *                              而耗时 37.856 → 0.531 ms/帧、最坏帧 40.665 → 1.037 ms。
+ *   MOSAIC_POST_VERIFY (2) —— 诊断用。同一帧同时跑 DENSE 和 SPARSE，逐字段
+ *                              比较并报差异。**不是生产模式**：它把两条路径的
+ *                              成本一起付了（约为 DENSE 的两倍），只在验证窗口
+ *                              里开，不要留在正式固件里。
+ *   MOSAIC_POST_GPU    (3) —— OpenCL 局部极大值路径，跑在 Mali GPU 上。
+ *                              已实现并板卡实测（稳态 0.857 ms/帧）；它与 DENSE
+ *                              **不是逐比特等价**（ΔF1 −0.0081，定位判定翻转 0 帧），
+ *                              需要时再选它。
+ *
+ * 默认是 SPARSE：稀疏路径与 DENSE 逐比特一致，所以**已认证的历史数字不需要重跑**
+ * （TSV 与 md5 都不动），而「延时税」直接消失（端到端延时 p50 −14.2 %）。
+ * 想退回参考实现：环境变量 `MOSAIC_POST_MODE=dense`，或调
+ * `mosaic_pipeline_set_post_mode(p, MOSAIC_POST_DENSE)`。
+ * MOSAIC_API_VERSION 仍是 10 —— 本次只追加了函数与结构体，既有布局一字未动。
+ *
+ * 什么时候切：嵌入式组按自己板子的实测结果选 —— 默认的 SPARSE 在自己 CPU 的
+ * 预算内跑完就直接用；还在做一致性验证、想同时看到两条路径的差异，就用 VERIFY；
+ * 需要把算力挪到 GPU（或目标平台没有 NEON）就用 GPU。
+ *
+ * 切换是运行时生效的：已经在处理中的那一帧会按它**开始时**的模式跑完，下一
+ * 帧才用新模式，所以不需要停机，也不需要重建流水线。
+ * ========================================================================= */
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
+#endif /* MOSAIC_PIPELINE_H */

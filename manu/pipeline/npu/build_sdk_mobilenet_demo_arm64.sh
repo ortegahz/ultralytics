@@ -20,7 +20,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SDK="${RKNN_SDK:-/media/manu/1TB-Volume/rk3588/rk3588_sdk/EVM3588-A_20250815/02Linux软件资料/SDK&Image/SDK/evm3588_linux_sdk_v2.1.1.0/external/rknpu2}"
+SDK="${RKNN_SDK:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rk3588/rk3588_sdk/EVM3588-A_20250815/02Linux软件资料/SDK&Image/SDK/evm3588_linux_sdk_v2.1.1.0/external/rknpu2}"
 DEMO="$SDK/examples/rknn_mobilenet_demo"
 BUILD="$HERE/.demo-build-mobilenet"
 
@@ -42,7 +42,7 @@ make -j"$(nproc)" 2>&1 | tail -3
 echo
 echo "[ok] $BUILD/rknn_mobilenet_demo"
 file "$BUILD/rknn_mobilenet_demo" | cut -d, -f1-3
-TC="${RK3588_TOOLCHAIN:-/media/manu/1TB-Volume/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu}"
+TC="${RK3588_TOOLCHAIN:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu}"
 "$TC/bin/aarch64-rockchip-linux-gnu-readelf" -d "$BUILD/rknn_mobilenet_demo" | grep NEEDED | sed 's/^/    /'
 
 cat <<'EOF'

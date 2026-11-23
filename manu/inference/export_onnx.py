@@ -78,7 +78,7 @@ def main():
     parser.add_argument(
         "--weights",
         type=str,
-        default="/home/manu/mnt/pycharm_project_10ae9e2e/runs/scale_ab_test/yolo26s_p2_5ep/weights/best_f1.pt",
+        default="/home/manu/mnt/pycharm_project_a7d966e6/runs/scale_ab_test/yolo26s_p2_5ep/weights/best_f1.pt",
         help="Path to checkpoint .pt",
     )
     parser.add_argument(

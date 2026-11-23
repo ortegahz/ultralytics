@@ -238,7 +238,7 @@ def main():
         candidates = [
             Path("/mnt/data/siping/datasets/manu/uav"),
             Path("/home/manu/mnt/datasets/manu/uav"),
-            Path("/media/manu/1TB-Volume/data/uav"),
+            Path("/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/data/uav"),
         ]
         for c in candidates:
             if c.exists():
@@ -249,7 +249,7 @@ def main():
         candidates = [
             Path("/mnt/data/siping/datasets/manu/anti-uav"),
             Path("/home/manu/mnt/datasets/manu/anti-uav"),
-            Path("/media/manu/1TB-Volume/data/anti-uav"),
+            Path("/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/data/anti-uav"),
         ]
         for c in candidates:
             if c.exists():

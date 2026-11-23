@@ -31,7 +31,7 @@ set -u
 
 BOARD=root@192.168.0.64
 PORT=22
-LOCAL=/media/manu/1TB-Volume/workspace/ultralytics
+LOCAL=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics
 SCRIPT=$LOCAL/manu/pipeline/npu/ptq/pipeline_arch_run.sh
 LOG=/tmp/board_recover.log
 

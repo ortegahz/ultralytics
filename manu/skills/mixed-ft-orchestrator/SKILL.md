@@ -42,18 +42,18 @@ displayNames:
 
 ### 0. 本地优先 + 三侧 md5 同步（铁律〇）
 
-代码永远**先改本地** `/media/manu/1TB-Volume/workspace/ultralytics/`，
+代码永远**先改本地** `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics/`，
 再同步到服务器 `/tmp/pycharm_project_10ae9e2e`。
-本机的 SSHFS 镜像 `/home/manu/mnt/pycharm_project_10ae9e2e` 是**写入即落服务器**的同一份代码，
+本机的 SSHFS 镜像 `/home/manu/mnt/pycharm_project_a7d966e6` 是**写入即落服务器**的同一份代码，
 但同步是否成功**只能用 md5 比对**判定，不要凭"文件应该在那儿"的直觉。
 
 ```bash
 # 本地（机器 A）
-cd /media/manu/1TB-Volume/workspace/ultralytics
+cd /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/ultralytics
 md5sum manu/training/optuna_mix_ratio_search.py
 
 # SSHFS 镜像（机器 A，写入即落服务器）
-md5sum /home/manu/mnt/pycharm_project_10ae9e2e/manu/training/optuna_mix_ratio_search.py
+md5sum /home/manu/mnt/pycharm_project_a7d966e6/manu/training/optuna_mix_ratio_search.py
 
 # 服务器（机器 B）
 ssh -p 32222 huangzhe@192.168.99.40 \
