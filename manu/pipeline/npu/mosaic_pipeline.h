@@ -1194,8 +1194,50 @@ int32_t mosaic_pipeline_set_detect_threshold(MosaicPipeline* p, const double* th
  *  - The fusion runs in the POST stage, right after the back-projection: it
  *    costs ~10 us per frame on the RK3588 board (measured), i.e. 0.015 % of
  *    the 123 ms frame period -- it does NOT change the frame rate.
- *  - OFF by default: a pipeline that never calls
- *    mosaic_pipeline_set_track_fusion() behaves EXACTLY as before.
+ *  - ON BY DEFAULT (2026-11-23): the library creates the fusion engine ITSELF
+ *    when the pipeline is created, with the 2026-11-20 DELIVERY parameters
+ *    and the 20 px cross-scale candidate merge baked in.  A client that
+ *    writes NOTHING but the four calls gets the delivery-grade tracking.
+ *    mosaic_pipeline_set_track_fusion() is now OPTIONAL: call it to change a
+ *    parameter, or pass NULL to turn the tracking off.
+ * =========================================================================== */
+
+/* ===========================================================================
+ * v10.6 -- THE TRACKING LIVES INSIDE THE LIBRARY (2026-11-23).
+ *
+ * WHAT CHANGED AND WHY
+ * --------------------
+ * The spatio-temporal tracking used to be something the CLIENT had to switch
+ * on and configure with extra calls.  Two of them were MANDATORY for the
+ * delivery-grade numbers:
+ *     mosaic_pipeline_set_track_fusion(&cfg)          -- the 9 parameters
+ *     mosaic_pipeline_set_candidate_dedup_radius(20)   -- the candidate merge
+ * and the second one did not even exist in the 2026-11-20 delivery: it was
+ * added afterwards, which CHANGED THE PUBLIC INTERFACE of a library that
+ * clients had already integrated.
+ *
+ * NOW: the library creates the fusion engine itself when the pipeline is
+ * created, with the 2026-11-20 DELIVERY parameters and the 20 px cross-scale
+ * candidate merge baked in.  The interface is back to the 2026-11-20 set --
+ * a client writes the four calls and gets the delivery-grade tracking.
+ * The candidate-merge radius is no longer a public setter: it is a library
+ * constant (20 px, the band 16~24 is accepted), overridable only through
+ * MOSAIC_TRACK_MERGE_RADIUS for the calibration and the A/B tests.
+ *
+ * WHAT DID NOT CHANGE
+ * -------------------
+ *  - mosaic_pipeline_collect() still returns the RAW back-projected
+ *    candidates, byte for byte: the certified detection TSV md5s do not move.
+ *  - The tracking output is read through the channels that already existed:
+ *    mosaic_pipeline_collect_tracked() (per frame, online) and
+ *    mosaic_pipeline_collect_fused() (after flush, offline).
+ *  - MOSAIC_API_VERSION stays 10.
+ *
+ * THE TWO ENVIRONMENT KNOBS (a normal client never touches them):
+ *   MOSAIC_TRACK=0             -- start with the tracking OFF.
+ *   MOSAIC_TRACK_MERGE_RADIUS  -- the cross-scale candidate merge radius in
+ *                                 pixels (default 20; 16~24 is the accepted
+ *                                 band; 0 turns the merge off).
  * =========================================================================== */
 
 /* The version of MosaicTrackFusionConfig.  Bumped only when a field is
@@ -1304,8 +1346,11 @@ typedef struct {
 
 /* Fill `cfg` with the 2026-11-20 DELIVERY defaults (the trial_0080 bottom +
  * the v3 working point + the delta-n re-search; params_md5
- * a1157e013ebb496731be805c72c95dd8).  Call it FIRST, then change
- * the fields you care about:
+ * a1157e013ebb496731be805c72c95dd8).
+ *
+ * THE LIBRARY ALREADY USES EXACTLY THESE DEFAULTS INTERNALLY (the tracking
+ * is ON by default) -- so a client does NOT have to call this at all.  It is
+ * only needed to OVERRIDE one of them:
  *     MosaicTrackFusionConfig cfg;
  *     mosaic_pipeline_track_fusion_defaults(&cfg);
  *     cfg.th_base = 0.48;
@@ -1319,28 +1364,10 @@ void mosaic_pipeline_track_fusion_defaults(MosaicTrackFusionConfig* cfg);
  * The engine is (re)created, so the tracked output starts from scratch: call
  * it BEFORE the first push, otherwise the tracks of the frames already in
  * flight are lost.
- * OFF by default: a pipeline that never calls this behaves exactly as before. */
+ * ON by default (2026-11-23): the pipeline already carries the delivery
+ * parameters, so calling this is OPTIONAL -- use it to change a parameter,
+ * or pass NULL to turn the tracking off. */
 int32_t mosaic_pipeline_set_track_fusion(MosaicPipeline* p, const MosaicTrackFusionConfig* cfg);
-
-/* Set the CROSS-SCALE CANDIDATE MERGE radius (pixels) -- the board's
- * counterpart of the server's `merge_scales(dedup_radius)`.
- *   0 (the default) = OFF: the candidates reach the fusion engine exactly
- *       as the back-projection produced them (today's behaviour).
- *   > 0 = the candidates of a frame are merged greedily: pooled, sorted by
- *       descending score (stable), and a candidate lying within `radius`
- *       of an already kept one is dropped (the server's rule, bit for bit).
- * WHY: the server's FAR is calibrated on a MERGED candidate stream.  The
- * board fed the engine the RAW one, so one target that fired on several
- * scales became several tracks => board FAR 0.3832 against the 0.03 red
- * line (12.8x) on the same 2500-frame window, while the fusion engine
- * itself was proven equivalent to the server's.
- * The board's delivery value is 20 px (16~24 px is the accepted band).  The
- * server's own delivery caliber uses 768 px, which is WRONG on the board:
- * 768 px is longer than any two points of a 640x512 frame, so it keeps a
- * single candidate per frame and drops the secondary targets.
- * Returns 0 on success, -1 on a NULL pipeline, -3 on a radius out of range.
- * It may be called before or after mosaic_pipeline_set_track_fusion(). */
-int32_t mosaic_pipeline_set_candidate_dedup_radius(MosaicPipeline* p, double radius);
 
 /* Collect the next frame's TRACKED output (the ONLINE fusion: the confirmed
  * tracks that were OBSERVED in that frame -- no synthesised frames).

@@ -30,6 +30,24 @@
 #   * -ffp-contract=off + 显式拒绝 fast-math。
 #   * export LC_ALL=C: readelf 本地化 "Shared library:" 标签。
 #
+# ---------------------------------------------------------------------------
+# 【2026-11-20 stat shim (src/npu/stat_compat.c)】
+#   WHY: the buildroot cross toolchain is **glibc 2.29**, which exports only
+#     `__xstat(ver,...)` and NOT the public symbol `stat` (the public `stat`
+#     lives in libc_nonshared.a as a *hidden* symbol); the board's OpenCV 4.8
+#     `libopencv_core.so.408` references the PUBLIC symbol `stat` => linking
+#     an EXECUTABLE fails with:
+#         ld: .../libc_nonshared.a(stat.oS): hidden symbol `stat' ...
+#                is referenced by DSO
+#         ld: final link failed: Bad value
+#     (Linking a SHARED library does not fail, because build_lib.sh passes
+#      `-Wl,--allow-shlib-undefined`; only executables hit this.)
+#   FIX: `src/npu/stat_compat.c` defines the public symbol `stat` and forwards
+#     to glibc's real entry point `__xstat` (the same trick as the board's
+#     `/root/mosaic/libstatcompat.so`). It is linked STATICALLY into every
+#     executable => **no runtime dependency** (no LD_PRELOAD, no extra .so).
+#     Behaviour is also correct on glibc >= 2.33 boards.
+#
 # NOTE: this script deliberately contains NO deploy / scp / ssh logic.
 #       Deployment is the operator's job -- see README.md section (3).
 #
@@ -69,7 +87,18 @@ fi
 # ---------------------------------------------------------------------------
 # 交叉编译器
 # ---------------------------------------------------------------------------
-TC_DEFAULT="/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu"
+# ⚠️ 2026-11-20 起：**不要再硬编码宿主机盘符**。
+#    宿主机重装 / 换盘之后 `/media/manu/1TB-Volume` 会变成
+#    `/run/media/manu/<UUID>` ⇒ 写死的路径必然失效（而且失效得很隐蔽：
+#    脚本会在"找不到编译器"这一行才炸）。
+#    ⇒ 改成**自动发现**：按 新式盘符 → 旧式盘符 → $HOME → 旧硬编码路径 顺序扫，
+#       多个候选之间用 ':' 分隔（下方 find_cxx 会逐个真跑一遍做自检）。
+TC_REL="rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu"
+TC_DEFAULT=""
+for _tc_root in /run/media/manu/* /media/manu/* "$HOME"; do
+  [ -d "$_tc_root/$TC_REL" ] && TC_DEFAULT="${TC_DEFAULT:+:}$_tc_root/$TC_REL"
+done
+[ -n "$TC_DEFAULT" ] || TC_DEFAULT="/media/manu/1TB-Volume/$TC_REL"
 TC_CANDIDATES="${RK3588_TOOLCHAIN:-$TC_DEFAULT}"
 
 # ⚠️ 必须**真的跑一下**编译器（buildroot 的 `*-g++` 是 `*.br_real` 包装器）。
@@ -144,8 +173,17 @@ echo "  RKNN 库  : $RT_LIB_DIR"
 [ -f "$HERE/src/npu/mosaic_async_client_example.cpp" ] || die "missing source: src/npu/mosaic_async_client_example.cpp"
 [ -f "$HERE/src/npu/mosaic_contract_test.cpp" ]   || die "missing source: src/npu/mosaic_contract_test.cpp"
 [ -f "$HERE/src/npu/rknn_mosaic_e2e.cpp" ]        || die "missing source: src/npu/rknn_mosaic_e2e.cpp"
+[ -f "$HERE/src/npu/stat_compat.c" ]             || die "missing source: src/npu/stat_compat.c"
 
 mkdir -p "$OUT"
+
+# ---------------------------------------------------------------------------
+# The `stat` shim (public symbol `stat` for glibc < 2.33) -- it MUST be built
+# BEFORE the link, and then goes into LINK_COMMON so every executable carries
+# it.  Pure static object => no runtime dependency.
+# ---------------------------------------------------------------------------
+echo '== building stat_compat.o (glibc<2.33 `stat` shim) =='
+"$CXX" -std=c++17 -O2 -fPIC -c "$HERE/src/npu/stat_compat.c" -o "$OUT/stat_compat.o"
 
 LIB_CXXFLAGS="-std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter -Wno-unused-function \
   $FP_FLAGS -DCL_TARGET_OPENCL_VERSION=300 \
@@ -157,6 +195,7 @@ LIB_CXXFLAGS="-std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter -Wno-unused-fun
 #   -rpath,'$ORIGIN'  → 运行时从**自己所在目录**找它（整包可搬）
 LINK_COMMON=(
   -L"$OUT" -lmosaic_pipeline -Wl,-rpath,'$ORIGIN'
+  "$OUT/stat_compat.o"
   "${LIB_PATHS[@]}" "${RPATH_LINKS[@]}" $RELAX
   $OPENCV_LIBS -lOpenCL -lrknnrt -lrga -lpthread -ldl -lm
 )

@@ -30,7 +30,7 @@
 #     CROSS_CXX     交叉编译器（默认用宿主机的 g++ ⇒ 板卡上原生编译）
 #     PKG_ROOT      包根目录（默认 = 本脚本所在目录）
 #     ALLOW_LEGACY  1 = 允许拿「修复前」的 .so 编探针（链接会失败，属预期）
-#     REQUIRE_MERGE 1 = 强校验：.so 必须导出 mosaic_pipeline_set_candidate_dedup_radius
+#     REQUIRE_MERGE 1 = 强校验：.so 必须自带跨尺度候选合并能力（v10.6 起合并半径是库常量）
 # ===========================================================================
 set -euo pipefail
 export LC_ALL=C
@@ -66,27 +66,45 @@ echo "  编译器   : $CXX"
 echo "  库       : $OUT/libmosaic_pipeline.so"
 
 # ---------------------------------------------------------------------------
-# 0) **前置闸门**：.so 必须自带合并 API。
-#    探针里 `mosaic_pipeline_set_candidate_dedup_radius` 是**未定义符号**
-#    （链接期允许，运行期才解析）⇒ 拿旧 .so 配新探针，运行时会
-#    "undefined symbol" 直接起不来 —— 这里提前拦下来。
+# 0) **前置闸门**：.so 必须自带「跨尺度候选合并」能力（v10.6 起合并半径是**库常量**）。
+#
+#    🔴 v10.6 之后的**新危险**：探针不再调用任何合并 setter（那个公开接口已删除），
+#    改用环境变量 `MOSAIC_TRACK_MERGE_RADIUS` 把半径交给库 ⇒
+#    **旧 .so 会「安静地」忽略这个环境变量** ⇒ 合并保持关闭 ⇒
+#    板端逐帧 FAR 0.3832（红线 0.03 的 12.8 倍）—— **不报错、只是结果错**。
+#    ⇒ 这里用符号把两种 .so 区分开：旧 .so 仍导出那个已删的 setter。
 # ---------------------------------------------------------------------------
-if nm -D --defined-only "$OUT/libmosaic_pipeline.so" 2>/dev/null \
-     | grep -q "mosaic_pipeline_set_candidate_dedup_radius"; then
-  echo "  [ok] .so 导出 mosaic_pipeline_set_candidate_dedup_radius（合并 API 在位）"
+# 🔴 2026-11-23：`nm ... | grep -q` 在 `set -o pipefail` 下会踩 **SIGPIPE** 陷阱：
+#    `grep -q` 一命中就退出 ⇒ 上游 `nm` 收到 SIGPIPE（退出码 141）⇒ **整条管道判失败**
+#    ⇒ 一个明明导出了该符号的 .so 会被判成「没导出」。
+#    （符号表比管道缓冲大时必然触发；小 .so 侥幸不触发 ⇒ 表现为「时灵时不灵」。）
+#    ⇒ 改成**先把符号表抓进变量**，再在变量里 grep，全程没有管道。
+SO_SYMS="$(nm -D --defined-only "$OUT/libmosaic_pipeline.so" 2>/dev/null || true)"
+if printf '%s\n' "$SO_SYMS" | grep -q "mosaic_pipeline_set_candidate_dedup_radius"; then
+  HAS_MERGE=0
+  echo "  [!!] .so 仍导出 mosaic_pipeline_set_candidate_dedup_radius ⇒ 这是**旧契约**的 .so"
+  echo "       ⇒ 旧 .so 不认 MOSAIC_TRACK_MERGE_RADIUS ⇒ 合并会是**关**的（静默错误！"
+  echo "          板端 FAR 0.3832，红线 12.8 倍）⇒ 探针会跑出一份「看着正常、其实没合并」的结果。"
+  if [ "${ALLOW_LEGACY:-0}" = "1" ]; then
+    echo "       ⇒ ALLOW_LEGACY=1 ⇒ 继续编（仅用于与旧 .so 做对照实验）"
+  else
+    die "这个 .so 是**旧契约**（合并半径还是调用侧 setter，库内置那套没有生效）
+       ⇒ 探针用环境变量传的半径会被**静默忽略** ⇒ 跑出来的 FAR 会是 0.3832。
+       **先重编 .so，再编探针**（两者必须同版本）。
+       确实要编「旧契约」的探针对：ALLOW_LEGACY=1（只用于对照实验）。
+       .so 重编见 build_lib.sh；板卡侧原生编 .so 见 §267 的 /root/sdk 流程。"
+  fi
+elif printf '%s\n' "$SO_SYMS" | grep -q "MergeCandidatesByRadius"; then
+  echo "  [ok] .so 自带跨尺度候选合并能力（MergeCandidatesByRadius，v10.6 库内置半径）"
   HAS_MERGE=1
 else
   HAS_MERGE=0
-  echo "  [!!] .so **没有**导出 mosaic_pipeline_set_candidate_dedup_radius"
-  echo "       ⇒ 这个 .so 是**修复前**的构建（板端 FAR 0.3832，红线 12.8 倍）"
+  echo "  [!!] .so **没有**合并能力（既无 MergeCandidatesByRadius，也不是旧契约）"
   if [ "${ALLOW_LEGACY:-0}" = "1" ]; then
-    echo "       ⇒ ALLOW_LEGACY=1 ⇒ 继续编（链接期会报 undefined reference，属预期）"
+    echo "       ⇒ ALLOW_LEGACY=1 ⇒ 继续编（仅用于对照实验）"
   else
-    die "探针源码调用了 mosaic_pipeline_set_candidate_dedup_radius，而 .so 里没有这个符号
-       ⇒ **链接必然失败**（undefined reference），不是脚本保守，是硬依赖：
-       **先重编 .so，再编探针**（两者必须同版本）。
-       确实要编「修复前」的探针对：ALLOW_LEGACY=1（用修复前的探针源码）。
-       .so 重编见 build_lib.sh；板卡侧原生编 .so 见 §267 的 /root/sdk 流程。"
+    die "这个 .so 里**没有**跨尺度候选合并能力 ⇒ 合并不会发生 ⇒ FAR 会是 0.3832。
+       **先重编 .so，再编探针**（两者必须同版本）。"
   fi
 fi
 
@@ -107,7 +125,7 @@ done
 echo
 echo "== 自检 =="
 for probe in mosaic_track_dump mosaic_cadence_probe; do
-  if strings -a "$OUT/$probe" | grep -q -- "--cand-dedup-radius"; then
+  if strings -a "$OUT/$probe" 2>/dev/null | grep -- "--cand-dedup-radius" >/dev/null 2>&1; then
     echo "  [ok] $probe 带 --cand-dedup-radius 开关"
   else
     echo "  [!!] $probe **没有** --cand-dedup-radius 开关（源码不是修复版？）"

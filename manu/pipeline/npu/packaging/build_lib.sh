@@ -79,7 +79,16 @@ fi
 # ---------------------------------------------------------------------------
 # 交叉编译器（不在包里 —— 编译器没法随包发）
 # ---------------------------------------------------------------------------
-TC_DEFAULT="/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu"
+# ⚠️ 2026-11-23：**不再硬编码宿主机盘符**。
+#    宿主机重装 / 换盘之后 `/media/manu/1TB-Volume` 会变成 `/run/media/manu/<UUID>`
+#    ⇒ 写死的路径必然失效（而且失效得很隐蔽：脚本会在「找不到编译器」这一行才炸）。
+#    ⇒ 改成**自动发现**：按 新式盘符 → 旧式盘符 → $HOME 顺序扫，候选之间用 ':' 分隔。
+TC_REL="rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu"
+TC_DEFAULT=""
+for _tc_root in /run/media/manu/* /media/manu/* "$HOME"; do
+  [ -d "$_tc_root/$TC_REL" ] && TC_DEFAULT="${TC_DEFAULT:+:}$_tc_root/$TC_REL"
+done
+[ -n "$TC_DEFAULT" ] || TC_DEFAULT="/media/manu/1TB-Volume/$TC_REL"
 TC_CANDIDATES="${RK3588_TOOLCHAIN:-$TC_DEFAULT}"
 
 # 工具链里的编译器名字各家不一样（rockchip / none / 通用 aarch64-linux-gnu）。

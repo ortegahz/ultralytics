@@ -22,7 +22,8 @@
 
 ```
 /mnt/manu/mosaic_sdk/
-├── README.md / MANIFEST.md / build_lib.sh / build_demo.sh / copy_to_nfs.sh
+├── README.md / MANIFEST.md / build_lib.sh / build_demo.sh / build_probes.sh
+│   build_board_native.sh / copy_to_nfs.sh / fetch_board_libs.sh / known_hosts
 ├── src/
 │   ├── npu/    mosaic_pipeline.cpp/.h, mosaic_core.h, mosaic_post_gpu.h,
 │   │           mosaic_track_fusion.cpp/.h,
@@ -35,7 +36,7 @@
 │               rga/×18, CL/×20
 ├── runtime/kernels/    warp_median_fused.cl, sortnet_generated.inc, gmc_feature_gpu.cl
 ├── models/    p0_off_A_none.rknn（**RKNN 模型，随包交付**）
-├── out/        mosaic_pipeline.o, mosaic_track_fusion.o,
+├── out/        mosaic_pipeline.o, mosaic_track_fusion.o, stat_compat.o,
 │               libmosaic_pipeline.so,
 │               mosaic_api_test, mosaic_client_example,
 │               mosaic_async_client_example,
@@ -82,10 +83,20 @@
 | 运行时参数回读 | `th_base=0.4800 th_salvage=0.0600 th_ground=0.2600 sky_ratio=1.000 match_dist=10.00 tags=0x7 … max_age_phys=-1 r_slope=5.00 alpha_decay=1.000 confirm_consec=2 confirm_gap_tol=8`（**9 字段全在**） |
 | 旧 `.so` vs 板端重编 `.so` | 同 250 帧：候选流 md5 `959963cad3d9d520d01d7b84e123b834`、融合 md5 `b1e8eb4401fb6dcd518d827cdec2a2dc` —— **两版完全相同 ⇒ 行为逐字节等价**；差异仅在回读行多打 `th_salvage` / `match_dist` |
 | ABI 兼容性 | 旧 `.so` 读新结构体的**全部已知字段值都正确**（`th_base/th_ground/sky_ratio/r_slope/alpha_decay/confirm_consec/confirm_gap_tol/max_age_phys`）⇒ **结构体无错位** |
+| 跨尺度候选合并半径（2026-11-23 起**内置在库里**，默认 **20 px**，可用带 16~24） | 板端 2500 帧窗口：半径 `20` ⇒ F1 `0.6930591` / FAR `0.0488`；半径 `0` ⇒ F1 `0.5689473` / FAR `0.3832` ⇒ **合并必须开**。⚠️ **不可照搬服务器的 768 px**（板端尺度不同，会丢次要目标） |
+| 跟踪的开关（2026-11-23） | 跟踪**默认开启**、参数**内置** ⇒ 调用侧不需要新增调用；开关只有环境变量 `MOSAIC_TRACK=0`（关）/ `MOSAIC_TRACK_MERGE_RADIUS=<px>`（合并半径）/ `MOSAIC_TRACK_QUEUE_MAX=<n>`（队列上限，默认 4096）。启动日志必须出现 `[i] candidate dedup ON: radius=20.0 px (cross-scale merge)` |
 
 <!-- MD5_TABLE:BEGIN -->
 （本段由 `make_build_dir.sh` 自动生成，勿手改）
 <!-- MD5_TABLE:END -->
+
+> ℹ️ **2026-11-23 的变更对上面第一行 md5 的影响**：新交付的 `.so` **默认把跨尺度候选
+> 合并半径设成 20 px**（旧记录里那一行是**合并没开**（半径 0）时跑出来的）⇒ 新包的
+> `ship_td_fused.tsv` md5 **应为 `51c4ef144a172f829c2d40e05ebd89e1`**（板端实测的
+> r=20 融合输出），而 `ship_td_cands.tsv` md5 **仍是 `0e511a4c66a7f2842c79c0a9f73fe613`**
+> —— **候选流不动**（合并只发生在**喂给跟踪器之前**，`mosaic_pipeline_collect()` 的原始
+> 候选逐字节不变，认证的检测 TSV md5 不受影响）。
+> 想复现上面那行的旧口径：设 `MOSAIC_TRACK_MERGE_RADIUS=0` 再跑。
 
 **关于 md5 基线**：
 
@@ -145,6 +156,8 @@ cd <交付目录>            # 例如 /mnt/manu/mosaic_sdk
 bash build_lib.sh        # → out/libmosaic_pipeline.so（共享库）
 bash build_demo.sh       # → out/mosaic_api_test, out/mosaic_client_example,
 #                            out/mosaic_contract_test, out/rknn_mosaic_e2e
+bash build_probes.sh     # → out/mosaic_cadence_probe, out/mosaic_track_dump
+                         #   （两个板卡验证探针；**没有任何别的脚本会编它们**）
 ```
 
 > ⚠️ **重编需要集成方提供两样东西**：
@@ -363,13 +376,37 @@ libc.so.6
 
 ---
 
-## F0. 🔴🔴 集成前必读：`MOSAIC_TRACK_FUSION_VERSION` 1 → 2（**必须重编 app**）
+## F0. 🟢 集成前必读：跟踪已内置、**默认开启**（2026-11-23）
 
-* 本版 `mosaic_pipeline_set_track_fusion()` 会校验 `cfg.version`；
-  **对不上返回 `-2`**，时空融合**静默不生效**（不崩、只是没开）。
-* ⇒ **必须用本包 `src/npu/mosaic_pipeline.h` 重编 app**；**只换 `.so` 不换头** ⇒ 融合悄悄失效。
-* 新增字段：`max_age_phys` / `r_slope` / `alpha_decay` / `use_physical_frame_id`（默认值见
-  `mosaic_pipeline_track_fusion_defaults()`，唯一真源在 C++ 内核里）。
+* **时空跟踪现在由库自己建**：`mosaic_pipeline_create()`（`mosaic_pipeline_open()` 内部
+  也会走它）时用 **2026-11-20 交付工作点 `cc2_md10`** 建好融合引擎
+  （`th_base 0.48` / `th_salvage 0.06` / `th_ground 0.26` / `sky_ratio 1.0` /
+  `confirm_consec 2` / `confirm_gap_tol 8` / `r_slope 5.0` / `match_dist 10.0` /
+  `max_age_phys -1` / `min_hits 3`），并把**跨尺度候选合并半径 20 px** 一并内置
+  （板端可用带 16~24 px；⚠️ **不要照搬服务器的 768 px** —— 板端尺度不同，会丢次要目标）。
+* ⇒ **调用侧不需要新增任何调用，也不需要新的公开接口**；
+  **公开接口集合回到 2026-11-20 交付版**（`MOSAIC_API_VERSION` 仍然是 `10`）。
+* **取跟踪结果**（两个接口都是老接口，**没有新增公开符号**）：
+  * `mosaic_pipeline_collect_tracked()` —— **在线**，逐帧，与 `collect()` 一一对应
+    （同一个帧号）；队列要排空（上限 `MOSAIC_TRACK_QUEUE_MAX`，默认 4096 帧）。
+  * `mosaic_pipeline_collect_fused()` —— **离线**，`mosaic_pipeline_flush()` 之后才有，
+    取完返回 `-1`。
+  * `mosaic_pipeline_collect()` 语义**不变**（仍返回原始候选流 ⇒ 认证的检测 TSV md5 不动）。
+* **版本握手（只影响「要改参数」的客户）**：`mosaic_pipeline_set_track_fusion()` 会校验
+  `cfg.version`，**对不上返回 `-2`**，时空融合**静默不生效**（不崩、只是没开）。
+  ⇒ **要改参数**的客户必须用本包 `src/npu/mosaic_pipeline.h` **重编 app**
+  （**只换 `.so` 不换头** ⇒ 覆盖失败）。
+  `MOSAIC_TRACK_FUSION_VERSION` = 2，比 v1 多 `max_age_phys` / `r_slope` / `alpha_decay` /
+  `use_physical_frame_id`（默认值见 `mosaic_pipeline_track_fusion_defaults()`，
+  唯一真源在 C++ 内核里）。
+  **不碰这个接口的客户不需要重编**（跟踪在库内默认开着）。
+* **环境开关（标定 / A-B 用，正常集成不用碰）**：
+  * `MOSAIC_TRACK=0`（或 `off` / `false`）⇒ 启动时关掉跟踪；
+  * `MOSAIC_TRACK_MERGE_RADIUS=<px>` ⇒ 覆盖合并半径（默认 20；`0` = 关闭合并）；
+  * `MOSAIC_TRACK_QUEUE_MAX=<n>` ⇒ 覆盖跟踪队列上限（默认 4096）。
+* **验收证据**：板端启动日志**必须**出现
+  `[i] candidate dedup ON: radius=20.0 px (cross-scale merge)`；
+  出现 `[warn] candidate dedup OFF (radius=0)` 说明**合并没开**（FAR 会飙）。
 * 帧号语义：`mosaic_pipeline_push_frame(..., client_frame_id)` 请传**物理帧号**（丢帧就跳号）。
 
 ## F. 集成步骤（5 步）

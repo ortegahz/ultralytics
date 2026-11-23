@@ -34,6 +34,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <stdlib.h>  // setenv（POSIX）
 #include <string>
 #include <thread>
 #include <vector>
@@ -177,6 +178,14 @@ int main(int argc, char** argv) {
   // 只能物理断电恢复，所以测速一律用 1（其余参数保持交付档原值）。
   cfg.npu_workers = npu_workers;
   cfg.post_workers = 1;
+  // 🔴 跨尺度候选合并半径：库内置 20 px（16~24 为可用带）；**不能**照搬服务器的
+  //    768 px（那会让每帧只剩 1 个候选、丢掉次要目标）。v10.6 起它是库常量，
+  //    唯一的覆盖口是 MOSAIC_TRACK_MERGE_RADIUS（校准 / A-B 用）⇒ 必须在
+  //    create() **之前**设好（库在 create() 时读一次）。
+  char rad[32];
+  snprintf(rad, sizeof(rad), "%.10g", cand_dedup_radius);
+  setenv("MOSAIC_TRACK_MERGE_RADIUS", rad, 1);
+
   char err[512] = {0};
   MosaicPipeline* pipe = mosaic_pipeline_create(&cfg, err, sizeof(err));
   if (!pipe) { fprintf(stderr, "[FATAL] 建流水线失败：%s\n", err); return 1; }
@@ -211,10 +220,8 @@ int main(int argc, char** argv) {
     }
     // 🔴 跨尺度候选合并（交付值 20 px）：服务器喂融合前会合并三个尺度的峰，
     //    板端缺这一步 ⇒ 一个目标裂成多条航迹 ⇒ FAR 0.3832（红线 12.8 倍）。
-    if (mosaic_pipeline_set_candidate_dedup_radius(pipe, cand_dedup_radius) != 0) {
-      fprintf(stderr, "[FATAL] 设置跨尺度候选合并半径失败\n");
-      return 1;
-    }
+    //    v10.6：合并半径是**库内置常量 20 px**，公开 setter 已删除 ⇒ 这里只把工具侧
+    //    的 A/B 开关通过环境变量交给库（setenv 已在本文件 create() 之前做过）。
     fprintf(stderr, "[i] 时空融合 ON  tag_mask=0x%x reorder_window=%d cand_dedup_radius=%.1f\n",
             tag_mask, reorder_window, cand_dedup_radius);
   } else {

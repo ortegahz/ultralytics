@@ -28,6 +28,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <stdlib.h>  // setenv（POSIX）
 #include <string>
 #include <thread>
 #include <vector>
@@ -155,6 +156,16 @@ int main(int argc, char** argv) {
             (long long)ids.front(), (long long)ids[paths.size() - 1]);
   }
 
+  // 🔴 跨尺度候选合并半径：库内置 20 px（16~24 为可用带）；**不能**照搬服务器
+  //    的 768 px（那会让每帧只剩 1 个候选、丢掉次要目标）。v10.6 起它是库常量，
+  //    唯一的覆盖口是 MOSAIC_TRACK_MERGE_RADIUS（校准 / A/B 用）⇒ 必须在
+  //    create() **之前**设好（库在 create() 时读一次）。
+  //    这个开关只影响「喂给融合引擎的候选流」；mosaic_pipeline_collect() 吐出来
+  //    的原始候选流不变（已认证的检测 TSV md5 不动）。
+  char rad[32];
+  snprintf(rad, sizeof(rad), "%.10g", cand_dedup_radius);
+  setenv("MOSAIC_TRACK_MERGE_RADIUS", rad, 1);
+
   MosaicPipelineConfig cfg;
   memset(&cfg, 0, sizeof(cfg));
   mosaic_pipeline_config_preset(&cfg, MOSAIC_PRESET_REALTIME);
@@ -170,39 +181,34 @@ int main(int argc, char** argv) {
     mosaic_pipeline_set_detect_threshold(pipe, &t);
   }
 
-  // ---- 打开时空融合 ----
+  // ---- 时空融合：2026-11-23 起，库自己就开着跟踪 ----
+  // v10.6：融合引擎由库在 create() 时自己建好，参数是交付工作点
+  // （trial_0080 + v3 · cc2_md10），跨尺度候选合并半径也是库内置的 20 px
+  // ⇒ 这个工具**不再需要**调那两个接口（其中一个还改了公开接口）。
+  // 这里只做两件事：
+  //   ① 把工具侧的 A/B 开关（--cand-dedup-radius）通过环境变量交给库；
+  //   ② --fusion 0 时把跟踪关掉（对照组）。
+  // 交付工作点 9 个字段的说明（旧默认组 match_dist 16 / gap_tol 6 /
+  // r_slope 3.5 / max_age_phys 10 在全口径上 FAR 0.0352，破 0.03 红线）：
+  //   th_base 0.48 / th_salvage 0.06 / th_ground 0.26 / sky_ratio 1.0 /
+  //   confirm_consec 2 / confirm_gap_tol 8 / r_slope 5.0 / match_dist 10.0 /
+  //   max_age_phys -1（交付组「不设」⇒ <0 = legacy）
+  //   参数档 manu/evaluation/system_sota_longquan_trial0080_delivery_v3_optgapfit_params.json
+  //   （params_md5 a1157e013ebb496731be805c72c95dd8）。
   if (fusion) {
+    // tag_mask / reorder_window 仍要按工具的 --tag-mask / --reorder-window 传，
+    // 所以这里显式覆盖这两个（其余 9 个字段用库内置的交付值）。
     MosaicTrackFusionConfig tf;
     mosaic_pipeline_track_fusion_defaults(&tf);
-    // 🔴 交付工作点（trial_0080 + v3 · cc2_md10）：**显式**覆盖这 9 个字段，
-    //    不依赖 .so 里编译进去的默认值 —— 旧默认组（match_dist 16 / gap_tol 6 /
-    //    r_slope 3.5 / max_age_phys 10）在全口径上 FAR 0.0352，破 0.03 红线。
-    //    参数档 manu/evaluation/system_sota_longquan_trial0080_delivery_v3_optgapfit_params.json
-    //    （params_md5 a1157e013ebb496731be805c72c95dd8）。
-    tf.th_base        = 0.48;   // 天空区高置信阈值
-    tf.th_salvage     = 0.06;   // 天空区弱脉冲打捞阈值
-    tf.th_ground      = 0.26;   // 地面区阈值
-    tf.sky_ratio      = 1.0;    // 天地分界 = img_h * sky_ratio
-    tf.confirm_consec = 2;      // 连续命中几次算确认
-    tf.confirm_gap_tol= 8;      // 连续判定容忍的额外物理帧间隔
-    tf.r_slope        = 5.0;    // 每多跳 1 个物理帧，关联门限放宽的像素数
-    tf.match_dist     = 10.0;   // 关联基础门限
-    tf.max_age_phys   = -1;     // 交付组「不设」⇒ <0 = legacy（写 10 会破 FAR 红线）
     tf.tag_mask = tag_mask;
     tf.reorder_window = reorder_window;
     if (mosaic_pipeline_set_track_fusion(pipe, &tf) != 0) {
       fprintf(stderr, "[FATAL] 打开时空融合失败\n");
       return 1;
     }
-    // 🔴 跨尺度候选合并：服务器在喂融合前把三个尺度的峰合并成一个候选
-    //    （merge_scales(dedup_radius)），板端缺这一步 ⇒ 一个目标裂成多条航迹
-    //    ⇒ FAR 0.3832（红线 12.8 倍）。交付值 20 px（16~24 为可用带），
-    //    **不能**照搬服务器的 768 px（那会让每帧只剩 1 个候选、丢掉次要目标）。
-    if (mosaic_pipeline_set_candidate_dedup_radius(pipe, cand_dedup_radius) != 0) {
-      fprintf(stderr, "[FATAL] 设置跨尺度候选合并半径失败\n");
-      return 1;
-    }
+    fprintf(stderr, "[info] 跟踪由库内置开启；跨尺度合并半径 = %s px（库内置交付值 20）\n", rad);
   } else {
+    // 对照组：关掉跟踪（库默认是开的）。
     const MosaicTrackFusionConfig* none = nullptr;
     mosaic_pipeline_set_track_fusion(pipe, none);
   }

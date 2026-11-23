@@ -68,6 +68,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <strings.h>  // strcasecmp（POSIX）
 #include <deque>
 #include <map>
 #include <memory>
@@ -75,6 +76,47 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+// ===========================================================================
+// v10.6 -- THE TRACKING CONSTANTS (2026-11-23)
+//
+// The spatio-temporal tracking lives INSIDE the library: the pipeline
+// creates the fusion engine itself, with the 2026-11-20 DELIVERY
+// parameters and the 20 px cross-scale candidate merge baked in.  The
+// public interface therefore stays the one the clients integrated
+// (mosaic_pipeline_set_candidate_dedup_radius() is gone).
+// ===========================================================================
+namespace {
+
+// The delivery value, in pixels.  One place, so it cannot drift.
+constexpr double kDeliveryCandidateMergeRadiusPx = 20.0;
+
+// Read MOSAIC_TRACK_MERGE_RADIUS (the calibration / A-B knob).  A missing,
+// empty, unparsable or out-of-range value falls back to the delivery value.
+double ResolveCandidateMergeRadiusFromEnv() {
+  const char* s = getenv("MOSAIC_TRACK_MERGE_RADIUS");
+  if (!s || !*s) return kDeliveryCandidateMergeRadiusPx;
+  char* end = nullptr;
+  const double v = strtod(s, &end);
+  if (end == s || (end && *end != '\0') || !(v >= 0.0) || v > 4096.0) {
+    fprintf(stderr,
+            "[warn] MOSAIC_TRACK_MERGE_RADIUS=\"%s\" is not a number in 0..4096: the delivery "
+            "value %.1f px is used\n",
+            s, kDeliveryCandidateMergeRadiusPx);
+    return kDeliveryCandidateMergeRadiusPx;
+  }
+  return v;
+}
+
+// Is the tracking ON at start-up?  MOSAIC_TRACK=0 (or "off"/"false") starts
+// with it OFF; anything else keeps the default (ON).
+bool TrackingEnabledFromEnv() {
+  const char* s = getenv("MOSAIC_TRACK");
+  if (!s || !*s) return true;
+  return !(strcmp(s, "0") == 0 || strcasecmp(s, "off") == 0 || strcasecmp(s, "false") == 0);
+}
+
+}  // namespace
 
 // The v10.1 example-demo support API probes the filesystem and the runtime
 // libraries: stat()/access() for the paths, opendir()/readdir() for the DRM
@@ -550,10 +592,12 @@ struct MosaicPipeline {
   // travels with the result, so the caller can see the physical gap.
   std::unique_ptr<mosaic::TrackFusionEngine> fusion;
   MosaicTrackFusionConfig fusion_cfg{};
-  // The CROSS-SCALE CANDIDATE MERGE radius (px).  0 = OFF (the default:
-  // the candidate stream reaches the engine exactly as the back-projection
-  // produced it).  See mosaic_pipeline_set_candidate_dedup_radius().
-  double fusion_cand_dedup_radius = 0.0;
+  // The CROSS-SCALE CANDIDATE MERGE radius (px).  BAKED IN: the delivery
+  // value is 20 px (the band 16~24 is accepted); 0 would mean "no merge",
+  // which is the pre-2026-11-20 behaviour that broke the FAR red line by
+  // 12.8x.  The only override is the MOSAIC_TRACK_MERGE_RADIUS environment
+  // variable (the calibration / A-B knob), read once at create time.
+  double fusion_cand_dedup_radius = kDeliveryCandidateMergeRadiusPx;
   std::mutex m_fusion;
   // The frame axis the engine is fed with (see FusionAxisPicker).
   FusionAxisPicker fusion_axis;
@@ -563,6 +607,15 @@ struct MosaicPipeline {
   // The online per-frame output.
   std::deque<TrackedItem> tracked_q;
   std::condition_variable cv_tracked;
+  // The tracked queue's CAP.  The tracking is ON by default (v10.6), so a
+  // client that never calls mosaic_pipeline_collect_tracked() -- the result
+  // CALLBACK path does not -- would accumulate one item per frame forever.
+  // The cap keeps the queue bounded; past it the OLDEST frames are dropped
+  // (the offline mosaic_pipeline_collect_fused() output is unaffected: it is
+  // produced at the flush, not streamed).
+  size_t tracked_queue_max = 4096;
+  // How many frames the cap has dropped so far (reported once).
+  uint64_t tracked_queue_dropped = 0;
   // The offline (Pass 2 + Pass 3) output: it only exists after the flush.
   std::vector<std::vector<mosaic::TrackFusionDet>> fused_frames;
   size_t fused_pos = 0;
@@ -2268,6 +2321,20 @@ struct MosaicPipeline {
     {
       std::lock_guard<std::mutex> lk(m_out);
       tracked_q.push_back(std::move(ti));
+      // The cap (v10.6): drop the OLDEST frames past it.  A client that
+      // consumes the tracked output as it arrives never notices; a client
+      // that ignores it must not leak one item per frame.
+      while (tracked_q.size() > tracked_queue_max) {
+        tracked_q.pop_front();
+        ++tracked_queue_dropped;
+        if (tracked_queue_dropped == 1) {
+          fprintf(stderr,
+                  "[warn] the tracked output queue passed %zu frames and nobody consumed it: "
+                  "the oldest frames are dropped (set MOSAIC_TRACK_QUEUE_MAX to raise the cap, "
+                  "or call mosaic_pipeline_collect_tracked() to drain it)\n",
+                  tracked_queue_max);
+        }
+      }
     }
     cv_tracked.notify_all();
   }
@@ -3704,6 +3771,57 @@ MosaicPipeline* mosaic_pipeline_create(const MosaicPipelineConfig* cfg, char* er
           (safe_cfg->npu_stage_affinity && *safe_cfg->npu_stage_affinity)
               ? safe_cfg->npu_stage_affinity
               : "(follow pre_affinity)");
+  // ---- v10.6: the tracking is INSIDE the library --------------------------
+  // The fusion engine is created HERE, with the 2026-11-20 DELIVERY
+  // parameters and the 20 px cross-scale candidate merge baked in, so a
+  // client that writes only the four calls gets the delivery-grade
+  // tracking.  It used to be the client's job (two mandatory calls, one of
+  // which CHANGED the public interface of an already integrated library).
+  //
+  // The client can still change a parameter
+  // (mosaic_pipeline_set_track_fusion) or turn the tracking off (NULL, or
+  // MOSAIC_TRACK=0 at start-up).
+  //
+  // ⚠️ The RAW detection path is UNTOUCHED: mosaic_pipeline_collect() still
+  // returns the back-projected candidates byte for byte, so the certified
+  // detection TSV md5s do not move.  Only the CANDIDATE STREAM THAT FEEDS
+  // THE ENGINE is merged.
+  p->fusion_cand_dedup_radius = ResolveCandidateMergeRadiusFromEnv();
+  {
+    const char* qmax = getenv("MOSAIC_TRACK_QUEUE_MAX");
+    if (qmax && *qmax) {
+      char* end = nullptr;
+      const long long v = strtoll(qmax, &end, 10);
+      if (end != qmax && (!end || *end == '\0') && v >= 0 && v <= 1000000) {
+        p->tracked_queue_max = (size_t)v;
+      } else {
+        fprintf(stderr, "[warn] MOSAIC_TRACK_QUEUE_MAX=\"%s\" is not a number in 0..1000000: "
+                        "the default %zu is used\n",
+                qmax, p->tracked_queue_max);
+      }
+    }
+  }
+  if (TrackingEnabledFromEnv()) {
+    MosaicTrackFusionConfig tf;
+    mosaic_pipeline_track_fusion_defaults(&tf);
+    mosaic_pipeline_set_track_fusion(p, &tf);
+    // The board log is the acceptance evidence: the construction order
+    // (manu/memory/trial0080_board_fusion_preset_20261119.md) says the
+    // start-up log MUST show the merge is on -- if this line is missing, the
+    // merge is not on.
+    if (p->fusion_cand_dedup_radius > 0.0) {
+      fprintf(stderr, "[i] candidate dedup ON: radius=%.1f px (cross-scale merge)\n",
+              p->fusion_cand_dedup_radius);
+    } else {
+      fprintf(stderr,
+              "[warn] candidate dedup OFF (radius=0): the candidate stream reaches the tracker "
+              "UNMERGED => one target that fires on several scales becomes several tracks "
+              "(board FAR 0.3832 against the 0.03 red line on the 2500-frame window; the server "
+              "gets 0.0552). Use 16~24 px on the board (20 px = the delivery value).\n");
+    }
+  } else {
+    fprintf(stderr, "[i] the track fusion is OFF (MOSAIC_TRACK=0)\n");
+  }
   return p;
 }
 
@@ -4473,11 +4591,11 @@ int32_t mosaic_pipeline_set_track_fusion(MosaicPipeline* p, const MosaicTrackFus
 // The CROSS-SCALE CANDIDATE MERGE radius (px) -- the board's counterpart of
 // the server's `merge_scales(dedup_radius)`.
 //
-//   0 (the default) = OFF: the candidates reach the fusion engine exactly as
-//       the back-projection produced them (today's behaviour, bit for bit).
 //   > 0 = the candidates of a frame are merged greedily: pooled, sorted by
 //       descending score (stable), and a candidate lying within `radius` of
 //       an already kept one is dropped -- the server's rule, bit for bit.
+//   0   = OFF: the candidates reach the fusion engine exactly as the
+//       back-projection produced them (the pre-2026-11-20 behaviour).
 //
 // WHY it matters: the server's FAR is calibrated on a MERGED candidate
 // stream; the board fed the fusion engine the RAW one, so one target that
@@ -4485,36 +4603,20 @@ int32_t mosaic_pipeline_set_track_fusion(MosaicPipeline* p, const MosaicTrackFus
 // the 0.03 red line (12.8x) on the same 2500-frame window, while the
 // fusion engine itself was proven equivalent to the server's.
 //
-// WHY a separate call and not a new field of MosaicTrackFusionConfig: the
-// config version is checked strictly, so a new field would mean a version
-// bump and every caller built against v2 would be REJECTED with -2 (the
-// fusion would silently stay off).  This keeps the delivered ABI intact.
+// 2026-11-23: the radius is NO LONGER a public setter.  It used to be
+// mosaic_pipeline_set_candidate_dedup_radius(), and making the client call
+// it CHANGED THE PUBLIC INTERFACE of a library the clients had already
+// integrated.  It is now a LIBRARY CONSTANT (the delivery value 20 px; the
+// band 16~24 is accepted) with ONE environment override for the calibration
+// and the A/B tests:
 //
-// The board's delivery value is 20 px (16~24 px is the accepted band).  The
-// server's own delivery caliber uses 768 px, which is WRONG on the board:
-// 768 px is longer than any two points of a 640x512 frame, so it would keep
-// a single candidate per frame and drop the secondary targets (recall
-// 0.557 -> 0.532).
+//     MOSAIC_TRACK_MERGE_RADIUS=<px>   (default 20; 0 turns the merge off)
+//
+// The server's own delivery caliber uses 768 px, which is WRONG on the
+// board: 768 px is longer than any two points of a 640x512 frame, so it
+// would keep a single candidate per frame and drop the secondary targets
+// (recall 0.557 -> 0.532).
 // ---------------------------------------------------------------------------
-int32_t mosaic_pipeline_set_candidate_dedup_radius(MosaicPipeline* p, double radius) {
-  if (!p) return -1;
-  if (!(radius >= 0.0) || radius > 4096.0) {
-    fprintf(stderr, "[FATAL] candidate dedup radius %.3f is out of range (0..4096 px)\n", radius);
-    return -3;
-  }
-  std::lock_guard<std::mutex> lk(p->m_fusion);
-  p->fusion_cand_dedup_radius = radius;
-  if (radius > 0.0) {
-    fprintf(stderr, "[i] candidate dedup ON: radius=%.1f px (cross-scale merge)\n", radius);
-  } else {
-    fprintf(stderr,
-            "[warn] candidate dedup OFF (radius=0): the candidate stream reaches the tracker "
-            "UNMERGED => one target that fires on several scales becomes several tracks "
-            "(board FAR 0.3832 against the 0.03 red line on the 2500-frame window; the server "
-            "gets 0.0552). Use 16~24 px on the board (20 px = the delivery value).\n");
-  }
-  return 0;
-}
 
 int32_t mosaic_pipeline_collect_tracked(MosaicPipeline* p, int64_t* frame_id, MosaicTrackedDet* out,
                                         int32_t max_out) {

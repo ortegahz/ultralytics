@@ -45,6 +45,7 @@
 └── out/               ← 产物落在这里
     ├── mosaic_pipeline.o
     ├── mosaic_track_fusion.o
+    ├── stat_compat.o               ← **buildroot glibc 2.29 `stat` hidden symbol 垫片**（铁律十八）
     ├── libmosaic_pipeline.so      ← **共享库**（SONAME=libmosaic_pipeline.so）
     ├── mosaic_api_test
     ├── mosaic_client_example
@@ -60,14 +61,15 @@
 > （见「板卡依赖矩阵」）。
 
 > **交付到 NFS 时是整棵树一起拷**（不是只拷几个产物文件）：板卡侧看到的目录
-> 结构与这里一一对应——`src/ include/ runtime/ models/ out/` + 顶层 7 个文件
+> 结构与这里一一对应——`src/ include/ runtime/ models/ out/` + 顶层 9 个文件
 > （`README.md` / `MANIFEST.md` / `build_lib.sh` / `build_demo.sh` /
-> `copy_to_nfs.sh` / `fetch_board_libs.sh` / `known_hosts`）。
+> `build_probes.sh` / `build_board_native.sh` / `copy_to_nfs.sh` /
+> `fetch_board_libs.sh` / `known_hosts`）。
 
 交付包磁盘上共 **{{TOTAL_COUNT}}** 个文件 = 受管 **{{FILE_COUNT}}** 个
 （源码 **{{SRC_COUNT}}** 个（`src/`）+ 第三方头 **{{HDR_COUNT}}** 个
 （`include/`）+ kernel 资产 **{{KERNEL_COUNT}}** 个（`runtime/`）
-+ 模型 **1** 个（`models/`）+ 顶层 6 个文件（含本 README）
++ 模型 **1** 个（`models/`）+ 顶层 8 个文件（含本 README）
 + `MANIFEST.md` 自身）+ `out/` 编译产物 **{{OUT_COUNT}}** 个。
 
 产物（全部 aarch64 ELF）：
@@ -84,10 +86,12 @@
 | `out/mosaic_track_dump` | **板卡验证探针**（本地工具，不属于集成面）：逐帧导出候选流 / 融合结果 TSV，用于离线对 GT 打分 |
 
 > 🔴 **两个探针的源码在 `src/npu/`**（`mosaic_cadence_probe.cpp` /
-> `mosaic_track_dump.cpp`），**探针里带交付工作点的显式 9 字段覆盖**
+> `mosaic_track_dump.cpp`），**探针走的是 `.so` 里内置的交付工作点**
 > （`th_base 0.48` / `th_salvage 0.06` / `th_ground 0.26` / `sky_ratio 1.0` /
 > `confirm_consec 2` / `confirm_gap_tol 8` / `r_slope 5.0` / `match_dist 10.0` /
-> `max_age_phys -1`），**不依赖 `.so` 里编译进去的默认值**。
+> `max_age_phys -1`）⇒ **探针与客户 app 走的是同一条路径**（2026-11-23 起跟踪内置在库里）。
+> 探针只额外覆盖两个工具侧开关（`tag_mask` / `reorder_window`），
+> 合并半径通过 `MOSAIC_TRACK_MERGE_RADIUS` 交给库（对应 `--cand-dedup-radius`）。
 > 这两个探针**零 OpenCV 依赖**（`readelf -d` 实测 NEEDED 里没有 `libopencv_*`）
 > ⇒ **ocv46 / ocv48 / ocv42 三个变体通用**。
 
@@ -109,6 +113,7 @@
 |---|---|
 | `out/mosaic_pipeline.o` | `{{OBJ_MD5}}` |
 | `out/mosaic_track_fusion.o` | `{{TRACK_FUSION_OBJ_MD5}}` |
+| `out/stat_compat.o` | `{{STAT_COMPAT_OBJ_MD5}}` |
 | `out/libmosaic_pipeline.so` | `{{LIB_SO_MD5}}` |
 | `out/mosaic_api_test` | `{{API_TEST_MD5}}` |
 | `out/mosaic_client_example` | `{{CLIENT_EXAMPLE_MD5}}` |
@@ -119,7 +124,7 @@
 | `out/mosaic_track_dump` | `{{TRACK_DUMP_MD5}}` |
 
 > ℹ️ **本表读的是「当前磁盘上已有的产物」**（`make_build_dir.sh` 不编译，只**读**
-> `$DEST/out/*` 已存在的产物算 md5）⇒ **十行都有基线**：产物**已经随交付包一起**
+> `$DEST/out/*` 已存在的产物算 md5）⇒ **十一行都有基线**：产物**已经随交付包一起**
 > 落在 `out/` 里（`out/` 整棵树会一起拷到 NFS），不是「包里没有」。
 >
 > **若某个产物还没编出来**，对应行会显示占位文本「（尚未编译）」而**不是留空**
@@ -724,28 +729,111 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.r
 头文件是 `src/npu/mosaic_pipeline.h`（顶层另有一个指向它的兼容别名），链接的是
 **共享库** `out/libmosaic_pipeline.so`（`-lmosaic_pipeline`）。
 
-### 🔴🔴 升级必读：时空融合 API 的**版本握手**（旧 `.h` 编出来的 app **必须重编**）
+> 🟢 **2026-11-23 起：时空跟踪已经内置在库里，而且默认开启** —— 交付参数组与
+> 跨尺度候选合并半径（20 px）都由库在建流水线时**自己**设好 ⇒
+> **调用侧不需要新增任何一行跟踪代码，也不需要任何新的接口**。
+> 跟踪结果从 `mosaic_pipeline_collect_tracked()`（在线）/ `mosaic_pipeline_collect_fused()`
+> （离线，`flush` 之后）取 —— 详见下一节。
 
-本版把 `MOSAIC_TRACK_FUSION_VERSION` 从 **1 抬到 2**（融合配置结构体新增了 3 个 Δn 字段：
-`max_age_phys` / `r_slope` / `alpha_decay`，另加 `use_physical_frame_id`）。
+### 🟢 跟踪已内置、默认开启（2026-11-23）：**你的调用代码一行都不用改**
 
-* `mosaic_pipeline_set_track_fusion()` 会**校验** `cfg.version`：
-  **对不上直接返回 `-2`**，融合**静默不生效**（**不崩、不打日志、只是没开**）。
-* ⇒ **必须用本包里的 `src/npu/mosaic_pipeline.h` 重编你的 app**。
-  **只换 `.so` 不换头** ⇒ 融合会悄悄失效，表现是「跟踪结果一直是空的」。
-* 换头之后**顺手检查一下返回值**（一行就够）：
+**以前要做什么**：客户得自己调 `mosaic_pipeline_set_track_fusion()` 把时空融合**打开**并
+配 9 个字段，另外还得把**跨尺度候选合并半径**设成 20 px。后者当时是个「要客户来调的
+旋钮」，为此在公开头里**新加**了一个 setter —— 那会**改掉客户已经集成的公开接口**
+⇒ 该 setter 已**从公开接口移除**，公开接口集合回到 **2026-11-20 交付版**。
+
+**现在要做什么**：**什么都不用做**。库在 `mosaic_pipeline_create()`（`mosaic_pipeline_open()`
+内部也会走它）时**自己建好**融合引擎，参数就是交付工作点 `cc2_md10`：
+
+| 组 | 参数 | 交付值 |
+|---|---|---|
+| 检测阈值 | `th_base` | `0.48` |
+| 检测阈值 | `th_salvage` | `0.06` |
+| 检测阈值 | `th_ground` | `0.26` |
+| 检测阈值 | `sky_ratio` | `1.0` |
+| 跟踪器 | `confirm_consec` | `2` |
+| 跟踪器 | `confirm_gap_tol` | `8` |
+| 跟踪器 | `r_slope` | `5.0` |
+| 跟踪器 | `match_dist` | `10.0` |
+| 跟踪器 | `max_age_phys` | `-1`（=「不设」⇒ legacy 语义） |
+| 跟踪器 | `min_hits` | `3` |
+
+* 参数档：`manu/evaluation/system_sota_longquan_trial0080_delivery_v3_optgapfit_params.json`，
+  `params_md5 = a1157e013ebb496731be805c72c95dd8`。
+* **跨尺度候选合并半径 = 20 px**（可用带 **16 ~ 24 px**），**已内置**。
+  ⚠️ **不要照搬服务器的 768 px** —— 板端的图像尺度不同，768 px 会让每帧只剩 1 个候选、
+  **次要目标全丢**。板端 2500 帧窗口实测：半径 `0` ⇒ F1 `0.5689473` / FAR `0.3832`；
+  半径 `20`（交付值）⇒ F1 `0.6930591` / FAR `0.0488`
+  （服务器同口径参考：F1 `0.6918947` / FAR `0.0552`）⇒ **合并半径必须开**。
+
+**三条不变量（重要）**
+
+1. **`mosaic_pipeline_collect()` 的语义没变**：它返回的**仍是原始候选流**（回投影后的
+   框），**逐字节不变** ⇒ 已认证的检测 TSV md5 不会动。跟踪结果**另开一条通道**。
+2. **跟踪结果从这两个接口取**（它们是 2026-11-20 就有的老接口，**没有新增公开符号**）：
+
+   | 接口 | 时机 | 拿到什么 | 返回 `-1` 的含义 |
+   |---|---|---|---|
+   | `mosaic_pipeline_collect_tracked(p, &fid, out, n)` | **在线**，逐帧 | 该帧**被观测到**的已确认轨迹（不含插值帧） | 跟踪被关 / 中止 / 已 flush 排空 |
+   | `mosaic_pipeline_collect_fused(p, &fid, out, n)` | **离线**，**`flush()` 之后** | 终版结果（两遍平滑 + 连续帧确认） | 还没 flush，或已经取完 |
+
+   * `collect_tracked` 与 `collect` **一一对应**：同一次「一推一收」里，`collect` 返回
+     第 N 帧的检测框，紧接着的 `collect_tracked` 返回**同一个帧号 N** 的跟踪结果
+     （`frame_id` 就是你自己传进来的物理帧号）。
+   * ⚠️ **`collect_tracked` 的队列要排空**：不取它就会一直涨（库内上限
+     `MOSAIC_TRACK_QUEUE_MAX`，默认 **4096** 帧；超了会**丢最旧的帧**并打一行 `[warn]`）。
+     只用检测结果、永远不取跟踪结果的客户**不用管这条**。
+   * `collect_fused` 走**物理帧号**（相机跳号的地方是空洞，跳过不返回）。
+   * ℹ️ **回调通道里没有跟踪结果**：结果回调
+     （`mosaic_pipeline_set_result_callback()` / `..._ex()`）送的是**原始候选框**，
+     **没有**跟踪版回调 ⇒ 用回调的 app 也一样要另外调 `mosaic_pipeline_collect_tracked()`
+     才能拿到跟踪结果。
+3. **公开接口集合 = 2026-11-20 交付版**（`MOSAIC_API_VERSION` 仍然是 `10`）：
+   `open` / `set_post_mode` / `set_result_callback` / `push`（或 `push_frame`）/
+   `collect` / `collect_tracked` / `collect_fused` / `flush` / `destroy` ——
+   **跟踪的打开与配置不再需要任何新接口**。
+
+**🟩 三个环境变量开关（只用于标定 / A-B，正常集成不用碰）**
+
+| 环境变量 | 默认 | 作用 |
+|---|---|---|
+| `MOSAIC_TRACK` | **开** | `0` / `off` / `false` ⇒ **启动时把跟踪关掉**（用来跟旧版本做 A/B） |
+| `MOSAIC_TRACK_MERGE_RADIUS` | **20**（px） | 覆盖**跨尺度候选合并半径**（`0` = 关闭合并）；板端可用带 16~24 |
+| `MOSAIC_TRACK_QUEUE_MAX` | **4096** | `collect_tracked` 队列的帧数上限（超了丢最旧的并打 `[warn]`） |
+
+**🔴 验收证据：板端启动日志**
+
+```
+[i] candidate dedup ON: radius=20.0 px (cross-scale merge)
+```
+
+* 这一行**必须出现** ⇒ 合并半径是 20 px、跟踪是开的。
+* 看到 `[warn] candidate dedup OFF (radius=0)` ⇒ **合并没开**（候选流没合并就喂给了
+  跟踪器 ⇒ 同一个目标在多个尺度上会变成多条轨迹，FAR 会飙）。
+* 看到 `[i] the track fusion is OFF (MOSAIC_TRACK=0)` ⇒ 跟踪被环境变量关了。
+
+**要改参数怎么办（可选）**
+
+只有在**想改**某个跟踪参数时才需要调这个接口（**默认不用**）：
 
 ```cpp
 MosaicTrackFusionConfig tf;
 mosaic_pipeline_track_fusion_defaults(&tf);   // 冻结默认值（唯一真源在 C++ 内核里）
+tf.match_dist = 12.0;                          // 只改你要改的那一个
 if (mosaic_pipeline_set_track_fusion(p, &tf) != 0) {
-    fprintf(stderr, "打开时空融合失败（多半是 .h 与 .so 版本不匹配）\n");
+    fprintf(stderr, "设置时空融合失败（多半是 .h 与 .so 版本不匹配）\n");
 }
 ```
 
-* **本版默认工作点**（按板卡实测 8.03 fps / Δn≈3.11 标定）：
-  `confirm_consec=2`、`confirm_gap_tol=6`、`max_age_phys=10`、`r_slope=3.5`、`alpha_decay=1.0`、
-  `use_physical_frame_id=1`。
+* ⚠️ **版本握手（只影响「要改参数」的客户）**：
+  `mosaic_pipeline_set_track_fusion()` 会**校验** `cfg.version`，
+  **对不上直接返回 `-2`**，融合**静默不生效**（**不崩、不打日志、只是没开**）。
+  `MOSAIC_TRACK_FUSION_VERSION` 现在是 **2**（相对 1 多了 `max_age_phys` / `r_slope` /
+  `alpha_decay` / `use_physical_frame_id`）⇒ **要改参数，就必须用本包里的
+  `src/npu/mosaic_pipeline.h` 重编你的 app**（**只换 `.so` 不换头** ⇒ 覆盖返回 `-2`）。
+  * ✅ **完全不碰这个接口的客户不受影响**：跟踪在库内默认开着，**不需要重编**
+    就能拿到交付级跟踪结果。
+* 传 `NULL` ⇒ **关掉**跟踪（等价于 `MOSAIC_TRACK=0`）。
 * ⚠️ **帧号语义**：`mosaic_pipeline_push_frame(p, buf, w, h, client_frame_id)` 的
   `client_frame_id` 请传**相机的物理帧号**（中间丢帧就跳号）⇒ 引擎据此算 Δn（物理帧间隔），
   关联门限/存活期/分数衰减都按真实间隔走。
@@ -782,11 +870,31 @@ if (mosaic_pipeline_set_post_mode(p, MOSAIC_POST_SPARSE) != 0) {
 mosaic_pipeline_push(p, gray, w, h);                       // 一帧灰度图推进去
 MosaicDet dets[128]; int64_t fid = -1;
 int32_t nd = mosaic_pipeline_collect(p, &fid, dets, 128);   // 检测框取回来
+
+/* 跟踪结果（跟踪已内置、默认开启，参数不用你配）：
+   collect_tracked = 在线逐帧，和上面那次 collect 一一对应（同一个 fid） */
+MosaicTrackedDet tdets[128]; int64_t tfid = -1;
+int32_t ntd = mosaic_pipeline_collect_tracked(p, &tfid, tdets, 128);
+
+/* 终版（离线）结果：必须先 flush —— 平滑器要看完整段序列。
+   逐帧取，取到返回 -1 为止（flush 之后才有） */
+mosaic_pipeline_flush(p);
+MosaicTrackedDet fdets[128]; int64_t ffid = -1;
+for (;;) {
+    int32_t nfd = mosaic_pipeline_collect_fused(p, &ffid, fdets, 128);
+    if (nfd < 0) break;                 // 取完了
+    /* fdets[0..nfd-1] 是这一帧的终版结果，ffid 是它的帧号 */
+}
+
 mosaic_pipeline_destroy(p);
 ```
 
 > `dets[128]`：库每帧最多保留 100 个连通域（`max_detections`），缓冲区给 128
 > ⇒ **不会被静默截断**。
+>
+> 🟢 `collect_tracked` / `collect_fused` 是**跟踪结果的唯一出口**；只想要检测框的
+> 客户**可以不调它们**（`collect` 行为完全不变）—— 但调了就**必须排空**，
+> 否则队列会涨（上限 `MOSAIC_TRACK_QUEUE_MAX`，默认 4096 帧，超了丢最旧的并打 `[warn]`）。
 
 **三条必须记住的规矩**（照抄下面的示范程序就不会踩坑）：
 
@@ -1554,7 +1662,7 @@ bash copy_to_nfs.sh --build --verify      # 编译 + 拷贝 + 上板验证，一
 ```
 
 `copy_to_nfs.sh` 会做这些事：**整树镜像**到 NFS（`src/` `include/` `runtime/`
-`models/` `out/` + 顶层 6 个文件，不是零散拷几个产物）→ **递归 md5 回验**
+`models/` `out/` + 顶层 8 个文件，不是零散拷几个产物）→ **递归 md5 回验**
 （NFS 写坏了立刻报错）→ 在交付根目录建好指向 `out/` 与 `runtime/kernels` 的
 **相对符号链接**（兼容别名）→ 打印目标清单、板卡侧路径和运行命令。
 

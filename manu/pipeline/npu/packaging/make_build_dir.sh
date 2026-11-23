@@ -37,7 +37,9 @@ export LC_ALL=C
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
-DEST="$ROOT/build"
+# 2026-11-23（铁律二十五）：交付包是**中间产物**，默认落仓库外的 cache 区，
+# 仓库内的 build/ 只是历史默认；用 MOSAIC_SDK_BUILD_DIR 可覆盖到任意目录。
+DEST="${MOSAIC_SDK_BUILD_DIR:-$ROOT/build}"
 STAGE="$ROOT/.build-include"
 
 die() { echo "[ERROR] $*" >&2; exit 1; }
@@ -107,6 +109,7 @@ fill_placeholders() {
     -e "s|\{\{OUT_COUNT\}\}|$OUT_COUNT|g" \
     -e "s|\{\{TOTAL_COUNT\}\}|$TOTAL_COUNT|g" \
     -e "s|\{\{OBJ_MD5\}\}|$OBJ_MD5|g" \
+    -e "s|\{\{STAT_COMPAT_OBJ_MD5\}\}|$STAT_COMPAT_OBJ_MD5|g" \
     -e "s|\{\{LIB_SO_MD5\}\}|$LIB_SO_MD5|g" \
     -e "s|\{\{LIB_A_MD5\}\}|$LIB_SO_MD5|g" \
     -e "s|\{\{API_TEST_MD5\}\}|$API_TEST_MD5|g" \
@@ -186,6 +189,7 @@ out_note_of() {
   case "$1" in
     out/mosaic_pipeline.o)     echo "编译中间产物（库的 .o）" ;;
     out/mosaic_track_fusion.o)  echo "编译中间产物（时空后处理内核的 .o）" ;;
+    out/stat_compat.o)          echo "编译中间产物（**buildroot glibc 2.29 的 \`stat\` hidden symbol 垫片**，铁律十八；链接可执行文件时必需）" ;;
     out/libmosaic_pipeline.so) echo "**共享库**（客户链接它；SONAME=libmosaic_pipeline.so；动态链接板卡自带库）" ;;
     out/mosaic_api_test)       echo "示例 demo 可执行文件（给客户的示例）" ;;
     out/mosaic_client_example) echo "**最简集成示范可执行文件**（嵌入方照着抄这份）" ;;
@@ -257,6 +261,10 @@ copy_one "$ROOT/mosaic_contract_test.cpp"       "src/npu/mosaic_contract_test.cp
 copy_one "$ROOT/rknn_mosaic_e2e.cpp"            "src/npu/rknn_mosaic_e2e.cpp"
 copy_one "$ROOT/mosaic_cadence_probe.cpp"       "src/npu/mosaic_cadence_probe.cpp"
 copy_one "$ROOT/mosaic_track_dump.cpp"          "src/npu/mosaic_track_dump.cpp"
+# 【2026-11-23 上游】glibc<2.33 的 `stat` 公开符号垫片（交叉编译可执行文件必需，
+#   见 packaging/build_demo.sh 里的说明；没有它，链接 demo 会报
+#   "hidden symbol `stat' ... is referenced by DSO"）。
+copy_one "$ROOT/stat_compat.c"                   "src/npu/stat_compat.c"
 # 被相对包含的引擎 / 工具 / OpenCL host
 copy_one "$ROOT/../cpp/gmc_stream_ocl.cpp"      "src/cpp/gmc_stream_ocl.cpp"
 copy_one "$ROOT/../cpp/md5.h"                   "src/cpp/md5.h"
@@ -275,6 +283,8 @@ copy_one "$HERE/build_lib.sh"       "build_lib.sh"
 copy_one "$HERE/build_demo.sh"      "build_demo.sh"
 copy_one "$HERE/copy_to_nfs.sh"     "copy_to_nfs.sh"
 copy_one "$HERE/fetch_board_libs.sh" "fetch_board_libs.sh"
+copy_one "$HERE/build_board_native.sh" "build_board_native.sh"
+copy_one "$HERE/build_probes.sh"      "build_probes.sh"
 copy_one "$HERE/known_hosts"        "known_hosts"
 chmod +x "$DEST/build_lib.sh" "$DEST/build_demo.sh" "$DEST/copy_to_nfs.sh" "$DEST/fetch_board_libs.sh"
 EXPECTED+=("README.md")   # 生成物，但在交付清单里（md5 在生成后才有）
@@ -397,6 +407,7 @@ CLIENT_EXAMPLE_MD5=$(md5_or_placeholder "$DEST/out/mosaic_client_example")
 ASYNC_EXAMPLE_MD5=$(md5_or_placeholder "$DEST/out/mosaic_async_client_example")
 CONTRACT_TEST_MD5=$(md5_or_placeholder "$DEST/out/mosaic_contract_test")
 TRACK_FUSION_OBJ_MD5=$(md5_or_placeholder "$DEST/out/mosaic_track_fusion.o")
+STAT_COMPAT_OBJ_MD5=$(md5_or_placeholder "$DEST/out/stat_compat.o")
 E2E_MD5=$(md5_or_placeholder "$DEST/out/rknn_mosaic_e2e")
 CADENCE_PROBE_MD5=$(md5_or_placeholder "$DEST/out/mosaic_cadence_probe")
 TRACK_DUMP_MD5=$(md5_or_placeholder "$DEST/out/mosaic_track_dump")
@@ -536,10 +547,10 @@ echo "  第三方头       : $inc_n 个（include/）"
 echo "  kernel 资产    : $ker_n 个（runtime/kernels/）"
 echo "  RKNN 模型      : $mdl_n 个（models/）"
 echo "  共享库         : out/libmosaic_pipeline.so（SONAME=libmosaic_pipeline.so）← 动态链接板卡自带库"
-echo "  编译产物       : $out_n 个（out/：共享库 + 5 个测试程序 + .o）"
+echo "  编译产物       : $out_n 个（out/：共享库 + 测试程序 + 板卡验证探针 + .o）"
 echo
 echo "  下一步（⚠️ 顺序不能颠倒）："
-echo "    cd $DEST && bash build_lib.sh && bash build_demo.sh   # ① 编译（库 + 5 个测试程序）"
+echo "    cd $DEST && bash build_lib.sh && bash build_demo.sh && bash build_probes.sh   # ① 编译（库 + 测试程序 + 探针）"
 echo "    cd <repo>/manu/pipeline/npu && bash packaging/make_build_dir.sh   # ② 再打包一次"
 echo "         └─ 把新产物的 md5 和「包内文件总数」写回 README/MANIFEST"
 echo "           （不重跑的话，交付出去的 README 会写着「（尚未编译）」+ 文件数少 6）"

@@ -206,6 +206,8 @@ done
 EXEC_FILES=(
   "build_lib.sh"
   "build_demo.sh"
+  "build_probes.sh"
+  "build_board_native.sh"
   "copy_to_nfs.sh"
   "fetch_board_libs.sh"
   "out/libmosaic_pipeline.so"
@@ -214,12 +216,14 @@ EXEC_FILES=(
   "out/mosaic_async_client_example"
   "out/mosaic_contract_test"
   "out/rknn_mosaic_e2e"
+  "out/mosaic_cadence_probe"
+  "out/mosaic_track_dump"
 )
 
 # 交付包必须齐全的关键文件
 REQUIRED_FILES=(
-  "README.md" "MANIFEST.md" "build_lib.sh" "build_demo.sh" "copy_to_nfs.sh"
-  "fetch_board_libs.sh" "known_hosts"
+  "README.md" "MANIFEST.md" "build_lib.sh" "build_demo.sh" "build_probes.sh"
+  "build_board_native.sh" "copy_to_nfs.sh" "fetch_board_libs.sh" "known_hosts"
   "src/npu/mosaic_pipeline.cpp" "src/npu/mosaic_pipeline.h"
   "src/npu/mosaic_core.h" "src/npu/mosaic_post_gpu.h"
   # v10.5: the spatio-temporal track fusion kernel (a separate translation
@@ -297,6 +301,12 @@ if [ "$DO_BUILD" = "1" ]; then
   echo "  [ok] 包目录里的源码与工程根一致"
   bash "$PKG_DIR/build_lib.sh"  || die "build_lib.sh 失败（编译错误见上）"
   bash "$PKG_DIR/build_demo.sh" || die "build_demo.sh 失败（编译错误见上）"
+  # 🔴 探针必须一起编：两个板卡验证探针（mosaic_track_dump / mosaic_cadence_probe）
+  #    **没有任何其他脚本会编**（旧交付包里它们是手敲 g++ 编出来的）。
+  #    🔴 漏掉这一步 ⇒ 最后一次 make_build_dir.sh 写回 README/MANIFEST 时，
+  #    「out/ 产物 md5 表」里两项写着「（尚未编译）」+ 文件数少 2
+  #    ⇒ **交付出去的 README 是错的**（2026-11-23 实测踩中）。
+  bash "$PKG_DIR/build_probes.sh" || die "build_probes.sh 失败（编译错误见上）"
   # ⚠️ 编译完之后**必须再刷一次交付文档**。make_build_dir.sh 生成的 README/MANIFEST
   #    里记着「out/ 产物的 md5」和「包内文件总数」：如果在编译**之前**打包，
   #    README 会写成「（尚未编译）」+ 文件数少 6 ⇒ **交付出去的 README 是错的**。
@@ -309,7 +319,7 @@ if [ "$DO_BUILD" = "1" ]; then
     echo "               （把新产物 md5 与文件总数写回 README/MANIFEST）"
     echo "               ⚠️ 不能在本脚本运行期间跑：它会覆盖正在运行的本脚本 ⇒"
     echo "                  bash 按文件偏移读脚本 ⇒ 后半段会静默不执行、退出码还可能是 0。"
-    echo "               ⇒ 完整顺序：make_build_dir.sh → build_lib.sh+build_demo.sh →"
+    echo "               ⇒ 完整顺序：make_build_dir.sh → build_lib.sh+build_demo.sh+build_probes.sh →"
     echo "                          make_build_dir.sh → copy_to_nfs.sh --verify"
   else
     echo

@@ -349,6 +349,10 @@ runs/
 #    可由 manu/memory/trial0080_alignment_20261119/search/verify_all.py 整批重生成；
 #    参数结论已固化在 eval/*.json（cmp_* / winner_knobs）与 memory 正文 ⇒ 属可复现产物。
 manu/memory/**/preds_*/
+#    ⚠️ 上一行**带尾斜杠 ⇒ 只挡「目录」**；若脚本改写成单文件形态 `preds_xxx.json` 则漏网
+#    （实测 `git check-ignore -v --no-index manu/memory/<d>/preds_000001.json` ⇒ 无命中）
+#    ⇒ 补一条**文件形态**，两者合起来才覆盖「目录里的逐帧 JSON」+「单文件的逐帧 JSON」。
+manu/memory/**/preds_*.json
 
 # ③ 逐帧检测/跟踪 TSV dump（*_cands.tsv / *_fused.tsv / *_tracked.tsv，单文件 20~895 KB，
 #    合计 9.7 MB / 41 个）。**与 manu/pipeline/opencl/board/.gitignore 的既有约定一致**：
@@ -450,3 +454,114 @@ manu/video_quality/report/sot_short/sot_windows.csv
 #        （按仓库相对路径 1:1 镜像，可原路还原；md5 `5a6205a0…` / `564408cf…` /
 #          `a97948be…` / `70a7ec21…`）。
 manu/memory/.vq_sec*.md
+
+# --------------------------------------------------------------------------------------
+# 本工程补充（2026-11-23 · 铁律二十三 §23 落地 · 忽略规则「实测校准 + 正反抽验」轮）
+# --------------------------------------------------------------------------------------
+# 背景：本日补漏后仍有三类漏网 ——
+#   ① **只写在本机 `.git/info/exclude` 的规则**（本地文件，**不随仓库分发**）
+#      —— 换机 / 新 clone 后 `manu/pipeline/cpp/build-ocl/`（CMake 构建树）等会整片冒出来；
+#      —— 本轮实测 `git check-ignore -v --no-index` 的命中来源全是 `.git/info/exclude`。
+#   ② 逐帧 TSV / 逐帧 JSON 的**文件形态**（`preds_*/` 带尾斜杠只挡目录，见上文 ② 的补漏）。
+#   ③ 后台任务 / 崩溃转储 / 打包归档类垃圾（`nohup.out` / `core` / `*.tar` …）。
+#   本节按《铁律二十二 §22》「**按产物类别写**（不按具体文件名）+ **正反双向抽验**」补齐。
+#
+# 【本机中间产物 canonical 落点】（铁律二十三 §23-2；相对本仓库即 `../cache/ultralytics/`）
+#   /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/
+#     ├── runs/               训练/推理产物
+#     ├── pipeline-artifacts/ 板端构建产物（交付包 / 板卡原生构建目录）
+#     ├── repo-artifacts/     从仓库迁出的中间产物（按仓库相对路径 1:1 镜像，可原路还原）
+#     └── legacy-artifacts/   旧 `_artifacts/` 实体
+#   服务器侧 canonical：/mnt/data/siping/runs/<任务>/
+#   ⇒ **仓库目录只放「代码 ＋ 重要长时实验 report」；中间产物一律出仓库**，
+#     脚本默认值走 `PRODUCT_ROOT` 环境变量（见 `cache/ultralytics/env.sh`）。
+
+# ⑦ 只存在于本机 `.git/info/exclude` 的规则 → 搬进仓库（**可分发、clone 后不丢**）
+#     这些条目此前只在本机 `.git/info/exclude`（本地文件，不随仓库分发）：
+#     `manu/pipeline/cpp/build-ocl`（CMake 构建树，120 个 .h / 24 个 cmake / 7 个 .o）、
+#     `manu/pipeline/npu/results/`（板端 f16 mosaic 推理产物：检测 TSV / 计时日志 / 对照表）、
+#     `manu/memory/qat_trial_0080_qdq_meta/`（QAT 量化中间元数据）、
+#     `manu/memory/qat_trial_0080_report/*.json`（QAT 机产数据；同目录的 `qat_final_report.md`
+#     是**长时实验 report**，不在本规则内 ⇒ 仍入库）、
+#     `manu/pipeline/opencl/board/gen_fused_case`（编译产物）、`manu/pipeline/ntpipeline`
+#     （误落到 manu/pipeline/ 根的陈旧脚本副本，正本在 manu/pipeline/npu/ptq/）。
+#     ⚠️ 保留 `.git/info/exclude` 里的同款条目**无副作用**（两份同向规则，命中谁都一样）。
+manu/pipeline/cpp/build-ocl/
+manu/pipeline/npu/results/
+manu/pipeline/opencl/board/gen_fused_case
+manu/pipeline/ntpipeline
+manu/memory/qat_trial_0080_qdq_meta/
+manu/memory/qat_trial_0080_report/*.json
+
+# ⑦-1 其它 Agent 工具的本机状态目录（与上文 `.codex/` / `.minimax/` 同类）
+#      `.kilo/`（Kilo Code worktrees + Agent Manager state）、`.kilocode/`（旧名）——
+#      全是**工具自动在原地生成**的工程状态，不是实验产物（铁律二十三 §23-7 例外）⇒ 留在原地靠规则挡。
+.kilo/
+.kilocode/
+
+# ⑧ 逐帧原始测量：TSV（raw measurements）—— 铁律二十三 §23-1 明列的中间产物
+#     （`*_cands.tsv` / `*_fused.tsv` / `*_tracked.tsv` / `real_cands.tsv` / `fused_cpp_r0.tsv` …）
+#     口径与上文 §13 的 `*.png` + `!manu/video_quality/report/*.png` **完全一致**：
+#     **全仓默认挡，证据目录用 `!` 反向放行**。
+#     实测全仓 tracked `.tsv` 共 **13 个，全部**在 `manu/memory/cadence_ab_20261119/`
+#     （板端 cadence A/B 对账证据链，单文件 ≤ 35 KB）⇒ **零误挡**。
+#     📌 日后要保留某个小体积 TSV 证据，在本行之后补 `!<路径>`（**后写的规则优先**）。
+*.tsv
+!manu/memory/cadence_ab_20261119/**/*.tsv
+
+# ⑨ 逐 1s 窗口大表（可由同一段代码整批重生成）—— 铁律二十三 §23-1 明列：
+#     `windows.csv` / `sot_windows.csv` / `grid_windows.csv` / `degrade_windows.csv` /
+#     `degrade_lock.csv`。实测全仓 tracked `*windows.csv` / `degrade_lock.csv` **均为 0 条** ⇒ 零误挡。
+#     📌 同批的**结论级**小表（knee_* / degrade_curve / sot_discrimination 等）不在本规则内 ⇒ 仍入库。
+*windows.csv
+degrade_lock.csv
+
+# ⑩ 后台任务 / 崩溃转储 / 编辑器残留（代码跑出来的垃圾，不是「产物」也不是 report）
+#     `*.out` 覆盖 `nohup.out` 与板端 bench 输出（`.bench_out/*.out`）；`core` / `core.*`
+#     是 NPU 进程段错误转储；`*.tmp` / `*.temp` 是脚本写到一半的残留；`*.pid` 是后台任务残留。
+#     实测 tracked 命中数全为 **0** ⇒ 零误挡。
+*.out
+core
+core.*
+*.tmp
+*.temp
+*.dump
+*.dmp
+*.pid
+*.swx
+*~
+Thumbs.db
+desktop.ini
+
+# ⑪ 打包 / 归档中间物（构建产物；`*.tar.gz` 上文 ① 已覆盖）
+#     实测 tracked 命中数全为 **0** ⇒ 零误挡。
+*.tar
+*.zip
+*.tgz
+*.7z
+
+# ⑫ 交付前必跑的正反双向抽验（铁律二十二 §22-5，缺一不可）：
+#   ```bash
+#   # ① 正例：每类真实命名变体各取 1 条 ⇒ 必须逐条命中
+#   git check-ignore -v --no-index \
+#     manu/pipeline/cpp/build-ocl/CMakeFiles/x.json \
+#     manu/pipeline/npu/results/x_cands.tsv \
+#     manu/memory/qat_trial_0080_qdq_meta/x.json \
+#     manu/memory/qat_trial_0080_report/weight_diff.json \
+#     manu/memory/<d>/preds_xxx.json \
+#     manu/memory/<d>/preds_xxx/VID.json \
+#     manu/evaluation/board_runs/x_cands.tsv \
+#     manu/video_quality/report/sot_windows.csv \
+#     nohup.out core.1234 foo.tar foo.tmp
+#   # ② 反例：代码 / 文档 / 证据 ⇒ 必须全部「不命中」（无输出）
+#   git check-ignore -q --no-index \
+#     manu/pipeline/npu/packaging/build_board_native.sh \
+#     manu/pipeline/npu/stat_compat.c \
+#     manu/memory/memory.md manu/memory/rules.md \
+#     manu/memory/cadence_ab_20261119/vid09_align/v09_cands.tsv \
+#     manu/memory/delivery_20261119/artifacts/rt_search_t0080_v3.json \
+#     manu/pipeline/npu/board/results/20261112_newboard_thermal/bts_1h_run2_samples.csv \
+#     manu/video_quality/report/chart_metrics_vis.png
+#   # ③ 已跟踪文件不得被规则误伤（必须无输出）
+#   git ls-files | git check-ignore --stdin
+#   ```
