@@ -5,7 +5,8 @@
 > ℹ️ **命令里的绝对路径（`/media/manu/...`）是作者机器上的**：把 `cd <路径>` 换成
 > 你自己的包目录即可 —— **所有构建脚本都按脚本自身所在目录定位，拷到哪个目录都能编**。
 >
-> ℹ️ **第三方依赖不再随包**：本包**不携带任何第三方 .so/.a** —— OpenCV / RKNN Runtime /
+> ℹ️ **第三方依赖不再随包**：本包**不携带任何第三方** .so/.a
+> （**我们自己的 `out/libmosaic_pipeline.a` 是本包产物，不在此列**）—— OpenCV / RKNN Runtime /
 > RGA / OpenCL 全部**动态链接板卡自带的库**（详见下面的「板卡依赖矩阵」）。
 > ⇒ 编译期需要**板卡的 OpenCV 头**（板卡上是 `/usr/include/opencv4`）；
 > 链接期需要板卡上那 7 个 `libopencv_*.so.406` + `librknnrt.so` + `librga.so.2` +
@@ -47,7 +48,9 @@
     ├── mosaic_track_fusion.o
     ├── stat_compat.o               ← **buildroot glibc 2.29 `stat` hidden symbol 垫片**（铁律十八）
     ├── libmosaic_pipeline.so      ← **共享库**（SONAME=libmosaic_pipeline.so）
+    ├── libmosaic_pipeline.a       ← **静态库**（等价内容；客户要静态链接时用它）
     ├── mosaic_api_test
+    ├── mosaic_api_test_static     ← **静态链接版的示例 demo**（链 `.a` 编出来）
     ├── mosaic_client_example
     ├── mosaic_async_client_example
     ├── mosaic_contract_test
@@ -72,12 +75,14 @@
 + 模型 **1** 个（`models/`）+ 顶层 8 个文件（含本 README）
 + `MANIFEST.md` 自身）+ `out/` 编译产物 **{{OUT_COUNT}}** 个。
 
-产物（全部 aarch64 ELF）：
+产物（**全部 aarch64**；可执行文件与共享库是 ELF，`out/libmosaic_pipeline.a` 是目标文件归档）：
 
 | 文件 | 是什么 |
 |---|---|
-| `out/libmosaic_pipeline.so` | **库（共享库）**：GMC/OpenCL + RGA mosaic + RKNN fp16 + 反投影，公开 C ABI 在 `src/npu/mosaic_pipeline.h`；SONAME = `libmosaic_pipeline.so` |
+| `out/libmosaic_pipeline.so` | **库（共享库）**：GMC/OpenCL + RGA mosaic + RKNN fp16 + 反投影，公开 C ABI 在 `src/npu/mosaic_pipeline.h`；SONAME = `libmosaic_pipeline.so`。**同包内另有静态库 `out/libmosaic_pipeline.a`（等价内容，客户要静态链接时用它）** |
+| `out/libmosaic_pipeline.a` | **静态库**（客户要静态链接时用这个；内容与同名 `.so` 等价＝`mosaic_pipeline.o` + `mosaic_track_fusion.o`；**不含** `stat_compat.o` 垫片，链接可执行文件时仍需另行带上） |
 | `out/mosaic_api_test` | **给客户的示例 demo**：只调公开 C ABI（open / push / collect / destroy） |
+| `out/mosaic_api_test_static` | **静态链接版的示例 demo**（`mosaic_api_test` 链 `.a` 编出来；**静态库可用性的活证据**；运行输出与链 `.so` 的版本逐字节一致） |
 | `out/mosaic_client_example` | **最小嵌入示范**（160 行）：只调公开 C ABI（open / set_post_mode / push / collect / destroy），零参数直接跑，嵌入式组照着抄的骨架 |
 | `out/mosaic_async_client_example` | **多线程生产-消费 + 回调模板**：相机线程（25 FPS）不等算法、Worker 严格「一推一收」、结果走业务方自己的回调；**嵌入式组真实工程集成的骨架** |
 | `out/mosaic_contract_test` | **库的契约测试**（验收门禁） |
@@ -100,6 +105,10 @@
 > ⇒ **整包搬到任何目录都能直接跑**，不用设
 > `LD_LIBRARY_PATH`（`readelf -d` 实测 RUNPATH = `$ORIGIN`）。
 >
+> ℹ️ **唯一的例外是 `out/mosaic_api_test_static`**：它是**链静态库 `.a`** 编出来的
+> （**不**用 `-lmosaic_pipeline`）⇒ 它的 `DT_NEEDED` 里**没有**
+> `libmosaic_pipeline.so` ⇒ **运行时不需要**我们的 `.so`。
+>
 > ⚠️ **动态库搜索顺序**：`RUNPATH($ORIGIN)` 排在 `LD_LIBRARY_PATH` **之后**
 > ⇒ 若 `LD_LIBRARY_PATH` 里另有同名 `libmosaic_pipeline.so`，**它会盖掉本目录这份**
 > （实测踩过：`LD_LIBRARY_PATH` 含 `/root/mosaic` 时，探针实际加载的是 `/root/mosaic`
@@ -107,7 +116,8 @@
 > 验收时用 `LD_TRACE_LOADED_OBJECTS=1 <探针>` 实证实际加载的是哪一个。
 
 当前产物的 md5（**本次构建的快照**；`.so` **没有** `ar` 归档时间戳那种
-「每次构建都变」的问题，见文末「md5 的三个已知差异」）：
+「每次构建都变」的问题；`.a` 用 `ar rcsD`（deterministic：归档里不留
+uid/gid/mtime）⇒ **同样稳定**。详见文末「md5 的三个已知差异」）：
 
 | 文件 | md5 |
 |---|---|
@@ -115,7 +125,9 @@
 | `out/mosaic_track_fusion.o` | `{{TRACK_FUSION_OBJ_MD5}}` |
 | `out/stat_compat.o` | `{{STAT_COMPAT_OBJ_MD5}}` |
 | `out/libmosaic_pipeline.so` | `{{LIB_SO_MD5}}` |
+| `out/libmosaic_pipeline.a` | `{{LIB_A_MD5}}` |
 | `out/mosaic_api_test` | `{{API_TEST_MD5}}` |
+| `out/mosaic_api_test_static` | `{{API_TEST_STATIC_MD5}}` |
 | `out/mosaic_client_example` | `{{CLIENT_EXAMPLE_MD5}}` |
 | `out/mosaic_async_client_example` | `{{ASYNC_EXAMPLE_MD5}}` |
 | `out/mosaic_contract_test` | `{{CONTRACT_TEST_MD5}}` |
@@ -124,7 +136,7 @@
 | `out/mosaic_track_dump` | `{{TRACK_DUMP_MD5}}` |
 
 > ℹ️ **本表读的是「当前磁盘上已有的产物」**（`make_build_dir.sh` 不编译，只**读**
-> `$DEST/out/*` 已存在的产物算 md5）⇒ **十一行都有基线**：产物**已经随交付包一起**
+> `$DEST/out/*` 已存在的产物算 md5）⇒ **十三行都有基线**：产物**已经随交付包一起**
 > 落在 `out/` 里（`out/` 整棵树会一起拷到 NFS），不是「包里没有」。
 >
 > **若某个产物还没编出来**，对应行会显示占位文本「（尚未编译）」而**不是留空**
@@ -196,7 +208,7 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.r
 
 ---
 
-## 板卡依赖矩阵（本包**不携带任何第三方 .so/.a**）
+## 板卡依赖矩阵（本包**不携带任何第三方** .so/.a）
 
 嵌入式组的要求：**直接用板卡上原来就有的 .so** ⇒ 交付包里**没有任何第三方
 `.so` / `.a`**，全部动态链接板卡自带库：
@@ -220,6 +232,9 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.r
   （板上 `ldconfig -p` 已实测全部可解析）⇒ **不需要设 `LD_LIBRARY_PATH`**。
   唯一需要 `-rpath` 的是**本包自己的** `libmosaic_pipeline.so`：五个测试程序用
   `-Wl,-rpath,'$ORIGIN'` 找**同目录**的那一份 ⇒ **整包可搬**。
+  （**例外**：`out/mosaic_api_test_static` 是**静态链接**版 ⇒ 它的 `DT_NEEDED` 里
+  **没有**我们的 `.so` ⇒ **运行时不需要** `libmosaic_pipeline.so`；
+  但上面那 7 个 OpenCV `.so` + RKNN Runtime / RGA / OpenCL **仍然要板卡自带**。）
 
 > ⚠️ **交叉编译在宿主机上做时，上表那些路径指的是「目标板卡的文件系统」**：
 > 宿主机的 `/usr` 是 **x86 的**，**绝对不能直接用**（会拿 x86 的头/库去编 aarch64
@@ -485,7 +500,8 @@ rm -f out/libmosaic_pipeline.so && \
 
 ## ② 单独编译测试程序
 
-依赖 ① 产出的 `out/libmosaic_pipeline.so`（链接的就是它）。
+依赖 ① 产出的 `out/libmosaic_pipeline.so`（链接的就是它）与
+`out/libmosaic_pipeline.a`（静态链接版 demo 链的是它）。
 
 ```bash
 cd {{PKG_ROOT}}
@@ -493,7 +509,10 @@ bash build_demo.sh
 ```
 
 产物：`out/mosaic_api_test`、`out/mosaic_client_example`、
-`out/mosaic_async_client_example`、`out/mosaic_contract_test`、`out/rknn_mosaic_e2e`。
+`out/mosaic_async_client_example`、`out/mosaic_contract_test`、`out/rknn_mosaic_e2e`，
+外加**静态链接版**的 `out/mosaic_api_test_static`（它链的是 `out/libmosaic_pipeline.a`
+⇒ **静态库能不能链通、能不能跑**的活证据；**运行输出与链 `.so` 的
+`out/mosaic_api_test` 逐字节一致**）。
 
 **等价的一行命令**（示例 demo；把源文件换成 `src/npu/mosaic_contract_test.cpp`、
 产物换成 `out/mosaic_contract_test` 即得契约测试）：
@@ -543,7 +562,8 @@ mkdir -p "$DST"
 
 # ① 先删掉【上一版遗留的平铺实文件/实目录】—— cp -a 是「合并」语义，
 #    不会删；不删就会留下**旧二进制**，让人误以为在跑新版
-#    （旧版是 .a 归档 + 第三方依赖目录，新版是 .so ⇒ 旧的都要删）
+#    （**更早**的版本是 .a 归档 + 第三方依赖目录；本版是 .so + .a ⇒ 旧目录都要清，
+#     别把两版的产物混在同一棵树上）
 rm -f  "$DST/mosaic_api_test" "$DST/mosaic_contract_test" \
        "$DST"/libmosaic_pipeline.* "$DST/mosaic_pipeline.h"
 rm -rf "$DST/kernels" "$DST/third_party"
@@ -604,6 +624,7 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.r
 
 > ⚠️ **共享库带来的新要求**：测试程序用 `-rpath '$ORIGIN'` 找**同目录**的
 > `libmosaic_pipeline.so` ⇒ **`.so` 必须和可执行文件放在同一个目录**。
+> （**例外**：`out/mosaic_api_test_static` 是**静态链接**版 ⇒ **不用** `cat` 我们的 `.so`。）
 > 上面的命令**模型 / `.so` / 可执行文件都 `cat` 到 `/tmp`** ⇒ `$ORIGIN` = `/tmp` ⇒ 能找到。
 > （只拷可执行文件、不拷 `.so` ⇒ 程序起不来，报 `libmosaic_pipeline.so: cannot
 > open shared object file`。）
@@ -727,7 +748,9 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.r
 需要 **4 个调用** + **1 行后处理模式配置**：`mosaic_pipeline_open` / `push` /
 `collect` / `destroy`，外加 `mosaic_pipeline_set_post_mode`。
 头文件是 `src/npu/mosaic_pipeline.h`（顶层另有一个指向它的兼容别名），链接的是
-**共享库** `out/libmosaic_pipeline.so`（`-lmosaic_pipeline`）。
+**共享库** `out/libmosaic_pipeline.so`（`-lmosaic_pipeline`）；
+**同包内另有等价的静态库** `out/libmosaic_pipeline.a`
+（两种链接方式见下文「🔗 两种链接方式」一节）。
 
 > 🟢 **2026-11-23 起：时空跟踪已经内置在库里，而且默认开启** —— 交付参数组与
 > 跨尺度候选合并半径（20 px）都由库在建流水线时**自己**设好 ⇒
@@ -1230,7 +1253,7 @@ mkdir -p out && \
   -lopencv_imgproc -lopencv_core -lOpenCL -lrknnrt -lrga -lpthread -ldl -lm
 ```
 
-> 📌 **第三方运行库不在包里**（本包**不携带任何第三方 .so/.a**）：OpenCV / RKNN
+> 📌 **第三方运行库不在包里**（本包**不携带任何第三方** .so/.a）：OpenCV / RKNN
 > Runtime / RGA / OpenCL **全部链接板卡自带的库**（`{{OPENCV_LIB_DIR}}` /
 > `{{RT_LIB_DIR}}` / `{{BOARD_LIBS}}`，板卡默认 `/usr/lib/aarch64-linux-gnu` 与
 > `/usr/lib`）—— 见「板卡依赖矩阵」。
@@ -1260,6 +1283,94 @@ mkdir -p out && \
   检测框与基线**逐字段一致**）。
   ⇒ 想要**跨机器一致的 md5**，用**相对路径**编（库和 demo 都得相对，见文末
   「md5 的三个已知差异」一节）：那样编出来的产物**与目录无关**。
+
+### 🔗 两种链接方式：共享库 `.so` vs 静态库 `.a`
+
+本包**同时**交付两种库，**内容等价**（同源、同对象文件）⇒ **客户要哪种都有**：
+
+| | 共享库 `out/libmosaic_pipeline.so` | 静态库 `out/libmosaic_pipeline.a` |
+|---|---|---|
+| 链接写法 | `-Lout -lmosaic_pipeline -Wl,-rpath,'$ORIGIN'` | `out/libmosaic_pipeline.a`（**按路径写全**） |
+| 运行时还要不要我们的 `.so` | **要**（`-rpath '$ORIGIN'` ⇒ 找同目录那份） | **不要**（库代码已进可执行文件） |
+| 板卡自带的第三方库 | OpenCV / RKNN Runtime / RGA / OpenCL | **同样要**（这些是第三方动态库，本包不打包） |
+| 交付形态 | 换 `.so` 文件即换版本（业务 app 不用重编） | 单文件交付（app 与库合成一个二进制） |
+
+**共享链接**（默认，绝大多数场景用这个）：
+
+```bash
+cd {{PKG_ROOT}} && \
+TC={{TOOLCHAIN}} && \
+mkdir -p out && \
+"$TC/bin/aarch64-rockchip-linux-gnu-g++" -std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter -Wno-unused-function \
+  -ffp-contract=off -fno-fast-math -fno-unsafe-math-optimizations -DCL_TARGET_OPENCL_VERSION=300 \
+  -Iinclude -Iinclude/rga -Isrc/cpp -Isrc/opencl/host -I{{OPENCV_INCLUDE_DIR}} \
+  src/npu/mosaic_api_test.cpp -o out/mosaic_api_test \
+  -Lout -lmosaic_pipeline -Wl,-rpath,'$ORIGIN' out/stat_compat.o \
+  -L{{RT_LIB_DIR}} -L{{BOARD_LIBS}} -L{{OPENCV_LIB_DIR}} \
+  -Wl,-rpath-link,{{RT_LIB_DIR}} -Wl,-rpath-link,{{BOARD_LIBS}} -Wl,-rpath-link,{{OPENCV_LIB_DIR}} \
+  -Wl,--allow-shlib-undefined \
+  -lopencv_imgcodecs -lopencv_calib3d -lopencv_features2d -lopencv_flann -lopencv_video \
+  -lopencv_imgproc -lopencv_core -lOpenCL -lrknnrt -lrga -lpthread -ldl -lm
+```
+
+**静态链接**：
+
+```bash
+cd {{PKG_ROOT}} && \
+TC={{TOOLCHAIN}} && \
+mkdir -p out && \
+"$TC/bin/aarch64-rockchip-linux-gnu-g++" -std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter -Wno-unused-function \
+  -ffp-contract=off -fno-fast-math -fno-unsafe-math-optimizations -DCL_TARGET_OPENCL_VERSION=300 \
+  -Iinclude -Iinclude/rga -Isrc/cpp -Isrc/opencl/host -I{{OPENCV_INCLUDE_DIR}} \
+  src/npu/mosaic_api_test.cpp -o out/mosaic_api_test_static \
+  out/libmosaic_pipeline.a out/stat_compat.o \
+  -L{{RT_LIB_DIR}} -L{{BOARD_LIBS}} -L{{OPENCV_LIB_DIR}} \
+  -Wl,-rpath-link,{{RT_LIB_DIR}} -Wl,-rpath-link,{{BOARD_LIBS}} -Wl,-rpath-link,{{OPENCV_LIB_DIR}} \
+  -Wl,--allow-shlib-undefined \
+  -lopencv_imgcodecs -lopencv_calib3d -lopencv_features2d -lopencv_flann -lopencv_video \
+  -lopencv_imgproc -lopencv_core -lOpenCL -lrknnrt -lrga -lpthread -ldl -lm
+```
+
+> 🔴 **静态链接必须按路径写 `out/libmosaic_pipeline.a`，不能再写 `-lmosaic_pipeline`**：
+> 链接器在 `-L` 路径下**优先挑 `libmosaic_pipeline.so`** ⇒ 写了 `-l` 就会**静默链成共享版**
+> （产物看着正常，`DT_NEEDED` 里却还有我们的 `.so`）⇒「静态链接验证」变成一句空话。
+> 同理 **`out/stat_compat.o` 不要重复给**（重复给会撞重复符号）。
+>
+> 🔴 **`out/stat_compat.o` 两种链接方式都要带上**：
+> glibc **2.29~2.32** 只导出 `__xstat(ver, path, buf)`，**不导出公开符号 `stat`**
+> （公开的 `stat` 只在 `libc_nonshared.a` 里以 **hidden** 形式存在）；
+> 而板卡上的 OpenCV 引用的是**公开符号 `stat`** ⇒ 不带这个垫片，**链可执行文件必炸**：
+>
+> ```text
+> ld: .../libc_nonshared.a(stat.oS): hidden symbol `stat' in ...
+>    is referenced by DSO
+> ld: final link failed: Bad value
+> ```
+>
+> （**链共享库时不报** —— `build_lib.sh` 带 `-Wl,--allow-shlib-undefined`；
+> **只有链可执行文件才会撞上**。）
+> `stat_compat.o` 定义公开符号 `stat` 并转调 `__xstat(1, ...)`（`_STAT_VER`）
+> ⇒ **纯静态对象、无运行时依赖**（不需要 `LD_PRELOAD`，也不需要随包带任何 `.so`）。
+> 板卡 glibc **≥ 2.33** 时 `stat` 本身就是真公开符号 ⇒ 那块板**不需要**这个垫片
+> （带上也只是多一个未使用的定义，不影响行为）⇒ **按目标板的 glibc 自己决定带不带**。
+> 包里也带了源码 `src/npu/stat_compat.c`，可以自己重编。
+>
+> ℹ️ **`.a` 里为什么故意不含 `stat_compat.o`**：那个垫片转发的是 glibc 的 `__xstat`
+> （glibc 2.33 起已移除）⇒ 把它打进**预编译归档**，等于给这份 `.a` 锁死一个
+> glibc 大版本 ⇒ 目标板 glibc ≥ 2.33 时直接链接失败 ⇒ 由集成方按自己板子决定。
+
+### ✅ 选哪个？（共享库 vs 静态库）
+
+* **默认用共享库 `.so`** —— 要**动态升级**（只换 `libmosaic_pipeline.so` 就能换版本，
+  业务 app 不用重编）、多套程序复用同一份库、要跟着板卡实际情况调库 ⇒ 选 `.so`。
+* **用静态库 `.a`** —— 要**单文件交付**（不想在运行环境里带我们的 `.so`）、
+  目标板 glibc 与交叉工具链**完全一致**、或做**整包烧录固化** ⇒ 选 `.a`。
+* **两者行为逐字节一致**（同源同对象文件：`mosaic_pipeline.o` + `mosaic_track_fusion.o`）
+  ⇒ **选哪个都不改变检测结果**，只是部署形态不同。
+  板端实测：`out/mosaic_api_test_static`（链 `.a`）与 `out/mosaic_api_test`（链 `.so`）
+  跑同一段 60 帧窗口，**检测 TSV 逐字节相同（md5 相同）**；
+  静态版的 `DT_NEEDED` 里**没有** `libmosaic_pipeline.so`
+  ⇒ **运行时不需要我们的 `.so`**。
 
 ### 必读的坑
 
@@ -1372,6 +1483,9 @@ mkdir -p out && \
    本版交付的是**共享库 `.so`** ⇒ **没有归档索引** ⇒ **同一个包根路径**下重跑
    `bash build_lib.sh`，`out/libmosaic_pipeline.so` 的 md5 **不变**
    （`.o` 与五个可执行文件同样稳定）。
+   ℹ️ **本版同时交付的静态库 `.a` 也是稳定的**：`build_lib.sh` 用的是
+   `ar rcsD`（**deterministic**：归档索引里不留 uid/gid/mtime）⇒ 同一份源码
+   重复构建，`out/libmosaic_pipeline.a` 的 md5 **不变** ⇒ **可以当回归基线**。
    ⚠️ 但 md5 仍然**绑定「包根的绝对路径」**（见第 3 条）。
 2. **脚本构建 vs 一行命令构建，md5 也不同**：脚本用**绝对路径**编译
    （`$HERE/src/npu/mosaic_pipeline.cpp`），README 的一行命令用**相对路径**
@@ -1443,7 +1557,8 @@ mkdir -p out && \
     否则后处理不匹配）。
   * **绑核参数** —— 我们预设的旋钮是**按这块板子的核拓扑排的，换板子必须重设**。
     详见 `MANIFEST.md` §D。
-  * **板卡自带的第三方动态库** —— 本包**不携带任何第三方 .so/.a**
+  * **板卡自带的第三方动态库** —— 本包**不携带任何第三方** .so/.a
+    （**我们自己的 `out/libmosaic_pipeline.a` 是本包产物，不在此列**）
     （`librknnrt.so` / `librga.so.2` / `libOpenCL.so.1` / 7 个
     `libopencv_*.so.406` **全部由板卡提供**）⇒
     * **编译期**：需要板卡 OpenCV 的**头**（`/usr/include/opencv4`）+ 上面那些 `.so`
@@ -1522,10 +1637,18 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.r
 
 ```bash
 cd <交付目录>                # 例：cd /mnt/manu/mosaic_sdk
-bash build_lib.sh            # -> out/mosaic_pipeline.o, out/libmosaic_pipeline.so（共享库）
+bash build_lib.sh            # -> out/mosaic_pipeline.o, out/libmosaic_pipeline.so（共享库）,
+                              #    out/libmosaic_pipeline.a（静态库：同一批 .o 用 ar 打的归档）
 bash build_demo.sh           # -> out/mosaic_api_test, out/mosaic_client_example,
-                              #    out/mosaic_async_client_example, out/mosaic_contract_test, out/rknn_mosaic_e2e
+                              #    out/mosaic_async_client_example, out/mosaic_contract_test, out/rknn_mosaic_e2e,
+                              #    out/mosaic_api_test_static（**链 .a 的静态链接版**）
 ```
+
+> ℹ️ **静态库不需要额外的构建命令**：`bash build_lib.sh` **一并**产出
+> `out/libmosaic_pipeline.a`（与 `.so` 用的是**同一批 `.o`**，只是再打一次 `ar` 归档）；
+> `bash build_demo.sh` 会**同时**产出**共享链接版**（`out/mosaic_api_test`）与
+> **静态链接版**（`out/mosaic_api_test_static`）两个 demo。
+> ⇒ 想要哪种库，客户**自己选**即可，**不用改任何构建脚本**。
 
 > **交叉编译器**（编译器没法随包发）要用这个指定：
 >
@@ -1536,7 +1659,7 @@ bash build_demo.sh           # -> out/mosaic_api_test, out/mosaic_client_example
 > export CROSS_AR=/path/to/aarch64-linux-gnu-ar     # 可选：直接指定 ar
 > ```
 >
-> **第三方库不在包里**（本包**不携带任何第三方 .so/.a**），要用板卡自带的：
+> **第三方库不在包里**（本包**不携带任何第三方** .so/.a），要用板卡自带的：
 >
 > | 依赖 | 板卡位置 | 什么时候需要 | 定位它的环境变量 |
 > |---|---|---|---|
@@ -1555,7 +1678,8 @@ bash build_demo.sh           # -> out/mosaic_api_test, out/mosaic_client_example
 > ⚠️ **原地重编后，本 README 顶部的「产物 md5」表会过期**（那是打包时写进去的，
 > 交付态的包里没有生成它的脚本）。自检办法：`md5sum out/*` 与表里比对。
 > 本版交付的是**共享库 `.so`** ⇒ **没有 `ar` 归档时间戳那种「每次编译都变」的
-> 问题**（同一个包根路径下 md5 稳定）；但 md5 仍与「包根的绝对路径」绑定
+> 问题**（同一个包根路径下 md5 稳定）；**同批 `.o` 打的静态库 `.a` 用
+> `ar rcsD`（deterministic）⇒ md5 同样稳定**；但 md5 仍与「包根的绝对路径」绑定
 > （见文末「md5 的三个已知差异」第 3 条）。
 >
 > ⚠️ **换了编译器 / 换了 OpenCV 版本 ⇒ 产物 md5 会变**（不是 bug）。
@@ -1590,12 +1714,19 @@ bash build_demo.sh           # -> out/mosaic_api_test, out/mosaic_client_example
 ├── models/                  ← **本包自带的 RKNN 模型（来源）**：p0_off_A_none.rknn
 │                              （板上先 cat 到 /tmp/p0_off_A_none.rknn 再用）
 ├── out/                      ← 编译产物
-│   ├── mosaic_pipeline.o
-│   ├── libmosaic_pipeline.so    ← **共享库**（SONAME=libmosaic_pipeline.so）
-│   ├── mosaic_api_test           ← 示例 demo 可执行文件
-│   ├── mosaic_client_example     ← 最小嵌入示范可执行文件
-│   ├── mosaic_contract_test      ← 契约测试可执行文件
-│   └── rknn_mosaic_e2e           ← 端到端测试程序（吞吐/延时测量）
+│   ├── mosaic_pipeline.o          ← 库的主目标文件
+│   ├── mosaic_track_fusion.o      ← 时空融合内核目标文件
+│   ├── stat_compat.o              ← glibc<2.33 `stat` hidden symbol 垫片（链可执行文件时带上）
+│   ├── libmosaic_pipeline.so      ← **共享库**（SONAME=libmosaic_pipeline.so）
+│   ├── libmosaic_pipeline.a       ← **静态库**（同源同对象文件；客户要静态链接时用它）
+│   ├── mosaic_api_test            ← 示例 demo 可执行文件
+│   ├── mosaic_api_test_static     ← **静态链接版**示例 demo（链 `.a` 编出来）
+│   ├── mosaic_client_example      ← 最小嵌入示范可执行文件
+│   ├── mosaic_async_client_example← 多线程生产-消费模板
+│   ├── mosaic_contract_test       ← 契约测试可执行文件
+│   ├── rknn_mosaic_e2e            ← 端到端测试程序（吞吐/延时测量）
+│   ├── mosaic_cadence_probe       ← 板卡验证探针（本地工具）
+│   └── mosaic_track_dump          ← 板卡验证探针（本地工具）
 └── 兼容别名（相对符号链接）
     mosaic_api_test       -> out/mosaic_api_test
     mosaic_contract_test  -> out/mosaic_contract_test
@@ -1604,7 +1735,7 @@ bash build_demo.sh           # -> out/mosaic_api_test, out/mosaic_client_example
     kernels               -> runtime/kernels
 ```
 
-> ℹ️ **没有 `third_party/`**：本包**不携带任何第三方 .so/.a**，
+> ℹ️ **没有 `third_party/`**：本包**不携带任何第三方** .so/.a，
 > OpenCV / RKNN Runtime / RGA / OpenCL 全部**动态链接板卡自带的库**
 > （见「板卡依赖矩阵」）。
 
@@ -1617,7 +1748,8 @@ mkdir -p "$DST"
 
 # ① 先删掉【上一版遗留的平铺实文件/实目录】—— cp -a 是「合并」语义，
 #    不会删；不删就会留下**旧二进制**，让人误以为在跑新版
-#    （旧版是 .a 归档 + 第三方依赖目录，新版是 .so ⇒ 旧的都要清）
+#    （**更早**的版本是 .a 归档 + 第三方依赖目录；本版是 .so + .a ⇒ 旧目录都要清，
+#     别把两版的产物混在同一棵树上）
 rm -f  "$DST/mosaic_api_test" "$DST/mosaic_contract_test" \
        "$DST"/libmosaic_pipeline.* "$DST/mosaic_pipeline.h"
 rm -rf "$DST/kernels" "$DST/third_party"

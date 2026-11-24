@@ -183,6 +183,24 @@ def judge(r: dict, base: dict | None = None) -> tuple[int, list[str]]:
     return 6 - len(miss), miss
 
 
+def strictly_better(r: dict, base: dict | None = None) -> bool:
+    """**至少一轴严格优于基线**（六项判过是 `>=` ⇒ 与基线逐位打平也算「全过」）。
+
+    现场（台账 14,057 臂）：「六项全过」的 57 臂**全部与基线逐位相同**
+    （nano/nano4/f1/t1/t3 差值精确 = 0，只有 t2_fp 3→4）⇒ **零改进**。
+    ⇒ 「可升轨」必须**另加**本判据，否则 = 把基线克隆臂升成新基线（**基线名通胀**）。
+    """
+    B = base if base is not None else live_base()
+    return bool(
+        (r.get("nano") or 0) > B["nano"]
+        or (r.get("nano4") or 0) > B["nano4"]
+        or (r.get("f1") or 0) > B["f1"]
+        or (r.get("t1") or 0) > B["t1"]
+        or (r.get("t3") or 0) > B["t3"]
+        or (r.get("t2_fp") is not None and r["t2_fp"] < int(B.get("t2_fp") or 0))
+    )
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--ledger", default=LEDGER)
@@ -217,17 +235,25 @@ def main() -> None:
     _bl = (f"基线 = {_bn.get('name')} / trial_{_bn.get('trial')} ep{_bn.get('epoch')}；判过口径 `>=`"
            if _bn.get("name") else "基线 = (未知)；判过口径 `>=`")
     _btrial = int(_bn.get("trial") or 0)
+    _B = live_base()   # 🟢 判据/差距一律跟台账当前基线走（不用可能过期的模块常量 BASE）
     print(_bl)
     print(f"六项全过：**{len(full)}** 个")
     for r in full:
         # 🟢🟢 2026-11-18 10:10 修**「基线本体」标记硬编码 9863** ⇒ 现在会把基线臂自己标成「新候选」
-        tag = ("  ← 基线本体" if r["trial"] == _btrial else "  🔴 **新候选（可升轨）**")
+        # 🔴🔴🔴 2026-11-23 修**「打平臂被标成新候选（可升轨）」**：`>=` 判过 ⇒ 与基线逐位相同的
+        #   克隆臂也算「六项全过」（现场 57 臂全部如此 ⇒ 零改进）⇒ 标成「可升轨」会误导手工兜底。
+        #   ⇒ 只有**至少一轴严格优于基线**的臂才标「新候选（可升轨）」。
+        if r["trial"] == _btrial:
+            tag = "  ← 基线本体"
+        elif strictly_better(r, _B):
+            tag = "  🔴 **新候选（可升轨）**"
+        else:
+            tag = "  ⚪ 与基线逐位打平（零增量，不可升轨）"
         print(f"  ✔ trial={r['trial']} ep={r['ep']} seed={r['seed']} "
               f"nano={r['nano']:.6f} nano4={r['nano4']:.6f} f1={r['f1']:.6f} "
               f"t1={r['t1']:.6f} t2fp={r['t2_fp']} t3={r['t3']:.6f}{tag}")
     print()
     print(f"--- 最接近候选榜 TOP {a.top}（按过项数，同项按 nano 排）---")
-    _B = live_base()   # 🟢 判据/差距一律跟台账当前基线走（不用可能过期的模块常量 BASE）
     for r in rows[: a.top]:
         gaps = []
         if r["nano"] < _B["nano"]:

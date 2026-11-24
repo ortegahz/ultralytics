@@ -100,16 +100,23 @@ def main() -> None:
     for r in rows:
         r["npass"], r["miss"] = SCA.judge(r, base)
 
-    champs = [r for r in rows if r["npass"] == 6]
+    # 🔴🔴🔴 2026-11-23 —— **「六项全过」（`>=` 口径）≠ 可升轨**。
+    #   与基线**逐位打平**的克隆臂也算「六项全过」（现场 57 臂全部如此 ⇒ 零改进）
+    #   ⇒ 候选榜只收**至少一轴严格优于基线**的臂，否则本脚本会把基线克隆臂
+    #     当成「Baseline_v3.2 升轨命令」交给人粘贴执行（**基线名通胀**）。
+    ties = [r for r in rows if r["npass"] == 6 and not SCA.strictly_better(r, base)]
+    champs = [r for r in rows if r["npass"] == 6 and SCA.strictly_better(r, base)]
     champs.sort(key=lambda r: (-(r["nano"] or 0.0), -(r["f1"] or 0.0)))
     near = sorted((r for r in rows if r["npass"] == 5),
                   key=lambda r: (-(r["nano"] or 0.0), -(r["f1"] or 0.0)))
 
-    print(f"\n六项全过臂：{len(champs)} 个 ｜ 5/6 近失臂：{len(near)} 个"
+    print(f"\n六项全过臂：{len(champs) + len(ties)} 个"
+          f"（其中与基线逐位打平、**不可升轨**的 {len(ties)} 个）"
+          f" ｜ 5/6 近失臂：{len(near)} 个"
           f" ｜ 有读数的臂：{len(rows)} 个")
 
     if not champs:
-        print("\n⚠️ **当前没有六项全过的臂** ⇒ 升轨链此时无法手工兜底。")
+        print("\n⚠️ **当前没有「六项全过 ∧ 至少一轴严格优于基线」的臂** ⇒ 升轨链此时无法手工兜底。")
         print("   最近的 5/6 臂（仅供观察，不是候选）：")
         for r in near[:5]:
             print(f"   - trial {r['trial']}@{r['ep']}：差 {r['miss']}"
@@ -118,7 +125,7 @@ def main() -> None:
         print("\n⇒ 六项全过的臂一旦出现，本节会在同一份晨报里自动给出命令。")
         return
 
-    print("\n----- 🏆 六项全过候选（按 nano 排序）-----")
+    print("\n----- 🏆 可升轨候选（六项全过 ∧ 至少一轴严格优于基线 · 按 nano 排序）-----")
     for i, r in enumerate(champs[: max(1, args.top)], 1):
         trial = int(r["trial"])
         try:

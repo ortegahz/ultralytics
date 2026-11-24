@@ -16,6 +16,12 @@
 #     out/rknn_mosaic_e2e        the END-TO-END test program: measures
 #                                 throughput / latency (the 12.9 fps number).
 #                                 Calls ONLY the public C ABI.
+#     out/mosaic_api_test_static  the SAME example demo, but linked against
+#                                 **out/libmosaic_pipeline.a** (the STATIC
+#                                 library) instead of the shared one.
+#                                 This is the LIVING PROOF that the static
+#                                 library links and runs; its output must be
+#                                 byte-identical to out/mosaic_api_test.
 #
 # All four programs link **out/libmosaic_pipeline.so** (共享库),
 # so run build_lib.sh FIRST.
@@ -207,6 +213,33 @@ echo "== building mosaic_api_test (the example demo) =="
 "$CXX" $LIB_CXXFLAGS "$HERE/src/npu/mosaic_api_test.cpp" -o "$HERE/out/mosaic_api_test" "${LINK_COMMON[@]}"
 
 # ---------------------------------------------------------------------------
+# 1a. the SAME demo linked against the STATIC library.
+#
+#     🔴 **必须按路径显式写 .a，不能写 -lmosaic_pipeline**：链接器在 -L 路径下
+#        **优先选 libmosaic_pipeline.so** ⇒ 写了 -l 就会静默链成共享版，
+#        「静态链接验证」变成一句空话（产物看起来正常，NEEDED 里却有 .so）。
+#        ⇒ 这里只给 .a 的**完整路径**，且**不给** -Wl,-rpath,'$ORIGIN'
+#           （静态链接的程序运行时不需要我们的 .so）。
+#
+#     ⚠️ stat_compat.o 必须带上：链可执行文件时 glibc<2.33 的 `stat` 是 hidden
+#        符号，板卡 OpenCV 引用的是公开符号 `stat` => 不带就链不出来。
+# ---------------------------------------------------------------------------
+echo "== building mosaic_api_test_static (the example demo linked STATICALLY) =="
+[ -f "$OUT/libmosaic_pipeline.a" ] || \
+  die "out/libmosaic_pipeline.a not found -- run 'bash build_lib.sh' FIRST"
+"$CXX" $LIB_CXXFLAGS "$HERE/src/npu/mosaic_api_test.cpp" -o "$OUT/mosaic_api_test_static" \
+  "$OUT/libmosaic_pipeline.a" "$OUT/stat_compat.o" \
+  "${LIB_PATHS[@]}" "${RPATH_LINKS[@]}" $RELAX \
+  $OPENCV_LIBS -lOpenCL -lrknnrt -lrga -lpthread -ldl -lm
+
+# 自检：静态链接版**不得**再依赖 libmosaic_pipeline.so（依赖了就说明上面
+# 那行不知怎么又链成了共享版 —— 静默退化，必须当场炸掉）
+if readelf -d "$OUT/mosaic_api_test_static" 2>/dev/null | grep -q 'libmosaic_pipeline\.so'; then
+  die "mosaic_api_test_static 仍然依赖 libmosaic_pipeline.so ==> 静态链接没有生效！"
+fi
+echo "  [ok] mosaic_api_test_static 的 NEEDED 里没有 libmosaic_pipeline.so（确为静态链接）"
+
+# ---------------------------------------------------------------------------
 # 1b. the MINIMAL INTEGRATION EXAMPLE (what an embedded integrator copies)
 # ---------------------------------------------------------------------------
 echo "== building mosaic_client_example (the minimal integration example) =="
@@ -235,15 +268,18 @@ echo "== building rknn_mosaic_e2e (the end-to-end test program) =="
 
 echo
 echo "== artifacts =="
-for f in "$OUT/libmosaic_pipeline.so" "$OUT/mosaic_api_test" "$OUT/mosaic_client_example" "$OUT/mosaic_async_client_example" "$OUT/mosaic_contract_test" "$OUT/rknn_mosaic_e2e"; do
+for f in "$OUT/libmosaic_pipeline.so" "$OUT/libmosaic_pipeline.a" "$OUT/mosaic_api_test" "$OUT/mosaic_api_test_static" "$OUT/mosaic_client_example" "$OUT/mosaic_async_client_example" "$OUT/mosaic_contract_test" "$OUT/rknn_mosaic_e2e"; do
   echo "  path : $f"
   echo "  size : $(stat -c%s "$f") B"
   echo "  md5  : $(md5sum "$f" | cut -d' ' -f1)"
 done
 echo
 echo "  -- 运行时依赖（板卡自带库，板卡 ldconfig 可解析）--"
-for f in "$OUT/mosaic_api_test"; do
+for f in "$OUT/mosaic_api_test" "$OUT/mosaic_api_test_static"; do
   readelf -d "$f" | grep NEEDED | sed 's/.*\[/    /;s/\]//'
+  echo "    ----"
 done
+echo "  🔴 对照：mosaic_api_test（链 .so）**必须**有 libmosaic_pipeline.so；"
+echo "     mosaic_api_test_static（链 .a）**必须没有** ⇒ 静态库真的生效了。"
 echo
 echo "[ok] test programs built.  Copy out/* to the NFS mount -- see README.md section (3)."

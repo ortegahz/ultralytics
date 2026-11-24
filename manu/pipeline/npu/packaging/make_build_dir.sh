@@ -111,8 +111,9 @@ fill_placeholders() {
     -e "s|\{\{OBJ_MD5\}\}|$OBJ_MD5|g" \
     -e "s|\{\{STAT_COMPAT_OBJ_MD5\}\}|$STAT_COMPAT_OBJ_MD5|g" \
     -e "s|\{\{LIB_SO_MD5\}\}|$LIB_SO_MD5|g" \
-    -e "s|\{\{LIB_A_MD5\}\}|$LIB_SO_MD5|g" \
+    -e "s|\{\{LIB_A_MD5\}\}|$LIB_A_MD5|g" \
     -e "s|\{\{API_TEST_MD5\}\}|$API_TEST_MD5|g" \
+    -e "s|\{\{API_TEST_STATIC_MD5\}\}|$API_TEST_STATIC_MD5|g" \
     -e "s|\{\{CLIENT_EXAMPLE_MD5\}\}|$CLIENT_EXAMPLE_MD5|g" \
     -e "s|\{\{ASYNC_EXAMPLE_MD5\}\}|$ASYNC_EXAMPLE_MD5|g" \
     -e "s|\{\{CONTRACT_TEST_MD5\}\}|$CONTRACT_TEST_MD5|g" \
@@ -191,7 +192,9 @@ out_note_of() {
     out/mosaic_track_fusion.o)  echo "编译中间产物（时空后处理内核的 .o）" ;;
     out/stat_compat.o)          echo "编译中间产物（**buildroot glibc 2.29 的 \`stat\` hidden symbol 垫片**，铁律十八；链接可执行文件时必需）" ;;
     out/libmosaic_pipeline.so) echo "**共享库**（客户链接它；SONAME=libmosaic_pipeline.so；动态链接板卡自带库）" ;;
+    out/libmosaic_pipeline.a)  echo "**静态库**（客户要静态链接时用这个；与同名 .so **同源同对象文件** => 行为逐字节一致；**不含** stat_compat.o 垫片，链接可执行文件时仍需按目标板 glibc 版本另行带上）" ;;
     out/mosaic_api_test)       echo "示例 demo 可执行文件（给客户的示例）" ;;
+    out/mosaic_api_test_static) echo "**静态链接版的示例 demo**（mosaic_api_test 链 .a 编出来；**静态库可用性的活证据**；运行输出与链 .so 的版本逐字节一致）" ;;
     out/mosaic_client_example) echo "**最简集成示范可执行文件**（嵌入方照着抄这份）" ;;
     out/mosaic_async_client_example) echo "**多线程生产-消费 + 回调模板可执行文件**（工程级集成骨架；嵌入式组照着这份搭自己的相机线程）" ;;
     out/mosaic_contract_test)  echo "契约测试可执行文件（验收门禁）" ;;
@@ -402,7 +405,9 @@ if [ -d "$DEST/out" ]; then OUT_COUNT=$(find "$DEST/out" -type f | wc -l); else 
 TOTAL_COUNT=$(( FILE_COUNT + OUT_COUNT ))
 OBJ_MD5=$(md5_or_placeholder "$DEST/out/mosaic_pipeline.o")
 LIB_SO_MD5=$(md5_or_placeholder "$DEST/out/libmosaic_pipeline.so")
+LIB_A_MD5=$(md5_or_placeholder "$DEST/out/libmosaic_pipeline.a")
 API_TEST_MD5=$(md5_or_placeholder "$DEST/out/mosaic_api_test")
+API_TEST_STATIC_MD5=$(md5_or_placeholder "$DEST/out/mosaic_api_test_static")
 CLIENT_EXAMPLE_MD5=$(md5_or_placeholder "$DEST/out/mosaic_client_example")
 ASYNC_EXAMPLE_MD5=$(md5_or_placeholder "$DEST/out/mosaic_async_client_example")
 CONTRACT_TEST_MD5=$(md5_or_placeholder "$DEST/out/mosaic_contract_test")
@@ -547,7 +552,7 @@ echo "  第三方头       : $inc_n 个（include/）"
 echo "  kernel 资产    : $ker_n 个（runtime/kernels/）"
 echo "  RKNN 模型      : $mdl_n 个（models/）"
 echo "  共享库         : out/libmosaic_pipeline.so（SONAME=libmosaic_pipeline.so）← 动态链接板卡自带库"
-echo "  编译产物       : $out_n 个（out/：共享库 + 测试程序 + 板卡验证探针 + .o）"
+echo "  编译产物       : $out_n 个（out/：共享库 .so + **静态库 .a** + 测试程序 + 板卡验证探针 + .o）"
 echo
 echo "  下一步（⚠️ 顺序不能颠倒）："
 echo "    cd $DEST && bash build_lib.sh && bash build_demo.sh && bash build_probes.sh   # ① 编译（库 + 测试程序 + 探针）"

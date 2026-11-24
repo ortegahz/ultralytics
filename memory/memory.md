@@ -27909,3 +27909,253 @@ $OUT/mosaic_api_test --raw-root <帧根> --sequence <序列名> \
   本地没有）⇒ **本节两边都只做「追加」**、**不互相覆盖**，避免再毁一次别人的内容。
 - 🟡 **`§` 编号是跨工作线共享的**：本轮取用前先查了四侧最大编号（本地 §296 / 服务器 §297）
   ⇒ 选 **§298**（中间留 §298 前的空档给并发线），compact 侧用 **㉗**（跳过已被占的 ㉔/㉕/㉖）⇒ **零撞号**。
+
+---
+
+## §306（2026-11-23 15:40~16:30）· 🟢 **mosaic_sdk 同时交付 `.so` + `.a`（静态库）⇒ 板端三份二进制（交叉共享 / 交叉静态 / 板卡原生静态）检测 TSV md5 完全相同 `b20af662c936f5b76056f7870c9aa27c`** ＋ 🔴 **静态链接必须按路径写 `.a`（`-l` 会静默退化成共享版）** ＋ 🔴 **`.a` 故意不含 `stat_compat.o`（否则锁死 glibc 大版本）**
+
+> **需求来源**：嵌入式组要求交付**静态库 `.a`**（单文件交付 / 不想在运行环境里带我们的 `.so`）。
+> **本轮结论**：**两种库都留着，客户要哪种都有**；`.so` 那套是上一轮已在板端验证过的 ⇒ **零改动、零漂移**；
+> 新增 `.a` 与一个**链 `.a` 编出来的 demo** 作为「静态库可用性」的活证据。
+
+### 一、交付产物与关键决策
+
+| 产物 | 大小 | md5 | 说明 |
+|:--|:--|:--|:--|
+| `out/libmosaic_pipeline.so` | 551,728 B | `a6b26922e596444ea393711f8b2a4289` | **与上一轮交叉编译产物逐字节相同 ⇒ 零漂移** ✅ |
+| `out/libmosaic_pipeline.a` | 801,020 B | `b86391619f1d9e92973c1b4a1e6520d7` | **静态库**，members = `mosaic_pipeline.o` + `mosaic_track_fusion.o` |
+| `out/mosaic_api_test` | 30,088 B | — | 共享链接版 demo（老样） |
+| `out/mosaic_api_test_static` | 519,768 B | — | **链 `.a` 编出来的静态链接版 demo**（新增） |
+
+- 🟢 **`.a` 与 `.so` 同源同对象文件**（`.a` 就是同一批 `.o` 再打一次 `ar` 归档）⇒ **行为等价**，选哪种都不改变检测结果。
+- 🔴 **`.a` 的成员故意只有 2 个，**不含 `stat_compat.o``：那个垫片转发的是 glibc 的 `__xstat`（**glibc 2.33 起已移除**）⇒ 把它打进**预编译归档**，等于给这份 `.a` **锁死一个 glibc 大版本** ⇒ 目标板 glibc ≥ 2.33 时**直接链不出来**。
+  ⇒ `stat_compat.o` **单独留在 `out/`**，包内 `src/npu/stat_compat.c` **带源码**，由集成方按目标板自己决定带不带（板卡 glibc 2.31 ⇒ 必须带；≥ 2.33 ⇒ 不需要）。
+- 🔴 **静态链接必须按路径写 `out/libmosaic_pipeline.a`，不能写 `-lmosaic_pipeline`**：链接器在 `-L` 路径下**优先挑 `.so`** ⇒ 写了 `-l` 会**静默链成共享版**（产物看着正常，`DT_NEEDED` 里却还有我们的 `.so`）⇒「静态链接验证」变成一句空话。
+  ⇒ `build_demo.sh` / `build_board_native.sh` **都加了当场自检**：`readelf -d | grep libmosaic_pipeline.so` 命中即 **die**。
+- 🟢 `stat_compat.c` 补了**版本护栏**：`#if defined(__GLIBC__) && (__GLIBC__ < 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ < 33))` 才定义 `stat`；否则编译出**空目标文件** ⇒ 同一份源码在 ≥ 2.33 的板上**不会**再抢公开符号。
+  ✅ 已验三分支语法通过：宿主 gcc 15 / 强制 `-D__GLIBC__=2 -D__GLIBC_MINOR__=33` / 未定义 `__GLIBC__`；交叉工具链仍编出 `T stat` + `U __xstat`（**板卡行为不变**）。
+
+### 二、包内自检（全部绿）
+
+| 检查项 | 期望 | 实测 |
+|:--|:--|:--|
+| `mosaic_api_test_static` 的 `DT_NEEDED` | **不含** `libmosaic_pipeline.so` | ✅ 16 条 NEEDED，**无我们的 `.so`** |
+| `mosaic_api_test` 的 `DT_NEEDED` | **含** `libmosaic_pipeline.so` | ✅ 含（SONAME = `libmosaic_pipeline.so`） |
+| `.so` 导出的 `mosaic_pipeline_*` 符号数 | 34（**接口未动**） | ✅ **34** |
+| `mosaic_pipeline_set_candidate_dedup_radius` | **不导出**（内部开关） | ✅ 未导出 |
+| `MergeCandidatesByRadius` | 在 | ✅ 在 |
+| `out/` 全为 aarch64 | 是 | ✅ 12 个 `.o`/`.so`/ELF 全 aarch64（`.a` 是 ar 归档，非 ELF） |
+| 包内文件总数 | 86 = 73 + **13**（`out/`） | ✅ 86 = 73 + 13 |
+| `make_build_dir.sh` 回验 | 表内 md5 全对、无漏登记 | ✅ 两项全 `[ok]` |
+
+### 三、板卡实测（`root@192.168.0.64`，glibc **2.31** / Ubuntu 20.04，g++ **9.4.0**）
+
+**跑法**：本地 ffmpeg 抽 300 帧 → `scp` 到板卡 `/userdata/lqframes_v2`（`frame_%06d.bmp`，从 0 起）⇒
+`--raw-root /userdata --sequence lqframes_v2 --model /tmp/p0_off_A_none.rknn --kernel-dir /root/kernels --limit 60 --dump-tsv <out>.tsv`。
+
+| # | 二进制 | 链接方式 | 帧 / 检出 / 丢帧 | **检测 TSV md5** |
+|:--|:--|:--|:--|:--|
+| ① | `mosaic_api_test`（交叉编译） | 链 `.so` | 60 / **171** / **0** | `b20af662c936f5b76056f7870c9aa27c` |
+| ② | `mosaic_api_test_static`（交叉编译） | 链 `.a` | 60 / **171** / **0** | `b20af662c936f5b76056f7870c9aa27c` |
+| ③ | `mosaic_api_test_static`（**板卡原生 g++**） | 链 `.a` | 60 / **171** / **0** | `b20af662c936f5b76056f7870c9aa27c` |
+
+- 🟢 **三份 TSV 逐字节相同**（60 行，`cmp` 无差异）⇒ **静态库 ≡ 共享库**，且**交叉编译 ≡ 板卡原生**。
+- ✅ 板端 `ldd mosaic_api_test_static | grep -c libmosaic_pipeline` = **0** ⇒ 运行期**不需要**我们的 `.so`；第三方依赖（7 个 `libopencv_*.so.408` / `libOpenCL.so.1` / `librknnrt.so` / `librga.so.2`）**一条不缺**。
+- ✅ **板卡原生构建**（`build_board_native.sh`，用板卡自己的 g++）：`.so` `cec8e247…` / `.a` `b70d0ae0…` / `mosaic_api_test_static` `66d7dce5…`；脚本自检打印 `[ok] 静态链接生效（NEEDED 里没有 libmosaic_pipeline.so）`；末尾 **`BUILD_BOARD_NATIVE_OK`**。
+  （板卡原生 `.so` 与交叉编译 `.so` md5 **不同是正常的**：编译器/路径不同。）
+
+### 四、本轮改动的 8 个文件（**全部未提交 git**）
+
+| 文件 | 改动 |
+|:--|:--|
+| `manu/pipeline/npu/packaging/build_lib.sh` | 新增 **1b 段**：`ar rcsD`（失败回退 `ar rcs`）产出 `out/libmosaic_pipeline.a`；artifact 输出加 `.a` 路径/大小/md5/members |
+| `manu/pipeline/npu/packaging/build_demo.sh` | 新增 `out/mosaic_api_test_static`（**显式链 `.a` 路径** + `stat_compat.o`，**不给** `-lmosaic_pipeline`、**不给** `$ORIGIN` rpath）；加 `readelf` **NEEDED 自检** |
+| `manu/pipeline/npu/packaging/make_build_dir.sh` | `out_note_of` 加 `.a` / `mosaic_api_test_static` 条目；新增 `LIB_A_MD5` / `API_TEST_STATIC_MD5` 变量与 sed 替换（🔴 `{{LIB_A_MD5}}` 原先被**错接到 `$LIB_SO_MD5`**，已改为真 `.a` 的 md5） |
+| `manu/pipeline/npu/packaging/build_board_native.sh` | 板卡上 `ar` 出 `.a` + 编译 `stat_compat.o` + 用**板卡原生 g++** 链 `mosaic_api_test_static` + NEEDED 自检；md5 列表扩容 |
+| `manu/pipeline/npu/packaging/copy_to_nfs.sh` | `EXEC_FILES` / `REQUIRED_FILES` 各加 `out/libmosaic_pipeline.a`、`out/mosaic_api_test_static` |
+| `manu/pipeline/npu/packaging/README.template.md` | 新增「🔗 两种链接方式：共享库 `.so` vs 静态库 `.a`」（对比表 + 两条**完整**链接命令 + `stat_compat.o` 必带原因 + `.a` 为何不含垫片）+「✅ 选哪个？」；**「不携带第三方 `.so/.a`」措辞消歧**（我们自己的 `.a` 是本包产物，不在此列） |
+| `manu/pipeline/npu/packaging/MANIFEST.template.md` | §A 目录树 + 交付说明 + **板卡实测记录表新增静态库那一行** + md5 基线段 |
+| `manu/pipeline/npu/stat_compat.c` | glibc 版本护栏（见一） |
+
+### 五、同步与归档
+
+- ✅ **8/8 md5 三方一致**：本地工作树 = 服务器导出目录 `/tmp/pycharm_project_a7d966e6/…` = SSHFS 挂载 `/home/manu/mnt/pycharm_project_a7d966e6/…` 复核。
+  ⇒ 走**铁律二十二**：SSHFS 导出目录用**服务端 `cp -f`**（先 rsync 到服务器本地暂存区 `/tmp/sync_20261123/`，再服务端 `cp -f`），**不**用 rsync temp+rename。
+- ✅ 交付包（仓库外，**不入 git**）：`workspace/cache/ultralytics/pipeline-artifacts/mosaic_sdk_20261123/`（86 文件）。
+- 🔴 **未提交 git**（铁律〇之三之二）：本轮**只改工作区**，`git add` / `commit` 仍归用户。
+
+### 六、🔴 本轮踩到的 5 个坑（下次直接照做）
+
+1. 🔴 **板卡 NFS 挂载失效** ⇒ `ls /mnt/manu` 直接 **I/O error**（板卡挂 `192.168.0.115:/run/media/manu/SSD960-LOCAL/nfs`，重装后本地路径变了）。
+   ⇒ **改走「本地 ffmpeg 抽帧 → `scp` 到 `/userdata`」**，比修 NFS 快且不依赖挂载。
+   - ⚠ 本地 ffmpeg 的 `%06d` **从 000001 起** ⇒ 必须加 `-start_number 0` 才是 `frame_000000.bmp`（库 `mosaic_pipeline_list_frames` 约定**从 0 起**）。
+   - ⚠ 帧目录必须是 `<raw_root>/<sequence>` ⇒ `--raw-root /userdata --sequence lqframes_v2`。
+2. 🔴 **板卡缺链接器用的无版本号符号名** ⇒ `build_board_native.sh` 默认参数直接 **`cannot find -lOpenCL`**。
+   根因：`/root/bl_stage/boardlibs` 只有 `libOpenCL.so.1` / `librga.so.2`（**没有** `libOpenCL.so` / `librga.so`），`librknnrt.so` 在 `/usr/lib` 而**不在** `/usr/lib/aarch64-linux-gnu`。
+   ⇒ 建一个 staging 符号链接目录（`/userdata/blink`：`libOpenCL.so` / `librga.so` / `librknnrt.so`），显式传 `EXTRA_LIB=/userdata/blink LNK=/userdata/blink`。
+   📌 **已知限制（未改）**：该脚本的 `EXTRA_LIB` / `LNK` **各只接受一个目录** ⇒ 板卡库分散在多处时只能靠符号链接汇总。
+3. 🟡 **板卡 OpenCV 头/库分离**：头在 `/root/bl_stage/opencv/include/opencv4`，**运行期** `.so.408` 在 `/root/mosaic/opencv` ⇒ 板卡原生编出来的 `.so` NEEDED 是 `.so.408`，**运行期必须把 `/root/mosaic/opencv` 放进 `LD_LIBRARY_PATH`**，否则 `error while loading shared libraries: libopencv_imgcodecs.so.408`。
+4. 🔴 **`build_probes.sh` 必须显式传 `CROSS_CXX` / `CROSS_AR`**：忘了传就用宿主 g++ ⇒ 链接失败**而且把 `out/mosaic_track_dump` 删掉了**（脚本里的 `rm -f`）⇒ 重编要补回。
+   （本轮补传后：`mosaic_track_dump` `57a2932b…`、`mosaic_cadence_probe` `3d5fe91e…`，与上一轮**相同** ⇒ 探针也零漂移。）
+5. 🟡 **SSHFS 导出目录改完后立刻读会读到旧内容**：服务端 `cp -f` 之后，SSHFS 侧**第一次** `md5sum` 仍返回**旧 md5**，几秒后重算才对 ⇒ **回验必须重算一次**（或直接用服务端 `md5sum` 复核）。
+
+### 七、两条登记为「已知限制」（本轮未改，需授权）
+
+1. 🟡 **`ar rcsD` 的 fallback 是 `ar rcs`**（带时间戳 ⇒ `.a` md5 会变）。
+   本轮交叉工具链是 **binutils 2.29.1**（`ar --help` 里明确有 `[D]`）⇒ **实际走的是 deterministic 分支**，`.a` 的 md5 **可当回归基线**；
+   但若换到不支持 `D` 的老 binutils，README 里「`.a` md5 稳定」这句话就不成立。
+2. 🟡 **`copy_to_nfs.sh` 的兼容别名表没有 `libmosaic_pipeline.a`**（`ALIAS_PAIR` 6 条）—— 新产物**没有旧命令要兼容**，故未加；
+   若客户习惯在交付根写 `-lmosaic_pipeline`，加一条即可（但要同步改 3 处「6 个兼容别名」硬编码）。
+
+### 八、附：可复现命令
+
+```bash
+# ① 重新构建（交叉编译，产出 .so + .a + 两个 demo + 两个探针）
+WS=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace
+BL=$WS/cache/ultralytics/pipeline-artifacts/boardlibs_ocv48_20261123
+export MOSAIC_SDK_BUILD_DIR=$WS/cache/ultralytics/pipeline-artifacts/mosaic_sdk_20261123
+export OPENCV_INCLUDE_DIR=$BL/opencv/include/opencv4 OPENCV_LIB_DIR=$BL/opencv/lib
+export BOARD_LIBS=$BL/boardlibs RT_LIB_DIR=$BL/rknnrt
+TC=$WS/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu
+export CROSS_CXX="$TC/bin/aarch64-rockchip-linux-gnu-g++" CROSS_AR="$TC/bin/aarch64-rockchip-linux-gnu-ar"
+cd $WS/ultralytics/manu/pipeline/npu/packaging && bash build_lib.sh && bash build_demo.sh && bash build_probes.sh
+# ② 重刷 README/MANIFEST 的 md5 表（不重编）
+bash make_build_dir.sh
+# ③ 板卡端等价性复测（静态版 vs 共享版）
+#    板卡：/userdata/equiv/{mosaic_api_test,mosaic_api_test_static,libmosaic_pipeline.so}
+#    LD_LIBRARY_PATH=/userdata/equiv:/root/mosaic/opencv:/root/mosaic:/lib:/lib/aarch64-linux-gnu:/usr/lib
+#    ./mosaic_api_test        --raw-root /userdata --sequence lqframes_v2 --model /tmp/p0_off_A_none.rknn \
+#                            --kernel-dir /root/kernels --limit 60 --dump-tsv shared.tsv
+#    ./mosaic_api_test_static --raw-root /userdata --sequence lqframes_v2 --model /tmp/p0_off_A_none.rknn \
+#                            --kernel-dir /root/kernels --limit 60 --dump-tsv static.tsv
+#    md5sum shared.tsv static.tsv   # ⇒ 两行相同：b20af662c936f5b76056f7870c9aa27c
+```
+
+📌 **观察（未处理）**：四份 `memory.md` 之间**已经分叉** —— 本地 `manu/memory/memory.md` 与服务器侧**逐字节一致**（都含 §295~§305），
+但**仓库根 `memory/memory.md` 本地侧停在 §298、服务器侧已到 §304**（另一条工作线的 §297/§299~§304 未拉回本地）。
+本节**两边都只做「追加」、不互相覆盖**（铁律六第 ① 条）；补齐分叉属另一条工作线的收口范围。
+
+### 九、补充（2026-11-23 16:35）：`.gitignore` 加一条 ⑬ 规则，挡住一次性调试探针
+
+- 🔴 **背景**：用户准备 `git commit`，`git status` 里冒出两个未跟踪的临时脚本
+  `manu/pipeline/npu/_probe2.py` / `_probe3.py`（内容只是 `os.path` / `sys.path` 的
+  一次性 import 排查探针，**跑完就没用的中间产物**）⇒ 按铁律二十三 §23-1「中间产物一律出仓库」，
+  **不该入库**。
+- 🟢 **做法**：`.gitignore` 追加第 **⑬** 条（**按产物类别写，不写具体文件名**，铁律二十二 §22）：
+  ```gitignore
+  _probe*.py
+  ```
+  - 📌 **正式工具不挡**：`six_criteria_strict.py`（只读审计器，见 §305 四-2）**不命中**本规则 ⇒ 仍可正常入库。
+  - 📌 若某天某个 `_probe*.py` 升格为正式工具，**改名去掉下划线前缀**即自动解除屏蔽。
+- ✅ **正反双向抽验已跑**（§⑫ 清单口径）：
+  - 正例（必须命中）：`_probe2.py` / `_probe3.py` / `_probe.py` ⇒ **三条全部命中** `.gitignore:575`。
+  - 反例（必须**不**命中）：本轮 9 个改动文件（`build_lib.sh` / `build_demo.sh` / `make_build_dir.sh` /
+    `build_board_native.sh` / `copy_to_nfs.sh` / `README.template.md` / `MANIFEST.template.md` /
+    `stat_compat.c`）+ `six_criteria_strict.py` + `manu/memory/memory.md` + `manu/memory/rules.md`
+    + 调研 doc ⇒ **全部无输出** ✅。
+  - 已跟踪文件误伤检查（`git ls-files | git check-ignore --stdin`）⇒ **无输出，零误伤** ✅。
+- 📌 **提交时仍需用户手动 `git add` 两个文件**（它们是**要入库**的内容，不是中间产物）：
+  - `manu/docs/2026-11-23_调研_模型缩放剪枝与离线特征提取方案评估.md`（调研 doc）
+  - `manu/pipeline/npu/six_criteria_strict.py`（只读审计器；§305 四-2 提的「未纳入版本管理」缺口）
+- ✅ `.gitignore` 已同步服务器导出目录，三侧 md5 一致 = `94715274ff9b02cf572fc66dc0c1b8a7`。
+
+### 十、交付落点刷新（2026-11-23 16:40）：NFS 交付目录已换成新版
+
+- 🟢 **嵌入式组实际取包的位置**（`copy_to_nfs.sh` 的默认根）：`/run/media/manu/SSD960-LOCAL/nfs/mosaic_sdk/`
+  ⇒ 已用新版包**整树镜像刷新**（`bash copy_to_nfs.sh`，不带 `--build` / `--verify`，**不触发上板**）。
+- ✅ 刷新后复核：**总文件 86**（= 73 + 13）、`out/` **13** 个、**旧 `.bak_20261120` 残留已清空**；
+  `out/libmosaic_pipeline.so` = `a6b26922…`、`out/libmosaic_pipeline.a` = `b8639161…`（与本地包**逐字节相同**）。
+- 🔴 **板卡此刻读不到 `/mnt/manu`**：板卡把 `192.168.0.115:/run/media/manu/SSD960-LOCAL/nfs` 挂在 `/mnt/manu`，
+  但本机 `systemctl is-active nfs-server` = **inactive** ⇒ `ls /mnt/manu` 直接 **I/O error**。
+  ⇒ 本轮板卡实测因此改走「本地抽帧 + scp」（见六-1）。
+  📌 **待用户处理**：重装系统后 NFS 导出服务没起 ⇒ 需要 `sudo systemctl start nfs-server`（或 `exportfs -v` 重建导出），
+  否则**板卡与嵌入式组都读不到 NFS 交付目录**。
+## §307 · 工具链恢复 + 净室重建验收（2026-11-23 17:00）：外置盘间歇 ENOENT、唯一正确工具链是 buildroot 9.3.0、交付态 `.so`+`.a` 零漂移复验通过
+
+> 本节收口 §306 的收尾项：① 把板上/宿主机侧的交叉工具链恢复到**可被自动发现**的位置；
+> ② 用**唯一正确的工具链**（buildroot 9.3.0）对交付包做**净室重建 + 上板等价性复测**；
+> ③ 记录本次踩到的**外置盘间歇性 ENOENT 故障**（重装系统 + 换盘映射后的新坑）。
+
+### 一、🔴 外置盘 `/dev/sdc1` 间歇性 ENOENT（本次最大的坑）
+
+- **现象**：外置盘 `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084` 上的路径**时好时坏**：
+  - `ls` / `find` / `stat` / `test -d` 对**同一路径**给出**互相矛盾的结论**；
+    目录条目在父目录里 `ls` **看得见**，但目录本身 `open` 报 **ENOENT**。
+  - `tar -xzf <tarball>` **偶发** `tar (child): <tarball>: Cannot open: No such file or directory`（rc=2）；
+    同一个 tarball 有时又能正常解出全部 17647 个文件。
+- **排查结论**：
+  - ext4 `errors_count=0`；无 crontab / 无可疑 systemd timer；**写入跨命令持久**（小目录对照实验）
+    ⇒ 不是「命名空间 / 挂载竞态」造成的假象。
+  - **tarball 本身完好**（这是关键 exoneration）：
+    `gcc-buildroot-9.3.0-2020.03-x86_64-aarch64-rockchip-linux-gnu.tar.gz` md5 `217b745f7dc4355e6c595cda2632392e`、gzip 自检 OK、18844 条目；
+    `gcc-arm-10.3-2021.07-x86_64-aarch64-none-linux-gnu.tgz` md5 `8a152b07149debd87f5d2046cf9f8bcf`、gzip OK、6249 条目。
+  - ⚠️ **两个「自造的假象」**（写进 memory 以免下次再踩一遍）：
+    ① `tar ... | head -N` ⇒ tar 收到 **SIGPIPE 被杀** ⇒ 「解压不完整」是假象，不是盘坏；
+    ② `find "$D" -depth -delete` ⇒ 会把**上一轮探测目录**删掉 ⇒ 「文件凭空消失」是假象。
+- **后果**：原先装在 sdc1 上的 buildroot 工具链**读不出来了**
+  （`/run/media/manu/3061aec8-.../rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-.../`）
+  ⇒ 交付脚本 `build_lib.sh` 自动发现不到编译器。
+
+### 二、🟢 工具链恢复：从 tarball 解到**内盘** `$HOME`
+
+- **唯一正确的工具链 = buildroot 9.3.0（glibc 2.29）**，恢复后的稳定路径：
+  `/home/manu/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64-aarch64-rockchip-linux-gnu`
+- ⚠️ **目录名必须是「短横线」版**（`x86_64-aarch64`）：
+  tarball 解出来的顶层目录名是**「下划线」版**（`x86_64_aarch64`），
+  而 `build_lib.sh` 的自动发现写死了
+  `TC_REL="rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64-aarch64-rockchip-linux-gnu"`
+  ⇒ **不改名 ⇒ 自动发现打不中**（这是本轮最容易漏的一步）。
+- **自动发现顺序**：`/run/media/manu/*` → `/media/manu/*` → `$HOME`
+  ⇒ 放 `$HOME/rk3588/...`（内盘 sda2，稳定）即可被命中；实测候选**唯一**。
+- **实测**：17647 文件 / 906 目录 / 291 符号链接 / 962 MB；
+  `aarch64-linux-gcc` = `9.3.0 (Buildroot 2018.02-rc3-g548dfbfc13-dirty)`；
+  `bin/toolchain-wrapper` 按**自身位置**解析 sysroot（`-print-sysroot` 指向新路径）⇒ 搬迁后驱动自洽；
+  `usr -> .` / `lib64 -> lib` 自引用符号链接完整保留。
+- ✅ **另有一条可用副本**在 `/run/media/manu/SSD960-LOCAL/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-...`
+  （sdb 盘，正常）⇒ 自动发现实际**先命中它**；两条都能编出同一结果。
+
+### 三、🔴 `gcc-arm-10.3` **不可用于上板**（只适合验证构建脚本逻辑）
+
+- `gcc-arm-10.3-2021.07-x86_64-aarch64-none-linux-gnu.tgz` 解出 5829 文件、编译器能跑 ⇒
+  **可以**用来验证 `build_lib.sh` / `build_demo.sh` 的**脚本逻辑**（产物结构、静态链接自检、导出符号……）。
+- 但它的产物需要 **`GLIBC_2.33`**，而目标板是 **glibc 2.31**（Ubuntu 20.04 aarch64）
+  ⇒ **链出来的二进制上板直接起不来**。
+- ⇒ **判定口径（以后每次交付都要过这一关）**：
+  **交给板卡的 aarch64 二进制，最高 glibc 需求必须 ≤ 2.29**（buildroot 9.3.0 天然满足）。
+  体检命令：`readelf -V <bin> | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1`。
+
+### 四、✅ 净室重建验收（buildroot 9.3.0，**零工具链环境变量**）
+
+- **净室定义** = 交付包副本 + 删光 `out/`，只保留 README 里集成方本来就要指的**板卡库路径**：
+  ```bash
+  export OPENCV_INCLUDE_DIR=<boardlibs>/opencv/include/opencv4
+  export OPENCV_LIB_DIR=<boardlibs>/opencv/lib
+  export BOARD_LIBS=<boardlibs>/boardlibs
+  export RT_LIB_DIR=<boardlibs>/rknnrt
+  unset RK3588_TOOLCHAIN CROSS_CXX CROSS_AR     # ← 工具链完全交给自动发现
+  bash build_lib.sh && bash build_demo.sh
+  ```
+- ✅ 两个脚本**全部跑通**：`.a` members = `mosaic_pipeline.o` + `mosaic_track_fusion.o`；
+  `mosaic_api_test_static` 的 NEEDED 里**没有** `libmosaic_pipeline.so`
+  ⇒ 静态链接**未静默退化**（脚本自带 `readelf -d | grep` 当场自检，命中即 die）；
+  产物最高 glibc 需求 `GLIBC_2.29` ≤ 板卡 2.31。
+- ✅ **上板 60 帧等价性复测**
+  （`--raw-root /userdata --sequence lqframes_v2 --limit 60`，模型 `/tmp/p0_off_A_none.rknn`，kernel `/root/kernels`）：
+
+  | 二进制 | 检测 TSV md5 | 检出 | 丢帧 | GMC 组 | 后处理 |
+  | --- | --- | --- | --- | --- | --- |
+  | `mosaic_api_test`（链 `.so`） | `b20af662c936f5b76056f7870c9aa27c` | 171 | 0 | 60 | ~0.79 ms/帧 |
+  | `mosaic_api_test_static`（链 `.a`） | `b20af662c936f5b76056f7870c9aa27c` | 171 | 0 | 60 | ~0.80 ms/帧 |
+
+  ⇒ 与交付基线**逐字节相同**；**静态与共享行为等价**（两行 md5 一致）。
+- 📌 **产物 md5 与「编译时的包根绝对路径」绑定**（`__FILE__` 被烤进二进制）
+  ⇒ 换目录重编 md5 会变、**行为不变**（MANIFEST 已写明这条口径，不要拿 md5 差异当回归）。
+
+### 五、板卡清理与交付落点复核
+
+- **板卡已清**：`/userdata/cr`、`/userdata/cr_br`、`/userdata/cr_fin`、`/userdata/tsv_br_*.tsv`、`/userdata/fin_*.tsv`
+  全部清空（用 `find -delete` / `rmdir`；板卡**禁止** `rm -f` / `rm -rf`）。
+  保留 `lqframes_v2`（300 帧）与 `/tmp/p0_off_A_none.rknn` 供复测。
+- **交付落点未受影响**：`/run/media/manu/SSD960-LOCAL/nfs/mosaic_sdk/` 仍是 **86** 文件，
+  `out/libmosaic_pipeline.so` = `a6b26922e596444ea393711f8b2a4289`、
+  `out/libmosaic_pipeline.a` = `b86391619f1d9e92973c1b4a1e6520d7`，与本地包**逐字节相同**。

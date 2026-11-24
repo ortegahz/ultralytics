@@ -215,9 +215,10 @@ def check_arm(led: dict, base: dict, trial: int) -> dict:
     #   【影响面】只放宽「t2_fp ∈ (基线, 5]」这一档 ⇒ 与权威审计口径**完全一致**；
     #     升轨三关（种子复现 / 单臂严格支配 / 板端 T4 PASS）**全部保持不变** ⇒ 不会引入基线名通胀。
     try:
-        from manu.pipeline.npu import six_criteria_audit as _A  # noqa: PLC0415（权威 T2 口径唯一真源）
+        from manu.pipeline.npu import six_criteria_audit as _A  # noqa: PLC0415（权威判据唯一真源）
         _t2_cap = int(_A.t2_cap(base))
     except Exception:  # noqa: BLE001
+        _A = None
         _t2_cap = max(int(base.get("t2_fp") or 0), 5)
     res["t2_cap"] = _t2_cap
     if pk.get("nano") is not None:
@@ -287,7 +288,19 @@ def check_arm(led: dict, base: dict, trial: int) -> dict:
             res["warnings"].append("未测板端时延（arm 未进板卡会话）")
     else:
         res["warnings"].append("台账里没有 0031 的板端参照")
-    res["ok"] = bool(c) and all(c.values())
+    # 🔴🔴🔴 2026-11-23 —— **零增量臂（与基线逐位打平）不得升轨**（基线名通胀防护）。
+    #   六项判过口径是 `>=`（= 不劣于基线）⇒ **与基线逐位相同的克隆臂也算「六项全过」**。
+    #   现场（台账 14,057 臂）：「六项全过」的 57 臂**全部与基线逐位相同**
+    #   （nano/nano4/f1/t1/t3 差值精确 = 0，只有 t2_fp 3→4）⇒ **零改进**；
+    #   而汤族种子关又由「同族六项全过的成员」自证 ⇒ 克隆臂会把自己升成新基线。
+    #   ⇒ 升轨必须**另加**「至少一轴严格优于基线」（权威实现 `six_criteria_audit.strictly_better`）。
+    _strict = bool(_A is not None and _A.strictly_better(
+        {"nano": pk.get("nano"), "nano4": pk.get("nano4"), "f1": pk.get("f1"),
+         "t1": of.get("t1"), "t3": of.get("t3"), "t2_fp": of.get("t2_fp")}, base))
+    res["strictly_better"] = _strict
+    if not _strict:
+        res["warnings"].append("该臂与基线**逐位打平**（零增量）⇒ 拒绝升轨（基线名通胀防护）")
+    res["ok"] = bool(c) and all(c.values()) and _strict
     # 种子复现
     groups = recipe_stats(led)
     g = groups.get(recipe_key(st.get("params") or {}))
@@ -387,16 +400,8 @@ def check_arm(led: dict, base: dict, trial: int) -> dict:
         "t2fp": of.get("t2_fp") is not None and of["t2_fp"] <= _t2_cap,
         "t3": of.get("t3") is not None and of["t3"] >= base["t3"],
     }
-    _strictly_better = bool(
-        (pk.get("nano") or 0) > base["nano"]
-        or (pk.get("nano4") or 0) > base["nano4"]
-        or (pk.get("f1") or 0) > base["f1"]
-        or (of.get("t1") or 0) > base["t1"]
-        or (of.get("t3") or 0) > base["t3"]
-        or (of.get("t2_fp") is not None and of["t2_fp"] < int(base.get("t2_fp") or 0)))
     res["strict_axes"] = _auth_axes
-    res["strictly_better"] = _strictly_better
-    if (not _is_soup) and all(_auth_axes.values()) and _strictly_better and c.get("ms") is True:
+    if (not _is_soup) and all(_auth_axes.values()) and _strict and c.get("ms") is True:
         res["single_arm_strict"] = True
         res["seed_replicated"] = True
         res["seed_note"] = (
@@ -454,7 +459,7 @@ def cmd_promote(led: dict, base: dict, trial: int, name: str, force: bool, dry: 
     for w in r["warnings"]:
         print(f"  ⚠ {w}")
     if not r["ok"]:
-        print("  ⇒ 六项未全平基线 ⇒ **拒绝升轨**")
+        print("  ⇒ 未过升轨判据（详见上方 ⚠）⇒ **拒绝升轨**")
         return
     # 🔴 2026-11-17 16:45：`auto_promote_watch` 一直带 `--require-board` 调本脚本，
     #   而本脚本**根本没有这个参数** ⇒ argparse 直接 usage error ⇒ **自动升轨永远失败**

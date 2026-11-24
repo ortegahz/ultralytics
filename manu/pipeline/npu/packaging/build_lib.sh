@@ -218,13 +218,38 @@ rm -f "$OUT/libmosaic_pipeline.so"
   "${LIB_PATHS[@]}" "${RPATH_LINKS[@]}" \
   $OPENCV_LIBS -lOpenCL -lrknnrt -lrga -lpthread -ldl -lm
 
+# ---------------------------------------------------------------------------
+# 1b. archiving  libmosaic_pipeline.a  (STATIC library)
+#
+#     为什么同时交付 .so 与 .a：嵌入式组要求静态库（要单文件交付 / 不想在运行
+#     环境里带我们的 .so）；但 .so 那套已经被认证过 => 两种都留着，客户要哪
+#     种都有，行为逐字节一致（静态库与共享库同源同对象文件）。
+#
+#     成员只有 mosaic_pipeline.o + mosaic_track_fusion.o，故意不含
+#     stat_compat.o：那个垫片转发的是 glibc 的 __xstat（glibc 2.33 起已移除）
+#     => 把它打进预编译归档，等于给这份 .a 锁死一个 glibc 大版本 => 目标板
+#     glibc >= 2.33 时直接链接失败。stat_compat.o 继续单独留在 out/，由集成
+#     方按目标板自己决定要不要带（包内 src/npu/stat_compat.c 也带上了源码）。
+# ---------------------------------------------------------------------------
+echo "== archiving libmosaic_pipeline.a (static library) =="
+rm -f "$OUT/libmosaic_pipeline.a"
+# -D = deterministic（归档里不留 uid/gid/mtime => 同一份源码重复构建 md5 稳定）
+if ! "$AR" rcsD "$OUT/libmosaic_pipeline.a" "$OUT/mosaic_pipeline.o" "$OUT/mosaic_track_fusion.o" 2>/dev/null; then
+  "$AR" rcs "$OUT/libmosaic_pipeline.a" "$OUT/mosaic_pipeline.o" "$OUT/mosaic_track_fusion.o"
+fi
+[ -f "$OUT/libmosaic_pipeline.a" ] || die "静态库归档失败（ar: $AR）"
+
 echo
 echo "== artifact =="
 echo "  path : $OUT/libmosaic_pipeline.so"
 echo "  size : $(stat -c%s "$OUT/libmosaic_pipeline.so") B"
 echo "  md5  : $(md5sum "$OUT/libmosaic_pipeline.so" | cut -d' ' -f1)"
+echo "  path : $OUT/libmosaic_pipeline.a"
+echo "  size : $(stat -c%s "$OUT/libmosaic_pipeline.a") B"
+echo "  md5  : $(md5sum "$OUT/libmosaic_pipeline.a" | cut -d' ' -f1)"
+echo "  members: $("$AR" t "$OUT/libmosaic_pipeline.a" | tr '\n' ' ')"
 echo
 echo "  -- 运行时依赖（全部为板卡自带库，板卡 ldconfig 可解析）--"
 readelf -d "$OUT/libmosaic_pipeline.so" | grep NEEDED | sed 's/.*\[/    /;s/\]//'
 echo
-echo "[ok] shared library built.  Next: bash build_demo.sh"
+echo "[ok] shared library + static library built.  Next: bash build_demo.sh"

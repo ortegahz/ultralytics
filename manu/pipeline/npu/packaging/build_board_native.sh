@@ -66,6 +66,30 @@ $CXX -shared -Wl,-soname,libmosaic_pipeline.so -Wl,--allow-shlib-undefined \
   -lopencv_imgcodecs -lopencv_calib3d -lopencv_features2d -lopencv_flann -lopencv_video \
   -lopencv_imgproc -lopencv_core -lOpenCL -lrknnrt -lrga -lpthread -ldl -lm
 
+echo "--- 归档静态库（与共享库同源同对象文件）---"
+rm -f "$OUT/libmosaic_pipeline.a"
+ar rcsD "$OUT/libmosaic_pipeline.a" "$OUT/mosaic_pipeline.o" "$OUT/mosaic_track_fusion.o" 2>/dev/null \
+  || ar rcs "$OUT/libmosaic_pipeline.a" "$OUT/mosaic_pipeline.o" "$OUT/mosaic_track_fusion.o"
+[ -f "$OUT/libmosaic_pipeline.a" ] || { echo "[FATAL] 静态库归档失败" >&2; exit 1; }
+
+echo "--- 编译 stat 垫片（板卡自己的 glibc 版本决定要不要它）---"
+$CXX -std=c++17 -O2 -fPIC -c "$SRC/stat_compat.c" -o "$OUT/stat_compat.o"
+
+echo "--- 链接静态版 demo（板卡原生 g++ 链 .a）---"
+$CXX -std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter -Wno-unused-function $FP \
+  -I"$HERE/include" -I"$HERE/include/rga" -I"$HERE/src/cpp" -I"$HERE/src/opencl/host" -I"$OCV_INC" \
+  -DCL_TARGET_OPENCL_VERSION=300 \
+  "$SRC/mosaic_api_test.cpp" -o "$OUT/mosaic_api_test_static" \
+  "$OUT/libmosaic_pipeline.a" "$OUT/stat_compat.o" \
+  -L"$OCV_LIB" -L"$EXTRA_LIB" -L"$LNK" \
+  -lopencv_imgcodecs -lopencv_calib3d -lopencv_features2d -lopencv_flann -lopencv_video \
+  -lopencv_imgproc -lopencv_core -lOpenCL -lrknnrt -lrga -lpthread -ldl -lm
+if readelf -d "$OUT/mosaic_api_test_static" 2>/dev/null | grep -q 'libmosaic_pipeline\.so'; then
+  echo "[FATAL] mosaic_api_test_static 仍然依赖 libmosaic_pipeline.so ==> 静态链接没生效" >&2
+  exit 1
+fi
+echo "  [ok] 静态链接生效（NEEDED 里没有 libmosaic_pipeline.so）"
+
 echo "--- 链接板卡验证探针（零 OpenCV）---"
 for t in mosaic_cadence_probe mosaic_track_dump; do
   $CXX -std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter -Wno-unused-function $FP \
@@ -75,7 +99,7 @@ for t in mosaic_cadence_probe mosaic_track_dump; do
 done
 
 echo "--- 产物 md5 ---"
-md5sum "$OUT/libmosaic_pipeline.so" "$OUT/mosaic_track_dump" "$OUT/mosaic_cadence_probe"
+md5sum "$OUT/libmosaic_pipeline.so" "$OUT/libmosaic_pipeline.a" "$OUT/mosaic_track_dump" "$OUT/mosaic_cadence_probe" "$OUT/mosaic_api_test_static"
 
 echo "--- 跨尺度候选合并是否在库里 ---"
 nm -D "$OUT/libmosaic_pipeline.so" | grep -i MergeCandidatesByRadius || echo "SYMBOL MISSING"
