@@ -565,12 +565,15 @@ python manu/video_quality/vq_sot_verify.py --sot-dir /tmp/sot_out,/tmp/sot_out_o
 for f in comparison.csv stats.csv tail_compare.csv tail_slices.csv; do
   [ -f "${VQ_PROD}/report/$f" ] && cp -f "${VQ_PROD}/report/$f" manu/video_quality/report/
 done
-cp -f ${VQ_PROD}/report/chart_*.png manu/video_quality/report/
+#    🔴 图表不入库（铁律二十五）：落 cache 的 repo-artifacts 镜像目录（1:1 镜像仓库相对路径，可原路还原）
+mkdir -p /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report
+cp -f ${VQ_PROD}/report/chart_*.png /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/
 #    ② 宫格结论表 + 图（grid_windows.csv = 26490 行逐秒大表，中间产物，不回仓库）
 for f in grid_summary.csv grid_compare.csv grid_crosstab.csv grid_sensitivity.csv grid_thresholds.json; do
   [ -f "${VQ_PROD}/report/$f" ] && cp -f "${VQ_PROD}/report/$f" manu/video_quality/report/
 done
-cp -f ${VQ_PROD}/report/chart_grid_*.png manu/video_quality/report/
+mkdir -p /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report
+cp -f ${VQ_PROD}/report/chart_grid_*.png /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/
 #    ③ SOT 结论表（长时程进 report/；短时程进 report/sot_short/，另存一份带 _short 后缀的扁平副本）
 for f in sot_groups.csv sot_discrimination.csv sot_thresholds.csv sot_tau_det.csv sot_clips.csv; do
   [ -f "${VQ_PROD}/report/sot_long/$f" ]  && cp -f "${VQ_PROD}/report/sot_long/$f"  manu/video_quality/report/
@@ -677,3 +680,31 @@ cd /tmp/pycharm_project_10ae9e2e && export PYTHONPATH=. && \
 cd /tmp/pycharm_project_10ae9e2e && export PYTHONPATH=. && \
   /home/huangzhe/anaconda3/envs/uav/bin/python manu/pipeline/npu/repair_soup_ledger.py
 #   只修某段臂号：--min-sid <N> / --max-sid <N>（如只修 SB4 段 ⇒ --min-sid 2109000）
+
+# ============================================================================
+# PointAnnotator 标注工具：三份并行交付（拆分 / 验收 / 自检）（2026-11-25 新增）
+# 详见 manu/memory/memory.md §315 与 manu/point_annotator/README.md
+# ============================================================================
+# 母包（58 条视频 + 58 个序列的模型预推点，保持全量形态不动）：
+export PA_MASTER=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/PointAnnotator_Windows
+export PA_OUT=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/PointAnnotator_Windows_三份交付
+
+# ① 只看分配方案，不落盘（秒级；ffprobe 读容器帧数，不用解码）
+python3 manu/point_annotator/split_delivery.py --master "$PA_MASTER" --out-dir "$PA_OUT" \
+  --parts 3 --frame-cache /tmp/vq_frames.json --plan
+
+# ② 真正生成三份（每份自包含：tool/ + docs/ + Python 安装包 + 自己的 videos/ 与 preannot/）
+python3 manu/point_annotator/split_delivery.py --master "$PA_MASTER" --out-dir "$PA_OUT" \
+  --parts 3 --frame-cache /tmp/vq_frames.json
+#   ⇒ 产出 "$PA_OUT"/{PointAnnotator_Windows_标注员1,2,3}/ + 交付说明.md + _split_summary.json
+#   等量口径：总帧数 / 手工帧数（无预推点须手工落点的帧）/ 工作量（手工 1.0 + 核对 0.35）三项对齐
+#   🔴 三份互不重叠、并集 = 母包 58 条 ⇒ 回收时按视频名直接并集，不会互相覆盖
+
+# ③ 验收（67 项：结构 / 配对 / 逐字节 md5 / 等量 / 无重复无遗漏；约 1 分钟）
+python3 manu/point_annotator/verify_split.py --master "$PA_MASTER" --parts-dir "$PA_OUT"
+
+# ④ 单份自校验（在任一份的根目录下执行；每份 ~3.2 万个文件）
+cd "$PA_OUT/PointAnnotator_Windows_标注员1" && md5sum -c _split_manifest.md5
+
+# ⑤ 工具无窗口自检（本机需要 opencv + numpy；三份都应输出 PASS 101 / FAIL 0）
+for d in "$PA_OUT"/PointAnnotator_Windows_标注员*; do (cd "$d" && python3 tool/point_annotator.py --self-test); done

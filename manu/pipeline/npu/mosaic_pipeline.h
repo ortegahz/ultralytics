@@ -1381,6 +1381,51 @@ int32_t mosaic_pipeline_set_track_fusion(MosaicPipeline* p, const MosaicTrackFus
 int32_t mosaic_pipeline_collect_tracked(MosaicPipeline* p, int64_t* frame_id, MosaicTrackedDet* out,
                                         int32_t max_out);
 
+/* The TRACKED-result callback -- the callback flavour of
+ * mosaic_pipeline_collect_tracked().
+ *
+ * It hands the client the SPATIO-TEMPORAL FUSION's answer for a frame: ONE
+ * entry per CONFIRMED TARGET (the cross-scale duplicates are already merged
+ * by the library), so a client that draws one rectangle per detection draws
+ * ONE rectangle per target.
+ *
+ * WHEN IT FIRES: on the library's own dispatch thread (the same thread that
+ * serves mosaic_pipeline_set_result_callback()), in the order the tracker
+ * produced the frames.
+ *
+ * THE SWITCH: exactly like the result callback, registering it SWITCHES the
+ * tracked output's path:
+ *   - cb != NULL: the tracked output is DELIVERED by this callback and is NOT
+ *     queued for mosaic_pipeline_collect_tracked() any more.  (That queue
+ *     would grow by one item per frame, forever, for a client that never
+ *     drains it -- the very trap this callback removes.)
+ *   - cb == NULL: the callback is removed and the tracked output goes back
+ *     to the queue (mosaic_pipeline_collect_tracked()).
+ *   The frames pending in the other path are moved over when the switch
+ *   flips, so nothing is lost in either direction.
+ *
+ * THE RAW DETECTION STREAM: registering THIS callback alone (without a result
+ * callback) means the client does not read mosaic_pipeline_collect() any
+ * more -- so the library does not buffer the raw candidates either (they
+ * would accumulate one item per frame, forever).  Register the result
+ * callback as well if the client wants the raw stream too; with this
+ * callback alone, mosaic_pipeline_collect() returns -1 (and says so once on
+ * stderr).
+ *
+ * This is an ADDITION: mosaic_pipeline_collect_tracked() and every other
+ * public interface are UNCHANGED, and MOSAIC_API_VERSION stays 10. */
+typedef void (*MosaicTrackedCallback)(void* user, int64_t frame_id,
+                                      const MosaicTrackedDet* dets, int32_t n_dets);
+
+/* Register the tracked-result callback (see MosaicTrackedCallback).
+ * Passing NULL removes it and switches the tracked output back to the
+ * queue.  Returns 0 on success, -1 on a NULL pipeline.
+ *
+ *   mosaic_pipeline_set_tracked_callback(p, on_tracked, my_user);
+ */
+int32_t mosaic_pipeline_set_tracked_callback(MosaicPipeline* p, MosaicTrackedCallback cb,
+                                             void* user);
+
 /* Collect the next frame's FINAL (offline) fusion result -- the two-pass
  * smoother plus the consecutive-frame confirmation, i.e. the output of the
  * Python reference's `run_system_sota`.  It only exists AFTER

@@ -8,6 +8,13 @@
 
 ---
 
+> **📌 图表落点说明（铁律二十五，2026-11-24）**：**代码产生的中间产物一律出仓库目录** —— 本档正文与结论表
+> （`.md` / `.csv` / `.json`）仍随仓库入库，**图表（`.png`）本身不再入库**。
+> 全部图表的 canonical 落点 =
+> `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/`。
+> 该目录 **1:1 镜像仓库相对路径**（把仓库相对路径原样拼到 `repo-artifacts/` 后面即命中 ⇒ **可原路还原**），
+> 图表也可由 `manu/video_quality/vq_*.py` 整批重生成。
+
 ## 一、结论（事实层）
 
 **跨两个模态真正共同的失效特征是「糊 + 灰 + 压」，不是「晃」。**
@@ -41,7 +48,7 @@
 
 1. **坏组 IR 有大面积黑边（pillarbox）**：不裁边直接算，黑边硬边缘会把拉普拉斯/梯度能量抬高，**把坏片「测成」清晰**。必须先检测裁掉再缩放到宽 640。
 2. **文件名不可信**：`130CT-02可见光_OSDT.mp4` 名字写可见光，实测是红外/可见光来回切换（**81.0% 时长是可见光**，**290/358** 个 5 秒采样点判为彩色；**首个彩色采样点在第 195.0 s** ⇒ 开头约 3 分钟是红外灰度）。模态按**全片像素饱和度多数表决**判定（`vq_run_server.py` 的 `probe_modality`，fps=1/5 采样），**不看文件名**。上述数字**已落盘**：逐片 `out/130CT-02可见光_OSDT.json` 的 `modality_vis_ratio` / `modality_samples` / `modality_coloured` / `modality_first_vis_seconds`（由 `vq_reclassify.py` 写入，报告里的占比是**从该产物读出来的**，不是写死的）。
-3. **`osd/` 下 3 个「挂飞」文件实为桌面录屏**，不是视频源。证据图：`manu/video_quality/report/evidence_挂飞录屏实为桌面录屏_t300s.png`。
+3. **`osd/` 下 3 个「挂飞」文件实为桌面录屏**，不是视频源。证据图：`/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/evidence_挂飞录屏实为桌面录屏_t300s.png`。
 
 ## 三、核心数字（全部可在 `report/comparison.csv` 对上）
 
@@ -149,6 +156,9 @@ VIS：`flow_med_frac` 0.546、`dark_ratio` 0.530。
 cd /tmp/pycharm_project_10ae9e2e
 source /home/huangzhe/anaconda3/etc/profile.d/conda.sh && conda activate uav
 export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MPLCONFIGDIR=/tmp/mplcfg
+#    产物根（服务器 canonical = /mnt/data/siping/runs/；本机跑时覆盖到 workspace/cache/ultralytics/）
+#      VQ_PROD=/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/video_quality
+VQ_PROD="${VQ_PROD:-/mnt/data/siping/runs/video_quality}"
 
 # 1) 逐帧指标提取（25 条片；4 worker；cv2.setNumThreads(1)；ffmpeg -threads 1；60s 看门狗 + 20% 内存刹车）
 bash manu/video_quality/vq_launch_server.sh 4
@@ -202,6 +212,13 @@ python manu/video_quality/vq_verify.py \
 python manu/video_quality/vq_acceptance.py \
   --metrics-dir manu/video_quality/out --report-dir manu/video_quality/report \
   --memory manu/memory/video_quality_metrics_20261119.md
+
+# 9) 🔴 图表出仓库（铁律二十五 · 2026-11-24 补充裁决）
+#    PNG 属「可由 vq_*.py 整批重生成」的中间产物 ⇒ **中间产物不许留在仓库目录**。
+#    跑完立刻迁到产物根：服务器 ${VQ_PROD}/report；本机（覆盖 VQ_PROD 后）= workspace/cache/ultralytics/...
+#    仓库只留报告正文 REPORT_视频质量指标.md 与结论级表（comparison/stats/tail_compare/knee_* 等）。
+mkdir -p "${VQ_PROD}/report"
+mv -f manu/video_quality/report/*.png "${VQ_PROD}/report/" 2>/dev/null || true
 ```
 
 ## 七、产物清单
@@ -213,8 +230,8 @@ python manu/video_quality/vq_acceptance.py \
 | 统计表 | `manu/video_quality/report/stats.csv` / `.json` | 双侧精确置换 p、cluster CI、红线、LOCO |
 | 尾窗对比 | `manu/video_quality/report/tail_compare.csv` / `.json`、`tail_slices.csv` | 故障窗 vs 好片全局 |
 | 逐片指标 | `manu/video_quality/out/*.json` + `*.npz` + `run_manifest.json` | 25 条 × 逐帧数组；逐片 json 另含模态探测字段 `modality_vis_ratio` / `modality_samples` / `modality_coloured` / `modality_first_vis_seconds` / `modality_probe_seconds`。**三个模态字段的口径互不相同，别混用**：逐片 json 的 `modality` = **像素探测结果**（3 条桌面录屏是彩色画面，故也记 `vis`）、逐片 json 的 `kind` = `source`/`osd`，**统计分组靠 `kind` 过滤**（`vq_stats.PAIRS`：ir/vis 两个组都带 `kind=="source"`，osd 组按 `kind=="osd"` 取，故桌面录屏的 `modality` 记什么都不影响统计）；`run_manifest.json` 的 `modality` = **批跑初判**（历史记录，**永不改写**）、`modality_final` = **最终分析分组**（osd 片记 `osd`） |
-| 图表 | `manu/video_quality/report/chart_metrics_{ir,vis,osd}.png`、`chart_auc_{ir,vis,osd}.png`、`chart_timeseries_{ir,vis,osd}.png` | |
-| 桌面录屏证据 | `manu/video_quality/report/evidence_挂飞录屏实为桌面录屏_t300s.png` | |
+| 图表 | `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_metrics_{ir,vis,osd}.png`、`/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_auc_{ir,vis,osd}.png`、`/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_timeseries_{ir,vis,osd}.png` | 🔴 图表不入库（铁律二十五）：落 cache 的 repo-artifacts 镜像目录，1:1 镜像仓库相对路径，可原路还原 |
+| 桌面录屏证据 | `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/evidence_挂飞录屏实为桌面录屏_t300s.png` | 同上 |
 | 尺度偏置实测 | `manu/video_quality/report/resample_bias.txt` | 由 `vq_bias.py` 生成 |
 
 **产物 md5（2026-11-20 重新逐个对过现产物；点时值，以现算为准）**：
@@ -274,7 +291,7 @@ cat manu/memory/.vq_sec260_compact.md >> manu/memory/memory_compact.md   # 精�
 > **主档登记**：§269 ｜ **新增脚本**：`manu/video_quality/vq_grid*.py` + `test_vq_grid_lk.py`
 > **新增产物**：`manu/video_quality/grid_out/`（25 片 × json/npz/rows.csv，36 MB）
 > ＋ `manu/video_quality/report/grid_{summary,windows,compare,crosstab,sensitivity}.csv`
-> ＋ `report/grid_thresholds.json` ＋ `report/chart_grid_*.png`（6 张）
+> ＋ `report/grid_thresholds.json` ＋ `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_grid_*.png`（6 张）
 
 ## 7.1 为什么做这一节（业务动机）
 
@@ -320,7 +337,7 @@ cat manu/memory/.vq_sec260_compact.md >> manu/memory/memory_compact.md   # 精�
   VIS `det_ratio`/`ugr` 视频级 **1.000**、窗口级 0.929/0.896；VIS `lambda_min_p50` 视频级 **1.000**。
 - **红线窗口 vs 干净窗口**（核心红线全越线的窗口为正类）：`tgr_dog` AUC = **IR 0.008 / VIS 0.129**
   ⇒ 越线秒的可用率系统性落在最底部。
-- **空间分布**（`chart_grid_heatmap.png`）：好片**整幅均匀**（IR 每格 0.58~0.86、VIS 0.66~0.79）；
+- **空间分布**（`/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_grid_heatmap.png`）：好片**整幅均匀**（IR 每格 0.58~0.86、VIS 0.66~0.79）；
   坏片**整幅都低**（IR 0.21~0.29、VIS 0.07~0.23）⇒ 坏片是**系统性不可用**，不是「只是没拍到目标」。
 - **阈值敏感性**：τ_det 扫 0.25×~8×（**32 倍**），好片 UGR 只从 0.875 降到 0.583，
   **坏片始终 ≤ 0.083**，分离度不塌。
@@ -353,6 +370,8 @@ UGR 衡量的是**画面本身**有没有可供跟踪的局部结构，**不等�
 
 ```bash
 cd /tmp/pycharm_project_10ae9e2e
+#    产物根（服务器 canonical = /mnt/data/siping/runs/；本机跑时覆盖到 workspace/cache/ultralytics/）
+VQ_PROD="${VQ_PROD:-/mnt/data/siping/runs/video_quality}"
 # 1) 逐片提取网格可跟踪性（25 条片，4 worker，线程钉 1，60s 看门狗 + 20% 内存自刹车）
 bash manu/video_quality/vq_grid_launch_server.sh 4
 #    产物：manu/video_quality/grid_out/<片名>.{json,npz,rows.csv} + run_manifest.json
@@ -367,6 +386,9 @@ python manu/video_quality/vq_grid_charts.py \
 # 3) LK 光流对照实验（方法无关性；自检不需要视频）
 python manu/video_quality/test_vq_grid_lk.py
 bash manu/video_quality/vq_grid_lk_launch_server.sh 4
+# 4) 🔴 图表出仓库（同 §六 第 9 步）：PNG 迁到产物根，仓库只留报告正文与结论级表
+mkdir -p "${VQ_PROD}/report"
+mv -f manu/video_quality/report/*.png "${VQ_PROD}/report/" 2>/dev/null || true
 ```
 
 ## 7.9 🔴 工程坑（踩过，勿重犯）
@@ -881,7 +903,7 @@ CHECK 4 分组独立重算 / CHECK 5 合格线复现 `thr=0.7746 == 0.7746`）�
 
 - **产物**（`manu/video_quality/report/`）：`degrade_windows.csv`（4730 行）、`degrade_lock.csv`（3938 行）、`degrade_curve.csv`（992 行）、
   `knee_thresholds.csv`（16 行）、`knee_blindtest.csv`（127 条线）、`knee_combos.csv`（134 条线级组合）、
-  `chart_degrade_knee_{ir,vis}_{metric}.png`（8 张）；中间产物在服务器 `/tmp/vq_degrade/`（**396 个退化视频**，体积大，**不回传本地**）。
+  `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_{ir,vis}_{metric}.png`（8 张）；中间产物在服务器 `/tmp/vq_degrade/`（**396 个退化视频**，体积大，**不回传本地**）。
 - **脚本**：`manu/video_quality/vq_degrade_prepare.py`（md5 `619dd401f07630e51cf7ef2bb504f6be`）、
   `vq_degrade_knee.py`（md5 `ff836a1c1b9bcde70e39390b20e0f4eb`，六相 measure/curve/knee/blindtest/combo/charts）、
   `vq_degrade_report.py`（md5 `bcba6322522e91ca06161533285e20e6`，生成 §9.5.9 小节，数字全部从 CSV 现场读）。
@@ -942,4 +964,139 @@ CHECK 4 分组独立重算 / CHECK 5 合格线复现 `thr=0.7746 == 0.7746`）�
 - 产物：`manu/video_quality/report/{REPORT_视频质量指标.md,knee_thresholds.csv,knee_combos.csv,knee_manifest.md5}`。
 - 验收：`md5sum -c manu/video_quality/report/knee_manifest.md5` → **42/42 OK**；
   `vq_sot_verify.py` 本地 **[PASS]**；`vq_sot_admission_verify.py` 短时程本地 **[RESULT] PASS**。
+- 📌 **补记（2026-11-25 晚；主档 `memory.md` §310 七）**：清单随后扩到 **90 条**（补入 KCF 派生表与 PDF），
+  其中 4 条记忆文件是**「活基线」**——记忆库改动后 `md5sum -c` 一度只过 **86/90**，已刷新并在清单头写明刷新时机
+  ⇒ 现 **90/90 OK**；仓库内 PNG **0 张**、报告图链 **37/37** 命中。
 - 🔴 **未提交（按铁律〇之三之二）**，仅落工作区。
+
+## 十、KCF 版重做 —— 换 OpenCV contrib KCF 跟踪器跑同一套「画质 → 跟踪」因果链（2026-11-24）
+
+> 📌 本节只追加、不改 §八/§九 的任何历史结论；主档见 `manu/memory/memory.md` **§308**，
+> 报告全文见 `manu/video_quality/report/REPORT_视频质量指标.md` **§9.10.1~§9.10.11**。
+
+### 10.1 为什么是 OpenCV contrib 的 KCF（而不是自己写一份）
+
+- 🔴 **OpenCV 主仓库没有 KCF**：`opencv/modules/video/src/tracking/` 只有 MIL/MedianFlow/GOTURN/Nano/Vit，
+  `grep -ril kcf` 零命中 ⇒ 官方 `opencv-python` 里 **KCF 不存在**。
+- KCF 实现在 **opencv_contrib 的 `modules/tracking`** ⇒ Python 入口 **`cv2.legacy.TrackerKCF_create`**。
+- 服务器 `opencv-python 4.10.0.84` 无 `cv2.legacy` ⇒ 装 **`opencv-contrib-python==4.10.0.84`** 到
+  **隔离目录** `/tmp/pylibs_cvcontrib`（`pip install --no-deps --target`），跑时 `PYTHONPATH` 注入，
+  **不污染共享 conda env `uav`**；📌 **产品若要上 KCF，依赖必须一起带**。
+- contrib `TrackerKCF` 实为 **FSR/KCF 变体**（高斯核 + 傅里叶域滤波 + 在线模型更新；HOG / CN-PCA 特征；
+  **半分辨率** `resize=1`；内部 `detect_thresh=0.5`；`sigma=0.2`、`lambda=1e-4`、`interp_factor=0.075`）。
+- 🔴 **改参数的坑**：`TrackerKCF::read()` **先重置默认值、只读 YAML 里出现的键** ⇒ 必须用
+  **`tracker.read(fs.root())`**（`fs.getFirstTopLevelNode()` 会踩 `isMap()` 断言）。
+- 🔴 **`detect_thresh=0.5` 是全部失锁的唯一来源**：关掉后同批点击原本第 4~20 帧断的链条全部跟满 30 帧
+  ⇒ 失锁是**外观置信度门限**，不是几何伪影。
+
+### 10.2 两臂设计 + 协议一致性
+
+- 两个臂：`kcf`（contrib 默认参数）与 `kcf_nt`（`detect_thresh=0.0`）⇒ 膝点主臂用 `kcf_nt`，`kcf` 臂做敏感性对照。
+- 脚本：`manu/tracking/lookahead/kcf_cv.py`（**新增**，薄适配层，缺 contrib **显式报错**）；
+  `manu/video_quality/vq_sot_link.py` / `vq_sot_link_driver.py` / `vq_sot_compare.py` / `vq_sot_verify.py` /
+  `vq_sot_admission_verify.py` / `vq_degrade_knee.py` 全部新增 `--arms`（**默认 `xcorr,patch` ⇒ 行为不变**）；
+  自研 numpy 版 `manu/tracking/lookahead/kcf.py` **已废弃删除**。
+- ✅ **协议一致 22/22**：22 条源片的点击点 `(window,cell,click_mode,x,y,tex_*)` 与 xcorr 版**逐位相同**
+  ⇒ 两家族画的是同一条退化曲线。
+- ✅ **零漂移回归**：默认臂与旧产物**逐字节一致**（与服务器既有 22 份 JSON 相同，忽略 `elapsed_s`）
+  ⇒ **§八/§九 的任何数字都没被本轮改动**。
+
+### 10.3 KCF 版结果（数字全部从 `manu/video_quality/report/kcf_*.csv` 现场读）
+
+**① 跟踪分 AUC（好片为正类，混池）**：短 **0.878634**（xcorr 0.898653）/ 长 **0.860606**（xcorr 0.841294）；
+指标侧 AUC 与家族无关（global_contrast 0.918928 / edge_density 0.901649 / lap_var 0.896152 /
+blockiness 0.894445 / entropy 0.874495）；Spearman KCF **0.45~0.74**（xcorr 0.45~0.83）。
+
+**② 合格线（4 条真实坏片硬切）**：短 IR `global_contrast ≥ 0.802616` / `blockiness ≤ 1.07442` / `entropy ≥ 7.37059`；
+短 VIS `lap_var ≥ 2384.46` / `global_contrast ≥ 0.737747`；长 IR `blockiness ≤ 1.040557`；
+长 VIS `lap_var ≥ 3357.21`（覆盖 3.0%）/ `edge_density ≥ 0.197635`（覆盖 20.1%）。
+🔴 长时程 VIS AND 组合后**好片 0/691** ⇒ **「长时程 VIS 无可用单指标单线」不变**。
+
+**③ 膝点（396 个退化变体，X=退化后实测画质 / Y=SOT 锁定率）**：短 IR global_contrast **0.577855**（xcorr 逐位相同）、
+lap_var **6.918433**、edge_density 0.004803；长 IR global_contrast **0.57763**、lap_var **7.843251**（逐位相同）、
+edge_density **0.007345**（逐位相同）；短 VIS lap_var **270.794141**；
+🔴 长 VIS lap_var **270.794141 vs xcorr 171.384126（+58% 不一致）**，且 global_contrast / edge_density 在 KCF 侧
+`knee_reliable=0` ⇒ **长时程 VIS 继续按「不采用」处理**，只作物理参照。
+
+**④ 盲测（4 坏 + 18 好）**：KCF 与 xcorr **逐位相同** —— 短/长 VIS `lap_var ≥ 270.794` 片级 **0% / 100%**；
+短/长 IR `global_contrast ≥ 0.577855` 片级 **16.667% / 100%**（窗级 26.055% / 88.789%）；
+🔴 IR `lap_var` 单独用 **0% / 0%（无区分度）**，必须与 `global_contrast` 组合。
+
+**⑤ 敏感性（默认参数臂 `kcf`）**：五格与 `kcf_nt` **逐位相同**，仅长 IR global_contrast 0.566708 vs 0.57763（−1.9%）。
+
+### 10.4 🔴 本轮唯一的 FAIL（必须一起汇报）
+
+`vq_sot_verify.py` CHECK 1「与 §271 网格法逐片一致性」：xcorr 平均差 **0.082（worst 0.208，PASS，容差 0.12）**，
+**KCF 0.161（FAIL）**。该检查是**跨实现一致性**、**不是**阈值推导正确性；其余 verify 检查在 KCF 臂全 PASS，
+`vq_sot_admission_verify.py` 长/短双口径 **[RESULT] PASS**。
+⇒ **不同跟踪器家族的绝对锁定率不可互换** ⇒ **KCF 数字只在 KCF 家族内自洽**，与 xcorr **并列呈现、绝不合并**；
+对外只报「同一指标、两个家族给出同一条线」的定性结论 + 各自的具体线值。
+
+### 10.5 产物 / 复现 / 诚实口径
+
+- **产物**：`manu/video_quality/report/kcf_knee_thresholds.csv`、`kcf_knee_blindtest.csv`、`kcf_knee_combos.csv`、
+  `kcf_degrade_curve.csv`、`kcf_default_*.csv`；聚合目录 `report/sot_kcf_short/`、`report/sot_kcf_long/`；
+  图 `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcf_{ir,vis}_*.png`（8 张）+ `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcfdefault_*`（8 张）。
+- **复现（服务器 `192.168.99.40:32222`，`/tmp/pycharm_project_a7d966e6`）**：
+  ```bash
+  source /home/huangzhe/anaconda3/etc/profile.d/conda.sh && conda activate uav
+  export PYTHONPATH=/tmp/pylibs_cvcontrib:/tmp/pycharm_project_a7d966e6:/tmp/pycharm_project_a7d966e6/manu/video_quality
+  ```
+  命令清单见报告 §9.10.11。
+- **诚实口径（八条）**：①测的是「任意点选纹理可跟踪性」≠「跟踪无人机成功率」；②IR/VIS 分模态、混池线禁用；
+  ③gap 线只作分界线；④坏源片仅 4 条属小样本；⑤膝点线是必要条件非充分条件；⑥`knee_reliable` 一票否决；
+  ⑦**跨家族绝对锁定率不可互换（KCF verify FAIL）**；⑧KCF 是 contrib 的 FSR/KCF 变体且半分辨率处理。
+- 🔴 **未提交（铁律〇之三之二）**，仅落工作区。
+
+### 10.6 结论口径收口：「方法无关性（Method-Agnostic）」及其**边界**（2026-11-24 追加）
+
+**一句话结论**：**像素互相关（xcorr）**与**经典相关滤波（KCF）**两类原理完全不同的跟踪器
+**各自独立**反推出的**被采用的两条线几乎逐位复现**、**盲测坏片拦截率 100% 相同**
+⇒ 这条红线卡的是**图像本身的物理信息底线**，不是某一个跟踪器的实现细节。
+
+| 时程/模态/指标 | xcorr 膝点 | **KCF 膝点** | 判定 |
+| --- | --- | --- | --- |
+| 短 IR global_contrast | 0.577855 | **0.577855** | ✅ 逐位相同 |
+| 短 IR lap_var | 6.493031 | **6.918433** | ✅ +6.5% 同量级 |
+| 短 VIS lap_var | 306.473878 | **270.794141** | ✅ −11.6% 同量级 |
+| 长 IR global_contrast | 0.573831 | **0.57763** | ✅ +0.7% 同量级 |
+| 长 IR lap_var / edge_density | 7.843251 / 0.007345 | **7.843251 / 0.007345** | ✅ 逐位相同 |
+| 长 VIS lap_var | 171.384126 | 270.794141 | 🔴 **+58% 不一致 ⇒ 不采用** |
+| 长 VIS global_contrast / edge_density | 0.27881 / 0.078302（reliable=1） | 0.501745 / 0.089019（**reliable=0**） | 🔴 **不一致 ⇒ 不采用** |
+
+**🔴 边界三条**：①方法无关性**只成立于被采用的两条线**（IR 短/长、VIS 短）；VIS 长时程两家族不一致，
+但该格**本来就按「不采用」处理**（xcorr 侧 AND 组合好片 0/691）⇒ 不构成对结论的挑战；
+②「一致」= **线位一致**，≠ **绝对锁定率一致**（跨家族不可合并，见 10.4）；
+③坏源片仅 4 条 ⇒ 「坏片拦截 100%」仍属**小样本结论**，上线前须扩样重标。
+
+**✅ 补跑（口径缺口闭合）**：KCF 臂 `vq_sot_verify.py` 首轮只跑了长口径就被 FAIL 截断，
+短口径已补跑 ⇒ **mean 0.161 / worst 0.384（与长口径同一数值）**，CHECK 2/4/5 全 PASS
+⇒ 🔴 **该 FAIL 是 KCF 家族与 §271 网格法的系统性刻度差，不是单一口径偶发**。
+
+**📦 部署口径**：线上画质门禁**不跑跟踪器**（只算全图指标）⇒ **无需引入 `opencv-contrib`**；
+但**产品跟踪链路若要用 OpenCV KCF**，编译/打包必须带 **`opencv_contrib` 的 `tracking` 模块**。
+
+**报告对应**：`REPORT_视频质量指标.md` **§9.10.12**（含可直接引用的汇报话术）。
+🔴 **未提交（铁律〇之三之二）**，仅落工作区。
+
+### 10.7 📘 《图像解读手册》PDF（40 张图逐张讲清楚，2026-11-25 追加）
+
+**做了什么**：把产物区散落的 **40 张 PNG** 自动合成**一本可交付的图解手册 PDF**（**50 页 / 3.7 MB**，不入库），
+每张图独占一页，统一三段「**画的是什么 / 看图要点 / 一句话结论**」，膝点页另附**该格确切数值与来源 CSV**。
+
+| 项 | 值 |
+|:--|:--|
+| 脚本 | `manu/video_quality/vq_chart_doc.py`（入库，纯 matplotlib，**不需要 cv2 / 视频解码**） |
+| 复现 | `python3 manu/video_quality/vq_chart_doc.py`（**本地主机**，约 24 s） |
+| 产物 | `cache/ultralytics/repo-artifacts/manu/video_quality/report/图像解读手册_40张图.pdf` |
+| 输入 | 40 张 PNG + `knee_thresholds.csv` + `kcf_knee_thresholds.csv` + `kcf_default_knee_thresholds.csv` |
+
+**🔴 排版三坑（勿重犯）**：① `**加粗**` 标记外泄 ⇒ 须**分段感知渲染**（`split("**")` → 换行携带加粗状态 → 按 run 切 `weight`）
+且**必须注册 Noto CJK Bold 字面**（只注册 Regular 会静默退化成常规字重）；
+② 图文空隙过大 ⇒ **先排正文算总高 → 再定图带 → 按实际 `draw_h` 把图注与正文贴到图下方**；
+③ 页脚溢出 ⇒ **文件名 + md5 挪到图注行**，页脚只留短 FOOTER。
+
+**✅ 验收**：`pdftotext` ⇒ `**` 残留 **0**；`pdfimages -list` ⇒ 内嵌 **40 张**；
+图注 **40/40 文件名命中 + 40/40 md5 与磁盘逐位一致**；脚本内置溢出告警 ⇒ **0 条**。
+**报告对应**：`REPORT_视频质量指标.md` **§六·附**。
+🔴 **未提交（铁律〇之三之二）**，仅落工作区。

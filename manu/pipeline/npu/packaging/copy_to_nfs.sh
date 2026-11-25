@@ -18,7 +18,8 @@
 #   --build        拷贝前先跑 build_lib.sh && build_demo.sh（失败即退出）
 #   --nfs <目录>   覆盖 NFS 根目录（默认 /run/media/manu/SSD960-LOCAL/nfs）
 #   --verify       拷贝后 ssh 到板卡跑契约测试 + demo + 最小集成示范（严格串行）
-#   --board <目标[:端口]>    覆盖 ssh 目标（默认 root@192.168.0.211，端口 22）
+#   --board <目标[:端口]>    覆盖 ssh 目标（默认 root@192.168.1.115 = **实际部署板**
+#                            Orange Pi 5 / Debian 12 / glibc 2.36，端口 22）
 #   --board-dest <绝对路径>  板卡侧交付目录（默认 /mnt/manu/mosaic_sdk）
 #
 # ⚠️ 安全铁律（板卡 /root 的 ext4 已损坏，>1 MB 的二进制会被写坏）：
@@ -48,7 +49,10 @@ DEFAULT_BOARD_DEST="/mnt/manu/mosaic_sdk"
 
 NFS_ROOT="${NFS_ROOT:-$DEFAULT_NFS_ROOT}"
 DEST="$NFS_ROOT/mosaic_sdk"
-BOARD="${BOARD:-root@192.168.0.211}"
+# 🔴 2026-11-25：默认板卡换成**实际部署板**（Orange Pi 5 / Debian 12）。
+#    旧板（Ubuntu 20.04 / glibc 2.31 / OpenCV 4.8 在 /root/mosaic/opencv）
+#    仍可用 --board root@192.168.0.211 指定。
+BOARD="${BOARD:-root@192.168.1.115}"
 BOARD_PORT="${BOARD_PORT:-22}"
 BOARD_DEST="${BOARD_DEST:-}"
 
@@ -67,7 +71,7 @@ die() { echo "[ERROR] $*" >&2; exit 1; }
 nfs_root_writable() {
   local probe="$NFS_ROOT/.mosaic_write_probe_$$"
   if : > "$probe" 2>/dev/null; then
-    rm -f "$probe"
+    find "$probe" -maxdepth 0 -type f -delete 2>/dev/null || true
     return 0
   fi
   return 1
@@ -81,7 +85,7 @@ usage() {
   --build              拷贝前先编译（build_lib.sh + build_demo.sh）
   --nfs <目录>         覆盖 NFS 根目录（默认 /run/media/manu/SSD960-LOCAL/nfs）
   --verify             拷贝后 ssh 到板卡跑契约测试 + demo + 最小集成示范（串行，非 0 退出即失败）
-  --board <目标[:端口]>  覆盖 ssh 目标（默认 root@192.168.0.211，端口 22）
+  --board <目标[:端口]>  覆盖 ssh 目标（默认 root@192.168.1.115，端口 22）
   --board-dest <路径>  板卡侧交付目录（默认 /mnt/manu/mosaic_sdk；
                        NFS 根不是默认根时必须显式给出）
 
@@ -362,14 +366,14 @@ sweep_stale() {
   while IFS= read -r f; do
     rel="${f#"$dest"/}"
     if [ -z "${EXPECTED[$rel]:-}" ]; then
-      rm -f "$f"
+      find "$f" -maxdepth 0 -type f -delete 2>/dev/null || true
       echo "  [stale] 已删除 $rel"
     fi
   done < <(find "$dest" -type f | LC_ALL=C sort)
   while IFS= read -r f; do
     rel="${f#"$dest"/}"
     if [ -z "${EXPECTED[$rel]:-}" ] && [ -z "${ALIAS_NAME[$rel]:-}" ]; then
-      rm -f "$f"
+      find "$f" -maxdepth 0 -type l -delete 2>/dev/null || true
       echo "  [stale] 已删除符号链接 $rel"
     fi
   done < <(find "$dest" -type l | LC_ALL=C sort)
@@ -399,7 +403,14 @@ make_aliases() {
     name="${pair%%|*}"
     target="${pair##*|}"
     if [ -e "$dest/$name" ] && [ ! -L "$dest/$name" ]; then
-      rm -rf "$dest/$name"
+      # 🔴 铁律：删目录 = find -mindepth 1 -delete（清内容）+ rmdir（删空目录）；
+      #          删文件 = find -maxdepth 0 -type f -delete（不存在也不报错）
+      if [ -d "$dest/$name" ]; then
+        find "$dest/$name" -mindepth 1 -delete 2>/dev/null || true
+        rmdir "$dest/$name" 2>/dev/null || true
+      else
+        find "$dest/$name" -maxdepth 0 -type f -delete 2>/dev/null || true
+      fi
       echo "  [stale] 已删除 $name（旧实路径，改成兼容符号链接）"
     fi
     ln -sfn "$target" "$dest/$name"
@@ -416,10 +427,11 @@ copy_direct() {
     dst="$DEST/$rel"
     mkdir -p "$(dirname "$dst")"
     if [ -L "$dst" ]; then
-      rm -f "$dst"
+      find "$dst" -maxdepth 0 -type l -delete 2>/dev/null || true
       echo "  [stale] 已删除 $rel（旧符号链接）"
     elif [ -d "$dst" ]; then
-      rm -rf "$dst"
+      find "$dst" -mindepth 1 -delete 2>/dev/null || true
+      rmdir "$dst" 2>/dev/null || true
       echo "  [stale] 已删除 $rel（旧目录）"
     fi
     cp -f "$PKG_DIR/$rel" "$dst"
@@ -437,12 +449,12 @@ copy_relay() {
   require_board_dest
   md5_list="$(mktemp)"
   # 本机清单用完即删（别在 /tmp 里漏一堆 tmp.XXXX）
-  trap 'rm -f "$md5_list"' RETURN
+  trap 'find "$md5_list" -maxdepth 0 -type f -delete 2>/dev/null || true' RETURN
   # 本机生成 md5 清单（路径相对包根，板卡侧按 board_dest 为基准校验）
   ( cd "$PKG_DIR" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 md5sum ) > "$md5_list"
 
   echo "  [1/3] tar 传整树 -> $BOARD:$BOARD_PORT:$STAGE_DIR（板卡 /tmp 中转）"
-  tar -C "$PKG_DIR" -cf - . | ssh_board "rm -rf '$STAGE_DIR' && mkdir -p '$STAGE_DIR' && tar -C '$STAGE_DIR' -xf -"
+  tar -C "$PKG_DIR" -cf - . | ssh_board "find '$STAGE_DIR' -mindepth 1 -delete 2>/dev/null; rmdir '$STAGE_DIR' 2>/dev/null; mkdir -p '$STAGE_DIR' && tar -C '$STAGE_DIR' -xf -"
 
   echo "  [2/3] 传 md5 清单 -> $STAGE_MD5"
   ssh_board "cat > '$STAGE_MD5'" < "$md5_list"
@@ -456,7 +468,13 @@ export LC_ALL=C
 dest="$1"; stage="$2"; md5f="$3"; alias_spec="$4"
 
 # 失败也要清理：/tmp 是板卡 tmpfs（3.9 G），失败一次就留 25 MB 垃圾
-cleanup() { rm -rf "$stage" "$md5f" /tmp/mosaic_sdk_expected.txt /tmp/mosaic_sdk_expected_dirs.txt; }
+# 🔴 铁律：删目录 = find -mindepth 1 -delete（清内容）+ rmdir（删空目录）；
+#          删文件 = find -maxdepth 0 -type f -delete（不存在也不报错）
+cleanup() {
+  find "$stage" -mindepth 1 -delete 2>/dev/null || true
+  rmdir "$stage" 2>/dev/null || true
+  find "$md5f" /tmp/mosaic_sdk_expected.txt /tmp/mosaic_sdk_expected_dirs.txt -maxdepth 0 -type f -delete 2>/dev/null || true
+}
 trap cleanup EXIT
 
 case "$stage" in /tmp/*) ;; *) echo "[ERROR] 中转目录必须落在 /tmp 下：$stage" >&2; exit 1 ;; esac
@@ -481,7 +499,7 @@ mkdir -p "$dest"
 while IFS= read -r f; do
   rel="${f#"$dest"/}"
   if ! grep -Fxq "$rel" "$exp"; then
-    rm -f "$f"
+    find "$f" -maxdepth 0 -type f -delete 2>/dev/null || true
     echo "  [stale] 已删除 $rel"
   fi
 done < <(find "$dest" -type f | LC_ALL=C sort)
@@ -494,7 +512,7 @@ while IFS= read -r f; do
     if [ "${spec%%=*}" = "$rel" ]; then keep=1; fi
   done
   if [ "$keep" = "0" ]; then
-    rm -f "$f"
+    find "$f" -maxdepth 0 -type l -delete 2>/dev/null || true
     echo "  [stale] 已删除符号链接 $rel"
   fi
 done < <(find "$dest" -type l | LC_ALL=C sort)
@@ -505,7 +523,12 @@ done < <(find "$dest" -type l | LC_ALL=C sort)
 for spec in $alias_spec; do
   name="${spec%%=*}"
   if [ -e "$dest/$name" ] && [ ! -L "$dest/$name" ]; then
-    rm -rf "$dest/$name"
+    if [ -d "$dest/$name" ]; then
+      find "$dest/$name" -mindepth 1 -delete 2>/dev/null || true
+      rmdir "$dest/$name" 2>/dev/null || true
+    else
+      find "$dest/$name" -maxdepth 0 -type f -delete 2>/dev/null || true
+    fi
     echo "  [stale] 已删除 $name（旧实路径，改成兼容符号链接）"
   fi
 done
@@ -526,7 +549,12 @@ done < <(find "$dest" -depth -type d | LC_ALL=C sort -r)
 for spec in $alias_spec; do
   name="${spec%%=*}"; target="${spec#*=}"
   if [ -e "$dest/$name" ] && [ ! -L "$dest/$name" ]; then
-    rm -rf "$dest/$name"
+    if [ -d "$dest/$name" ]; then
+      find "$dest/$name" -mindepth 1 -delete 2>/dev/null || true
+      rmdir "$dest/$name" 2>/dev/null || true
+    else
+      find "$dest/$name" -maxdepth 0 -type f -delete 2>/dev/null || true
+    fi
     echo "  [stale] 已删除 $name（旧实路径，改成兼容符号链接）"
   fi
   ln -sfn "$target" "$dest/$name"
@@ -541,7 +569,9 @@ fi
 echo "  [ok] 板卡侧 md5 校验通过（$(printf '%s\n' "$out" | grep -c ': OK$') 个文件）"
 
 # 清掉中转目录（/tmp 是 tmpfs，别留垃圾）
-rm -rf "$stage" "$md5f" "$exp" "$dirs"
+find "$stage" -mindepth 1 -delete 2>/dev/null || true
+rmdir "$stage" 2>/dev/null || true
+find "$md5f" "$exp" "$dirs" -maxdepth 0 -type f -delete 2>/dev/null || true
 echo "  [ok] 板卡 /tmp 中转目录已清理"
 REMOTE
 }
@@ -730,7 +760,10 @@ export LC_ALL=C
 tmp_dir="$1"; tag="$2"; want_md5="$3"; src="$4"; shift 4
 tmp="${tmp_dir}/${tag}"
 
-cleanup() { rm -rf "$tmp_dir"; }
+cleanup() {
+  find "$tmp_dir" -mindepth 1 -delete 2>/dev/null || true
+  rmdir "$tmp_dir" 2>/dev/null || true
+}
 trap cleanup EXIT
 
 mkdir -p "$tmp_dir" || { echo "[ERROR] 建不了板卡暂存目录：$tmp_dir" >&2; exit 1; }
@@ -904,10 +937,15 @@ REMOTE
 set -uo pipefail
 export LC_ALL=C
 tmp="$1"; dest="$2"; w_mce="$3"; w_so="$4"
-cleanup() { rm -rf "$tmp"; }
+cleanup() {
+  find "$tmp" -mindepth 1 -delete 2>/dev/null || true
+  rmdir "$tmp" 2>/dev/null || true
+}
 trap cleanup EXIT
 
-rm -rf "$tmp"; mkdir -p "$tmp"
+find "$tmp" -mindepth 1 -delete 2>/dev/null || true
+rmdir "$tmp" 2>/dev/null || true
+mkdir -p "$tmp"
 cat "$dest/out/mosaic_client_example"   > "$tmp/mosaic_client_example"   || { echo "[ERROR] 从 NFS 读 mosaic_client_example 失败" >&2; exit 1; }
 cat "$dest/out/libmosaic_pipeline.so"   > "$tmp/libmosaic_pipeline.so"   || { echo "[ERROR] 从 NFS 读 libmosaic_pipeline.so 失败" >&2; exit 1; }
 chmod +x "$tmp/mosaic_client_example" "$tmp/libmosaic_pipeline.so"

@@ -468,7 +468,10 @@ def main() -> None:
             break
         n_gate += 1
         g = NS.run_official_gate(s_id, 5, args.gpu)
-        gate = {k: (g or {}).get(k) for k in ("t1", "t1_fp", "t2", "t2_fp", "t3", "t3_fp", "verdict")}
+        # 🔴 2026-11-23：加 "skipped_t2t3" ⇒ T2/T3 因 T1 短路而**没评**的臂在台账里可辨认
+        #   （此时 t2/t3 是哨兵值 −1.0、t2_fp/t3_fp = 999 ⇒ 一切比较必然判负）。
+        gate = {k: (g or {}).get(k) for k in ("t1", "t1_fp", "t2", "t2_fp", "t3", "t3_fp",
+                                             "verdict", "skipped_t2t3")}
         gate["six_ok"] = bool(gate.get("t1") is not None and gate.get("t3") is not None
                              and gate["t1"] >= base["t1"]
                              and gate.get("t2_fp") is not None and gate["t2_fp"] <= base["t2_fp"]

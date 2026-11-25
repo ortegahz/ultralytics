@@ -4,7 +4,7 @@
 #   🔴 **门禁优先闸门**：同一张 GPU 上还有 `--only-gate` 门禁通道在跑 ⇒ 本轮**不拉起合成**
 #      （门禁是瓶颈机时，合成只是上游供给 ⇒ 门禁优先）
 W=/mnt/data/siping/runs/npu20ms/nano_search
-END="${T1CLOSE_END:-2026-11-23 21:00}"
+END="${T1CLOSE_END:-2026-11-30 09:00}"
 now=$(date +%s); end=$(date -d "$END" +%s)
 [ "$now" -lt "$end" ] || exit 0
 for spec in $T1CLOSE_SPEC; do

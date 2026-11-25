@@ -18,7 +18,7 @@
 #   + 截止时间 + **按 PID 判活**（禁 pkill -f）。
 set -u
 REPO=/tmp/pycharm_project_10ae9e2e; PY=/home/huangzhe/anaconda3/envs/uav/bin/python
-W=/mnt/data/siping/runs/npu20ms/nano_search; END="${T1CLOSEGATE_END:-2026-11-23 21:00}"
+W=/mnt/data/siping/runs/npu20ms/nano_search; END="${T1CLOSEGATE_END:-2026-11-30 09:00}"
 GPU="${T1CLOSEGATE_GPU:-2}"
 CHAN="${T1CLOSEGATE_CHAN:-D}"
 MAXG="${T1CLOSEGATE_MAXG:-8}"
@@ -44,7 +44,9 @@ while :; do
   SIDS=$($PY $W/scripts/gate_prio.py "$CHAN" "$MAXG" 2>>"$LOG")
   log "[轮] 门禁$CHAN 开始 avail=${avail}MB sids=${SIDS}"
   if [ -n "$SIDS" ]; then
-    timeout 3600 $PY -u manu/pipeline/npu/night_soup_batch.py --only-gate --gate-sids "$SIDS" \
+# 🔴🔴 2026-11-23 12:5x timeout 3600 → 5400：单轮 8 臂 × ~9.5min ≈ 76min > 60min
+#   ⇒ 原设置每轮被砍在第 6 臂 ⇒ 门禁吞吐白丢 25%。现与 CLAIM_TTL(100min) 配套。
+    timeout 5400 $PY -u manu/pipeline/npu/night_soup_batch.py --only-gate --gate-sids "$SIDS" \
       --gpu "$GPU" --gate-family-quota 40 --max-gates "$MAXG" --mem-gate-gb 45 \
       --deadline "$END" >> $W/day_gateD.log 2>&1 9>&-
   else

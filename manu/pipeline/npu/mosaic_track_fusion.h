@@ -32,6 +32,7 @@
 #define MOSAIC_TRACK_FUSION_H_
 
 #include <cstdint>
+#include <cstddef>
 #include <map>
 #include <vector>
 

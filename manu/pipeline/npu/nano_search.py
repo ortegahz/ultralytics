@@ -177,6 +177,25 @@ def board_reference_ms() -> float | None:
 DELIVER = dict(nano_min=0.6666, budget_ms=20.0, t1_ge=0.885997, t2_fp_le=36, t2_fp_doc=20,
                 t3_ge=0.948330)
 
+# 🔴🔴 2026-11-23 **T1 短路余量**（门禁提速 3.6×，零误杀）。
+#   实测（2,024 次真实门禁）：单臂中位 621.4 s，其中龙泉山多尺度热图**缓存重建 452.2 s（72%）**、
+#   T1 推理 124.8 s（20%）、T2/T3 评测 22 s（4%）。
+#   ⇒ t1 < 升轨门槛 − margin 的臂**不可能升轨**（t1 是升轨六轴里的硬轴）
+#     ⇒ 直接跳过缓存 + T2/T3 评测 ⇒ 单臂 621 s → 174 s，门禁吞吐 25 臂/h → ~75~100 臂/h。
+#   ★ margin = 1 个 FP 的 ΔF1（基线操作点 TP=21355/FP=1473 解析解）
+#     ⇒ margin 内的「近失臂」（含 sid=2020267 的 dT1=−4.55e-6）**仍然照跑 T2/T3**
+#     ⇒ **零误杀**，且 near-miss 分析数据不丢。
+SHORT_CIRCUIT_MARGIN = 1.858e-5
+
+# 🟢 2026-11-23 12:00 **门禁缓存分片提速**（实测：龙泉山 val 缓存 2 片 = 390 s → 8 片 = 110 s，3.5×）
+#   · `multiscale_heatmap_cache.py --shard i/N` 是按**序列**切分（val 集共 8 段）
+#     ⇒ 分片数 = 8 ⇒ 每段一片 ⇒ 墙钟 = 最慢那一片（~110 s），而不是 2 片时的 ~390 s
+#   · 缓存阶段是 **CPU-bound**（80 核 / 负载 15 ⇒ 有 5× 余量）⇒ 多片并行几乎不抢 GPU
+#   · 单臂门禁 613 s → ~290 s ⇒ 门禁吞吐 2.1×（21:00 前可多打 ~2 倍的臂）
+#   · 可用环境变量覆盖（GATE_CACHE_SHARDS / GATE_CACHE_CPU_THREADS）⇒ 出问题能秒回退
+CACHE_SHARDS = int(os.environ.get("GATE_CACHE_SHARDS", "2"))
+CACHE_CPU_THREADS = int(os.environ.get("GATE_CACHE_CPU_THREADS", "1"))
+
 # ---- 臂表（全部「trial_0031 配方 + 单变量」）----
 W1 = [
     (9801, 19101, dict(BASE),
@@ -1007,9 +1026,16 @@ def run_official_gate(trial: int, epoch, gpu: int) -> dict:
         log(f"[{trial}] 门禁报告已存在 ⇒ 复用 {rp}")
     else:
         os.makedirs(outd, exist_ok=True)
+        # 🔴 2026-11-23 T1 短路：门槛 = **升轨门槛**（ledger 基线臂 trial_1990055 的 T1），
+        #   **不是**门禁自身的 --min-track1-f1（0.905736，冻结 GMC 臂，更严 ⇒ 会 100% 跳过）。
+        _bo = base_official_thresholds()
         cmd = (f"cd {REPO} && export PYTHONPATH=. && {PY} -u manu/training/auto_epoch_gate_check.py "
-               f"--weights {w} --out-dir {outd} --device {gpu} --infer-gpu {gpu} --gpus 1 --cache-gpus {gpu},{(gpu+1)%4} "
-               f"--baseline-cache {OFFICIAL_BASE_CACHE} > {outd}_gate.log 2>&1")
+               f"--weights {w} --out-dir {outd} --device {gpu} --infer-gpu {gpu} --gpus 1 "
+               f"--cache-gpus {','.join(str((gpu + k) % 4) for k in range(4))} "
+               f"--cache-shards {CACHE_SHARDS} --cache-cpu-threads {CACHE_CPU_THREADS} "
+               f"--baseline-cache {OFFICIAL_BASE_CACHE} "
+               f"--short-circuit-t1 {_bo[0]:.12f} --short-circuit-margin {SHORT_CIRCUIT_MARGIN:.6e} "
+               f"> {outd}_gate.log 2>&1")
         r = sh(cmd, timeout=10800)
         if not os.path.isfile(rp):
             log(f"[{trial}] 门禁未产出报告 rc={r.returncode}（查 {outd}_gate.log）")
@@ -1019,12 +1045,27 @@ def run_official_gate(trial: int, epoch, gpu: int) -> dict:
     t1 = (tr.get("track1_uav") or {}).get("finetune_peak") or {}
     t2 = tr.get("track2_golden") or {}
     t3 = tr.get("track3_blind") or {}
+    def _n(dct, key, typ, sentinel):
+        """取读数；**缺失**时返回哨兵值（而不是 0）⇒ 任何比较都必然判负。"""
+        v = (dct or {}).get(key)
+        if v is None:
+            return sentinel
+        try:
+            return typ(v)
+        except (TypeError, ValueError):
+            return sentinel
+
+    # 🔴 2026-11-23 T1 短路 ⇒ T2/T3 **没评** ⇒ 写哨兵值（t2/t3 = −1.0、fp = 999）而不是 0：
+    #   · 下游任何 float()/int() 都不会炸；
+    #   · 所有比较**必然判负**（t3=−1 < 基线、t2_fp=999 > 上限）⇒ 不可能被误判为通过；
+    #   · gate_prio 的 _gap6 会因 t3 缺口巨大而把这些臂排到队尾 ⇒ 不会被反复重排占门禁机时。
     d = {
         "out_dir": outd, "verdict": rep.get("verdict"),
-        "t1": float(t1.get("f1", 0)), "t1_fp": int(t1.get("fp", 0)),
-        "t2": float(t2.get("f1", 0)), "t2_fp": int(t2.get("fp", 0)),
-        "t3": float(t3.get("f1", 0)), "t3_fp": int(t3.get("fp", 0)),
+        "t1": _n(t1, "f1", float, -1.0), "t1_fp": _n(t1, "fp", int, 999),
+        "t2": _n(t2, "f1", float, -1.0), "t2_fp": _n(t2, "fp", int, 999),
+        "t3": _n(t3, "f1", float, -1.0), "t3_fp": _n(t3, "fp", int, 999),
         "veto_failures": rep.get("veto_failures", []),
+        "skipped_t2t3": bool(rep.get("short_circuited")),
     }
     d["official_ok"] = (d["t1"] >= DELIVER["t1_ge"] and d["t2_fp"] <= DELIVER["t2_fp_le"]
                          and d["t3"] >= DELIVER["t3_ge"])

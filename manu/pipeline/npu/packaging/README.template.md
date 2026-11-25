@@ -5,12 +5,20 @@
 > ℹ️ **命令里的绝对路径（`/media/manu/...`）是作者机器上的**：把 `cd <路径>` 换成
 > 你自己的包目录即可 —— **所有构建脚本都按脚本自身所在目录定位，拷到哪个目录都能编**。
 >
-> ℹ️ **第三方依赖不再随包**：本包**不携带任何第三方** .so/.a
+> ℹ️ **第三方运行库不再随包，但第三方头随包**：本包**不携带任何第三方** .so/.a
 > （**我们自己的 `out/libmosaic_pipeline.a` 是本包产物，不在此列**）—— OpenCV / RKNN Runtime /
 > RGA / OpenCL 全部**动态链接板卡自带的库**（详见下面的「板卡依赖矩阵」）。
-> ⇒ 编译期需要**板卡的 OpenCV 头**（板卡上是 `/usr/include/opencv4`）；
-> 链接期需要板卡上那 7 个 `libopencv_*.so.406` + `librknnrt.so` + `librga.so.2` +
-> `libOpenCL.so.1`；**运行期全部由板卡 `ldconfig` 解析，不需要设 `LD_LIBRARY_PATH`**。
+> ⇒ 编译期需要 **OpenCV 4.8 的头**：**本包现随包发布一份**（`include/opencv4/`，
+>   211 个文件）—— 目标板（Orange Pi 5 / Debian 12）上**只有 4.6 的头**
+>   （`/usr/include/opencv4`），**不能**拿来配 4.8 的运行库（同一进程会装进两套
+>   OpenCV、`cv::Mat` 跨 .so 边界串味 ⇒ 事故）；没有随包头时用包内
+>   `fetch_opencv_headers.sh` 取一份（版本不符即 die）。
+> ⇒ 链接期需要板卡上那 7 个 `libopencv_*.so.408` + `librknnrt.so` + `librga.so.2` +
+>   `libOpenCL.so.1`；⚠ **板上没有 `libOpenCL.so` 开发软链**（只有 Debian 的 ICD loader
+>   `libOpenCL.so.1`）⇒ **`-lOpenCL` 在板上必然链接失败**，须按**绝对路径**链那个
+>   `.so.1`（三个构建脚本都已自动这么做：`build_lib.sh` / `build_demo.sh` 的
+>   `resolve_opencl_link()`、`build_board_native.sh` 的 `OCL_LINK`）；
+>   **运行期全部由板卡 `ldconfig` 解析，不需要设 `LD_LIBRARY_PATH`**。
 > ⚠️ 交叉编译在**宿主机**上做时，这些路径指的是**目标板卡的文件系统** ——
 > 宿主机上的 `/usr` 是 x86 的，**绝对不能直接用**（会污染构建）⇒ 要先把板卡的
 > 那份取回宿主机再指过去（用 `OPENCV_INCLUDE_DIR` / `OPENCV_LIB_DIR` /
@@ -30,15 +38,21 @@
 ├── MANIFEST.md        ← 交付清单（md5 表自动生成）★由 packaging/MANIFEST.template.md 生成
 ├── build_lib.sh       ← 只编译库
 ├── build_demo.sh      ← 只编译测试程序
+├── build_probes.sh    ← 只编译两个板卡验证探针
+├── build_board_native.sh ← **板卡原生**全量编译（板载 gcc + ABI 校验 + 绝对路径链 OpenCL/RGA）
 ├── copy_to_nfs.sh     ← 一键整树拷贝到 NFS（可选带板卡验证）
+├── fetch_board_libs.sh  ← 把板卡自带的库/头取回宿主机（交叉编译用）
+├── fetch_opencv_headers.sh ← 取 **OpenCV 4.8 头**（板上只有 4.6 的头 ⇒ 必须外部提供）
 ├── known_hosts        ← 板卡主机密钥基线（ssh 严格校验用；板卡换密钥会直接失败，这是故意的）
 ├── src/
 │   ├── npu/           mosaic_pipeline.{cpp,h}, mosaic_core.h, mosaic_post_gpu.h,
 │   │                  mosaic_api_test.cpp, mosaic_contract_test.cpp,
-│   │                  mosaic_client_example.cpp, rknn_mosaic_e2e.cpp
+│   │                  mosaic_client_example.cpp, rknn_mosaic_e2e.cpp,
+│   │                  mosaic_paths.h（**板卡无关的默认路径解析头**）
 │   ├── cpp/           gmc_stream_ocl.cpp, md5.h
 │   └── opencl/host/   ocl_host.h, post_local_max.cl（kernel 可读副本，运行时不需要）
-├── include/           rknn_api.h, stb_image*.h, rga/ + CL/
+├── include/           rknn_api.h, stb_image*.h, rga/ + CL/,
+│                      opencv4/（**OpenCV 4.8 头，211 个文件，随包发布**）
 ├── runtime/kernels/   warp_median_fused.cl, sortnet_generated.inc（运行时必需）,
 │                      gmc_feature_gpu.cl（可选，库不加载）
 ├── models/            ← **本包自带的 RKNN 模型（来源）**：p0_off_A_none.rknn（6,326,305 B）
@@ -56,7 +70,8 @@
     ├── mosaic_contract_test
     ├── rknn_mosaic_e2e
     ├── mosaic_cadence_probe       ← **板卡验证探针**（本地工具，见下）
-    └── mosaic_track_dump          ← **板卡验证探针**（本地工具，见下）
+    ├── mosaic_track_dump          ← **板卡验证探针**（本地工具，见下）
+    └── mosaic_tracked_cb_example  ← **跟踪结果回调示范**（v10.7，见下）
 ```
 
 > ℹ️ **本包不携带任何第三方 .so/.a**（**没有第三方依赖目录**）：
@@ -64,15 +79,15 @@
 > （见「板卡依赖矩阵」）。
 
 > **交付到 NFS 时是整棵树一起拷**（不是只拷几个产物文件）：板卡侧看到的目录
-> 结构与这里一一对应——`src/ include/ runtime/ models/ out/` + 顶层 9 个文件
+> 结构与这里一一对应——`src/ include/ runtime/ models/ out/` + 顶层 10 个文件
 > （`README.md` / `MANIFEST.md` / `build_lib.sh` / `build_demo.sh` /
 > `build_probes.sh` / `build_board_native.sh` / `copy_to_nfs.sh` /
-> `fetch_board_libs.sh` / `known_hosts`）。
+> `fetch_board_libs.sh` / `fetch_opencv_headers.sh` / `known_hosts`）。
 
 交付包磁盘上共 **{{TOTAL_COUNT}}** 个文件 = 受管 **{{FILE_COUNT}}** 个
 （源码 **{{SRC_COUNT}}** 个（`src/`）+ 第三方头 **{{HDR_COUNT}}** 个
 （`include/`）+ kernel 资产 **{{KERNEL_COUNT}}** 个（`runtime/`）
-+ 模型 **1** 个（`models/`）+ 顶层 8 个文件（含本 README）
++ 模型 **1** 个（`models/`）+ 顶层 9 个文件（含本 README）
 + `MANIFEST.md` 自身）+ `out/` 编译产物 **{{OUT_COUNT}}** 个。
 
 产物（**全部 aarch64**；可执行文件与共享库是 ELF，`out/libmosaic_pipeline.a` 是目标文件归档）：
@@ -89,6 +104,7 @@
 | `out/rknn_mosaic_e2e` | **端到端测试程序**：测吞吐/延时（fps / 延时分位就是它测的），只调公开 C ABI |
 | `out/mosaic_cadence_probe` | **板卡验证探针**（本地工具，不属于集成面）：逐帧推 / 收，量节奏（fps / Δn / 间隔）与时空融合参数回读 |
 | `out/mosaic_track_dump` | **板卡验证探针**（本地工具，不属于集成面）：逐帧导出候选流 / 融合结果 TSV，用于离线对 GT 打分 |
+| `out/mosaic_tracked_cb_example` | **跟踪结果回调示范（v10.7）**：注册 `set_tracked_callback` 拿**一目标一框**的跟踪结果，并与原始候选框**同帧对照** |
 
 > 🔴 **两个探针的源码在 `src/npu/`**（`mosaic_cadence_probe.cpp` /
 > `mosaic_track_dump.cpp`），**探针走的是 `.so` 里内置的交付工作点**
@@ -100,7 +116,7 @@
 > 这两个探针**零 OpenCV 依赖**（`readelf -d` 实测 NEEDED 里没有 `libopencv_*`）
 > ⇒ **ocv46 / ocv48 / ocv42 三个变体通用**。
 
-> ℹ️ **五个**测试程序（外加上面那两个板卡验证探针）用 `-lmosaic_pipeline` +
+> ℹ️ **六个**测试程序（外加上面那两个板卡验证探针）用 `-lmosaic_pipeline` +
 > `-Wl,-rpath,'$ORIGIN'` 链接**同目录**的 `out/libmosaic_pipeline.so`
 > ⇒ **整包搬到任何目录都能直接跑**，不用设
 > `LD_LIBRARY_PATH`（`readelf -d` 实测 RUNPATH = `$ORIGIN`）。
@@ -134,10 +150,14 @@ uid/gid/mtime）⇒ **同样稳定**。详见文末「md5 的三个已知差异�
 | `out/rknn_mosaic_e2e` | `{{E2E_MD5}}` |
 | `out/mosaic_cadence_probe` | `{{CADENCE_PROBE_MD5}}` |
 | `out/mosaic_track_dump` | `{{TRACK_DUMP_MD5}}` |
+| `out/mosaic_tracked_cb_example` | `{{TRACKED_CB_EXAMPLE_MD5}}` |
 
 > ℹ️ **本表读的是「当前磁盘上已有的产物」**（`make_build_dir.sh` 不编译，只**读**
-> `$DEST/out/*` 已存在的产物算 md5）⇒ **十三行都有基线**：产物**已经随交付包一起**
+> `$DEST/out/*` 已存在的产物算 md5）⇒ **十四行都有基线**：产物**已经随交付包一起**
 > 落在 `out/` 里（`out/` 整棵树会一起拷到 NFS），不是「包里没有」。
+>
+> ℹ️ **`out/mosaic_tracked_cb_example` 是 v10.7 新增的产物**：**跟踪结果回调示范** ——
+> 注册 `set_tracked_callback` 拿**一目标一框**的跟踪结果，并与原始候选框**同帧对照**。
 >
 > **若某个产物还没编出来**，对应行会显示占位文本「（尚未编译）」而**不是留空**
 > ⇒ 编完重跑一次 `make_build_dir.sh` 就会回填。
@@ -200,37 +220,57 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.r
   && cat /mnt/manu/mosaic_sdk/out/mosaic_client_example > /tmp/mce \
   && chmod +x /tmp/mce \
   && /tmp/mce \
-     /mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324 \
+     /root/bts/frames/VIDEO00007_19700101_001324 \
      /tmp/p0_off_A_none.rknn \
-     /mnt/manu/mosaic_sdk/runtime/kernels \
+     /home/orangepi/runtime/kernels \
      21'
 ```
 
 ---
 
-## 板卡依赖矩阵（本包**不携带任何第三方** .so/.a）
+## 板卡依赖矩阵（本包**不携带任何第三方** .so/.a，但**随包发布第三方头**）
 
 嵌入式组的要求：**直接用板卡上原来就有的 .so** ⇒ 交付包里**没有任何第三方
-`.so` / `.a`**，全部动态链接板卡自带库：
+`.so` / `.a`**，全部动态链接板卡自带库。
+⚠️ **但头文件随包**（`include/opencv4/` = OpenCV **4.8** 头，211 个文件）——
+原因见下表第三行。
 
 | 库 | 板卡路径 | SONAME | 版本 |
 |:--|:--|:--|:--|
-| OpenCV core/imgproc/imgcodecs/calib3d/features2d/flann/video | `/usr/lib/aarch64-linux-gnu/libopencv_*.so.406` | `libopencv_core.so.406` 等 | **OpenCV 4.6.0** |
-| OpenCV 头 | `/usr/include/opencv4` | — | 4.6.0 |
+| OpenCV core/imgproc/imgcodecs/calib3d/features2d/flann/video | `/usr/lib/libopencv_*.so.408` | `libopencv_core.so.408` 等 | **OpenCV 4.8**（app 与本 SDK 链的**就是这套**） |
+| OpenCV 头（**板上只有 4.6 的头**） | `/usr/include/opencv4`（`CV_VERSION_MINOR 6`） | — | 4.6 —— ⚠️ **不能**拿来配 4.8 的运行库 |
+| OpenCV 头（**随包发布，本 SDK 用这份**） | `include/opencv4/`（包根下） | — | **4.8**（211 个文件；板上没有 ⇒ 外部提供） |
 | RKNN Runtime | `/usr/lib/librknnrt.so` | `librknnrt.so` | **2.2.0** |
-| RGA | `/usr/lib/aarch64-linux-gnu/librga.so.2` | `librga.so.2` | rga_api 1.10.0_[9] |
-| OpenCL | `/usr/lib/aarch64-linux-gnu/libOpenCL.so.1` | `libOpenCL.so.1` | OpenCL 3.0（Mali-G610） |
+| RGA | `/usr/lib/aarch64-linux-gnu/librga.so` | `librga.so.2` | rga_api 1.10.0_[9] |
+| OpenCL（ICD loader） | `/usr/lib/aarch64-linux-gnu/libOpenCL.so.1` | `libOpenCL.so.1` | OpenCL 3.0（Mali-G610 r0p0 / 4 CU） |
+| OpenCL（真实现，Mali） | `/usr/lib/aarch64-linux-gnu/mali/libMaliOpenCL.so.1`（由 `/etc/OpenCL/vendors/mali.icd` 指定） | `libMaliOpenCL.so.1` | 链接期**不需要**它 |
+
+> ℹ️ **Debian 系统包那套 4.6 也在板上**（`/usr/lib/aarch64-linux-gnu/libopencv_*.so.406`，
+> dpkg `libopencv-core406` 等）⇒ **板上同时存在两套 OpenCV**：
+> **4.8 在 `/usr/lib`**（本 SDK 用它）、**4.6 在 multiarch 目录**（系统包，本 SDK 不用）。
+> ⇒ 运行库目录**按 ABI 后缀选**，不按「哪个目录存在」选；
+> ⇒ 头版本与运行库 ABI **当场校验**（不符即构建失败退出）。
 
 **三个阶段分别需要什么**：
 
-* **编译期** —— 需要板卡 OpenCV 的**头**（`/usr/include/opencv4`，含 `opencv2/`）。
-  ⚠️ **头与运行库必须同版本**：本包用板卡 **4.6.0** 的头去链板卡 **4.6.0** 的
-  `.so.406` ⇒ **不要拿 4.8 的运行库配 4.6 的头**（OpenCV 次版本会改 C++ ABI）。
-* **链接期** —— 需要那 7 个 `libopencv_*.so.406` + `librknnrt.so` + `librga.so.2`
+* **编译期** —— 需要 **OpenCV 4.8 的头**（含 `opencv2/`）。
+  ⚠️ **头与运行库必须同版本**：本包用**随包发布的 4.8 头**去链板卡 **4.8** 的
+  `.so.408` ⇒ **绝对不要拿板上 `/usr/include/opencv4` 的 4.6 头配 4.8 运行库**
+  （OpenCV 次版本会改 C++ ABI ⇒ 同一进程装进两套 OpenCV、`cv::Mat` 跨 `.so`
+  边界串味 ⇒ 事故）。构建脚本会**当场校验**头版本 ↔ 运行库 ABI，不符即 die。
+* **链接期** —— 需要那 7 个 `libopencv_*.so.408` + `librknnrt.so` + `librga.so.2`
   + `libOpenCL.so.1`（`build_lib.sh` / `build_demo.sh` 用下面这 4 个变量定位它们）。
+  ⚠️ **板上没有 `libOpenCL.so` 开发软链**（只有 Debian 的 ICD loader `.so.1`）
+  ⇒ **`-lOpenCL` 在板上必然链接失败** ⇒ 脚本按**绝对路径**链那个 `.so.1`
+  （链接器取文件里的 SONAME ⇒ 产物 `DT_NEEDED` 写的是 `libOpenCL.so.1`，
+  与「假如 `-lOpenCL` 能链上」的结果**完全一样** —— 换句话说：**只有链接行的
+  写法变了，产物里记录的东西没变**）。
+  ⚠️ **RGA 同样按绝对路径链** `/usr/lib/aarch64-linux-gnu/librga.so`
+  （**不用 `-lrga`**：`/usr/lib` 里另有一份**不同的** BSP 版 `librga.so`，
+  `-L` 顺序会挑到它；板上 `/home/orangepi/rockit/librga.so` 是第三份，app 不用它）。
 * **运行期** —— 上面这些**全部由板卡 `ldconfig` 解析**
   （板上 `ldconfig -p` 已实测全部可解析）⇒ **不需要设 `LD_LIBRARY_PATH`**。
-  唯一需要 `-rpath` 的是**本包自己的** `libmosaic_pipeline.so`：五个测试程序用
+  唯一需要 `-rpath` 的是**本包自己的** `libmosaic_pipeline.so`：六个测试程序用
   `-Wl,-rpath,'$ORIGIN'` 找**同目录**的那一份 ⇒ **整包可搬**。
   （**例外**：`out/mosaic_api_test_static` 是**静态链接**版 ⇒ 它的 `DT_NEEDED` 里
   **没有**我们的 `.so` ⇒ **运行时不需要** `libmosaic_pipeline.so`；
@@ -242,37 +282,63 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.r
 > ⇒ **先把板卡的那份取回宿主机**，再把变量指过去：
 >
 > ```bash
-> export OPENCV_INCLUDE_DIR=/path/to/board-root/usr/include/opencv4   # 板卡 OpenCV 头
-> export OPENCV_LIB_DIR=/path/to/board-root/usr/lib/aarch64-linux-gnu # 板卡 libopencv_*.so.406
-> export BOARD_LIBS=/path/to/board-root/usr/lib/aarch64-linux-gnu     # libOpenCL.so.1 / librga.so.2
-> export RT_LIB_DIR=/path/to/board-root/usr/lib                       # librknnrt.so
+> export OPENCV_INCLUDE_DIR=<随包发布的 4.8 头目录>          # 如 $DEST/include/opencv4
+> export OPENCV_LIB_DIR=<板卡-root>/usr/lib                 # 板卡 libopencv_*.so.408（4.8）
+> export BOARD_LIBS=<板卡-root>/usr/lib/aarch64-linux-gnu   # libOpenCL.so.1 / librga.so
+> export RT_LIB_DIR=<板卡-root>/usr/lib                     # librknnrt.so
 > ```
 >
-> 变量名与 `build_lib.sh` / `build_demo.sh` 里的**完全一致**；不设时用**板卡的
-> 系统路径**（默认值就是板卡上的 `/usr/include/opencv4` 等）。
+> 变量名与 `build_lib.sh` / `build_demo.sh` 里的**完全一致**；不设时：
+> **头**默认取**包内 `include/opencv4`**（随包发布的 4.8 头），
+> **运行库**默认按 ABI 探测（`/usr/lib` → `/usr/lib/aarch64-linux-gnu` → `/usr/lib64`
+> → `/root/mosaic/opencv` → `/home/orangepi/lib`，**只接受含 `libopencv_core.so.408`
+> 的目录**）。头目录也可以用包内 `fetch_opencv_headers.sh` 取一份（`--src` / `--board`
+> / `--expect-abi` / `--askpass`；版本不符即 die）。
 > `EXTRA_LIB_DIRS`（可选）用于放 OpenCV 的**传递依赖**目录（libjpeg/libpng/
 > libtiff/libgdal/…）—— 那些只在板卡运行时由 `ldconfig` 解析，交叉链接时**不必**
 > 搬（链接行带 `-Wl,--allow-shlib-undefined`）。
 
 ---
 
-## 本板实测结果（2026-11-11，板卡 `192.168.0.211`）
+## 本板实测结果（2026-11-25，板卡 `192.168.1.115` / Orange Pi 5）
 
-> ⚠️ 先看这一节再决定怎么部署：**用板卡自带的 OpenCV，精度指标零损失，
-> 但会放弃「与认证基准逐位一致」**。详见本节末尾的取舍说明。
+> ℹ️ **本节数字全部来自 2026-11-25 在新板（Orange Pi 5 / Debian 12 / glibc 2.36）
+> 上的实测**（旧板 `192.168.0.211` = Orange Pi CM5 与 `192.168.0.64` **均已作废**）。
+> 测试台在板卡 `/root/bts/`：帧 `/root/bts/frames/VIDEO00007_19700101_001324`
+> （**11,810** 帧 640×512 BMP）、模型 `/root/bts/p0_off_A_none.rknn`
+> （md5 `1a3faf2f9459cad8a389ffa81810234c`）、kernel `/root/bts/kernels`。
 
-### 上板门禁（`copy_to_nfs.sh --verify` 自动跑，全过）
+### 上板门禁（全过）
 
 | 门禁 | 结果 |
 |:--|:--|
-| 契约测试 `mosaic_contract_test`（含环境体检） | **`[RESULT] 196 passed, 0 failed`**，EXIT=0 |
-| demo `mosaic_api_test --limit 6` | 6 帧 / **12 检出** / 丢帧 0/0/0 / EXIT=0 |
-| 最小集成示范 `mosaic_client_example` | 6 帧 / **12 检出** / EXIT=0（检测框与 demo **逐位相同**） |
-| **板卡自带库门禁** | ① `ldd` 无 `not found`（板卡 `ldconfig` 全部解析）② `libmosaic_pipeline.so` 由 **`$ORIGIN`** 解析 ③ **不设 `LD_LIBRARY_PATH`** 也跑通 |
+| 契约测试 `mosaic_contract_test`（含环境体检） | **`[RESULT] 212 passed, 0 failed`**，EXIT=0 |
+| 最小集成示范 `mosaic_client_example`（**零参数**） | 21 帧 / **52 目标** / EXIT=0 |
+| 多线程模板 `mosaic_async_client_example`（**零参数**） | 120 帧进 / 120 帧出 / **326 目标** / EXIT=0 |
+| 两个探针 `mosaic_track_dump` / `mosaic_cadence_probe`（**零参数**） | EXIT=0 |
+| **板卡自带库门禁** | ① `ldd` 全部解析成功、**无 `not found`**（板卡 `ldconfig` 全部解析）② `libmosaic_pipeline.so` 由 **`$ORIGIN`** 解析 ③ **不设 `LD_LIBRARY_PATH`** 也跑通 |
+
+### 🔑 位级基线（**新板交付的硬指标**）
+
+| 项 | 实测值 |
+|:--|:--|
+| 检测 TSV md5 | **`ceea5fe670a0e996eae0dbffc8c22c11`**（60 帧 / **168 检出** / 丢帧 0） |
+| 三种构建形态的 TSV md5 | **静态版 / 共享版 / 零参数版三份 md5 全部相同** ⇒ 静态/共享两态逐位等价 |
+| 与适配前对比 | **与适配前逐字节一致**（换板换 ABI **没有**动一个字节的检测结果） |
+| `out/libmosaic_pipeline.so` | **{{LIB_SO_SIZE}} B**，md5 `{{LIB_SO_MD5}}`；`DT_NEEDED` = 7× `libopencv_*.so.408` + `libOpenCL.so.1` + `librknnrt.so` + `librga.so.2` |
+| `out/libmosaic_pipeline.a` | **801,020 B**，md5 `b86391619f1d9e92973c1b4a1e6520d7`（**与上一轮交付逐字节相同** —— 静态库与板无关） |
+
+⇒ **新板是逐位可复现的**：头随包（4.8）+ 运行库 4.8 严格配套 ⇒ 不再有
+「换了 OpenCV 版本就不再逐位一致」的问题。
 
 ### e2e 全序列实测（11,810 帧，CANON28 权威参数：decoupled + D=3 + sparse）
 
-| 指标 | 本板实测（当前交付包） | 旧板参考 |
+> ⚠️ **下表是旧板（`192.168.0.211`，Orange Pi CM5，**已作废**）的历史实测**，
+> 用来给出性能量级；**新板（Orange Pi 5）尚未复跑这条全序列 e2e**，
+> 所以这里**不填新板的 fps**（不编造未实测的数字）。
+> 新板已实测的是上文的**位级基线**与**上板门禁**。
+
+| 指标 | 旧板实测（`192.168.0.211`，已作废） | 更早一板参考 |
 |:--|:--|:--|
 | fps | **8.564** | 12.811 |
 | 交付帧 / GMC 组 | 4051 / 4553 | 6057 / 7122 |
@@ -282,8 +348,8 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.r
 | 丢帧 / VOIDED | **0 / 0** | 0 / 0 |
 | 墙钟 | 473.0 s | 472.8 s |
 
-🔴 **fps 差 33%，但根因是板子热节流，不是 SDK**：
-本板负载中实测 **SoC 82–86 °C**（被动降频点 **75 °C**）、
+🔴 **fps 偏低（8.564 vs 12.811）的根因是板子热节流，不是 SDK**：
+旧板负载中实测 **SoC 82–86 °C**（被动降频点 **75 °C**）、
 `thermal-devfreq-0 cur=7 max=7`（冷却设备满档）、
 **GPU 被压到最低 300 MHz**（可用到 1000 MHz）—— GMC 跑在 Mali-G610 上，直接被拖慢 60%。
 ⇒ **建议：改善散热，或把 GPU 频率固定到更高档。** 三种库组合实测 fps 都在 6.5–8.6，
@@ -321,40 +387,45 @@ e2e 自带的 `--watchdog-ms` 也看不见它（watchdog 住在**调用方**，�
 复验：e2e **EXIT=0**、**行为逐位中性**、官方 **ΔF1 仍 = +0.000000**、fps 8.310（在跑间抖动范围内）。
 
 
-### ⚠️ 取舍：用板卡 OpenCV（4.6.0）会丢掉「逐位可复现」
+### ✅ 取舍：新板**头随包** ⇒ 「逐位可复现」反而保住了
 
-| 组合 | OpenCV | RKNN Runtime | fps | 与认证基准**逐位相同** | ΔF1（官方校验器） |
-|:--|:--|:--|--:|--:|--:|
-| **本包默认** | 板卡 **4.6.0** | 板卡 2.2.0 | **7.138** | 特征 990/3742（**26.5 %**） | **+0.000000** |
-| 对照 | 交叉编译 **4.10.0** | 板卡 2.2.0 | 6.661 | 特征 **3535/3535（100 %）** ✅ | +0.000000 |
+| 组合 | OpenCV | RKNN Runtime | 与基准**逐位相同** | ΔF1（官方校验器） |
+|:--|:--|:--|--:|:--|
+| **本包默认（新板 `192.168.1.115`）** | **4.8**（头随包 `include/opencv4/` + 板卡 `.so.408`） | 板卡 2.2.0 | 检测 TSV md5 **`ceea5fe670a0e996eae0dbffc8c22c11`**，**与适配前逐字节一致** ✅ | — |
+| 对照（旧板口径，**已作废**） | 板卡 **4.6**（头与库都是板上那套） | 板卡 2.2.0 | 特征 990/3742（**26.5 %**） | **+0.000000** |
+| 对照（旧板口径，**已作废**） | 交叉编译 **4.10** | 板卡 2.2.0 | 特征 **3535/3535（100 %）** ✅ | +0.000000 |
 
-* **精度指标零损失**：官方校验器（服务器 `load_and_align_subset.py`，黄金基准
-  `A_gate_step2_nodrop`）实测 `arm@S` 与 `ref@S` 的 **TP / FP / FN / Recall /
-  Precision / F1 全等**，**ΔF1 = +0.000000**。换 OpenCV 只改最低位
-  （框坐标差 ~0.04 px、area ±1、peak ~5e-4），**不改变任何 TP/FP/FN 判定**。
-* **但逐位一致破了**：特征 md5 逐位相同率只有 26.5 % ⇒ 官方校验器的
-  `VERDICT` 判据（`different == 0`）会报 **FAIL**。
-  这**不是精度退化**，是「换了 OpenCV 版本 ⇒ 不再逐位可复现」。
-* 已用对照构建证伪其它所有因素：把 OpenCV 换回 4.10 后，在**同一块板**上
-  **100 % 逐位一致** ⇒ 新板硬件 / RKNN Runtime 2.2.0 / RGA / OpenCL
-  **都不影响位级可复现性**，唯独 OpenCV 版本会。
-* ⇒ **若下游有「必须与认证基准逐位一致」的门禁**，就**不能**用板卡自带的
-  OpenCV 4.6，需另行打包 4.10；其余三个库（RKNN Runtime / RGA / OpenCL）
-  用板卡自带的**完全没有问题**。
+* **旧板那次取舍（历史）**：当时板卡上只有 OpenCV **4.6 的头**，用它去编就得配 4.6 的
+  运行库 ⇒ 官方校验器实测 `arm@S` 与 `ref@S` 的 **TP / FP / FN / Recall / Precision /
+  F1 全等**（**ΔF1 = +0.000000**，换 OpenCV 只改最低位：框坐标差 ~0.04 px、area ±1、
+  peak ~5e-4，**不改变任何 TP/FP/FN 判定**），但**特征 md5 逐位相同率只有 26.5 %**
+  ⇒ 校验器的 `VERDICT` 判据（`different == 0`）会报 **FAIL**。
+  那**不是精度退化**，是「换了 OpenCV 版本 ⇒ 不再逐位可复现」。
+* **新板没有这个取舍了**：目标板（Orange Pi 5 / Debian 12）上**只有 4.6 的头**
+  （`/usr/include/opencv4`），但**运行库是 4.8** ⇒ 本包**把 4.8 的头随包发布**
+  （`include/opencv4/`），头与运行库**严格配套** ⇒
+  **实测 TSV md5 与适配前逐字节相同** ⇒ 「必须与基准逐位一致」的门禁**直接满足**。
+* ⇒ **新板的取舍只剩一条**：包里多了 211 个 OpenCV 头文件（第三方 BSD 许可），
+  换来「头/库版本永远配套、换板不用重取头」。
+  ⚠️ 反过来，**换到只有别的次版本的板子**时（例如板上是 4.6 运行库），
+  就必须用 `OPENCV_ABI=406` 换成配套的头（`fetch_opencv_headers.sh --expect-abi 406`），
+  **头与库不配套 ⇒ 同一进程装进两套 OpenCV ⇒ 事故**。
 
-### ✅ 位级门禁该拿谁当参照？（**2026-11-12 更新**：换板后参照已重建）
+### ✅ 位级门禁该拿谁当参照？（**2026-11-25 更新**：换板后参照已重建）
 
-> ⚠️ 上表里那份「认证基准」`A_gate_step2_nodrop` 是 **2026-10-28 的旧板**
-> （`192.168.0.64`，交叉编译 OpenCV 4.10）产出的。**板卡已于 11-10 换成当前这块**
-> （`192.168.0.211`，板卡自带 OpenCV 4.6 / RKNN 2.2.0）
-> ⇒ **拿旧板那份基准跟本包产物比，位级必然对不上**，这不是本包的缺陷。
+> ⚠️ 历史上换过三块板，**前两块均已作废**：
+> `192.168.0.64`（Ubuntu 20.04，交叉编译 OpenCV 4.10，2026-10-28 产出「认证基准」
+> `A_gate_step2_nodrop`）→ `192.168.0.211`（Orange Pi CM5 / Debian 12，2026-11-10 换上，
+> 11-12 重建过一次 golden）→ **`192.168.1.115`（Orange Pi 5 / Debian 12，**当前目标板**）**。
+> ⇒ **拿作废板上的基准跟本包产物比，位级必然对不上**，这不是本包的缺陷。
 
 | 参照 | 产自 | 与本包产物逐位相同率 | 官方校验器判定 |
 |:--|:--|--:|:--|
-| 🔴 旧「认证基准」`A_gate_step2_nodrop` | **旧板**（10-28，OpenCV 4.10） | **19.97 %** | ❌ FAIL（ΔF1 −0.000103） |
-| ✅ **新板 golden**（11-12 重建） | **当前这块板**（板卡自带 OpenCV 4.6 / RKNN 2.2.0），`rknn_mosaic_e2e`，参数与原基准**逐字对齐** | **100.00 %**（共同帧 **11806/11806**，特征 md5 与检测载荷**都逐位全等**） | ✅ **PASS**（ΔF1 = **+0.000000**，TP/FP/FN/R/P/F1 全等） |
+| 🔴 旧「认证基准」`A_gate_step2_nodrop` | **作废板**（`192.168.0.64`，OpenCV 4.10） | **19.97 %** | ❌ FAIL（ΔF1 −0.000103） |
+| 🟡 中间板 golden（11-12 重建） | **作废板**（`192.168.0.211`，板卡自带 OpenCV 4.6 / RKNN 2.2.0） | **100.00 %**（共同帧 **11806/11806**） | ✅ **PASS**（ΔF1 = **+0.000000**） |
+| ✅ **当前板基线**（11-25 实测） | **当前板 `192.168.1.115`**（OpenCV 4.8：头随包 + 板卡 `.so.408` / RKNN 2.2.0） | **检测 TSV md5 `ceea5fe670a0e996eae0dbffc8c22c11`，与适配前逐字节一致**；静态版 / 共享版 / 零参数版三份**全同** | ✅ **PASS**（与适配前逐字节相同 ⇒ TP/FP/FN/R/P/F1 全等） |
 
-⇒ **位级门禁请用「当前这块板重建的 golden」当参照**，不要用旧板那份。
+⇒ **位级门禁请用「当前板（`192.168.1.115`）的基线」当参照**，不要用任何作废板上的。
 ⇒ 重建方法（板卡上，约 52 min）：
   ```bash
   ./rknn_mosaic_e2e --raw-root <帧目录> --sequence <序列名> \
@@ -377,7 +448,7 @@ opportunistic 引擎忙不过来时会「取最新帧、跳过中间的」，**�
 
 位级 md5 只在「同一块板 + 同一套库」下成立。换板后请用**容差判据**（实测值，已实测通过）：
 
-| 指标 | 判据 | 实测（旧板基准 vs 新板产物） |
+| 指标 | 判据 | 实测（作废板基准 vs 当时产物） |
 |:--|:--|:--|
 | 检出数变化率 | ≤ 1 % | **0.56 %** ✅ |
 | 坐标容差覆盖率（\|Δcx\|,\|Δcy\| ≤ 0.5 px 的帧占比） | ≥ 99 % | **99.48 %** ✅ |
@@ -385,12 +456,21 @@ opportunistic 引擎忙不过来时会「取最新帧、跳过中间的」，**�
 | ΔF1 | ≥ −1.6e-4 | **−0.000103** ✅ |
 
 ⇒ **亚像素抖动 ≠ 精度退化**（TP/FP/FN 判定一个都没变）。
+ℹ️ **当前板不需要用容差判据**：头随包 + 运行库严格配套 ⇒
+**换板后检测 TSV md5 与适配前逐字节相同**（见上文「位级基线」）。
 
 ---
 
-### 🔴 板卡 RGA 驱动会**偶发内核 oops**（**新板特有**，嵌入式组必读）
+### 🔴 板卡 RGA 驱动会**偶发内核 oops**（**嵌入式组必读**）
 
-**现象**：在板卡 `192.168.0.211`（Orange Pi CM5 / Debian 12 / 内核 `5.10.160-rockchip-rk3588`）上
+> ℹ️ **观测记录来自已作废的 Orange Pi CM5**（`192.168.0.211`，Debian 12 / 内核
+> `5.10.160-rockchip-rk3588`）—— 保留在文档里是因为**当前目标板
+> `192.168.1.115`（Orange Pi 5）用的是同一代 Rockchip RGA 驱动栈、同一 glibc 2.36
+> 发行版**，这个坑**有可能复现**，集成方必须知道怎么查。
+> 当前板 2026-11-25 适配实测（契约测试 212 passed + 上板门禁 + 零参数 demo + 两个探针）
+> **未触发**该 oops。
+
+**现象**：在已作废的板卡 `192.168.0.211`（Orange Pi CM5 / Debian 12 / 内核 `5.10.160-rockchip-rk3588`）上
 跑本包的测试程序时，`dmesg` 偶发出现：
 
 ```
@@ -414,18 +494,25 @@ CPU: 7 PID: 18287 Comm: mosaic_contract Tainted: G D  5.10.160-rockchip-rk3588
 （实测：契约测试跑了 7.5 min 只用掉 13 s CPU 就再也醒不过来，线程全卡在
 `futex_wait_queue_me` / `do_sys_poll`）。
 
-**新旧板差异（这才是根因）**：
+**三块板的差异（这才是根因）**：
 
-| | 旧板（`192.168.0.64`，已作废） | 新板（`192.168.0.211`） |
-|:--|:--|:--|
-| 系统 | Ubuntu 20.04.6 | Orange Pi 1.0.0 Bookworm / Debian 12 |
-| 内核 RGA 驱动 | **`rga v1.3.1`** | **`rockchip_rga` `v1.3.0`** |
-| `librga.so.2` | md5 `7136ae54…`（192,712 B） | md5 `32c4b08f…`（200,896 B） |
-| RGA API 版本 | `1.10.0_[9]` | `1.10.0_[9]`（**相同**） |
-| 是否 oops | 未观测到 | **2 次 / 约 1.5 h** |
+| | 作废板（`192.168.0.64`） | 作废板（`192.168.0.211`） | **当前板（`192.168.1.115`）** |
+|:--|:--|:--|:--|
+| 型号 | RK3588 开发板 | Orange Pi CM5 | **Orange Pi 5** |
+| 系统 | Ubuntu 20.04.6 | Orange Pi 1.0.0 Bookworm / Debian 12 | **Debian 12 (Bookworm) / aarch64** |
+| glibc | —— | —— | **2.36**（`GLIBC_2.36-9+deb12u4`） |
+| 板载 gcc | —— | —— | **12.2.0**（Debian） |
+| 内核 | —— | `5.10.160-rockchip-rk3588` | **`5.10.160-rockchip-rk3588`** |
+| 内核 RGA 驱动 | **`rga v1.3.1`** | **`rockchip_rga` `v1.3.0`** | 同代驱动栈（**具体小版本未复核**） |
+| RGA 库 | `librga.so.2` md5 `7136ae54…`（192,712 B） | `librga.so.2` md5 `32c4b08f…`（200,896 B） | `/usr/lib/aarch64-linux-gnu/librga.so`（SONAME **`librga.so.2`**）；⚠ 另有 `/home/orangepi/rockit/librga.so` 是**不同的**一份，app 不用它 |
+| RGA API 版本 | `1.10.0_[9]` | `1.10.0_[9]` | `1.10.0_[9]`（头随包 `include/rga/`，**相同**） |
+| **RGA ABI 探针** | 未跑 | 未跑 | ✅ **通过**（`sizeof(rga_buffer_t)=96`、`offsetof(handle)=92`、handle 回读 `0x12345678` 一致 ⇒ 与本 SDK 的假设一致） |
+| 是否 oops | 未观测到 | **2 次 / 约 1.5 h** | **本轮适配实测未触发**（契约 + 门禁 + demo + 探针全过） |
 
-⇒ **用户态 API 版本相同，是内核 RGA 驱动版本不同**（v1.3.1 → v1.3.0，新板反而更旧）。
+⇒ **用户态 API 版本相同，是内核 RGA 驱动版本不同**（v1.3.1 → v1.3.0，中间那块反而更旧）。
 **这属于板卡/厂商侧的驱动缺陷，本包无法在用户态彻底消除。**
+⇒ **当前板（Orange Pi 5）的 RGA ABI 与本 SDK 假设一致（探针通过）**，
+但驱动栈同代 ⇒ **集成方仍应按下面的方法做 oops 计数巡检**。
 
 **本包已做的两件事**：
 
@@ -444,8 +531,9 @@ CPU: 7 PID: 18287 Comm: mosaic_contract Tainted: G D  5.10.160-rockchip-rk3588
 
 **嵌入式组/平台方需要做的**：
 
-- 升级新板的 **RGA 内核驱动**（v1.3.0 → v1.3.1 或厂商修订版），或
-  向 Orange Pi 镜像维护方报这个 oops；
+- 升级目标板的 **RGA 内核驱动**（v1.3.0 → v1.3.1 或厂商修订版），或
+  向 Orange Pi 镜像维护方报这个 oops（**当前目标板 `192.168.1.115` 用的是同代
+  驱动栈，这个坑有可能复现**）；
 - 排查现场用：`dmesg | grep -c 'Internal error: Oops'`（**计数是否增加**就是判据），
   以及 `dmesg | grep -c 'not a buffer that has been imported'`；
 - 上板自检脚本里建议加一条「**跑之前/跑之后各记一次 oops 计数**」，
@@ -481,18 +569,62 @@ rm -f out/libmosaic_pipeline.so && \
   -o out/libmosaic_pipeline.so out/mosaic_pipeline.o \
   -L{{RT_LIB_DIR}} -L{{BOARD_LIBS}} -L{{OPENCV_LIB_DIR}} \
   -Wl,-rpath-link,{{RT_LIB_DIR}} -Wl,-rpath-link,{{BOARD_LIBS}} -Wl,-rpath-link,{{OPENCV_LIB_DIR}} \
+  -Wl,--no-as-needed \
   -lopencv_imgcodecs -lopencv_calib3d -lopencv_features2d -lopencv_flann -lopencv_video \
-  -lopencv_imgproc -lopencv_core -lOpenCL -lrknnrt -lrga -lpthread -ldl -lm
+  -lopencv_imgproc -lopencv_core \
+  {{BOARD_LIBS}}/libOpenCL.so.1 {{BOARD_LIBS}}/librga.so \
+  -lrknnrt -lpthread -ldl -lm
 ```
 
 > 📌 `-fPIC` 与 `-shared` 是共享库的必需项；`-Wl,-soname,libmosaic_pipeline.so`
 > 决定集成方按哪个名字链接；`-Wl,--allow-shlib-undefined` 允许 OpenCV 的传递依赖
 > （libjpeg/libpng/libgdal/…）留到**板卡运行时**由 `ldconfig` 解析。
 >
-> 📌 这里的 `-I{{OPENCV_INCLUDE_DIR}}` / `-L{{OPENCV_LIB_DIR}}` 指向**板卡的**
-> OpenCV 头与库（板卡默认 `/usr/include/opencv4` 与
-> `/usr/lib/aarch64-linux-gnu`）—— **交叉编译时它们指的是板卡的文件系统**，
-> 宿主机上的 `/usr` 是 x86 的，**绝对不能直接用**（见「板卡依赖矩阵」）。
+> 🔴 **`-lOpenCL` 在新板上必然链接失败**（板上只有 Debian 的 ICD loader
+> `libOpenCL.so.1`，**没有 `libOpenCL.so` 开发软链**）⇒ 上面那行用
+> **绝对路径** `{{BOARD_LIBS}}/libOpenCL.so.1` 参与链接。链接器取的是文件里的
+> **SONAME**（就是 `libOpenCL.so.1`）⇒ 产物的 `DT_NEEDED` 仍写
+> `libOpenCL.so.1`，与 app 链的那份一致。
+> ⚠️ 板上的**真 GPU 实现**是 `/usr/lib/aarch64-linux-gnu/mali/libMaliOpenCL.so.1`
+> （由 `/etc/OpenCL/vendors/mali.icd` 指定）—— 那是**运行期**的事，链接期不需要它。
+>
+> 🔴 **同理不能用 `-lrga`**：`/usr/lib` 里另有一份**不同的** BSP 版 `librga.so`，
+> 而 OpenCV 4.8 也在 `/usr/lib` ⇒ `-L` 顺序一不小心就会挑到 BSP 那份
+> （app 的 `ldd` 解析到的是 multiarch 那份 `/usr/lib/aarch64-linux-gnu/librga.so`
+> ⇒ SONAME `librga.so.2`）⇒ 上面用**绝对路径** `{{BOARD_LIBS}}/librga.so` 锁死。
+> ℹ️ **三个脚本在这一点上不完全一样**（别踩）：**`build_board_native.sh`（板卡原生）
+> 已经按绝对路径锁 multiarch 那份**；`build_lib.sh` / `build_demo.sh`（宿主机交叉编译）
+> 的链接行仍写 `-lrga` ⇒ **在板上跑这两个脚本时**，要保证 `-L` 的顺序先命中
+> `/usr/lib/aarch64-linux-gnu`（或把 `BOARD_LIBS` 指到 multiarch 那份的拷贝）。
+>
+> 📌 `-Wl,--no-as-needed` 不能省：Debian 的 gcc **默认 `--as-needed`**，会把
+> 「链了但没直接用到」的 `libopencv_features2d` / `libopencv_flann` 从 `NEEDED`
+> 里丢掉 ⇒ 交付产物的 `NEEDED` 集合（7 个 OpenCV 模块）就会与 app 链的对不上。
+>
+> 📌 **OpenCV 的版本由 `OPENCV_ABI` 决定**（`build_lib.sh` / `build_demo.sh` /
+> `build_board_native.sh` **三者同名同义**，默认 **408** = 4.8）：
+> `OPENCV_VERSION` 默认由 ABI 推导（408→4.8 / 406→4.6 / 410→4.10），
+> `OPENCV_INCLUDE_DIR` 默认**包内 `include/opencv4`**（4.8 头），
+> `OPENCV_LIB_DIR` 默认按 ABI 自动探测（`/usr/lib` → `/usr/lib/aarch64-linux-gnu`
+> → `/usr/lib64` → `/root/mosaic/opencv` → `/home/orangepi/lib`，
+> **只接受含 `libopencv_core.so.$OPENCV_ABI` 的目录**），
+> `BOARD_LIBS` 默认 `/usr/lib/aarch64-linux-gnu`，`RT_LIB_DIR` 默认 `/usr/lib`。
+> 脚本还会做**头版本 ↔ ABI 校验**：头版本与 `OPENCV_ABI` 对不上就**当场 die**
+> 并给出可操作指引（头版本按 `opencv2/core/version.hpp` 读，
+> 库则按**精确的 `.so.$ABI`** + **SONAME 守卫**判定，避免 `.so` 软链指向
+> 另一个次版本时被误判为「有」）。
+>
+> 📌 这里的 `-I{{OPENCV_INCLUDE_DIR}}` / `-L{{OPENCV_LIB_DIR}}` 指向
+> **OpenCV 4.8 的头与库**（默认 = **包内 `include/opencv4`** 与 `/usr/lib`）——
+> ⚠️ **板上 `/usr/include/opencv4` 只有 4.6 的头**，拿它配 4.8 的库就是
+> **ABI 错配**（编译期结构体布局按 4.6 头、运行期按 4.8 库解释 ⇒ 踩内存）。
+> **交叉编译时这些路径指的是板卡的文件系统**，宿主机的 `/usr` 是 x86 的，
+> **绝对不能直接用**（见「板卡依赖矩阵」）。
+> 📌 `{{BOARD_LIBS}}` 在板上就是 `/usr/lib/aarch64-linux-gnu`
+> （⇒ 上面两个绝对路径即 `/usr/lib/aarch64-linux-gnu/libOpenCL.so.1` 与
+> `/usr/lib/aarch64-linux-gnu/librga.so`）；
+> **宿主机交叉编译**时把它指向**从板卡取回来的那份**（`fetch_board_libs.sh`），
+> 否则链的是宿主机的 x86 库。
 > `TC` 是**唯一还要你提供的东西**（交叉编译器）—— 换编译器就改 `TC=` 那一行，
 > 或改用 `RK3588_TOOLCHAIN` / `CROSS_CXX` 环境变量让脚本去找。
 
@@ -529,8 +661,11 @@ mkdir -p out && \
   -L{{RT_LIB_DIR}} -L{{BOARD_LIBS}} -L{{OPENCV_LIB_DIR}} \
   -Wl,-rpath-link,{{RT_LIB_DIR}} -Wl,-rpath-link,{{BOARD_LIBS}} -Wl,-rpath-link,{{OPENCV_LIB_DIR}} \
   -Wl,--allow-shlib-undefined \
+  -Wl,--no-as-needed \
   -lopencv_imgcodecs -lopencv_calib3d -lopencv_features2d -lopencv_flann -lopencv_video \
-  -lopencv_imgproc -lopencv_core -lOpenCL -lrknnrt -lrga -lpthread -ldl -lm
+  -lopencv_imgproc -lopencv_core \
+  {{BOARD_LIBS}}/libOpenCL.so.1 {{BOARD_LIBS}}/librga.so \
+  -lrknnrt -lpthread -ldl -lm
 ```
 
 > 📌 `-Lout -lmosaic_pipeline` 链接**同目录**的共享库，
@@ -615,12 +750,20 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.r
   && cat /mnt/manu/mosaic_sdk/out/mosaic_api_test > /tmp/mosaic_api_test \
   && chmod +x /tmp/mosaic_api_test \
   && /tmp/mosaic_api_test \
-  --raw-root   /mnt/manu/lq_ir_bmp \
+  --raw-root   /root/bts/frames \
   --sequence   VIDEO00007_19700101_001324 \
   --model      /tmp/p0_off_A_none.rknn \
-  --kernel-dir /mnt/manu/mosaic_sdk/runtime/kernels \
+  --kernel-dir /home/orangepi/runtime/kernels \
   --limit 12'
 ```
+
+> ⚠️ **本板（`192.168.1.115`）上没有 `/mnt/manu` 这个挂载点** ——
+> `/mnt/manu/mosaic_sdk` 是**NFS 交付落点**（嵌入式组那边把整包挂 NFS，板卡侧
+> 通过 `/mnt/manu/...` 访问）；**本板实测**用的是板卡自己的布局：
+> kernel = `/home/orangepi/runtime/kernels`、帧 = `/root/bts/frames`、
+> 模型 = `/root/bts/p0_off_A_none.rknn`（先 `cat` 到 `/tmp`）。
+> ⇒ 上面命令里的 `--raw-root` / `--kernel-dir` 换成本板路径即可；
+> **不给这两个参数**也行（程序走 `mosaic_paths.h` 的回落，会自动命中本板路径）。
 
 > ⚠️ **共享库带来的新要求**：测试程序用 `-rpath '$ORIGIN'` 找**同目录**的
 > `libmosaic_pipeline.so` ⇒ **`.so` 必须和可执行文件放在同一个目录**。
@@ -638,7 +781,7 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.r
 > 铁律：**>1 MB 的二进制一律先 `cat` 到板卡 `/tmp`（tmpfs）再执行**，
 > `chmod +x` 后再跑。详见「必读的坑」。
 > ⚠️ 本版改成共享库后，产物**全部 < 1 MB**（最大的 `out/libmosaic_pipeline.so`
-> 约 417 KB，五个可执行文件 20–74 KB）⇒ 这条铁律**当前不再触发**；
+> 约 417 KB，六个可执行文件**都远小于 1 MB**）⇒ 这条铁律**当前不再触发**；
 > 但下面的命令**仍然 `cat` 到 `/tmp`**（稳妥，而且 `.so` 与可执行文件本来就要
 > 待在一起）。
 >
@@ -660,28 +803,30 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.r
     && cat /mnt/manu/mosaic_sdk/out/libmosaic_pipeline.so > /tmp/libmosaic_pipeline.so \
     && cat /mnt/manu/mosaic_sdk/out/mosaic_contract_test > /tmp/mosaic_contract_test \
     && chmod +x /tmp/mosaic_contract_test \
-    && /tmp/mosaic_contract_test --raw-root /mnt/manu/lq_ir_bmp \
+    && /tmp/mosaic_contract_test --raw-root /root/bts/frames \
     --sequence VIDEO00007_19700101_001324 \
     --model /tmp/p0_off_A_none.rknn \
-    --kernel-dir /mnt/manu/mosaic_sdk/runtime/kernels --limit 60'
+    --kernel-dir /home/orangepi/runtime/kernels --limit 60'
   ```
 
-  板卡实测 **196 passed / 0 failed**。它是库的验收门禁——客户环境跑通这个，
+  板卡实测 **217 passed / 0 failed**（2026-11-25，本板 `192.168.1.115`；
+  更早一轮在作废板 `192.168.0.211` 上是 196 passed / 0 failed）。
+  它是库的验收门禁——客户环境跑通这个，
   说明库的行为是符合契约的。
 * **demo 的全部选项与默认值**（`src/npu/mosaic_api_test.cpp`）：
 
   | 选项 | 默认值 | 说明 |
   |---|---|---|
-  | `--raw-root` | `/mnt/manu/lq_ir_bmp` | 帧根目录，只用于环境体检和拼帧目录 |
+  | `--raw-root` | `mosaic_paths::FramesRoot()`（`MOSAIC_RAW_ROOT` → `/root/bts/frames` → `/mnt/manu/lq_ir_bmp`） | 帧根目录，只用于环境体检和拼帧目录 |
   | `--sequence` | `VIDEO00007_19700101_001324` | 序列名，帧目录是 `<raw-root>/<sequence>/frame_%06d.bmp` |
   | `--model` | `/tmp/p0_off_A_none.rknn` | RKNN 模型路径（**板上落点**；模型**来源**是本包 `models/p0_off_A_none.rknn`，须先 `cat` 到 `/tmp`） |
-  | `--kernel-dir` | `/root/kernels` | OpenCL kernel 目录 |
+  | `--kernel-dir` | `mosaic_paths::KernelDir()`（`MOSAIC_KERNEL_DIR` → `<包根>/runtime/kernels` → `/home/orangepi/runtime/kernels` → …） | OpenCL kernel 目录 |
   | `--limit` | `60` | 最多跑多少帧（`0` = 不限） |
   | `--no-env-gate` | 关（默认开体检） | 跳过开库前的环境体检 |
   | `--post-mode` | `sparse` | 后处理算法：`sparse`（默认）/ `dense` / `verify` / `gpu` |
   | `--dump-tsv` | 不导出 | 把逐帧检测导出成 e2e 同格式的 TSV |
 
-  不带参数也能直接跑（默认值就是板卡上那一套）。
+  不带参数也能直接跑（默认值由 `mosaic_paths.h` 逐级回落 ⇒ 命中本板布局）。
 * **后处理有四种算法（v10.3）**，由 `--post-mode` 或环境变量 `MOSAIC_POST_MODE` 选：
 
   | 模式 | 板卡实测（RK3588，600 帧） | 全序列门禁 VERDICT | 说明 |
@@ -732,7 +877,7 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.r
     && chmod +x /tmp/mosaic_api_test && /tmp/mosaic_api_test ...'
   ```
 
-  ⚠️ 本版产物**全部 < 1 MB**（共享库 ~417 KB，五个可执行文件 20–74 KB）⇒ 这条
+  ⚠️ 本版产物**全部 < 1 MB**（共享库 ~417 KB，六个可执行文件**都远小于 1 MB**）⇒ 这条
   铁律当前不触发；上面仍 `cat` 到 `/tmp` 是稳妥起见 + `.so` 必须同目录。
 
   详见「必读的坑」。
@@ -783,6 +928,12 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.r
 
 * 参数档：`manu/evaluation/system_sota_longquan_trial0080_delivery_v3_optgapfit_params.json`，
   `params_md5 = a1157e013ebb496731be805c72c95dd8`。
+* 🟢 **板上实机回读**（Orange Pi 5 `192.168.1.115`，2026-11-25，跑
+  `out/mosaic_cadence_probe --fusion 1` 打印库内生效参数）：
+  `th_base=0.4800 th_salvage=0.0600 th_ground=0.2600 sky_ratio=1.000 match_dist=10.00
+  max_age_phys=-1 r_slope=5.00 confirm_consec=2 confirm_gap_tol=8`
+  ⇒ **与上表逐项一致** ⇒ **集成方不需要手动传这 8~10 个参数**；
+  即便要显式覆盖，`MosaicTrackFusionConfig` 的**成员默认值**本身就已经是交付值。
 * **跨尺度候选合并半径 = 20 px**（可用带 **16 ~ 24 px**），**已内置**。
   ⚠️ **不要照搬服务器的 768 px** —— 板端的图像尺度不同，768 px 会让每帧只剩 1 个候选、
   **次要目标全丢**。板端 2500 帧窗口实测：半径 `0` ⇒ F1 `0.5689473` / FAR `0.3832`；
@@ -807,14 +958,83 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.r
      `MOSAIC_TRACK_QUEUE_MAX`，默认 **4096** 帧；超了会**丢最旧的帧**并打一行 `[warn]`）。
      只用检测结果、永远不取跟踪结果的客户**不用管这条**。
    * `collect_fused` 走**物理帧号**（相机跳号的地方是空洞，跳过不返回）。
-   * ℹ️ **回调通道里没有跟踪结果**：结果回调
-     （`mosaic_pipeline_set_result_callback()` / `..._ex()`）送的是**原始候选框**，
-     **没有**跟踪版回调 ⇒ 用回调的 app 也一样要另外调 `mosaic_pipeline_collect_tracked()`
-     才能拿到跟踪结果。
-3. **公开接口集合 = 2026-11-20 交付版**（`MOSAIC_API_VERSION` 仍然是 `10`）：
-   `open` / `set_post_mode` / `set_result_callback` / `push`（或 `push_frame`）/
+   * 🟢 **v10.7 起：回调通道里**也有**跟踪结果了**（**纯追加**：`MOSAIC_API_VERSION` 仍是
+     `10`，**既有接口一个都没改**）。跟踪结果回调与原始结果回调
+     （`mosaic_pipeline_set_result_callback()` / `..._ex()`）**并列**，两者可同时注册：
+     * 回调签名：`typedef void (*MosaicTrackedCallback)(void* user, int64_t frame_id, const MosaicTrackedDet* dets, int32_t n_dets);`
+     * 注册：`mosaic_pipeline_set_tracked_callback(p, on_tracked, my_user);`
+     * **每个已确认目标一条**（**跨尺度的重复框已在库内合并**）⇒ **一目标一框**。
+     * **切换语义**（与结果回调同一套）：
+       - 注册（非 `NULL`）⇒ 跟踪结果**不再进** `mosaic_pipeline_collect_tracked()` 的队列
+         （否则那条队列**每帧涨一条、永不排空**）；
+       - 传 `NULL` 移除回调 ⇒ 跟踪结果**退回**队列（`collect_tracked()` 照旧拿得到）；
+       - 切换的瞬间，**两条路径之间 pending 的帧会互搬** ⇒ **不丢帧**。
+     * ✅ **只要「一目标一框」的跟踪结果 ⇒ 只注册 `set_tracked_callback` 一个就够了**
+       （**两个回调不是必须同时注册**；2026-11-25 在 **Orange Pi 5（192.168.1.115）**
+       与 **ematech（192.168.0.64）** 两块板**实测通过**：`--mode tracked-only`
+       ⇒ tracked 回调 **60 帧 / 60 框 / 单帧最多 1 框**、**帧内 `track_id` 重复 0 帧**）。
+       * ⚠️ 代价：只注册跟踪回调时**原始候选流不再缓冲**，
+         `mosaic_pipeline_collect()` **返回 `-1`**（stderr **告警一次**）。
+       * 只有当你**还想同时拿原始候选流**时，才需要**两个都注册** ——
+         「两个都注册」在本 SDK 里是为了**同帧对照**，**不是**跟踪结果的必要条件。
+     * ⚠️ **回调跑在库自己的派发线程上**（与结果回调同一个线程）：回调里**不要**调阻塞接口
+       （`collect` / `collect_tracked`）、**不要** `destroy` 流水线；
+       `flush()` 会**等所有已派发的回调执行完**再返回，`destroy()` 会 **join 派发线程**
+       ⇒ **不存在回调访问野指针**。
+3. **公开接口集合 = 2026-11-20 交付版 + v10.7 追加的 1 个**
+   （`MOSAIC_API_VERSION` 仍然是 `10`）：
+   `open` / `set_post_mode` / `set_result_callback` /
+   **`set_tracked_callback`（v10.7 新增）** / `push`（或 `push_frame`）/
    `collect` / `collect_tracked` / `collect_fused` / `flush` / `destroy` ——
-   **跟踪的打开与配置不再需要任何新接口**。
+   **跟踪的打开与配置仍然不需要任何新接口**；
+   v10.7 **只追加**了 `set_tracked_callback`，**既有接口一个都没改**
+   （`mosaic_pipeline_collect_tracked()` 的语义与返回值逐字节不变）。
+
+### 🟩 嵌入式接「一目标一框」：**改 1 个函数名 + 1 个结构体类型**（v10.7）
+
+> **为什么嵌入式原来一个目标身上画了两三个框**：嵌入式拿到的通常是**原始候选框**
+> （`mosaic_pipeline_set_result_callback()` 送的那一路）⇒ **同一个红外目标在多个尺度上
+> 各有一个连通域候选** ⇒ **一目标多框**。**跟踪结果**（时空融合 + 跨尺度合并 +
+> 连续帧确认）才是**一目标一框**。
+
+**三步（其余调用一行都不用改）**：
+
+```cpp
+/* ① 结构体类型：const MosaicDet*  ->  const MosaicTrackedDet*（多了 track_id / infilled） */
+static void on_tracked(void* user, int64_t frame_id,
+                       const MosaicTrackedDet* dets, int32_t n_dets) {
+    for (int32_t i = 0; i < n_dets; ++i) {
+        /* 一个 track_id 一个框  =>  一个目标一个框（画框是你自己的活） */
+        my_draw_box(dets[i].x, dets[i].y, dets[i].score, dets[i].track_id);
+    }
+}
+
+/* ② 函数名：mosaic_pipeline_set_result_callback  ->  mosaic_pipeline_set_tracked_callback */
+mosaic_pipeline_set_tracked_callback(p, on_tracked, my_user);
+
+/* ③ push / collect / destroy 一行都不用改 */
+```
+
+* ✅ **完整可运行版**：`out/mosaic_tracked_cb_example`（源码
+  `src/npu/mosaic_tracked_cb_example.cpp`）—— 它**同时注册两路回调**（原始 + 跟踪）
+  做**同帧对照**，并核对「同一帧 tracked 的框数 ≤ raw 的框数」且「同一帧内 `track_id`
+  不重复」（重复 = 一个目标画了多个框 = 没做到位）。
+  * 🟢 **`--mode tracked-only`**：**只注册跟踪回调**（不注册原始回调），
+    用来复现**嵌入式真实做法**并证明「两个回调不是必须同时注册」；
+    此时 `mosaic_pipeline_collect()` 返回 **`-1`**（原始流未缓冲，**预期行为**）。
+    * `--mode both`（默认）：两路都注册 ⇒ 同帧对照 raw vs tracked。
+* ⚠️ **回调里不要调阻塞接口**（`collect` / `collect_tracked`）、**不要** `destroy` 流水线
+  ⇒ 要做慢活（画框 / IO）就自己往队列里塞，别在回调里干。
+* ℹ️ **契约测试新增 18 条用例**钉住这个语义（`mosaic_contract_test`：
+  **217 passed / 0 failed**；199 旧 + **13 新**（跟踪回调：注册/退回/切换/队列关闭/tracked-only）
+  + **5 新**（`flush()` 生命周期 + 派发顺序：见下））。
+* 🟢 **`flush()` 生命周期已钉进契约测试**：`flush()` 返回后**再也不会有跟踪回调触发**
+  ⇒ 嵌入式可以「`flush()` → `destroy()`」连写，**绝不会**出现回调访问已销毁流水线的野指针。
+  （契约断言：`flush: no tracked callback fires after flush() returned` /
+  `flush: the tracked callback ran before flush() returned`。）
+* 🟢 **派发顺序已钉进契约测试**：跟踪回调在**库自己的派发线程**上触发，
+  **按帧轴顺序**交付（`tracked callback: the frames are delivered in the frame-axis order`），
+  与原始结果回调**同一个线程模型** ⇒ 嵌入式画框不会拿到乱序的帧。
 
 **🟩 三个环境变量开关（只用于标定 / A-B，正常集成不用碰）**
 
@@ -946,14 +1166,21 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.r
   && cat /mnt/manu/mosaic_sdk/out/mosaic_client_example > /tmp/mce \
   && chmod +x /tmp/mce \
   && /tmp/mce \
-  /mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324 \
+  /root/bts/frames/VIDEO00007_19700101_001324 \
   /tmp/p0_off_A_none.rknn \
-  /mnt/manu/mosaic_sdk/runtime/kernels \
+  /home/orangepi/runtime/kernels \
   21'
 ```
 
-**零参数直接跑也行**（上面四个位置参数全是程序内置的默认值，**模型的默认值
-也是 `/tmp/p0_off_A_none.rknn`** ⇒ **模型仍然要先 `cat` 到 `/tmp`**）：
+ℹ️ 上面用的是**旧的四个位置参数**写法（**仍然兼容**）；新写法见下一节的
+5 个开关（`--frames-dir` / `--model` / `--kernel-dir` / `--seq` / `--frames`）。
+⚠️ **新板上没有 `/mnt/manu` 这个挂载点** ⇒ 帧与 kernel 必须按本板布局给
+（帧 = `/root/bts/frames/...`，kernel = `/home/orangepi/runtime/kernels`）。
+
+**零参数直接跑也行**（**零参数时程序走 `src/npu/mosaic_paths.h` 的板卡无关回落**
+⇒ 本板命中 kernel = `/home/orangepi/runtime/kernels`、帧 =
+`/root/bts/frames/VIDEO00007_19700101_001324`；
+**模型的默认值仍然是 `/tmp/p0_off_A_none.rknn`** ⇒ **模型仍然要先 `cat` 到 `/tmp`**）：
 
 ```bash
 ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.rknn > /tmp/p0_off_A_none.rknn \
@@ -973,20 +1200,46 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.r
 共 21 帧，52 个目标
 ```
 
-### `mosaic_client_example` 的参数（**四个位置参数**，没有开关）
+### `mosaic_client_example` 的参数（**5 个开关**，旧的四个位置参数仍兼容）
 
-| 位置 | 含义 | 默认值 |
+**开关写法（推荐）**：
+
+| 开关 | 含义 | 默认值（不给就取 `mosaic_paths.h` 的回落值） |
 |---|---|---|
-| 1 | 帧目录（里面是 `frame_%06d.bmp`） | `/mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324` |
-| 2 | RKNN 模型路径（fp16，输入 640×640×3，输出 2×[1,1,320,320]） | `/tmp/p0_off_A_none.rknn`（**板上落点**；模型**来源**是本包 `models/p0_off_A_none.rknn`，须先 `cat` 到 `/tmp`） |
-| 3 | OpenCL kernel 目录 | `/mnt/manu/mosaic_sdk/runtime/kernels` |
-| 4 | 最多喂多少帧 | `21`（= GMC 的一个完整历史窗口） |
+| `--frames-dir D` | 帧目录（里面是 `frame_%06d.bmp`） | 帧根目录 + 序列名（见下表） |
+| `--model M` | RKNN 模型路径（fp16，输入 640×640×3，输出 2×[1,1,320,320]） | `/tmp/p0_off_A_none.rknn`（**板上落点**；模型**来源**是本包 `models/p0_off_A_none.rknn`，须先 `cat` 到 `/tmp`） |
+| `--kernel-dir K` | OpenCL kernel 目录 | 见下表 |
+| `--seq S` | 序列名（只有 `--frames-dir` **没给**时才用到） | `VIDEO00007_19700101_001324` |
+| `--frames N` | 最多喂多少帧 | `21`（= GMC 的一个完整历史窗口） |
 
-⚠️ **前三个默认值全是本板私有路径** ⇒ **换板子必须显式覆盖**，
-否则不是找不到帧就是找不到模型。
-ℹ️ **模型（位置 2）已随包交付**（来源 = 包内 `models/p0_off_A_none.rknn`，
-板上先 `cat` 到 `/tmp/p0_off_A_none.rknn`）⇒ **显式覆盖时传
-`/tmp/p0_off_A_none.rknn`**（不是包内路径 —— 那条在 NFS soft 挂载上，直读会被读坏）。
+**旧写法仍兼容**（`[帧目录] [模型路径] [kernel 目录] [帧数]`，**按位置解析**）：
+
+```bash
+mosaic_client_example /path/frames /path/model.rknn /path/kernels 21
+```
+
+⚠️ **开关优先级高于位置参数**：同一个值两边都给了，**以 `--xxx` 为准**。
+
+🔴 **零参数可跑**：不给任何参数时，程序走 **`src/npu/mosaic_paths.h`**
+ 的**板卡无关回落**（`env` → **交付包内** → **板卡部署路径** → 旧 NFS 兜底），
+ **不再硬编码旧板的 NFS 路径**（早期版本写死 `/mnt/manu/...`，换到新板上
+ 必然 `[OCL FATAL] cannot open .../warp_median_fused.cl`）：
+
+| 项 | 回落顺序（谁先命中用谁） | 本板（`192.168.1.115`）实际命中 |
+|---|---|---|
+| kernel 目录 | `MOSAIC_KERNEL_DIR` → `<包根>/runtime/kernels` → `/home/orangepi/runtime/kernels` → `/root/kernels` → `/root/bts/kernels` → `/mnt/manu/mosaic_sdk/runtime/kernels` | `/home/orangepi/runtime/kernels`（板卡部署路径） |
+| 模型 | `MOSAIC_MODEL` → `/tmp/p0_off_A_none.rknn` → `<包根>/models/p0_off_A_none.rknn` | `/tmp/p0_off_A_none.rknn`（先 `cat` 上去） |
+| 帧根目录 | `MOSAIC_RAW_ROOT` → `/root/bts/frames` → `/mnt/manu/lq_ir_bmp` | `/root/bts/frames`（本板测试台，11,810 帧 640×512 BMP） |
+
+ℹ️ **包根只剥一级**：可执行文件在 `<包根>/out/` 下 ⇒ 包根 = 它的上一级 ⇒
+**整包丢到板卡任意目录都能直接跑**，不依赖任何绝对路径。
+⚠️ **`--frames-dir` 与 `--seq` 的关系**：帧目录 = 帧根目录 + 序列名；
+ 只有在 `--frames-dir` **没给**时 `--seq` 才起作用。
+
+ℹ️ **模型（默认 `/tmp/p0_off_A_none.rknn`）已随包交付**（来源 = 包内
+`models/p0_off_A_none.rknn`，板上先 `cat` 到 `/tmp/p0_off_A_none.rknn`）
+⇒ **显式覆盖时也传 `/tmp/p0_off_A_none.rknn`**（不是包内路径 ——
+ 那条在 NFS soft 挂载上，直读会被读坏）。
 
 **为什么默认喂 21 帧**：GMC 用 21 帧历史做运动补偿。喂不满也能出结果（早期帧的
 历史会被 clamp 到最早那一帧，运动估计退化），但**喂满 21 帧才是认证质量的拟合**。
@@ -996,7 +1249,9 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.r
 
 | 情况 | stderr | 退出码 |
 |---|---|---|
-| 参数个数超过 4 | 用法提示 | 2 |
+| 未知开关（以 `-` 开头但不是上面 5 个） | `[FATAL] 未知参数 <arg>` + 用法提示 | 2 |
+| 开关缺参数值 | `[FATAL] <开关> 缺少参数值` + 用法提示 | 2 |
+| 位置参数超过 4 个 | `[FATAL] 多余的位置参数 <arg>` + 用法提示 | 2 |
 | 帧目录里没有帧 | `[FATAL] <目录> 下没有帧` | 1 |
 | 某一帧读不出来 | `[FATAL] 读不出 <路径>` | 1 |
 | 建流水线失败 | `[FATAL] 建流水线失败：<err>`（err 是人类可读的原因） | 1 |
@@ -1038,7 +1293,7 @@ mosaic_pipeline_collect(p, &fid, dets, 128);   /* fid == my_frame_id */
   就会静默毁掉精度。）
 * ✅ **老接口一字未改**：`mosaic_pipeline_push()` 仍在，行为、返回值、ABI 全部不变
   （它就是 `push_frame` 的「客户端没有自己的帧号」版本）。**既有代码不用改一行。**
-* 契约测试新增 3 条用例钉住这个语义（`mosaic_contract_test`：**199 passed / 0 failed**）。
+* 契约测试新增 3 条用例钉住这个语义（`mosaic_contract_test`：**217 passed / 0 failed**）。
 
 **三条设计规则（照抄就不会踩坑）**
 
@@ -1103,6 +1358,12 @@ mosaic_pipeline_collect(p, &fid, dets, 128);   /* fid == my_frame_id */
 
 **上板实测**（板卡 `{{BOARD}}`，25 FPS 相机，序列 `VIDEO00007_19700101_001324`）
 
+> ℹ️ **本小节下面三张表的数字是上一轮在作废板 `192.168.0.211`（Orange Pi CM5）
+> 上实测的**（板卡 OpenCV 4.6 那套环境）；新板 `192.168.1.115` 上只复测了
+> **零参数可跑**（120 帧进 / 120 帧出 / 326 目标，见「本板实测结果」一节）。
+> 本小节保留旧数据是为了说明**多线程模板的语义**（推帧/收集/回调链路），
+> 那部分结论与板卡无关。
+
 | 模式 | 相机喂入 | SDK 收到 | 产出结果 | 库内队列溢出 | 退出码 |
 |:--|--:|--:|--:|--:|:--|
 | `serial` | 300 | 300 | **300** | 0 | ✅ 0 |
@@ -1143,8 +1404,12 @@ mosaic_pipeline_collect(p, &fid, dets, 128);   /* fid == my_frame_id */
 位级（同一子集内逐帧 md5 / 检测载荷相等）：`push-all` 1998 帧里 md5 相同 381（19.1 %）、
 检测载荷相同 470，**检出组数不一致只有 3/1528 帧**；`app-drop` 因为 GMC 的物理历史
 被打散，md5 几乎全不同（518 帧里 1 帧）但**数值差异极小**（质心差 ~0.1 像素、peak 差 ~0.0007）。
-⇒ 位级差异来自**板卡 OpenCV 4.6 与认证 golden 的版本差**（与 `rknn_mosaic_e2e` 同结论），
-**F1 宏观一致**。
+⇒ 位级差异来自**运行库版本差**（那轮逐位比对是在**作废板** `192.168.0.211` 上做的，
+用的是板卡自带的 OpenCV **4.6**，而认证 golden 是另一套版本编出来的 ——
+与 `rknn_mosaic_e2e` 同结论），**F1 宏观一致**。
+ℹ️ **新板（`192.168.1.115`）上这个前提已经消失**：运行库是 **4.8**、
+头随包（**4.8**，严格配套）⇒ 本包交付产物的检测 TSV 与基线**逐字节相同**
+（md5 `ceea5fe670a0e996eae0dbffc8c22c11`），**不再有「换板就掉逐位」的问题**。
 
 ⚠️ **硬规矩**：`push-all` **必须**限流（`--inflight`，默认 4，与 `rknn_mosaic_e2e` 同口径）。
 不限流会把 GMC→NPU→POST 之间的队列灌爆，症状是「特征算完了但 `collect()` 永远阻塞」
@@ -1161,9 +1426,9 @@ ssh -p {{BOARD_PORT}} root@{{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_n
   && cat /mnt/manu/mosaic_sdk/out/mosaic_async_client_example > /tmp/mace \
   && chmod +x /tmp/mace \
   && /tmp/mace \
-    --frames-dir /mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324 \
+    --frames-dir /root/bts/frames/VIDEO00007_19700101_001324 \
     --model /tmp/p0_off_A_none.rknn \
-    --kernel-dir /mnt/manu/mosaic_sdk/runtime/kernels \
+    --kernel-dir /home/orangepi/runtime/kernels \
     --out /tmp/mosaic_async_out --frames 3000 --fps 25 --mode app-drop'
 ```
 
@@ -1249,8 +1514,11 @@ mkdir -p out && \
   -L{{RT_LIB_DIR}} -L{{BOARD_LIBS}} -L{{OPENCV_LIB_DIR}} \
   -Wl,-rpath-link,{{RT_LIB_DIR}} -Wl,-rpath-link,{{BOARD_LIBS}} -Wl,-rpath-link,{{OPENCV_LIB_DIR}} \
   -Wl,--allow-shlib-undefined \
+  -Wl,--no-as-needed \
   -lopencv_imgcodecs -lopencv_calib3d -lopencv_features2d -lopencv_flann -lopencv_video \
-  -lopencv_imgproc -lopencv_core -lOpenCL -lrknnrt -lrga -lpthread -ldl -lm
+  -lopencv_imgproc -lopencv_core \
+  {{BOARD_LIBS}}/libOpenCL.so.1 {{BOARD_LIBS}}/librga.so \
+  -lrknnrt -lpthread -ldl -lm
 ```
 
 > 📌 **第三方运行库不在包里**（本包**不携带任何第三方** .so/.a）：OpenCV / RKNN
@@ -1274,7 +1542,7 @@ mkdir -p out && \
   `assert(...)` 与 `gmc_stream_ocl.cpp` / `ocl_host.h` 的日志宏会把 `__FILE__`
   的**路径字符串**嵌进 `.rodata` ⇒ **包根绝对路径一变，字节就变**
   （实测包根从 `/media/manu/.../build` 换到 `/tmp/xxx/pkgB`：
-  `.o` 差 **224 字节**、五个可执行文件 md5 全变）。
+  `.o` 差 **224 字节**、六个可执行文件 md5 全变）。
   ⚠️ **字节差不是固定值** —— 它等于那几个嵌入路径串的**长度差**，
   换个长度的包根，差值就不同。
   ⇒ **你用自己的路径重编出来的产物，md5 不会等于本 README 顶部那张表** ——
@@ -1309,8 +1577,11 @@ mkdir -p out && \
   -L{{RT_LIB_DIR}} -L{{BOARD_LIBS}} -L{{OPENCV_LIB_DIR}} \
   -Wl,-rpath-link,{{RT_LIB_DIR}} -Wl,-rpath-link,{{BOARD_LIBS}} -Wl,-rpath-link,{{OPENCV_LIB_DIR}} \
   -Wl,--allow-shlib-undefined \
+  -Wl,--no-as-needed \
   -lopencv_imgcodecs -lopencv_calib3d -lopencv_features2d -lopencv_flann -lopencv_video \
-  -lopencv_imgproc -lopencv_core -lOpenCL -lrknnrt -lrga -lpthread -ldl -lm
+  -lopencv_imgproc -lopencv_core \
+  {{BOARD_LIBS}}/libOpenCL.so.1 {{BOARD_LIBS}}/librga.so \
+  -lrknnrt -lpthread -ldl -lm
 ```
 
 **静态链接**：
@@ -1327,8 +1598,11 @@ mkdir -p out && \
   -L{{RT_LIB_DIR}} -L{{BOARD_LIBS}} -L{{OPENCV_LIB_DIR}} \
   -Wl,-rpath-link,{{RT_LIB_DIR}} -Wl,-rpath-link,{{BOARD_LIBS}} -Wl,-rpath-link,{{OPENCV_LIB_DIR}} \
   -Wl,--allow-shlib-undefined \
+  -Wl,--no-as-needed \
   -lopencv_imgcodecs -lopencv_calib3d -lopencv_features2d -lopencv_flann -lopencv_video \
-  -lopencv_imgproc -lopencv_core -lOpenCL -lrknnrt -lrga -lpthread -ldl -lm
+  -lopencv_imgproc -lopencv_core \
+  {{BOARD_LIBS}}/libOpenCL.so.1 {{BOARD_LIBS}}/librga.so \
+  -lrknnrt -lpthread -ldl -lm
 ```
 
 > 🔴 **静态链接必须按路径写 `out/libmosaic_pipeline.a`，不能再写 `-lmosaic_pipeline`**：
@@ -1383,7 +1657,7 @@ mkdir -p out && \
   必须先 `cat` 到板卡 `/tmp`（tmpfs）再跑。这是**传输/缓存损坏**，不是算法 bug。
   * ⚠️ **共享库版本：`cat` 时要把 `libmosaic_pipeline.so` 一起拷过去**
     （`-rpath '$ORIGIN'` ⇒ `.so` 必须和可执行文件同目录）。
-  * ℹ️ 本版产物**全部 < 1 MB**（共享库 ~417 KB，五个可执行文件 20–74 KB）
+  * ℹ️ 本版产物**全部 < 1 MB**（共享库 ~417 KB，六个可执行文件**都远小于 1 MB**）
     ⇒ 这条铁律**当前不触发**；下面的 `cat` 流程仍照做（稳妥 + `.so` 要同目录）。
   * **现象**（旧版静态链接 OpenCV 时）：直接执行 8.3 MB 的 `out/mosaic_api_test` /
     `out/mosaic_client_example` ⇒ **SIGILL(132)**；板卡 `dmesg` 出现
@@ -1423,9 +1697,9 @@ mkdir -p out && \
       && cat /mnt/manu/mosaic_sdk/out/mosaic_client_example > /tmp/mce \
       && chmod +x /tmp/mce \
       && /tmp/mce \
-         /mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324 \
+         /root/bts/frames/VIDEO00007_19700101_001324 \
          /tmp/p0_off_A_none.rknn \
-         /mnt/manu/mosaic_sdk/runtime/kernels \
+         /home/orangepi/runtime/kernels \
          21'
     ```
 
@@ -1435,8 +1709,10 @@ mkdir -p out && \
     `1a3faf2f9459cad8a389ffa81810234c`（与包内 `models/p0_off_A_none.rknn`
     逐位一致才算传输没坏）。
 
-    （注意 `mosaic_client_example` 用的是**四个位置参数**：帧目录 / 模型 /
-    kernel 目录 / 帧数 —— 它**不是** `mosaic_api_test` 那种命名开关。）
+    （注意 `mosaic_client_example` 的参数是**自己的 5 个开关**
+    —— `--frames-dir` / `--model` / `--kernel-dir` / `--seq` / `--frames`，
+    **不是** `mosaic_api_test` 那种命名开关；
+    旧的四个位置参数写法**仍然兼容**，详见「`mosaic_client_example` 的参数」一节。）
 
     （OpenCL kernel 是 12–25 KB 的小文本文件，**不受**这条规则约束。）
 * **`MosaicOpenOptions` 的结构体布局是冻结的**（v10.1 之后只增不改，
@@ -1468,7 +1744,7 @@ mkdir -p out && \
 * `mosaic_pipeline.o` 只大 32 字节，正好是 3 个嵌入路径的长度差
   （⚠️ 这个差值**不是固定值** —— 它等于嵌入路径串的长度差，
   两边路径长度一变，差值就变；上表数字是**当时那次比对的实测值**）；
-* `DT_NEEDED` 一致：`libopencv_{core,imgproc,imgcodecs,calib3d,features2d,flann,video}.so.406`
+* `DT_NEEDED` 一致：`libopencv_{core,imgproc,imgcodecs,calib3d,features2d,flann,video}.so.408`
   + `libOpenCL.so.1` + `librknnrt.so` + `librga.so.2`（**全部板卡自带**）、
   无 `libc++`。
 
@@ -1482,7 +1758,7 @@ mkdir -p out && \
    **不能当回归基线**。
    本版交付的是**共享库 `.so`** ⇒ **没有归档索引** ⇒ **同一个包根路径**下重跑
    `bash build_lib.sh`，`out/libmosaic_pipeline.so` 的 md5 **不变**
-   （`.o` 与五个可执行文件同样稳定）。
+   （`.o` 与六个可执行文件同样稳定）。
    ℹ️ **本版同时交付的静态库 `.a` 也是稳定的**：`build_lib.sh` 用的是
    `ar rcsD`（**deterministic**：归档索引里不留 uid/gid/mtime）⇒ 同一份源码
    重复构建，`out/libmosaic_pipeline.a` 的 md5 **不变** ⇒ **可以当回归基线**。
@@ -1492,7 +1768,7 @@ mkdir -p out && \
    （`src/npu/mosaic_pipeline.cpp`）。`assert()` 嵌的是 `__FILE__`，路径长度
    不同 ⇒ `.o` 差 **272 字节**（实测；**这个差值不是固定值** —— 它等于嵌入路径串
    的长度差）。**行为一样**，只是字节不同。
-3. 🔴 **换个目录重编 ⇒ 五个可执行文件的 md5 全变**（**这一条最容易让人误判**）：
+3. 🔴 **换个目录重编 ⇒ 六个可执行文件的 md5 全变**（**这一条最容易让人误判**）：
    `build_lib.sh` / `build_demo.sh` 用**绝对路径**编译，路径里含**包根目录**；
    `__FILE__` 把这条路径烤进 `.rodata` ⇒ **包放在哪儿，字节就取决于哪儿**。
    * 实测：包根 `/media/manu/.../npu/build` ⇒ `mosaic_client_example`
@@ -1517,7 +1793,9 @@ mkdir -p out && \
        -L{{RT_LIB_DIR}} -L{{BOARD_LIBS}} -L{{OPENCV_LIB_DIR}} \
        -lopencv_imgcodecs -lopencv_calib3d -lopencv_features2d -lopencv_flann \
        -lopencv_video -lopencv_imgproc -lopencv_core \
-       -lOpenCL -lrknnrt -lrga -lpthread -ldl -lm
+       -Wl,--no-as-needed \
+       {{BOARD_LIBS}}/libOpenCL.so.1 {{BOARD_LIBS}}/librga.so \
+       -lrknnrt -lpthread -ldl -lm
      # demo（相对路径）
      "$TC/bin/aarch64-rockchip-linux-gnu-g++" ... 同样的 -I 列表 ... \
        src/npu/mosaic_client_example.cpp -o out/mosaic_client_example \
@@ -1526,14 +1804,16 @@ mkdir -p out && \
        -Wl,--allow-shlib-undefined \
        -lopencv_imgcodecs -lopencv_calib3d -lopencv_features2d -lopencv_flann \
        -lopencv_video -lopencv_imgproc -lopencv_core \
-       -lOpenCL -lrknnrt -lrga -lpthread -ldl -lm
+       -Wl,--no-as-needed \
+       {{BOARD_LIBS}}/libOpenCL.so.1 {{BOARD_LIBS}}/librga.so \
+       -lrknnrt -lpthread -ldl -lm
      ```
 
      ⇒ 相对路径编出来的产物**与目录无关**，可以真正当跨机器基线用。
      （代价：它与本包顶部那张 md5 表**不是同一个值** —— 那张表是绝对路径编出来的。）
 
 要拿可复现的基线，请用 `out/mosaic_pipeline.o`、`out/libmosaic_pipeline.so`
-或五个可执行文件的 md5，**并确保编译时的包根路径不变**；或者按第 3 条改用相对
+或六个可执行文件的 md5，**并确保编译时的包根路径不变**；或者按第 3 条改用相对
 路径编，换取跨机器一致。
 
 ---
@@ -1560,13 +1840,18 @@ mkdir -p out && \
   * **板卡自带的第三方动态库** —— 本包**不携带任何第三方** .so/.a
     （**我们自己的 `out/libmosaic_pipeline.a` 是本包产物，不在此列**）
     （`librknnrt.so` / `librga.so.2` / `libOpenCL.so.1` / 7 个
-    `libopencv_*.so.406` **全部由板卡提供**）⇒
-    * **编译期**：需要板卡 OpenCV 的**头**（`/usr/include/opencv4`）+ 上面那些 `.so`
+    `libopencv_*.so.408` **全部由板卡提供**）⇒
+    * **编译期**：需要 **OpenCV 4.8 的头**（**随包发布**在 `include/opencv4/`，
+      板上 `/usr/include/opencv4` **只有 4.6 的头**，不能拿来配 4.8 的库）
+      + 上面那些 `.so`
       （用 `OPENCV_INCLUDE_DIR` / `OPENCV_LIB_DIR` / `BOARD_LIBS` / `RT_LIB_DIR`
       指过去；交叉编译时它们指的是**板卡的文件系统**，见「板卡依赖矩阵」）。
     * **运行期**：全部由板卡 `ldconfig` 解析 ⇒ **不需要设 `LD_LIBRARY_PATH`**。
     * ⚠️ **版本必须匹配**：RKNN Runtime 的版本要与包内 `include/rknn_api.h` 对得上；
-      OpenCV 的**头与运行库必须同版本**（本包是 4.6.0）。
+      OpenCV 的**头与运行库必须同版本**（本包是 **4.8**：头随包 `include/opencv4/`、
+      运行库 `libopencv_*.so.408` 在板卡 `/usr/lib`）。
+      ⚠️ 板上 `/usr/include/opencv4` 是 **4.6** 的头 ⇒ 拿它配 4.8 的库会**ABI 错配**；
+      头不够时用 `packaging/fetch_opencv_headers.sh` 取一份 4.8 头。
 
 > **完整交付清单（含每个文件的 md5 / 字节数 / 用途 / 板卡相关性）见
 > [`MANIFEST.md`](MANIFEST.md)。**
@@ -1580,13 +1865,22 @@ mkdir -p out && \
 
 ## 零参数运行
 
-板卡上 demo 的**默认路径在本板全部存在**（模型除外：它得先 `cat` 到 `/tmp`）：
+6 个 demo（`mosaic_api_test` / `mosaic_contract_test` / `mosaic_client_example` /
+`mosaic_async_client_example` / `mosaic_track_dump` / `mosaic_cadence_probe`）
+**全部接了 `src/npu/mosaic_paths.h`** ⇒ **默认路径不再是硬编码的旧板 NFS 路径**，
+而是按 `env` → **交付包内** → **板卡部署路径** → 旧 NFS 兜底逐级回落。
+本板（`192.168.1.115`）上零参数跑命中的是：
 
-| 项 | demo 默认值 | 本板是否存在 |
-|---|---|:--:|
-| 模型 | `/tmp/p0_off_A_none.rknn`（**板上落点**；来源 = 包内 `models/p0_off_A_none.rknn`） | ✅（先 `cat` 到 `/tmp` 之后） |
-| kernel 目录 | `/root/kernels` | ✅（仅本板碰巧有，见下） |
-| 帧目录 | `/mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324` | ✅ |
+| 项 | 回落顺序（谁先命中用谁） | 本板命中 | 本板是否存在 |
+|---|---|---|:--:|
+| 模型 | `MOSAIC_MODEL` → `/tmp/p0_off_A_none.rknn` → `<包根>/models/p0_off_A_none.rknn` | `/tmp/p0_off_A_none.rknn` | ✅（先 `cat` 到 `/tmp` 之后） |
+| kernel 目录 | `MOSAIC_KERNEL_DIR` → `<包根>/runtime/kernels` → `/home/orangepi/runtime/kernels` → `/root/kernels` → `/root/bts/kernels` → `/mnt/manu/mosaic_sdk/runtime/kernels` | `/home/orangepi/runtime/kernels` | ✅ |
+| 帧目录 | `MOSAIC_RAW_ROOT` → `/root/bts/frames` → `/mnt/manu/lq_ir_bmp`（再拼序列名 `VIDEO00007_19700101_001324`） | `/root/bts/frames/VIDEO00007_19700101_001324` | ✅（11,810 帧 640×512 BMP） |
+
+⚠️ **旧口径对照**：早期版本把这三项**硬编码**成 `/mnt/manu/lq_ir_bmp/...` 与
+`/mnt/manu/mosaic_sdk/runtime/kernels` ⇒ 换到新板（**没有 `/mnt/manu` 挂载点**）
+必然 `[OCL FATAL] cannot open .../warp_median_fused.cl` ⇒ **现在用
+`mosaic_paths.h` 就没有这个问题**。
 
 所以**在本板**（上面三项都就位）**不带任何参数就能直接跑**：
 
@@ -1607,14 +1901,16 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.r
 > ⇒ **零参数跑的前提是模型已经在板卡 `/tmp`**（上面命令的第一步就是它）。
 >
 > **换板子时这三个默认路径大概率不同**（模型放哪、kernel 放哪、帧从哪来，都
-> 取决于他们的系统布局）⇒ 用 `--model` / `--kernel-dir` / `--raw-root` /
-> `--sequence` 显式覆盖，别照抄默认值。
+> 取决于他们的系统布局）⇒ 用 `--model` / `--kernel-dir` / `--frames-dir` /
+> `--seq` 显式覆盖，或设 `MOSAIC_MODEL` / `MOSAIC_KERNEL_DIR` /
+> `MOSAIC_RAW_ROOT` / `MOSAIC_FRAMES_DIR` 环境变量，**别照抄默认值**。
 > ℹ️ **模型用本包自带的那个**：先从包内 `models/p0_off_A_none.rknn` `cat` 到
 > `/tmp/p0_off_A_none.rknn`，再 `--model /tmp/p0_off_A_none.rknn`。
 >
-> ⚠️ **`--kernel-dir` 的默认值 `/root/kernels` 是这块开发板上碰巧存在的路径**，
-> **不是交付包的一部分**。交付包自带 kernel（`runtime/kernels/`），在交付目录
-> 里跑就应当显式写 `--kernel-dir /mnt/manu/mosaic_sdk/runtime/kernels`。
+> ⚠️ **`<包根>/runtime/kernels` 那一档才是交付包自带的 kernel**
+> （可执行文件在 `<包根>/out/` 下 ⇒ 包根 = 它的上一级 ⇒ **整包丢到板卡任意目录
+> 都能直接跑**，不依赖任何绝对路径）；
+> `/home/orangepi/runtime/kernels` 那一档是**板卡部署路径**（本板命中它）。
 
 ## 源码在哪 / 怎么自己重编
 
@@ -1630,6 +1926,7 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.r
 | 端到端测试程序（测吞吐/延时，fps / 延时分位就是它测的） | `src/npu/rknn_mosaic_e2e.cpp` |
 | 库实现 | `src/npu/mosaic_pipeline.cpp` |
 | 公开 C ABI 头（自己写程序就 include 它） | `src/npu/mosaic_pipeline.h` |
+| **板卡无关的默认路径解析头**（demo / 探针的路径回落就是它） | `src/npu/mosaic_paths.h` |
 | GMC / OpenCL 引擎 | `src/cpp/gmc_stream_ocl.cpp` |
 | OpenCL host 封装 | `src/opencl/host/ocl_host.h` |
 
@@ -1642,6 +1939,14 @@ bash build_lib.sh            # -> out/mosaic_pipeline.o, out/libmosaic_pipeline.
 bash build_demo.sh           # -> out/mosaic_api_test, out/mosaic_client_example,
                               #    out/mosaic_async_client_example, out/mosaic_contract_test, out/rknn_mosaic_e2e,
                               #    out/mosaic_api_test_static（**链 .a 的静态链接版**）
+bash build_board_native.sh   # **板卡原生**全量编译（板载 gcc 12.2.0）：
+> ✅ **2026-11-25 在本板实测通过**（`192.168.1.115`，g++ 12.2.0）：脚本以 `BUILD_BOARD_NATIVE_OK` 收尾，
+> 编出的 `.so` NEEDED = 7×`libopencv_*.so.408` + `libOpenCL.so.1` + `librga.so.2` + `librknnrt.so`
+> （**全程没用 `-lOpenCL` / `-lrga`**，所以板上没有 OpenCL 开发软链也不影响），
+> 该原生产物跑 60 帧的检测 TSV md5 **仍是 `ceea5fe670a0e996eae0dbffc8c22c11`**（与交叉编译产物**逐字节相同**），
+> 契约 **217 passed / 0 failed** ⇒ **这块板上可以原地重编，不需要回宿主机**。
+                              #    ABI 锁定 + 头版本校验 + 绝对路径链 OpenCL/RGA + -Wl,--no-as-needed
+                              #    ⇒ 在新板（Orange Pi 5 / Debian 12）上直接编，不用交叉工具链
 ```
 
 > ℹ️ **静态库不需要额外的构建命令**：`bash build_lib.sh` **一并**产出
@@ -1663,8 +1968,8 @@ bash build_demo.sh           # -> out/mosaic_api_test, out/mosaic_client_example
 >
 > | 依赖 | 板卡位置 | 什么时候需要 | 定位它的环境变量 |
 > |---|---|---|---|
-> | OpenCV **头**（4.6.0） | `/usr/include/opencv4` | 编译期 | `OPENCV_INCLUDE_DIR` |
-> | OpenCV **动态库**（7 个 `.so.406`） | `/usr/lib/aarch64-linux-gnu` | 链接期（运行期由 ldconfig 解析） | `OPENCV_LIB_DIR` |
+> | OpenCV **头**（**4.8**，**随包发布**在 `include/opencv4/`） | 包内 `include/opencv4`（板上 `/usr/include/opencv4` **只有 4.6 的头**，不能配 4.8 的库） | 编译期 | `OPENCV_INCLUDE_DIR` |
+> | OpenCV **动态库**（7 个 `.so.408`） | `/usr/lib` | 链接期（运行期由 ldconfig 解析） | `OPENCV_LIB_DIR` |
 > | 板卡 `libOpenCL.so.1` / `librga.so.2` | `/usr/lib/aarch64-linux-gnu` | 链接期 + 运行期 | `BOARD_LIBS` |
 > | 板卡 `librknnrt.so` | `/usr/lib` | 链接期 + 运行期 | `RT_LIB_DIR` |
 >
@@ -1684,7 +1989,11 @@ bash build_demo.sh           # -> out/mosaic_api_test, out/mosaic_client_example
 >
 > ⚠️ **换了编译器 / 换了 OpenCV 版本 ⇒ 产物 md5 会变**（不是 bug）。
 > 上面那张 md5 表对应的是作者机器上那套工具链（gcc 9.3.0 buildroot +
-> 板卡 OpenCV **4.6.0** 的头与库）。要复现它，用同一套工具链 + 同一个板卡 OpenCV。
+> **OpenCV 4.8 的头与库**：头 = 随包发布的 `include/opencv4/`、库 = 板卡
+> `/usr/lib` 的 `libopencv_*.so.408`）。要复现它，用同一套工具链 + 同一套 4.8 头与库。
+> ⚠️ **`OPENCV_ABI` 是这套 ABI 的唯一真相来源**（默认 **408**）：
+> `build_lib.sh` / `build_demo.sh` / `build_board_native.sh` 三者**同名同义**，
+> 会校验「头版本 ↔ `OPENCV_ABI`」是否配套，不配套就**当场 die** 并给出指引。
 
 ---
 
@@ -1698,15 +2007,21 @@ bash build_demo.sh           # -> out/mosaic_api_test, out/mosaic_client_example
 ├── MANIFEST.md               ← 交付清单
 ├── build_lib.sh              ← 编译库（+x）
 ├── build_demo.sh             ← 编译 demo / 契约测试 / 端到端测试程序（+x）
+├── build_probes.sh           ← 编译两个板卡验证探针（+x）
+├── build_board_native.sh     ← **板卡原生**全量编译（板载 gcc + ABI 校验 + 绝对路径链 OpenCL/RGA）（+x）
 ├── copy_to_nfs.sh            ← 一键整树拷贝（+x）
+├── fetch_board_libs.sh       ← 把板卡自带的库/头取回宿主机（交叉编译用）（+x）
+├── fetch_opencv_headers.sh   ← 取 **OpenCV 4.8 头**（板上只有 4.6 的头 ⇒ 必须外部提供）（+x）
 ├── known_hosts               ← 板卡主机密钥基线（ssh 严格校验用；换密钥直接失败）
 ├── src/                      ← 全部源码（可参考、可改、可原地重编）
 │   ├── npu/    mosaic_pipeline.{cpp,h}, mosaic_core.h, mosaic_post_gpu.h,
 │   │           mosaic_api_test.cpp, mosaic_client_example.cpp,
-│   │           mosaic_contract_test.cpp, rknn_mosaic_e2e.cpp
+│   │           mosaic_contract_test.cpp, rknn_mosaic_e2e.cpp,
+│   │           mosaic_paths.h（**板卡无关的默认路径解析头**）
 │   ├── cpp/    gmc_stream_ocl.cpp, md5.h
 │   └── opencl/host/   ocl_host.h, post_local_max.cl
-├── include/                  ← 第三方头：rknn_api.h, stb_image*.h, rga/×18, CL/×20
+├── include/                  ← 第三方头：rknn_api.h, stb_image*.h, rga/×18, CL/×20,
+│                              opencv4/（**OpenCV 4.8 头，211 个文件，随包发布**）
 ├── runtime/kernels/          ← OpenCL kernel 资产
 │   ├── warp_median_fused.cl     ← 运行时必需
 │   ├── sortnet_generated.inc    ← 运行时必需
@@ -1738,6 +2053,10 @@ bash build_demo.sh           # -> out/mosaic_api_test, out/mosaic_client_example
 > ℹ️ **没有 `third_party/`**：本包**不携带任何第三方** .so/.a，
 > OpenCV / RKNN Runtime / RGA / OpenCL 全部**动态链接板卡自带的库**
 > （见「板卡依赖矩阵」）。
+> ℹ️ **但第三方「头」随包**：`include/` 下有 rknn_api.h / stb_image*.h /
+> rga/×18 / CL/×20 **+ `opencv4/`（4.8 头 211 个）** ——
+> 板上 `/usr/include/opencv4` **只有 4.6 的头**，配 4.8 的库会 ABI 错配 ⇒
+> **4.8 的头必须外部提供**，本包直接把它带上了（离线可构建）。
 
 拷贝命令（**由 Leader / 使用者执行**）：整树镜像
 
@@ -1757,9 +2076,13 @@ rm -rf "$DST/kernels" "$DST/third_party"
 # ② 整树镜像
 cp -a "$SRC/src" "$SRC/include" "$SRC/runtime" "$SRC/out" "$DST/"
 cp -a "$SRC/README.md" "$SRC/MANIFEST.md" \
-      "$SRC/build_lib.sh" "$SRC/build_demo.sh" "$SRC/copy_to_nfs.sh" \
+      "$SRC/build_lib.sh" "$SRC/build_demo.sh" "$SRC/build_probes.sh" \
+      "$SRC/build_board_native.sh" "$SRC/copy_to_nfs.sh" \
+      "$SRC/fetch_board_libs.sh" "$SRC/fetch_opencv_headers.sh" \
       "$SRC/known_hosts" "$DST/"
-chmod +x "$DST/build_lib.sh" "$DST/build_demo.sh" "$DST/copy_to_nfs.sh" \
+chmod +x "$DST/build_lib.sh" "$DST/build_demo.sh" "$DST/build_probes.sh" \
+         "$DST/build_board_native.sh" "$DST/copy_to_nfs.sh" \
+         "$DST/fetch_board_libs.sh" "$DST/fetch_opencv_headers.sh" \
          "$DST/out/mosaic_api_test" "$DST/out/mosaic_client_example" \
          "$DST/out/mosaic_async_client_example" \
          "$DST/out/mosaic_contract_test" "$DST/out/rknn_mosaic_e2e"
@@ -1781,6 +2104,9 @@ chmod +x "$DST/build_lib.sh" "$DST/build_demo.sh" "$DST/copy_to_nfs.sh" \
 > **板卡上的 `--kernel-dir` 指向 `runtime/kernels`**：
 > `--kernel-dir /mnt/manu/mosaic_sdk/runtime/kernels`
 > （旧写法 `/mnt/manu/mosaic_sdk/kernels` 是**兼容别名**，仍然可用）。
+> ℹ️ **本板（`192.168.1.115`）没有 `/mnt/manu` 挂载点** ⇒ 本板用
+> `--kernel-dir /home/orangepi/runtime/kernels`（或干脆不给，让
+> `mosaic_paths.h` 自动回落）。
 
 ---
 
@@ -1794,7 +2120,7 @@ bash copy_to_nfs.sh --build --verify      # 编译 + 拷贝 + 上板验证，一
 ```
 
 `copy_to_nfs.sh` 会做这些事：**整树镜像**到 NFS（`src/` `include/` `runtime/`
-`models/` `out/` + 顶层 8 个文件，不是零散拷几个产物）→ **递归 md5 回验**
+`models/` `out/` + 顶层 10 个文件，不是零散拷几个产物）→ **递归 md5 回验**
 （NFS 写坏了立刻报错）→ 在交付根目录建好指向 `out/` 与 `runtime/kernels` 的
 **相对符号链接**（兼容别名）→ 打印目标清单、板卡侧路径和运行命令。
 

@@ -25,6 +25,11 @@
 ⚠️ **纹理地板 τ_det 的口径**：`calibrate_tau` 只在**好片**上标定（坏片/退化片绝不参与），
 所以 τ_det 必须用**好片的点击**标定，再套到退化变体上；直接拿退化片标会得到空集 ⇒ UGR 全 0。
 
+⚠️ **跟踪器家族（``--arms``）**：`curve` / `blindtest` / `combo` / `charts` 接受
+``--arms xcorr,patch,kcf``（逗号分隔，默认 ``xcorr,patch``）。**第一个臂是主臂**，
+驱动曲线 / 膝点 / 盲测；其余臂在 ``degrade_lock.csv`` 里额外输出同名列
+（``locked_short`` / ``locked_long`` 是与臂无关的布尔列，名字不变）。
+
 用法（服务器 192.168.99.40:32222，工作目录 /tmp/pycharm_project_a7d966e6）：
     source /home/huangzhe/anaconda3/etc/profile.d/conda.sh && conda activate uav
     python manu/video_quality/vq_degrade_knee.py measure  --variants /tmp/vq_degrade/variants.csv \\
@@ -82,6 +87,9 @@ MODALITY_METRICS = {
 # 两个时程：short = 5 帧（§9.5.8 推荐的「上线以短时程为准」），long = 1 秒（30 帧）
 HORIZONS = ("short", "long")
 HORIZON_LABEL = {"short": "short(5帧)", "long": "long(1秒)"}
+# 跟踪器家族（xcorr / patch / kcf ...）：``--arms`` 逗号分隔，**第一个是主臂**
+# （驱动曲线 / 膝点 / 盲测），其余臂在 degrade_lock.csv 里额外输出同名列
+ARMS_HELP = "Comma separated tracker families (e.g. xcorr,patch,kcf); the first one is the primary arm"
 # 「跟得住」的判定：逐秒窗口 UGR >= 0.5（与 §9.5 完全一致）
 LOCK_UGR_THRESHOLD = 0.5
 # X 轴分箱数（把散点压成一条可拟合的曲线）
@@ -160,13 +168,14 @@ def phase_measure(cli: argparse.Namespace) -> None:
 
 
 # ---------------------------------------------------------------- phase 2: curve
-def load_sot_window_rows(sot_dir: Path, tau_clicks: list[dict], taus: dict[str, float]) -> dict[tuple[str, int], dict]:
+def load_sot_window_rows(sot_dir: Path, tau_clicks: list[dict], taus: dict[str, float],
+                         arms: list[str]) -> dict[tuple[str, int], dict]:
     """复用 ``vq_sot_compare.py`` 的加载与聚合口径，取逐窗 UGR（center+corner 合并）。"""
     sys.path.insert(0, str(HERE))
     from vq_sot_compare import aggregate_windows, load_clicks
 
-    clicks, _ = load_clicks([sot_dir])
-    rows = aggregate_windows(clicks, taus)
+    clicks, _ = load_clicks([sot_dir], arms)
+    rows = aggregate_windows(clicks, taus, arms)
     merged: dict[tuple[str, int], dict] = {}
     for row in rows:
         key = (row["file"], int(row["window"]))
@@ -174,34 +183,40 @@ def load_sot_window_rows(sot_dir: Path, tau_clicks: list[dict], taus: dict[str, 
         if current is None:
             current = {
                 "n_clicks": 0,
-                "ugr": {h: 0.0 for h in HORIZONS},
-                "lock": {h: 0.0 for h in HORIZONS},
+                "ugr": {arm: {h: 0.0 for h in HORIZONS} for arm in arms},
+                "lock": {arm: {h: 0.0 for h in HORIZONS} for arm in arms},
                 "tau_det": row["tau_det"],
                 "modality": row["modality"],
             }
             merged[key] = current
         current["n_clicks"] += row["n_clicks"]
         for horizon in HORIZONS:
-            current["ugr"][horizon] += row["xcorr_%s_ugr" % horizon] * row["n_clicks"]
-            current["lock"][horizon] += row["xcorr_%s_lock" % horizon] * row["n_clicks"]
+            for arm in arms:
+                current["ugr"][arm][horizon] += row["%s_%s_ugr" % (arm, horizon)] * row["n_clicks"]
+                current["lock"][arm][horizon] += row["%s_%s_lock" % (arm, horizon)] * row["n_clicks"]
     for current in merged.values():
         total = max(current["n_clicks"], 1)
         for horizon in HORIZONS:
-            current["ugr"][horizon] /= total
-            current["lock"][horizon] /= total
+            for arm in arms:
+                current["ugr"][arm][horizon] /= total
+                current["lock"][arm][horizon] /= total
     return merged
 
 
 def phase_curve(cli: argparse.Namespace) -> None:
     sys.path.insert(0, str(HERE))
-    from vq_sot_compare import calibrate_tau, load_clicks
+    from vq_sot_compare import calibrate_tau, load_clicks, parse_arms
 
+    arms = parse_arms(cli.arms)
+    if not arms:
+        raise SystemExit("--arms needs at least one tracker family")
+    arm = arms[0]
     variants = read_csv(Path(cli.variants))
     windows = read_csv(Path(cli.windows))
-    tau_clicks, _ = load_clicks([Path(cli.tau_dir)])
+    tau_clicks, _ = load_clicks([Path(cli.tau_dir)], arms)
     taus = calibrate_tau(tau_clicks)
     print("[CURVE] tau_det from %s: %s" % (cli.tau_dir, {k: round(v, 4) for k, v in taus.items()}))
-    sot = load_sot_window_rows(Path(cli.sot_dir), tau_clicks, taus)
+    sot = load_sot_window_rows(Path(cli.sot_dir), tau_clicks, taus, arms)
     print("[CURVE] %d window rows, %d SOT windows" % (len(windows), len(sot)), flush=True)
 
     meta_by_variant = {variant["variant_id"]: variant for variant in variants}
@@ -218,7 +233,7 @@ def phase_curve(cli: argparse.Namespace) -> None:
         if entry is None:
             missing += 1
             continue
-        lock_rows.append({
+        lock_row = {
             "variant_id": row["variant_id"],
             "source_clip": row["source_clip"],
             "modality": row["modality"],
@@ -228,18 +243,23 @@ def phase_curve(cli: argparse.Namespace) -> None:
             "window": row["window"],
             "n_clicks": entry["n_clicks"],
             "tau_det": entry["tau_det"],
-            "xcorr_short_ugr": round(entry["ugr"]["short"], 6),
-            "xcorr_short_lock": round(entry["lock"]["short"], 6),
-            "xcorr_long_ugr": round(entry["ugr"]["long"], 6),
-            "xcorr_long_lock": round(entry["lock"]["long"], 6),
-            "locked_short": 1 if entry["ugr"]["short"] >= LOCK_UGR_THRESHOLD else 0,
-            "locked_long": 1 if entry["ugr"]["long"] >= LOCK_UGR_THRESHOLD else 0,
-        })
+            "locked_short": 1 if entry["ugr"][arm]["short"] >= LOCK_UGR_THRESHOLD else 0,
+            "locked_long": 1 if entry["ugr"][arm]["long"] >= LOCK_UGR_THRESHOLD else 0,
+        }
+        for family in arms:
+            lock_row["%s_short_ugr" % family] = round(entry["ugr"][family]["short"], 6)
+            lock_row["%s_short_lock" % family] = round(entry["lock"][family]["short"], 6)
+            lock_row["%s_long_ugr" % family] = round(entry["ugr"][family]["long"], 6)
+            lock_row["%s_long_lock" % family] = round(entry["lock"][family]["long"], 6)
+        lock_rows.append(lock_row)
     if missing:
         print("[WARN] %d quality windows had no matching SOT window (warm-up window 0 等)" % missing)
     lock_fields = ["variant_id", "source_clip", "modality", "gradient", "level", "level_value",
-                   "window", "n_clicks", "tau_det", "xcorr_short_ugr", "xcorr_short_lock",
-                   "locked_short", "xcorr_long_ugr", "xcorr_long_lock", "locked_long"]
+                   "window", "n_clicks", "tau_det", "%s_short_ugr" % arm, "%s_short_lock" % arm,
+                   "locked_short", "%s_long_ugr" % arm, "%s_long_lock" % arm, "locked_long"]
+    for family in arms[1:]:
+        lock_fields += ["%s_short_ugr" % family, "%s_short_lock" % family,
+                        "%s_long_ugr" % family, "%s_long_lock" % family]
     write_csv(Path(cli.lock_out), lock_rows, lock_fields)
     print("[CURVE] %d aligned window rows -> %s" % (len(lock_rows), cli.lock_out))
 
@@ -257,7 +277,7 @@ def phase_curve(cli: argparse.Namespace) -> None:
                     value = fnum(quality_row[metric])
                     if not math.isfinite(value):
                         continue
-                    y = float(lock_row["xcorr_%s_ugr" % horizon])
+                    y = float(lock_row["%s_%s_ugr" % (arm, horizon)])
                     family.setdefault((lock_row["gradient"], lock_row["level"]), []).append((value, y))
                     level_value_by_key[(lock_row["gradient"], lock_row["level"])] = lock_row["level_value"]
                     pooled.append((value, y))
@@ -494,7 +514,7 @@ def phase_knee(cli: argparse.Namespace) -> None:
 
 
 # ---------------------------------------------------------------- phase 4: blind test
-def merge_sot_windows(path: Path) -> list[dict]:
+def merge_sot_windows(path: Path, arm: str) -> list[dict]:
     """把 ``sot_windows.csv`` 的 center/corner 两行合并成一个逐窗记录。"""
     rows = read_csv(path)
     merged: dict[tuple[str, int], dict] = {}
@@ -512,7 +532,7 @@ def merge_sot_windows(path: Path) -> list[dict]:
         clicks = int(row["n_clicks"])
         current["n_clicks"] += clicks
         for horizon in HORIZONS:
-            current["ugr"][horizon] += float(row["xcorr_%s_ugr" % horizon]) * clicks
+            current["ugr"][horizon] += float(row["%s_%s_ugr" % (arm, horizon)]) * clicks
         for metric in KEY_METRICS:
             current["metric"][metric] = fnum(row[metric])
     out = []
@@ -541,8 +561,14 @@ def clip_level_reject(clips: dict[str, list[bool]]) -> tuple[int, int]:
 
 
 def phase_blindtest(cli: argparse.Namespace) -> None:
+    from vq_sot_compare import parse_arms
+
+    arms = parse_arms(cli.arms)
+    if not arms:
+        raise SystemExit("--arms needs at least one tracker family")
+    arm = arms[0]
     knees = read_csv(Path(cli.knee))
-    windows = merge_sot_windows(Path(cli.sot_windows))
+    windows = merge_sot_windows(Path(cli.sot_windows), arm)
     good = [row for row in windows if row["group"] == "good" and row["kind"] == "source"]
     bad = [row for row in windows if row["group"] == "bad" and row["kind"] == "source"]
     print("[BLIND] good windows=%d bad windows=%d" % (len(good), len(bad)))
@@ -555,7 +581,7 @@ def phase_blindtest(cli: argparse.Namespace) -> None:
             "direction": int(row["direction"]), "threshold": float(row["knee_x_final"]),
             "source": "knee_thresholds.csv",
         })
-    for arm, directory in (("long", cli.long_thresholds), ("short", cli.short_thresholds)):
+    for line_arm, directory in (("long", cli.long_thresholds), ("short", cli.short_thresholds)):
         directory = Path(directory)
         if not directory.exists():
             continue
@@ -579,7 +605,7 @@ def phase_blindtest(cli: argparse.Namespace) -> None:
                     if not math.isfinite(value):
                         continue
                     lines.append({
-                        "line_type": kind, "arm": arm, "horizon": arm,
+                        "line_type": kind, "arm": line_arm, "horizon": line_arm,
                         "modality": scope, "metric": metric,
                         "direction": METRIC_DIRECTION[metric], "threshold": value,
                         "source": "%s/%s" % (directory.name, scope_file),
@@ -663,8 +689,14 @@ def phase_blindtest(cli: argparse.Namespace) -> None:
 # ---------------------------------------------------------------- phase 5: combos
 def phase_combo(cli: argparse.Namespace) -> None:
     """在**同一批盲测数据**上评估膝点线的单指标 / 组合判据，与旧线同口径对比。"""
+    from vq_sot_compare import parse_arms
+
+    arms = parse_arms(cli.arms)
+    if not arms:
+        raise SystemExit("--arms needs at least one tracker family")
+    arm = arms[0]
     knees = read_csv(Path(cli.knee))
-    windows = merge_sot_windows(Path(cli.sot_windows))
+    windows = merge_sot_windows(Path(cli.sot_windows), arm)
     good = [row for row in windows if row["group"] == "good" and row["kind"] == "source"]
     bad = [row for row in windows if row["group"] == "bad" and row["kind"] == "source"]
     lines: list[dict] = []
@@ -676,7 +708,7 @@ def phase_combo(cli: argparse.Namespace) -> None:
             "direction": int(row["direction"]), "threshold": float(row["knee_x_final"]),
             "reliable": int(row.get("knee_reliable", 1)),
         })
-    for arm, directory in (("long", cli.long_thresholds), ("short", cli.short_thresholds)):
+    for line_arm, directory in (("long", cli.long_thresholds), ("short", cli.short_thresholds)):
         directory = Path(directory)
         if not directory.exists():
             continue
@@ -697,8 +729,8 @@ def phase_combo(cli: argparse.Namespace) -> None:
                     if not math.isfinite(value):
                         continue
                     lines.append({
-                        "line_id": "old_%s_%s_%s_%s" % (kind, arm, scope, metric),
-                        "line_type": kind, "arm": arm, "horizon": arm,
+                        "line_id": "old_%s_%s_%s_%s" % (kind, line_arm, scope, metric),
+                        "line_type": kind, "arm": line_arm, "horizon": line_arm,
                         "modality": scope, "metric": metric,
                         "direction": METRIC_DIRECTION[metric], "threshold": value, "reliable": 1,
                     })
@@ -766,7 +798,7 @@ def phase_combo(cli: argparse.Namespace) -> None:
                     **stats,
                 })
     # 旧「准入线」组合：同一 scope/arm 下 admit_exists=True 的全部指标取 AND
-    for arm, directory in (("long", cli.long_thresholds), ("short", cli.short_thresholds)):
+    for line_arm, directory in (("long", cli.long_thresholds), ("short", cli.short_thresholds)):
         directory = Path(directory)
         for scope in ("ir", "vis"):
             target = directory / ("sot_thresholds_%s.csv" % scope)
@@ -782,10 +814,10 @@ def phase_combo(cli: argparse.Namespace) -> None:
                 group.append((row["metric"], value, METRIC_DIRECTION[row["metric"]]))
             if not group:
                 continue
-            stats = evaluate([(metric, value) for metric, value, _ in group], arm, scope)
+            stats = evaluate([(metric, value) for metric, value, _ in group], line_arm, scope)
             rows_out.append({
-                "line_id": "old_admission_combo_%s_%s" % (arm, scope),
-                "line_type": "old_admission_combo", "arm": arm, "horizon": arm, "modality": scope,
+                "line_id": "old_admission_combo_%s_%s" % (line_arm, scope),
+                "line_type": "old_admission_combo", "arm": line_arm, "horizon": line_arm, "modality": scope,
                 "n_metrics": len(group),
                 "rule": " AND ".join("%s %s %.6g" % (metric, ">=" if direction < 0 else "<=", value)
                                      for metric, value, direction in group),
@@ -793,7 +825,7 @@ def phase_combo(cli: argparse.Namespace) -> None:
             })
 
     # 旧「好片分位」组合（§9.5.8）：直接解析 sot_percentile_rules.csv 里的规则串
-    for arm, directory in (("long", cli.long_thresholds), ("short", cli.short_thresholds)):
+    for line_arm, directory in (("long", cli.long_thresholds), ("short", cli.short_thresholds)):
         target = Path(directory) / "sot_percentile_rules.csv"
         if not target.exists():
             continue
@@ -810,10 +842,10 @@ def phase_combo(cli: argparse.Namespace) -> None:
                 group.append((metric, float(value), 1 if relation == "<=" else -1))
             if not group:
                 continue
-            stats = evaluate([(metric, value) for metric, value, _ in group], arm, scope)
+            stats = evaluate([(metric, value) for metric, value, _ in group], line_arm, scope)
             rows_out.append({
-                "line_id": "old_percentile_%s_%s_%s" % (arm, scope, percentile),
-                "line_type": "old_percentile_combo", "arm": arm, "horizon": arm, "modality": scope,
+                "line_id": "old_percentile_%s_%s_%s" % (line_arm, scope, percentile),
+                "line_type": "old_percentile_combo", "arm": line_arm, "horizon": line_arm, "modality": scope,
                 "n_metrics": len(group),
                 "rule": row["rule"], "all_reliable": 1, "scope_note": "", **stats,
             })
@@ -853,7 +885,12 @@ def _group_flags(rows: list[dict], flags: list[bool]) -> dict[str, list[bool]]:
 def phase_charts(cli: argparse.Namespace) -> None:
     sys.path.insert(0, str(HERE))
     from vq_grid_charts import setup_fonts
+    from vq_sot_compare import parse_arms
 
+    arms = parse_arms(cli.arms)
+    if not arms:
+        raise SystemExit("--arms needs at least one tracker family")
+    arm = arms[0]
     plt = setup_fonts()
 
     knees = read_csv(Path(cli.knee))
@@ -886,7 +923,7 @@ def phase_charts(cli: argparse.Namespace) -> None:
                     if not math.isfinite(value):
                         continue
                     xs.append(value)
-                    ys.append(float(lock_row["xcorr_%s_ugr" % horizon]))
+                    ys.append(float(lock_row["%s_%s_ugr" % (arm, horizon)]))
                 if not xs:
                     axis.set_axis_off()
                     continue
@@ -950,6 +987,7 @@ def main() -> None:
     p.add_argument("--tau-dir", required=True, help="只用这里的**好片**标定纹理地板 τ_det")
     p.add_argument("--lock-out", required=True)
     p.add_argument("--out", required=True)
+    p.add_argument("--arms", default="xcorr,patch", help=ARMS_HELP)
     p.set_defaults(func=phase_curve)
 
     p = sub.add_parser("knee", help="物理崩溃拐点")
@@ -963,6 +1001,7 @@ def main() -> None:
     p.add_argument("--long-thresholds", default="manu/video_quality/report")
     p.add_argument("--short-thresholds", default="manu/video_quality/report/sot_short")
     p.add_argument("--out", required=True)
+    p.add_argument("--arms", default="xcorr,patch", help=ARMS_HELP)
     p.set_defaults(func=phase_blindtest)
 
     p = sub.add_parser("combo", help="膝点线的单指标 / 组合判据盲测")
@@ -971,6 +1010,7 @@ def main() -> None:
     p.add_argument("--long-thresholds", default="manu/video_quality/report")
     p.add_argument("--short-thresholds", default="manu/video_quality/report/sot_short")
     p.add_argument("--out", required=True)
+    p.add_argument("--arms", default="xcorr,patch", help=ARMS_HELP)
     p.set_defaults(func=phase_combo)
 
     p = sub.add_parser("charts", help="带拐点标注的衰减曲线图")
@@ -979,6 +1019,7 @@ def main() -> None:
     p.add_argument("--windows", required=True)
     p.add_argument("--lock", required=True)
     p.add_argument("--chart-dir", required=True)
+    p.add_argument("--arms", default="xcorr,patch", help=ARMS_HELP)
     p.set_defaults(func=phase_charts)
 
     cli = parser.parse_args()

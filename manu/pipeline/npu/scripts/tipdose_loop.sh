@@ -11,7 +11,7 @@
 # 铁律：起跑前查 MemAvailable（<60GB 让位给门禁）；OMP/MKL/OPENBLAS/NUMEXPR/NUMBA 全钉 4。
 set -u
 REPO=/tmp/pycharm_project_10ae9e2e; PY=/home/huangzhe/anaconda3/envs/uav/bin/python
-W=/mnt/data/siping/runs/npu20ms/nano_search; END="2026-11-23 08:30"
+W=/mnt/data/siping/runs/npu20ms/nano_search; END="2026-11-30 09:00"
 cd $REPO || exit 1
 export PYTHONPATH=. OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 NUMEXPR_NUM_THREADS=4 NUMBA_NUM_THREADS=4
 log(){ echo "[$(date "+%F %T")] $*" >> $W/tipdose_loop.log; }

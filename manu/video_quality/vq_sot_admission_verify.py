@@ -92,7 +92,7 @@ def horizon_entry(block: dict, horizon: int) -> dict:
     return horizons.get("h%d" % horizon, {})
 
 
-def load_clicks(sot_dirs: list[Path]) -> list[dict]:
+def load_clicks(sot_dirs: list[Path], arm: str) -> list[dict]:
     clicks: list[dict] = []
     for sot_dir in sot_dirs:
         for path in sorted(sot_dir.glob("*.json")):
@@ -112,7 +112,7 @@ def load_clicks(sot_dirs: list[Path]) -> list[dict]:
                     "tex_lap_var": float(click.get("tex_lap_var", float("nan"))),
                     "tex_std": float(click.get("tex_std", float("nan"))),
                 }
-                block = click.get("xcorr", {})
+                block = click.get(arm, {})
                 for horizon, label in ((short_h, "short"), (long_h, "long")):
                     entry = horizon_entry(block, horizon)
                     record["%s_survived" % label] = bool(entry.get("survived", False))
@@ -133,7 +133,7 @@ def calibrate_tau(clicks: list[dict]) -> dict[str, float]:
     return taus
 
 
-def aggregate_windows(clicks: list[dict], taus: dict[str, float]) -> list[dict]:
+def aggregate_windows(clicks: list[dict], taus: dict[str, float], arm: str) -> list[dict]:
     buckets: dict[tuple[str, int, str], list[dict]] = {}
     for click in clicks:
         buckets.setdefault((click["file"], click["window"], click["click_mode"]), []).append(click)
@@ -155,7 +155,7 @@ def aggregate_windows(clicks: list[dict], taus: dict[str, float]) -> list[dict]:
                     continue
                 if math.isfinite(click["tex_lap_var"]) and click["tex_lap_var"] >= tau:
                     usable += 1
-            record["xcorr_%s_ugr" % label] = round(usable / len(items), 6)
+            record["%s_%s_ugr" % (arm, label)] = round(usable / len(items), 6)
         rows.append(record)
     return rows
 
@@ -265,12 +265,19 @@ def main() -> None:
     parser.add_argument("--score", default="xcorr_long_ugr")
     parser.add_argument("--kind", default="source")
     parser.add_argument("--tol", type=float, default=1e-3)
+    parser.add_argument("--arms", default="xcorr,patch",
+                        help="Comma separated tracker families (e.g. xcorr,patch,kcf); only the first one is re-computed here")
     cli = parser.parse_args()
+
+    arms = list(dict.fromkeys(part.strip() for part in str(cli.arms).split(",") if part.strip()))
+    if not arms:
+        parser.error("--arms needs at least one tracker family")
+    arm = arms[0]
 
     failures: list[str] = []
     report_dir = Path(cli.report_dir)
     sot_dirs = [Path(p.strip()) for p in cli.sot_dir.split(",") if p.strip()]
-    clicks = load_clicks(sot_dirs)
+    clicks = load_clicks(sot_dirs, arm)
     if not clicks:
         print("[FATAL] no probe JSON found -- refusing to report a vacuous PASS")
         raise SystemExit(2)
@@ -291,7 +298,7 @@ def main() -> None:
 
     # ---------- B. 逐窗 UGR ----------
     print("[CHECK B] per-window UGR aggregation")
-    window_rows = aggregate_windows(clicks, taus)
+    window_rows = aggregate_windows(clicks, taus, arm)
     joined = join_quality(window_rows, Path(cli.windows))
     print("  windows recomputed=%d joined=%d" % (len(window_rows), len(joined)))
     stored_windows = report_dir / "sot_windows.csv"
@@ -307,6 +314,9 @@ def main() -> None:
     good = [row for row in scoped if row["group"] == "good"]
     bad = [row for row in scoped if row["group"] == "bad"]
     score_key = cli.score
+    if joined and score_key not in joined[0]:
+        print("[FATAL] score column %r is not produced by --arms %s" % (score_key, ",".join(arms)))
+        raise SystemExit(2)
     print("  scoped windows: good=%d bad=%d (score=%s)" % (len(good), len(bad), score_key))
 
     # ---------- C/D. 准入线 + gap 参考线 ----------

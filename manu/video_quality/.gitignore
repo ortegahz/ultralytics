@@ -5,9 +5,18 @@ __pycache__/
 grid_out/
 grid_lk_out/
 
-# report/ 下的中间表：体积大且可再生成；报告正文、图表与证据图要入库。
-# 根 .gitignore 有 `*.png`，但报告正文用相对路径引用这些图，不入库会导致图裂。
-!report/*.png
+# report/ 下的中间表：体积大且可再生成；报告正文要入库。
+#
+# 🔴 2026-11-24 用户裁决修订：图表（PNG）**不再入库** —— 40 张图（含 24 张历史入库项）
+#    全部迁到本机产物区 `cache/ultralytics/repo-artifacts/manu/video_quality/report/`
+#    （1:1 镜像仓库相对路径，可原路还原），可由 vq_*.py 整批重生成。
+#    ⚠️ 旧口径是 `!report/*.png`（为让报告里的相对路径图不裂而反向放行）⇒ 图长期堆在工程目录。
+#    本条已废除该反向规则；报告正文里的图链接改为指向 cache 落点。
+report/*.png
+# KCF 画质线（§308/§309）的派生图表与中间表：可由 vq_*.py 整批重生成，不入库。
+report/kcf_*.csv
+report/sot_kcf_long/
+report/sot_kcf_short/
 report/windows.csv
 report/grid_windows.csv
 report/comparison.json
@@ -31,6 +40,6 @@ report/sot_short/sot_windows.csv
 report/degrade_windows.csv
 report/degrade_lock.csv
 
-# 注：本文件目前**未被 git 跟踪**。根 .gitignore 已同步一份等价规则
-#   （含 `!manu/video_quality/report/*.png` 的反向安全网），故即便本文件漏提交，clone 后行为仍自洽。
-#   但仍建议把本文件一并 git add，让嵌套规则随仓库分发。
+# 注：本文件**已被 git 跟踪**（2026-11-24 实测 `git ls-files` 命中）。
+#   ⚠️ 嵌套 .gitignore 的规则**优先级高于**根 .gitignore ⇒ 图表的忽略规则必须在这里也写一份，
+#      只写根目录会失效（曾经就因为这里的 `!report/*.png` 让根目录的忽略规则压不住）。

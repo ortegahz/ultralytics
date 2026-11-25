@@ -26,7 +26,11 @@ export LC_ALL=C
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT="$HERE/out"
-STAGE="$HERE/.build-include"
+# 第三方头暂存区（rga/ + CL/ + rknn_api.h + stb_image.h）——
+# 🔴 铁律二十三：中间产物一律出仓库目录 ⇒ 默认落 cache（仓库外）；
+#    可用 MOSAIC_STAGE_DIR 覆盖。旧口径 $HERE/.build-include 已废止。
+STAGE="${MOSAIC_STAGE_DIR:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/pipeline-artifacts/npu_stage_include}"
+mkdir -p "$STAGE"
 
 TC="${RK3588_TOOLCHAIN:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/rk3588/rk3588_cross_toolchain/gcc-buildroot-9.3.0-2020.03-x86_64_aarch64-rockchip-linux-gnu}"
 RT_LIB_DIR="${RT_LIB_DIR:-/run/media/manu/SSD960-LOCAL/nfs/npu}"

@@ -51,6 +51,7 @@ def run_one(job: tuple[str, str, str, str, str, dict]) -> str:
         click_mode=options["click_mode"],
         ncc_thresh=options["ncc_thresh"],
         closure_thresh=options["closure_thresh"],
+        arms=list(options["arms"]),
         limit=0,
     )
     started = time.perf_counter()
@@ -58,17 +59,16 @@ def run_one(job: tuple[str, str, str, str, str, dict]) -> str:
     target.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
     summary = result["summary"]
     last = "h%d" % summary["horizons"][-1]
+    arms = list(options["arms"])
+    rates = " ".join("%s_%s=%.4f" % (arm, last, summary[arm][last]["lock_rate"]) for arm in arms)
     return (
-        "[DONE] %s frames=%d windows=%d clicks=%d xcorr_%s=%.4f patch_%s=%.4f (%.1fs)"
+        "[DONE] %s frames=%d windows=%d clicks=%d %s (%.1fs)"
         % (
             Path(path).name,
             summary["frames_decoded"],
             summary["windows"],
             summary["clicks"],
-            last,
-            summary["xcorr"][last]["lock_rate"],
-            last,
-            summary["patch"][last]["lock_rate"],
+            rates,
             time.perf_counter() - started,
         )
     )
@@ -87,13 +87,27 @@ def main() -> None:
     parser.add_argument("--max-frames", type=int, default=0)
     parser.add_argument("--threads", type=int, default=6, help="Threads inside one clip")
     parser.add_argument("--click-mode", default="alternating", choices=["alternating", "center", "corner"])
+    parser.add_argument(
+        "--arms",
+        default="xcorr,patch",
+        help="Comma separated tracker families (xcorr,patch,kcf); every family sees the same clicks",
+    )
     parser.add_argument("--ncc-thresh", type=float, default=0.65)
     parser.add_argument("--closure-thresh", type=float, default=3.0)
     cli = parser.parse_args()
 
     out_dir = Path(cli.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    arms: list[str] = []
+    for part in str(cli.arms).split(","):
+        name = part.strip()
+        if name and name not in arms:
+            arms.append(name)
+    if not arms:
+        raise SystemExit("--arms needs at least one tracker family")
+
     options = {
+        "arms": arms,
         "short_frames": int(cli.short_frames),
         "long_seconds": float(cli.long_seconds),
         "clicks_per_epoch": int(cli.clicks_per_epoch),

@@ -9,6 +9,9 @@
 3. **窗口对齐**：逐秒窗口索引必须与 ``report/windows.csv`` 对得上（帧号 // fps）。
 4. **分组口径**：好/坏/桌面录屏三组的中位数与「线两侧」均值独立重算。
 
+``--arms`` 给出参与复算的跟踪器家族（逗号分隔），本脚本只复算**第一个**
+（默认 ``xcorr``，与 ``vq_sot_compare.py`` 的默认口径一致）。
+
 执行：
     python manu/video_quality/vq_sot_verify.py --sot-dir /tmp/sot_out \\
         --windows manu/video_quality/report/windows.csv \\
@@ -64,7 +67,14 @@ def main() -> None:
     parser.add_argument("--thresholds", default="")
     parser.add_argument("--tolerance", type=float, default=0.12, help="Max |SOT - grid| per-clip gap")
     parser.add_argument("--kind", default="source", help="Clip kind used for the threshold re-derivation")
+    parser.add_argument("--arms", default="xcorr,patch",
+                        help="Comma separated tracker families (e.g. xcorr,patch,kcf); only the first one is re-computed here")
     cli = parser.parse_args()
+
+    arms = list(dict.fromkeys(part.strip() for part in str(cli.arms).split(",") if part.strip()))
+    if not arms:
+        parser.error("--arms needs at least one tracker family")
+    arm = arms[0]
 
     failures: list[str] = []
     notes: list[str] = []
@@ -112,11 +122,11 @@ def main() -> None:
         summary = payload["summary"]
         clicks = payload.get("clicks", [])
         center = [c for c in clicks if c.get("click_mode") == "center"]
-        usable = [c for c in center if c.get("xcorr", {}).get("status") == "ok"]
+        usable = [c for c in center if c.get(arm, {}).get("status") == "ok"]
         short_tag = "h%d" % min(summary["horizons"])
         locked = 0
         for click in usable:
-            entry = horizon_entry(click.get("xcorr", {}), short_tag)
+            entry = horizon_entry(click.get(arm, {}), short_tag)
             closure = entry.get("closure", float("nan"))
             if entry.get("survived") and math.isfinite(closure) and closure <= 3.0:
                 locked += 1
@@ -170,7 +180,7 @@ def main() -> None:
         long_tag = "h%d" % max(summary["horizons"])
         for click in payload.get("clicks", []):
             for tag, horizon in ((short_tag, "short"), (long_tag, "long")):
-                entry = horizon_entry(click.get("xcorr", {}), tag)
+                entry = horizon_entry(click.get(arm, {}), tag)
                 closure = entry.get("closure", float("nan"))
                 ok = bool(entry.get("survived")) and math.isfinite(closure) and closure <= 3.0
                 textured = math.isfinite(click.get("tex_lap_var", float("nan"))) and click["tex_lap_var"] >= tau
@@ -198,7 +208,7 @@ def main() -> None:
             # 与生产口径一致：按 (file, window, click_mode) 分桶，center / corner 不混池
             per_bucket: dict[tuple[int, str], list[float]] = {}
             for click in payload.get("clicks", []):
-                entry = horizon_entry(click.get("xcorr", {}), long_tag)
+                entry = horizon_entry(click.get(arm, {}), long_tag)
                 closure = entry.get("closure", float("nan"))
                 ok = bool(entry.get("survived")) and math.isfinite(closure) and closure <= 3.0
                 textured = math.isfinite(click.get("tex_lap_var", float("nan"))) and click["tex_lap_var"] >= tau

@@ -13,7 +13,8 @@
 
 * **纹理地板 τ_det**：单格拉普拉斯方差 ≥ τ 才算「点得下去」。
   **τ 只用同模态「好片」的 P10 标定**（与 §271 同一纪律：**不用坏片标定**，避免循环论证）。
-* **两个跟踪器家族**：``xcorr``（仓库自有配准核，逐帧重切模板）与 ``patch``（产品快核 + 极性自适应）。
+* **跟踪器家族**：``xcorr``（仓库自有配准核，逐帧重切模板）与 ``patch``（产品快核 + 极性自适应），
+  由 ``--arms`` 指定（逗号分隔、按顺序去重；新增家族如 ``kcf`` 只需改这一个参数）。
 * **两个时程**：``short`` = 5 帧（与 vq_grid 的 gap 相同，可与 UGR 逐项对照）、
   ``long`` = 1 秒（业务意义：「点一下能跟住多久」）。
 * **两种点选方式**：``center``（点格心 = 随便点）与 ``corner``（点格内最优角点 = 挑了个看得见的结构）。
@@ -64,6 +65,16 @@ KEY_METRICS = (
 def read_csv(path: Path) -> list[dict[str, str]]:
     with path.open(encoding="utf-8") as handle:
         return list(csv.DictReader(handle))
+
+
+def parse_arms(text: str) -> list[str]:
+    """Ordered, de-duplicated tracker families (``xcorr`` / ``patch`` / ``kcf`` ...)."""
+    arms: list[str] = []
+    for part in str(text).split(","):
+        name = part.strip()
+        if name and name not in arms:
+            arms.append(name)
+    return arms
 
 
 def union_fields(rows: list[dict], preferred: list[str]) -> list[str]:
@@ -358,7 +369,7 @@ def derive_thresholds(scoped: list[dict], good: list[dict], bad: list[dict],
     return rows
 
 
-def load_clicks(sot_dirs: list[Path]) -> tuple[list[dict], list[dict]]:
+def load_clicks(sot_dirs: list[Path], arms: list[str]) -> tuple[list[dict], list[dict]]:
     """Flatten the per-click records of every probe output."""
     clicks: list[dict] = []
     clips: list[dict] = []
@@ -382,7 +393,7 @@ def load_clicks(sot_dirs: list[Path]) -> tuple[list[dict], list[dict]]:
                     "tex_std": click.get("tex_std", float("nan")),
                     "tex_lam": click.get("tex_lam", float("nan")),
                 }
-                for arm in ("xcorr", "patch"):
+                for arm in arms:
                     block = click.get(arm, {})
                     arm_horizons = block.get("horizons", {})
                     for horizon, label in ((short_h, "short"), (long_h, "long")):
@@ -412,7 +423,7 @@ def calibrate_tau(clicks: list[dict]) -> dict[str, float]:
     return taus
 
 
-def aggregate_windows(clicks: list[dict], taus: dict[str, float]) -> list[dict]:
+def aggregate_windows(clicks: list[dict], taus: dict[str, float], arms: list[str]) -> list[dict]:
     """Per (file, window, click_mode) tracking rates, with and without the texture floor."""
     buckets: dict[tuple[str, int, str], list[dict]] = {}
     for click in clicks:
@@ -434,7 +445,7 @@ def aggregate_windows(clicks: list[dict], taus: dict[str, float]) -> list[dict]:
             "n_flat": sum(1 for c in items if c["tex_std"] < 3.0),
             "n_textured": sum(1 for c in items if math.isfinite(c["tex_lap_var"]) and c["tex_lap_var"] >= tau),
         }
-        for arm in ("xcorr", "patch"):
+        for arm in arms:
             for horizon in ("short", "long"):
                 locked = 0
                 usable = 0
@@ -468,11 +479,16 @@ def main() -> None:
     parser.add_argument("--score", default="xcorr_long_ugr", help="Column used as the tracking score")
     parser.add_argument("--kind", default="source", help="Only this kind takes part in the good/bad discrimination")
     parser.add_argument("--click-mode", default="all", choices=["all", "center", "corner"])
+    parser.add_argument("--arms", default="xcorr,patch",
+                        help="Comma separated tracker families (e.g. xcorr,patch,kcf); every family gets its own columns")
     cli = parser.parse_args()
 
+    arms = parse_arms(cli.arms)
+    if not arms:
+        parser.error("--arms needs at least one tracker family")
     out_dir = Path(cli.out_dir)
     sot_dirs = [Path(p) for p in str(cli.sot_dir).split(",") if p.strip()]
-    clicks, clips = load_clicks(sot_dirs)
+    clicks, clips = load_clicks(sot_dirs, arms)
     taus = calibrate_tau(clicks)
 
     tau_rows = [
@@ -492,7 +508,7 @@ def main() -> None:
     ]
     write_csv(out_dir / "sot_tau_det.csv", tau_rows, list(tau_rows[0].keys()))
 
-    window_rows = aggregate_windows(clicks, taus)
+    window_rows = aggregate_windows(clicks, taus, arms)
     if cli.click_mode != "all":
         window_rows = [row for row in window_rows if row["click_mode"] == cli.click_mode]
 
@@ -532,7 +548,7 @@ def main() -> None:
             "clicks": summary["clicks"],
             "elapsed_s": summary["elapsed_s"],
         }
-        for arm in ("xcorr", "patch"):
+        for arm in arms:
             for horizon in ("short", "long"):
                 for key, source in (("lock", "lock_rate"), ("surv", "survived_ratio"), ("clos", "closure_median")):
                     record["%s_%s_%s" % (arm, horizon, key)] = summary[arm].get(
@@ -567,7 +583,7 @@ def main() -> None:
                 sum(int(row["n_textured"]) for row in rows) / max(1, sum(int(row["n_clicks"]) for row in rows)), 6
             ),
         }
-        for arm in ("xcorr", "patch"):
+        for arm in arms:
             for horizon in ("short", "long"):
                 for key in ("lock", "ugr"):
                     values = [
@@ -587,6 +603,9 @@ def main() -> None:
     good = [row for row in scoped if row["group"] == "good"]
     bad = [row for row in scoped if row["group"] == "bad"]
     score_key = cli.score
+    if joined and score_key not in joined[0]:
+        print("[FATAL] score column %r is not produced by --arms %s" % (score_key, ",".join(arms)))
+        raise SystemExit(2)
 
     discrimination: list[dict] = []
     thresholds: list[dict] = []

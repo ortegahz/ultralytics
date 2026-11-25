@@ -574,8 +574,9 @@ python manu/point_annotator/point_annotator.py \
 
 ## 11. Windows 交付包（2026-11-18 落地）
 
-**位置**：`/media/manu/1TB-Volume/workspace/PointAnnotator_Windows/`
-（⚠️ `/media/manu/1TB-Volume` 顶层是 `ro` 挂载，只有 `workspace/` 子目录 `rw` ⇒ 包只能落在 `workspace/` 下）
+**位置**：`/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/PointAnnotator_Windows/`
+（⚠️ **2026-11-24 修正**：外接卷已改挂到 `/run/media/manu/3061aec8-…/`，旧路径 `/media/manu/1TB-Volume/…` **已不存在**（`/media/manu` 下无任何条目）⇒ 按旧路径找会找不到包。
+⚠️ 历史记录里 `/media/manu/1TB-Volume` 是 2026-11-18 当时的挂载点，卷顶层 `ro`、只有 `workspace/` 子目录 `rw` ⇒ 包只能落在 `workspace/` 下）
 
 ```
 PointAnnotator_Windows\
@@ -631,3 +632,73 @@ PointAnnotator_Windows\
 * repo 侧 `manu/point_annotator/{build_exe.bat,run.bat}` **同样重写**（原来也是 UTF-8+中文，
   一样会炸），并把纪律写进 `README.md` §6.6。
 * 包内新增 `msg_cn.txt` / `msg_build_cn.txt`（UTF-8 无 BOM）。
+
+---
+
+## 12. 三份并行交付（2026-11-25 新增；主档 `manu/memory/memory.md` §315）
+
+> 需求：母包 `PointAnnotator_Windows/` 里是**全部 58 条视频 + 58 个序列的预推点**，
+> 要拆成**等量三份**发给 3 位标注员（视频与配套素材一起走）。
+
+### 12.1 「等量」的口径（关键裁决）
+
+| 口径 | 能不能用 | 原因 |
+| --- | --- | --- |
+| 按**条数**平分 | ❌ | 58 条视频长短差 **13 倍**（243 帧 ~ 3,154 帧）⇒ 19 条与 20 条的活儿能差 40% |
+| 只按**总帧数** | ❌ | 预标注覆盖率**极不均**：2 条序列 **0 覆盖**、`VIDEO00031` 只有 19/3150 帧（1%）、`VIDEO00062` 有 2820/3148 帧（90%）⇒ 没底稿的帧要**手工落点**，有底稿的帧只需**核对/微调** |
+| **总帧数 + 手工帧数 + 工作量当量** 三项同时对齐 | ✅ | 本轮采用。「手工帧」= 视频帧数 − 预标注覆盖帧数；「工作量」= 手工帧 × 1.0 + 有底稿帧 × 0.35 |
+
+分配算法 = **LPT 播种**（工作量降序进当前最轻的一份）+ **局部搜索**
+（单条挪动 / 两条对调，只要三份最大相对偏差变小就接受）。
+
+### 12.2 结果
+
+| 份 | 目录 | 条数 | 总帧 | 手工帧 | 底稿帧 | 工作量 | 体积 |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | `PointAnnotator_Windows_标注员1` | 19 | 58,080 | 25,689 | 32,391 | 37,026 | 238.0 MB |
+| 2 | `PointAnnotator_Windows_标注员2` | 19 | 58,266 | 26,073 | 32,193 | 37,341 | 238.9 MB |
+| 3 | `PointAnnotator_Windows_标注员3` | 20 | 57,435 | 25,845 | 31,590 | 36,902 | 235.7 MB |
+
+**最大偏差：总帧 0.8% ｜ 手工帧 0.8% ｜ 工作量 0.7%**（条数 19/19/20）。
+第 3 份含 2 条**无预推点**序列（`VIDEO00057` 449 帧、`VIDEO00060` 243 帧，合计占总量 0.4%）⇒ 需纯手工，已计入口径。
+
+### 12.3 每份自包含 + 干净
+
+* 带齐：`tool/`（源码 + 免装 Python 的 `dist/PointAnnotator/` exe）、`docs/` 课件、
+  `python-3.10.0-amd64.exe`、三个 `.bat`、`README_先看这个.md`（按份改写）、`msg_cn.txt`（按份改写）
+  ⇒ **拷到 Windows 上双击 `1_自检.bat` → `2_开始标注.bat` 即可**；
+* **不带**：母包 `videos/annotations/` 的 Linux 试跑草稿（免得被当成人工标注接着标）、
+  `tool/build/`（PyInstaller 中间态 17 MB）、旧 `*.log`；
+* 每份的 `videos/annotations/` 建的是**空目录**；母包**原封未动**。
+
+### 12.4 验收（三重独立复验）
+
+| 验收项 | 结果 |
+| --- | --- |
+| `verify_split.py`（结构 / 配对 / 逐字节 md5 / 等量 / 无重复无遗漏） | **67 项全绿** |
+| 每份 `_split_manifest.md5`（逐文件 md5） | 32,526 / 32,328 / 31,727 条**全 OK** |
+| 每份 `tool/point_annotator.py --self-test` | 三份全 **`PASS 101  FAIL 0`** |
+| 预标注端到端加载 | **56/58**（另 2 条本就没有底稿） |
+| 三份互不重叠 / 母包全覆盖 | 重复 **0**、遗漏 **0**（58/58） |
+
+### 12.5 回收与合并
+
+标注员只需回传 `videos\annotations\` 整个目录；合并时按**视频同名**放回母包
+`PointAnnotator_Windows/videos/annotations/` ⇒ 三份视频名互不重叠，**直接并集，不会互相覆盖**。
+
+### 12.6 复现（工具入库）
+
+```bash
+# 拆分（--plan 只看方案不落盘）
+python3 manu/point_annotator/split_delivery.py \
+  --master <母包> --out-dir <输出目录> --parts 3 --frame-cache /tmp/vq_frames.json
+# 验收（67 项）
+python3 manu/point_annotator/verify_split.py --master <母包> --parts-dir <输出目录>
+```
+
+### 12.7 两个踩过的坑
+
+1. **帧数别用 `ffprobe -count_frames`**（逐帧解码，58 条 1080p 要十几分钟）⇒ 用容器表里的
+   `nb_frames`，毫秒级；
+2. **`.bat` 是 CRLF + 纯 ASCII**（见 §11）⇒ 改写时**按行拆（保留行尾）再插回**，
+   按 `\n` 找锚点必然落空。

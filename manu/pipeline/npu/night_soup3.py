@@ -335,12 +335,17 @@ def main() -> None:
             #   背景：基线抬到 v2.7 后 f1=.8905687 ⇒ 「f1 差 1e-4 但 nano4 高 5e-3」的臂被挡在门外，
             #   而这类臂恰恰是**小目标召回更强**的候选（用户最关心的 nano4 轴）⇒ 需要门禁读数才能进晨报。
             #   规则（**仅决定「是否值得花门禁机时」**，六项判据本身不变）：
-            #     · nano 必须 > 基线、nano4 必须 > 基线；
-            #     · 且（f1 > 基线）**或**（f1 > 基线 − F1_TOL 且 nano4 ≥ 基线 + NANO4_GAIN）。
+            #     · nano 必须 **≥** 基线、nano4 必须 **≥** 基线；
+            #     · 且（f1 **≥** 基线）**或**（f1 > 基线 − F1_TOL 且 nano4 ≥ 基线 + NANO4_GAIN）。
             F1_TOL = 2.0e-4
             NANO4_GAIN = 3.0e-3
-            triad = bool(m["nano"] > base["nano"] and m["nano4"] > base["nano4"]
-                         and (m["f1"] > base["f1"]
+            # 🔴🔴 2026-11-23 真 bug 修复：triad 的 `>` ⇒ `>=`
+            #   · 权威口径（`six_criteria_audit.judge` / `promote_candidate.check_arm`）
+            #     都是 **nano/nano4/f1 ≥ 基线**；本文件 L262 的门禁条件也已经是 `>=`；
+            #   · 老代码 L342 用严格 `>` ⇒ **恰好等于基线**的候选臂被「三轴筛选」误杀
+            #     ⇒ 永远不跑官方门禁 ⇒ 永远量不出 T1 ⇒ 合法候选臂永远升不了轨。
+            triad = bool(m["nano"] >= base["nano"] and m["nano4"] >= base["nano4"]
+                         and (m["f1"] >= base["f1"]
                               or (m["f1"] > base["f1"] - F1_TOL
                                   and m["nano4"] >= base["nano4"] + NANO4_GAIN)))
             mg = margin(m, base)

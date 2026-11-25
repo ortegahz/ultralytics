@@ -4,7 +4,7 @@
 #   坑②：通道之间抢同一个臂 ⇒ gate_prio.py 用 mkdir 原子占号（claim）自动错开。
 set -u
 REPO=/tmp/pycharm_project_10ae9e2e; PY=/home/huangzhe/anaconda3/envs/uav/bin/python
-W=/mnt/data/siping/runs/npu20ms/nano_search; END="${GATE_END:-2026-11-23 21:00}"
+W=/mnt/data/siping/runs/npu20ms/nano_search; END="${GATE_END:-2026-11-30 09:00}"
 cd $REPO || exit 1
 export PYTHONPATH=. OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 NUMEXPR_NUM_THREADS=4 NUMBA_NUM_THREADS=4
 log(){ echo "[$(date "+%F %T")] $*" >> $W/gate_loop_C.log; }
@@ -26,7 +26,9 @@ while :; do
   SIDS=$($PY $W/scripts/gate_prio.py C 8)
   log "[轮] 门禁C 开始 avail=${avail}MB sids=${SIDS}"
   if [ -n "$SIDS" ]; then
-    timeout 3600 $PY -u manu/pipeline/npu/night_soup_batch.py --only-gate --gate-sids "$SIDS" \
+# 🔴🔴 2026-11-23 12:5x timeout 3600 → 5400：单轮 8 臂 × ~9.5min ≈ 76min > 60min
+#   ⇒ 原设置每轮被砍在第 6 臂 ⇒ 门禁吞吐白丢 25%。现与 CLAIM_TTL(100min) 配套。
+    timeout 5400 $PY -u manu/pipeline/npu/night_soup_batch.py --only-gate --gate-sids "$SIDS" \
       --gpu 0 --gate-family-quota 40 --max-gates 8 --mem-gate-gb 40 \
       --deadline "$END" >> $W/day_gateC.log 2>&1 9>&-
   else

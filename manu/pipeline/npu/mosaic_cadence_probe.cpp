@@ -40,6 +40,10 @@
 #include <vector>
 
 #include "mosaic_pipeline.h"
+#include "mosaic_paths.h"
+
+// 默认序列名：帧目录 = 帧根目录(mosaic_paths::FramesRoot) + 序列名。
+static const char* kDefaultSequence = "VIDEO00007_19700101_001324";
 
 namespace {
 
@@ -115,10 +119,12 @@ double Mean(const std::vector<double>& v) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  std::string dir = "/mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324";
-  std::string model = "/tmp/p0_off_A_none.rknn";
-  std::string kdir = "/mnt/manu/mosaic_sdk/runtime/kernels";
-  std::string seq = "VIDEO00007_19700101_001324";
+  // 板卡无关：路径默认值走 mosaic_paths（env → 交付包内 → 板卡已知路径），
+  // 命令行参数优先级永远高于这些默认值。
+  std::string dir = mosaic_paths::FramesRoot() + "/" + kDefaultSequence;
+  std::string model = mosaic_paths::ModelPath();
+  std::string kdir = mosaic_paths::KernelDir();
+  std::string seq = kDefaultSequence;
   std::string out = "/tmp/cadence.tsv";
   int frames = 600;
   double src_fps = 25.0;  // <=0 = 不限速（相机无限快）

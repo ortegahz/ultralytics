@@ -2,7 +2,7 @@
 
 > 本文件与上级 `../AGENTS.md`（Ultralytics 上游开发规约）**合并生效**。
 > 上级文件管上游代码风格；本文件管**本项目**的不可协商约束。
-> 完整铁律正文：`manu/memory/rules.md`（1,433 行，**动手前必读**）。
+> 完整铁律正文：`manu/memory/rules.md`（2594 行 · 2026-11-24 记录，**动手前必读**）。
 
 ## 0. 不可协商约束（违反即事故）
 
@@ -26,18 +26,30 @@
 
 | 内容 | 去处 |
 |:--|:--|
-| 「做过什么 / 当前是什么」（状态、指标、擂主、结论） | `manu/memory/`（`memory.md` 主档 / `memory_compact.md` 5 分钟卡 / `rules.md` 铁律 / `archive/` 只增不改 / 专题档） |
-| 「怎么做」（SOP、方法论、判别标准、搜索规程） | `manu/skills/`（4 个 Skill + `REGISTRY.md` 索引） |
+| 「做过什么 / 当前是什么」（状态、指标、擂主、结论） | `manu/memory/`：**`memory.md` 入口 + 活章**（索引头 §0~§8/§10 + 最新章节）/ **`archive/` 历史正文分卷**（只增不改）/ `rules.md` 铁律 / `memory_compact.md` 5 分钟卡 / 专题档 |
+| 「怎么做」（SOP、方法论、判别标准、搜索规程） | `manu/skills/`（6 个 Skill + `REGISTRY.md` 索引） |
 
 **不要在 skill 里写实验历史，也不要在 memory 里写操作步骤。**
+
+> 记忆库已分卷：`manu/memory/memory.md`（2,404 行）**只留「索引头 + 活章」**，历史正文按 § 区间切进 `manu/memory/archive/`
+> （既有 8 卷 `00`~`07` + 新增 12 卷 `08`~`19`）。**入口说明见 `manu/memory/README.md`**。
 
 ## 2. 动手前必读（顺序固定）
 
 1. `manu/memory/memory_compact.md` — 5 分钟建立上下文（30 秒摘要 / 三条工作线 / 关键数字 / 导航表）
 2. `manu/memory/rules.md` — 铁律正文（尤其 §〇~§〇之三、§一、§三 计量纪律、§四 流式协议、§五 交付口径）
-3. `manu/memory/memory.md` — 当前状态快照 + 擂主 + 最新结论 + §导航表
+3. `manu/memory/memory.md` — 当前状态快照（§1）+ 擂主（§3）+ 最新结论（§5）+ **§6 导航表**
+4. 需要历史时 —— 按 **§6.2 章节索引**（§编号 → `archive/NN.md` + **卷内行号**）跳到对应分卷的对应节
 
-历史细节走 `manu/memory/archive/`（**按 §编号查导航表，不要线性读归档**）。
+⛔ **不要线性读 `manu/memory/archive/`**（已 20 卷）：一律先查 §6 导航表定位，再只读那一节。
+🔖 引用一律写「§编号」或「`archive/NN.md:卷内行号`」，**不要写 `memory.md` 的全局行号**（新增章节会让它整体平移）。
+
+改了记忆库结构后，用零丢失校验自证切分完好：
+
+```bash
+python3 manu/memory/check_memory_roll.py    # 逐卷 md5 / 归档区拼接 / 活区一致 / §6.2 索引全覆盖
+python3 manu/memory/validate_nav_table.py   # 归档完整性 + § 导航逐条解析
+```
 
 ## 3. 关键真值（唯一来源，别处没有第二份）
 

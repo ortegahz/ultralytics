@@ -26,8 +26,12 @@
 #         五个测试程序用 `-lmosaic_pipeline` + `-Wl,-rpath,'$ORIGIN'` 链接它
 #         ⇒ 整包可搬、可直接跑，不需要设 LD_LIBRARY_PATH。
 #
-#   ⚠️ 头与运行库必须**同版本**：用板卡 OpenCV 4.6.0 的头去链板卡
-#      4.6.0 的 libopencv_*.so.406；不要拿 4.8 的运行库配 4.6 的头。
+#   ⚠️ 头与运行库必须**同版本**。
+#      【2026-11-25 新板（Orange Pi 5 / Debian 12）】板上运行库是 **4.8**
+#      （libopencv_*.so.408），但板上**只有 4.6 头**（/usr/include/opencv4）
+#      ⇒ 4.8 头必须**外部提供**：本包把它随包发布到 **include/opencv4/**
+#      （OpenCV 4.8 头，第三方 BSD 许可）⇒ 集成方在板上可直接原地构建。
+#      旧板（4.6 头 + 4.6 库）不受影响：头与库仍然必须同版本。
 # ---------------------------------------------------------------------------
 #
 # 用法: bash manu/pipeline/npu/packaging/make_build_dir.sh
@@ -40,7 +44,11 @@ ROOT="$(cd "$HERE/.." && pwd)"
 # 2026-11-23（铁律二十五）：交付包是**中间产物**，默认落仓库外的 cache 区，
 # 仓库内的 build/ 只是历史默认；用 MOSAIC_SDK_BUILD_DIR 可覆盖到任意目录。
 DEST="${MOSAIC_SDK_BUILD_DIR:-$ROOT/build}"
-STAGE="$ROOT/.build-include"
+# 第三方头暂存区（rga/ + CL/ + rknn_api.h + stb_image.h）——
+# 🔴 铁律二十三：中间产物一律出仓库目录 ⇒ 默认落 cache（仓库外）；
+#    可用 MOSAIC_STAGE_DIR 覆盖。旧口径 $HERE/.build-include 已废止。
+STAGE="${MOSAIC_STAGE_DIR:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/pipeline-artifacts/npu_stage_include}"
+mkdir -p "$STAGE"
 
 die() { echo "[ERROR] $*" >&2; exit 1; }
 
@@ -74,8 +82,14 @@ TOOLCHAIN_V="${RK3588_TOOLCHAIN:-/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b
 #
 # build_lib.sh / build_demo.sh 用的是同一套变量（名字与默认值完全一致）。
 # ---------------------------------------------------------------------------
-OPENCV_INCLUDE_DIR_V="${OPENCV_INCLUDE_DIR:-/usr/include/opencv4}"
-OPENCV_LIB_DIR_V="${OPENCV_LIB_DIR:-/usr/lib/aarch64-linux-gnu}"
+# 🔴 2026-11-25（实际部署板 = Orange Pi 5 / Debian 12）：这两个默认值**必须**改。
+#    板上 OpenCV **运行库 4.8** 在 /usr/lib（libopencv_*.so.408），
+#    而**系统包 4.6** 在 /usr/lib/aarch64-linux-gnu（libopencv_*.so.406）；
+#    板上 app 与本 SDK 链的都是 **4.8** ⇒ 默认必须是 /usr/lib。
+#    板上**只有 4.6 头**（/usr/include/opencv4）⇒ 头必须用**本包随包发布的
+#    4.8 头**（$DEST/include/opencv4，源由 OPENCV_HEADERS_SRC 指定）。
+OPENCV_INCLUDE_DIR_V="${OPENCV_INCLUDE_DIR:-$DEST/include/opencv4}"
+OPENCV_LIB_DIR_V="${OPENCV_LIB_DIR:-/usr/lib}"
 OPENCV_V="${OPENCV_INSTALL:-/usr/include/opencv4}"     # 旧键名（兼容用；现在等价于板卡 OpenCV 头目录）
 BOARD_LIBS_V="${BOARD_LIBS:-/usr/lib/aarch64-linux-gnu}"
 RT_LIB_DIR_V="${RT_LIB_DIR:-/usr/lib}"
@@ -84,8 +98,29 @@ NFS_ROOT_V="${NFS_ROOT:-/run/media/manu/SSD960-LOCAL/nfs}"
 #   默认从 NFS 的 ptq/models/ 取；可用 MODEL_RKNN 指向别的副本。
 #   设 MODEL_RKNN="" 显式表示「不打包模型」（只给不想带模型的场合）。
 MODEL_RKNN="${MODEL_RKNN-$NFS_ROOT_V/ptq/models/p0_off_A_none.rknn}"
-BOARD_V="${BOARD:-root@192.168.0.211}"
+BOARD_V="${BOARD:-root@192.168.1.115}"
 BOARD_PORT_V="${BOARD_PORT:-22}"
+
+# ---------------------------------------------------------------------------
+# 目标板 OpenCV 的 **ABI / 版本**（2026-11-25 新板 Orange Pi 5 / Debian 12）
+#
+#   板上运行库 = 4.8（/usr/lib/libopencv_*.so.408，SONAME 后缀 408）
+#   板上**头**   = 只有 4.6（/usr/include/opencv4，CV_VERSION_MINOR 6）
+#   ⇒ 头与运行库**必须同版本**，否则是 ABI 错配（同进程加载两套 OpenCV，
+#     cv::Mat 跨版本串味）⇒ 本包把 **4.8 头**随包发布到 include/opencv4/。
+#
+#   OPENCV_ABI 是运行库的 SONAME 后缀（408 ⇒ OpenCV 4.8；406 ⇒ 4.6）。
+#   头文件版本必须**精确匹配**它，否则一律拒绝（板卡 /usr/include/opencv4
+#   那份 4.6 头**不能**拿来配 4.8 运行库）。
+# ---------------------------------------------------------------------------
+OPENCV_ABI_V="${OPENCV_ABI:-408}"
+case "$OPENCV_ABI_V" in
+  [0-9][0-9][0-9]) ;;
+  *) die "OPENCV_ABI 必须是三位数字（OpenCV 运行库的 SONAME 后缀，如 408）：$OPENCV_ABI_V" ;;
+esac
+OCV_MAJOR="${OPENCV_ABI_V:0:1}"          # 408 -> 4
+OCV_MINOR=$((10#${OPENCV_ABI_V:1}))      # 408 -> 8（408=>4.8, 406=>4.6, 410=>4.10）
+OCV_VER="${OCV_MAJOR}.${OCV_MINOR}"      # 408 -> 4.8
 
 # 填占位符。模板里 {{...}} 形式的占位符由本函数按实况替换。
 fill_placeholders() {
@@ -111,6 +146,7 @@ fill_placeholders() {
     -e "s|\{\{OBJ_MD5\}\}|$OBJ_MD5|g" \
     -e "s|\{\{STAT_COMPAT_OBJ_MD5\}\}|$STAT_COMPAT_OBJ_MD5|g" \
     -e "s|\{\{LIB_SO_MD5\}\}|$LIB_SO_MD5|g" \
+    -e "s|\{\{LIB_SO_SIZE\}\}|$LIB_SO_SIZE|g" \
     -e "s|\{\{LIB_A_MD5\}\}|$LIB_A_MD5|g" \
     -e "s|\{\{API_TEST_MD5\}\}|$API_TEST_MD5|g" \
     -e "s|\{\{API_TEST_STATIC_MD5\}\}|$API_TEST_STATIC_MD5|g" \
@@ -121,6 +157,7 @@ fill_placeholders() {
     -e "s|\{\{E2E_MD5\}\}|$E2E_MD5|g" \
     -e "s|\{\{CADENCE_PROBE_MD5\}\}|$CADENCE_PROBE_MD5|g" \
     -e "s|\{\{TRACK_DUMP_MD5\}\}|$TRACK_DUMP_MD5|g" \
+    -e "s|\{\{TRACKED_CB_EXAMPLE_MD5\}\}|$TRACKED_CB_EXAMPLE_MD5|g" \
     "$src" > "$dst"
 }
 
@@ -142,6 +179,12 @@ md5_or_placeholder() {
   if [ -f "$f" ]; then md5sum "$f" | cut -d' ' -f1; else echo "（尚未编译）"; fi
 }
 
+# 产物字节数；文件不存在（还没编译）时填「（尚未编译）」
+size_or_placeholder() {
+  local f="$1"
+  if [ -f "$f" ]; then fmt_num "$(stat -c%s "$f")"; else echo "（尚未编译）"; fi
+}
+
 # ---------------------------------------------------------------------------
 # 用途说明（写进 MANIFEST.md 的表里）
 # ---------------------------------------------------------------------------
@@ -153,6 +196,7 @@ purpose_of() {
     build_demo.sh)                echo "构建脚本②：只编译测试程序 -> out/mosaic_api_test + out/mosaic_client_example + out/mosaic_async_client_example + out/mosaic_contract_test + out/rknn_mosaic_e2e（用 -lmosaic_pipeline + -rpath \$ORIGIN 链接同目录的 .so）" ;;
     copy_to_nfs.sh)               echo "一键脚本：编译 + 拷贝到 NFS + md5 回验 +（可选）板卡验证" ;;
     fetch_board_libs.sh)           echo "把**板卡自带的**库与头取回宿主机（ssh 打包 → tar → 解包），并打印 build_lib.sh / build_demo.sh 要用的四个路径变量" ;;
+    fetch_opencv_headers.sh)       echo "**取 OpenCV $OCV_VER 头**的辅助脚本（从本地目录 --src 或从板卡 --board 拉取，校验版本必须是 $OCV_VER），供集成方自行补齐头文件" ;;
     known_hosts)                  echo "板卡主机密钥基线（ssh 严格校验用；板卡换密钥会直接失败，这是故意的）" ;;
     src/npu/mosaic_pipeline.cpp)  echo "库实现（GMC/OpenCL + RGA mosaic + RKNN fp16 + 反投影）" ;;
     src/npu/mosaic_pipeline.h)    echo "**公开 C ABI 头**（集成方写代码时 include 它）" ;;
@@ -160,6 +204,7 @@ purpose_of() {
     src/npu/mosaic_track_fusion.h)   echo "时空后处理内核头（参数结构 + 引擎声明，库内部用）" ;;
     src/npu/mosaic_core.h)        echo "库内部核心头（GMC / RGA / RKNN 胶水层 + 后处理三路径）" ;;
     src/npu/mosaic_post_gpu.h)    echo "GPU 后处理路径（OpenCL 局部极大；kernel 已内嵌，**不需要**外置 .cl）" ;;
+    src/npu/mosaic_paths.h)        echo "**板卡无关的默认路径解析头**（demo / 探针用：env > 交付包内 > 板卡部署路径；换板不用改代码）" ;;
     src/npu/mosaic_api_test.cpp)  echo "示例 demo 源（只调公开 C ABI）" ;;
     src/npu/mosaic_client_example.cpp) echo "**最简集成示范源**（嵌入方照着抄；含 set_post_mode 钉死 sparse）" ;;
     src/npu/mosaic_async_client_example.cpp) echo "**多线程生产-消费 + 回调模板源**（嵌入式组的工程级集成骨架：相机线程不阻塞 + 严格一推一收 + 回调分发）" ;;
@@ -180,6 +225,7 @@ purpose_of() {
     runtime/kernels/gmc_feature_gpu.cl)    echo "可选：GPU 侧 GMC 特征 kernel（**库不加载**，仅探针 gmc_gpu_probe 用）" ;;
     include/rga/*)                echo "RGA API 头（第三方）" ;;
     include/CL/*)                 echo "Khronos OpenCL 头（第三方）" ;;
+    include/opencv4/*)            echo "**OpenCV $OCV_VER 头**（第三方，BSD 许可，随包发布；板卡上只有 4.6 头，不能拿来配 $OCV_VER 运行库 ⇒ 集成方必须用这份）" ;;
     models/p0_off_A_none.rknn)    echo "**RKNN 模型**（fp16，640x640x3 -> 2x[1,1,320,320]）—— 随包交付，客户可直接用；板上使用前需先 cat 到 /tmp（NFS soft 挂载直读会被读坏）" ;;
     *)                            echo "—" ;;
   esac
@@ -201,6 +247,7 @@ out_note_of() {
     out/rknn_mosaic_e2e)       echo "端到端测试程序（吞吐/延时测量）" ;;
     out/mosaic_cadence_probe)  echo "**板卡验证探针**（本地工具，不属于集成面）：逐帧推/收，量节奏（fps / Δn / 帧间隔）+ 打印时空融合的**有效参数回读**" ;;
     out/mosaic_track_dump)     echo "**板卡验证探针**（本地工具，不属于集成面）：逐帧导出候选流 / 融合结果 TSV，供离线对 GT 打分" ;;
+    out/mosaic_tracked_cb_example) echo "**跟踪结果回调示范可执行文件**（v10.7）：注册 mosaic_pipeline_set_tracked_callback 拿**一目标一框**的跟踪结果，并与原始候选框做同帧对照" ;;
     *)                         echo "构建产物" ;;
   esac
 }
@@ -241,11 +288,15 @@ mkdir -p "$DEST/src/npu" "$DEST/src/cpp" "$DEST/src/opencl/host" \
          "$DEST/models"
 
 copy_one() {
-  local src="$1" rel="$2"
+  local src="$1" rel="$2" quiet="${3:-}"
   [ -f "$src" ] || die "源文件不存在：$src"
   cp -f "$src" "$DEST/$rel"
   add_expected "$rel"
-  printf "  [ok] %-46s <- %s\n" "$rel" "${src#$ROOT/}"
+  # 第三个参数可选：传 quiet 则**不打印**这一行（登记进 EXPECTED 的效果一样）。
+  #   OpenCV 头有 211 个文件，逐行打印会刷屏 ⇒ 用它静默登记。
+  if [ "$quiet" != "quiet" ]; then
+    printf "  [ok] %-46s <- %s\n" "$rel" "${src#$ROOT/}"
+  fi
 }
 
 # 库与 demo 的源
@@ -257,6 +308,7 @@ copy_one "$ROOT/mosaic_track_fusion.cpp"        "src/npu/mosaic_track_fusion.cpp
 copy_one "$ROOT/mosaic_track_fusion.h"          "src/npu/mosaic_track_fusion.h"
 copy_one "$ROOT/mosaic_core.h"                  "src/npu/mosaic_core.h"
 copy_one "$ROOT/mosaic_post_gpu.h"              "src/npu/mosaic_post_gpu.h"
+copy_one "$ROOT/mosaic_paths.h"                 "src/npu/mosaic_paths.h"
 copy_one "$ROOT/mosaic_api_test.cpp"            "src/npu/mosaic_api_test.cpp"
 copy_one "$ROOT/mosaic_client_example.cpp"      "src/npu/mosaic_client_example.cpp"
 copy_one "$ROOT/mosaic_async_client_example.cpp" "src/npu/mosaic_async_client_example.cpp"
@@ -264,6 +316,7 @@ copy_one "$ROOT/mosaic_contract_test.cpp"       "src/npu/mosaic_contract_test.cp
 copy_one "$ROOT/rknn_mosaic_e2e.cpp"            "src/npu/rknn_mosaic_e2e.cpp"
 copy_one "$ROOT/mosaic_cadence_probe.cpp"       "src/npu/mosaic_cadence_probe.cpp"
 copy_one "$ROOT/mosaic_track_dump.cpp"          "src/npu/mosaic_track_dump.cpp"
+copy_one "$ROOT/mosaic_tracked_cb_example.cpp" "src/npu/mosaic_tracked_cb_example.cpp"
 # 【2026-11-23 上游】glibc<2.33 的 `stat` 公开符号垫片（交叉编译可执行文件必需，
 #   见 packaging/build_demo.sh 里的说明；没有它，链接 demo 会报
 #   "hidden symbol `stat' ... is referenced by DSO"）。
@@ -286,10 +339,12 @@ copy_one "$HERE/build_lib.sh"       "build_lib.sh"
 copy_one "$HERE/build_demo.sh"      "build_demo.sh"
 copy_one "$HERE/copy_to_nfs.sh"     "copy_to_nfs.sh"
 copy_one "$HERE/fetch_board_libs.sh" "fetch_board_libs.sh"
+copy_one "$HERE/fetch_opencv_headers.sh" "fetch_opencv_headers.sh"
 copy_one "$HERE/build_board_native.sh" "build_board_native.sh"
 copy_one "$HERE/build_probes.sh"      "build_probes.sh"
 copy_one "$HERE/known_hosts"        "known_hosts"
-chmod +x "$DEST/build_lib.sh" "$DEST/build_demo.sh" "$DEST/copy_to_nfs.sh" "$DEST/fetch_board_libs.sh"
+chmod +x "$DEST/build_lib.sh" "$DEST/build_demo.sh" "$DEST/copy_to_nfs.sh" \
+         "$DEST/fetch_board_libs.sh" "$DEST/fetch_opencv_headers.sh"
 EXPECTED+=("README.md")   # 生成物，但在交付清单里（md5 在生成后才有）
 
 # RKNN 模型（.rknn）—— **随包交付**（models/p0_off_A_none.rknn）。
@@ -322,6 +377,127 @@ for sub in rga CL; do
 done
 
 # ---------------------------------------------------------------------------
+# 3. 【2026-11-25 新板】**OpenCV 4.8 头**随包发布到 include/opencv4/
+#
+#    板卡实测（/tmp/board115_facts.md；Orange Pi 5 / Debian 12）：
+#      运行库 = 4.8   /usr/lib/libopencv_*.so.408（SONAME 后缀 408）
+#      头     = **只有 4.6**  /usr/include/opencv4（CV_VERSION_MINOR 6）
+#    ⇒ 板卡原生构建会「4.6 头配 4.8 运行库」= **ABI 错配**：
+#      OpenCV 次版本会改 C++ ABI（cv::Mat 布局 / 内联函数），头与库不同版本
+#      ⇒ 同一进程里会同时加载两套 OpenCV，cv::Mat 跨版本串味
+#      ⇒ 集成方在这块板上**无法原地构建**。
+#    ⇒ 决定：把 OpenCV 4.8 头（211 个文件，7.2 MB，BSD 许可，可再分发）
+#      **随包发布**到 include/opencv4/。
+#
+#    源目录：OPENCV_HEADERS_SRC 优先；未指定时按下面顺序自动搜索。
+#    版本校验：源的 opencv2/core/version.hpp 里 CV_VERSION_MAJOR/MINOR 必须
+#      **精确等于**目标 ABI（OPENCV_ABI=408 ⇒ 4.8）⇒ 不符一律 die。
+#      （板卡 /usr/include/opencv4 那份 4.6 头**不能**拿来配 4.8 运行库。）
+#    找不到头 ⇒ **die**（不许静默产出一个「在板上编不了」的包）；
+#      实在要跳过：SKIP_OPENCV_HEADERS=1（会打**醒目警告**）。
+# ---------------------------------------------------------------------------
+
+# 读 <dir>/opencv2/core/version.hpp → "4.8"；读不到返回非 0
+ocv_version_of() {
+  local d="$1" hdr="$1/opencv2/core/version.hpp"
+  [ -f "$hdr" ] || return 1
+  local major minor
+  major=$(sed -nE 's/^[[:space:]]*#[[:space:]]*define[[:space:]]+CV_VERSION_MAJOR[[:space:]]+([0-9]+).*/\1/p' "$hdr" | head -1)
+  minor=$(sed -nE 's/^[[:space:]]*#[[:space:]]*define[[:space:]]+CV_VERSION_MINOR[[:space:]]+([0-9]+).*/\1/p' "$hdr" | head -1)
+  [ -n "$major" ] && [ -n "$minor" ] || return 1
+  printf '%s.%s\n' "$major" "$minor"
+}
+
+# 版本不符 ⇒ die（必须点名实际版本与期望版本）
+ocv_die_version() {
+  local actual="$1" src="$2"
+  die "OpenCV 头版本不匹配：$src 是 **OpenCV $actual** 的头，
+       目标 ABI 需要 **OpenCV $OCV_VER**（运行库 SONAME 后缀 libopencv_*.so.$OPENCV_ABI_V）。
+     ⇒ ⚠️ 本板（Orange Pi 5 / Debian 12）上 /usr/include/opencv4 是 **4.6 头**，
+       **不能**拿来配 **4.8 运行库**：OpenCV 次版本会改 C++ ABI
+       （cv::Mat 布局 / 内联函数）⇒ 同一进程会同时加载两套 OpenCV，
+       cv::Mat 跨版本串味。
+     ⇒ 请换一份 OpenCV $OCV_VER 的头：用包内 fetch_opencv_headers.sh 取
+       （--src <本地头目录> 或 --board <板卡>），或手工从 OpenCV $OCV_VER
+       源码的 modules/*/include 拼出 opencv2/ 树。"
+}
+
+if [ "${SKIP_OPENCV_HEADERS:-0}" = "1" ]; then
+  echo "  [!!] SKIP_OPENCV_HEADERS=1 ⇒ **本次不把 OpenCV 头放进包**"
+  echo "  [!!] ╔═════════════════════════════════════════════════════════════╗"
+  echo "  [!!] ║ 警告：这个交付包**无法在目标板上原生构建**！               ║"
+  echo "  [!!] ║ 板上只有 OpenCV 4.6 头（/usr/include/opencv4），             ║"
+  echo "  [!!] ║ 运行库却是 4.8（libopencv_*.so.$OPENCV_ABI_V）⇒ ABI 错配。   ║"
+  echo "  [!!] ║ 集成方必须自己提供 OpenCV $OCV_VER 头（fetch_opencv_headers.sh）。║"
+  echo "  [!!] ╚═════════════════════════════════════════════════════════════╝"
+else
+  # 候选源（OPENCV_HEADERS_SRC 未指定时按顺序找；第 4 项只有 4.8 才会被接受）
+  OCV_CANDIDATES=(
+    "$STAGE/opencv4"
+    "/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/pipeline-artifacts/boardlibs_orangepi115_20261125/opencv/include/opencv4"
+    "${HOME:-}/rk3588_boardlibs/opencv/include/opencv4"
+    "/usr/include/opencv4"
+  )
+  OCV_SRC=""
+  OCV_SEEN=""
+  OCV_REJECTED=""
+  if [ -n "${OPENCV_HEADERS_SRC:-}" ]; then
+    OCV_SRC="${OPENCV_HEADERS_SRC%/}"
+    [ -d "$OCV_SRC" ] || die "OPENCV_HEADERS_SRC 指定的目录不存在：$OCV_SRC"
+  else
+    for cand in "${OCV_CANDIDATES[@]}"; do
+      [ -n "$cand" ] || continue
+      OCV_SEEN="$OCV_SEEN
+       - $cand"
+      [ -d "$cand" ] || continue
+      v="$(ocv_version_of "$cand" || true)"
+      if [ "$v" = "$OCV_VER" ]; then
+        OCV_SRC="$cand"
+        break
+      fi
+      if [ -z "$v" ]; then
+        OCV_REJECTED="$OCV_REJECTED
+       - $cand （缺 opencv2/core/version.hpp，读不出版本）"
+      else
+        OCV_REJECTED="$OCV_REJECTED
+       - $cand （是 OpenCV $v 的头，与目标 $OCV_VER 不符）"
+      fi
+    done
+  fi
+
+  if [ -z "$OCV_SRC" ]; then
+    die "找不到 **OpenCV $OCV_VER** 的头（要随包发布到 include/opencv4/）。
+       搜索过：${OCV_SEEN:-（无）}
+       存在但版本不符的：${OCV_REJECTED:-（无）}
+     ⇒ **怎么拿到 $OCV_VER 的头**：
+       1) 用包内自带辅助脚本（集成方也能用）：
+            bash fetch_opencv_headers.sh --src <本地 OpenCV $OCV_VER 头目录> --dest <落地目录>
+            bash fetch_opencv_headers.sh --board root@<板卡IP> --board-path /usr/include/opencv4 --dest <落地目录>
+       2) 手工：从 OpenCV $OCV_VER 源码的 modules/*/include 拼出 opencv2/ 树。
+       3) 临时跳过（⚠️ 该包将**无法在这块板上原生构建**）：SKIP_OPENCV_HEADERS=1"
+  fi
+
+  # 版本必须精确匹配（显式指定的 OPENCV_HEADERS_SRC 也要过这一关）
+  OCV_VER_ACTUAL="$(ocv_version_of "$OCV_SRC" || true)"
+  [ -n "$OCV_VER_ACTUAL" ] || die "OpenCV 头目录里缺 opencv2/core/version.hpp：$OCV_SRC
+       ⇒ 读不出 CV_VERSION_MAJOR/MINOR 就无法确认版本 ⇒ 拒绝使用
+         （宁可打包失败，也不要配错 ABI）。"
+  if [ "$OCV_VER_ACTUAL" != "$OCV_VER" ]; then
+    ocv_die_version "$OCV_VER_ACTUAL" "$OCV_SRC"
+  fi
+
+  mkdir -p "$DEST/include/opencv4"
+  OCV_N=0
+  while IFS= read -r f; do
+    rel="${f#$OCV_SRC/}"
+    mkdir -p "$DEST/include/opencv4/$(dirname "$rel")"
+    copy_one "$f" "include/opencv4/$rel" quiet
+    OCV_N=$((OCV_N + 1))
+  done < <(find "$OCV_SRC" -type f | sort)
+  echo "  [ok] OpenCV $OCV_VER_ACTUAL 头：$OCV_N 个文件 -> include/opencv4/（源：$OCV_SRC）"
+fi
+
+# ---------------------------------------------------------------------------
 # 4. 【本轮改造】第三方依赖**不再随包携带** —— 包里一个 .so/.a 都不带
 #
 #    旧设计：包内自带 third_party/（交叉编译版 OpenCV 的头 + **静态库** .a、
@@ -350,11 +526,12 @@ echo
 echo "== [4/8] 第三方依赖：不再随包携带 =="
 echo "  [ok] 本包**不携带任何第三方 .so/.a**："
 echo "       OpenCV / RKNN Runtime / RGA / OpenCL 全部动态链接**板卡自带**的库"
+echo "       OpenCV **头**：随包发布在 include/opencv4/（OpenCV $OCV_VER，第三方 BSD 许可）"
 echo "       编译期头 ：$OPENCV_INCLUDE_DIR_V"
 echo "       链接期库 ：$OPENCV_LIB_DIR_V  $RT_LIB_DIR_V  $BOARD_LIBS_V"
 
 # ---------------------------------------------------------------------------
-# 5. 清理陈旧文件（不在本次清单里的旧文件）—— 用 find -delete，不用 rm -rf
+# 5. 清理陈旧文件（不在本次清单里的旧文件）—— 一律 find -delete + rmdir
 #
 #    ⚠️ **目录级清理**：旧设计（第三方依赖随包）留下的 `third_party/` 有 220 个
 #    文件，本包**不再携带任何第三方 .so/.a** ⇒ 整棵目录必须删掉，
@@ -376,10 +553,16 @@ for sub in src include runtime models; do
   done < <(find "$DEST/$sub" -type f | sort)
 done
 
+# include/ 下因「删陈旧文件」而留下的空目录（例如上一次打包留下的 opencv4/）
+#   也要清掉，否则包里会留一个空壳目录。用 find -delete + rmdir。
+find "$DEST/include" -mindepth 1 -type d -empty -delete 2>/dev/null || true
+
 # 旧包残留的 third_party/：整棵删掉（目录级）
 if [ -d "$DEST/third_party" ]; then
   _tp_n=$(find "$DEST/third_party" -type f | wc -l)
-  rm -rf "$DEST/third_party"
+  # 🔴 铁律：删目录 = find -mindepth 1 -delete（清内容）+ rmdir（删空目录）
+  find "$DEST/third_party" -mindepth 1 -delete 2>/dev/null || true
+  rmdir "$DEST/third_party" 2>/dev/null || true
   echo "  [stale] 已删除整个目录 third_party/（旧设计的第三方依赖副本，$_tp_n 个文件）"
   stale=$((stale + 1))
 fi
@@ -405,6 +588,7 @@ if [ -d "$DEST/out" ]; then OUT_COUNT=$(find "$DEST/out" -type f | wc -l); else 
 TOTAL_COUNT=$(( FILE_COUNT + OUT_COUNT ))
 OBJ_MD5=$(md5_or_placeholder "$DEST/out/mosaic_pipeline.o")
 LIB_SO_MD5=$(md5_or_placeholder "$DEST/out/libmosaic_pipeline.so")
+LIB_SO_SIZE=$(size_or_placeholder "$DEST/out/libmosaic_pipeline.so")
 LIB_A_MD5=$(md5_or_placeholder "$DEST/out/libmosaic_pipeline.a")
 API_TEST_MD5=$(md5_or_placeholder "$DEST/out/mosaic_api_test")
 API_TEST_STATIC_MD5=$(md5_or_placeholder "$DEST/out/mosaic_api_test_static")
@@ -416,6 +600,7 @@ STAT_COMPAT_OBJ_MD5=$(md5_or_placeholder "$DEST/out/stat_compat.o")
 E2E_MD5=$(md5_or_placeholder "$DEST/out/rknn_mosaic_e2e")
 CADENCE_PROBE_MD5=$(md5_or_placeholder "$DEST/out/mosaic_cadence_probe")
 TRACK_DUMP_MD5=$(md5_or_placeholder "$DEST/out/mosaic_track_dump")
+TRACKED_CB_EXAMPLE_MD5=$(md5_or_placeholder "$DEST/out/mosaic_tracked_cb_example")
 
 README_TMP="$(mktemp)"
 fill_placeholders "$README_TPL" "$README_TMP"
@@ -431,7 +616,7 @@ TEMPLATE="$HERE/MANIFEST.template.md"
 [ -f "$TEMPLATE" ] || die "缺模板：$TEMPLATE"
 
 TABLE="$(mktemp)"
-trap 'rm -f "$TABLE" "$README_TMP"' EXIT
+trap 'find "$TABLE" "$README_TMP" -maxdepth 0 -type f -delete 2>/dev/null || true' EXIT
 
 {
   echo "**共 ${#EXPECTED[@]} 个交付文件（不含 \`out/\` 的 $OUT_COUNT 个编译产物与本清单自身）。**"
@@ -479,7 +664,7 @@ MANIFEST_TMP="$(mktemp)"
   sed -n '/<!-- MD5_TABLE:END -->/,$p' "$TEMPLATE"
 } > "$MANIFEST_TMP.raw"
 fill_placeholders "$MANIFEST_TMP.raw" "$MANIFEST_TMP"
-rm -f "$MANIFEST_TMP.raw"
+find "$MANIFEST_TMP.raw" -maxdepth 0 -type f -delete 2>/dev/null || true
 check_no_placeholder "$MANIFEST_TMP"
 mv -f "$MANIFEST_TMP" "$DEST/MANIFEST.md"
 # mktemp 建出来的是 600，交付给别人（换用户解压）就读不了 → 统一放开只读权限
@@ -542,7 +727,7 @@ src_n=$(find "$DEST/src" -type f 2>/dev/null | wc -l)
 inc_n=$(find "$DEST/include" -type f 2>/dev/null | wc -l)
 ker_n=$(find "$DEST/runtime" -type f 2>/dev/null | wc -l)
 mdl_n=$(find "$DEST/models" -type f 2>/dev/null | wc -l)
-out_n=$(find "$DEST/out" -type f 2>/dev/null | wc -l)
+if [ -d "$DEST/out" ]; then out_n=$(find "$DEST/out" -type f | wc -l); else out_n=0; fi
 all_n=$(find "$DEST" -type f | wc -l)
 echo
 echo "== 完成 =="

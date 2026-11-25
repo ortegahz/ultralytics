@@ -70,7 +70,7 @@ Group names and their RC1 reference systems (`manu/training/status_mix_ratio_sea
 | `旧调度口径` | **none** | cosine 3 ep ⇒ U is systematically low; list only, never duel |
 | `未知口径` | none | log missing or unparsable |
 
-Three boundary points, keep them separate (`manu/memory/memory.md:184-190`): scheduling caliber from
+Three boundary points, keep them separate (`manu/memory/memory.md:184-190`, §2.5.2–§2.5.3): scheduling caliber from
 `trial_0008`, red-line caliber from `trial_0011`, measurement-epoch switch at `trial_0012`.
 
 ### 2. Confirm the scripts on the server match the local repo

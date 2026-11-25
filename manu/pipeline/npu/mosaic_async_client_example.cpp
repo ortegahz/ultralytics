@@ -62,6 +62,10 @@
 #include <opencv2/imgcodecs.hpp>
 
 #include "mosaic_pipeline.h"
+#include "mosaic_paths.h"
+
+// 默认序列名：帧目录 = 帧根目录(mosaic_paths::FramesRoot) + 序列名。
+static const char* kDefaultSequence = "VIDEO00007_19700101_001324";
 
 // 业务方的回调：帧号（**物理**帧号）、目标、目标数、用户数据。
 // 回调跑在 Worker 线程上 ⇒ **必须短**。
@@ -270,13 +274,15 @@ static void OnDetection(int64_t phys_fid, void* frame_ptr, const MosaicDet* dets
 }
 
 int main(int argc, char** argv) {
-    std::string dir = "/mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324";
+    // 板卡无关：路径默认值走 mosaic_paths（env → 交付包内 → 板卡已知路径），
+    // 命令行参数优先级永远高于这些默认值。
+    std::string dir = mosaic_paths::FramesRoot() + "/" + kDefaultSequence;
     // 模型默认从**板卡 tmpfs** 读（交付目录在 NFS soft 挂载上，6.3 MB 直读会被读坏）。
     // 先 `cat <交付目录>/models/p0_off_A_none.rknn > /tmp/p0_off_A_none.rknn` 再跑。
-    std::string model = "/tmp/p0_off_A_none.rknn";
-    std::string kdir = "/mnt/manu/mosaic_sdk/runtime/kernels";
+    std::string model = mosaic_paths::ModelPath();
+    std::string kdir = mosaic_paths::KernelDir();
     std::string out = "/tmp/mosaic_async_out";
-    std::string seq = "VIDEO00007_19700101_001324";
+    std::string seq = kDefaultSequence;
     std::string mode = "push-all";
     int fps = 25, frames = 0;
     int64_t inflight = 4;               // push-all 的反压上限；app-drop 用 0（不反压）

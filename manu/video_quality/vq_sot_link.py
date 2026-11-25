@@ -18,7 +18,14 @@
         · xcorr 臂：``manu/tracking/lookahead/xcorr.py`` 的配准核（逐帧重切模板 + 亚像素 + 唯一性诊断）
         · patch 臂：``manu/tracking/lookahead/polarity.py`` 的 PolarityTracker
                      （产品快核 LocalPatchTracker + 亮/暗极性自适应）
-      两个**不同家族**的跟踪器，用来证明结论不是某一个跟踪器的伪影。
+        · kcf   臂：``manu/tracking/lookahead/kcf_cv.py`` 的 OpenCV contrib KCF
+                     （``cv2.legacy.TrackerKCF``，HOG+颜色名 + 在线模型更新），
+                     开箱默认参数（含内部响应阈值 detect_thresh=0.5）
+        · kcf_nt 臂：同一个 contrib KCF，但关掉内部响应阈值（detect_thresh=0），
+                     失锁只由**与其它臂完全相同**的 NCC 判据决定
+      三个**不同家族**的跟踪器，用来证明结论不是某一个跟踪器的伪影。
+      ``--arms`` 选家族（默认 ``xcorr,patch``）；**点击点/协议对所有家族完全相同**
+      （同一套网格、同一套角点、同一套 NCC 失锁与闭环判据），所以不同家族之间可直接比。
         ↓
     失锁判据：初始点击模板在**跟踪位置附近**（±8 px 搜索）的最佳 **NCC < 0.65**
     闭环判据：前向终点模板回配到起始帧，**往返误差 ≤ 3 px**（与 vq_grid 同阈值）
@@ -59,6 +66,7 @@ for _p in (str(PROJECT_ROOT), str(HERE)):
         sys.path.insert(0, _p)
 
 from manu.tracking.async_dual_rate.fast_tracker import LocalPatchTracker  # noqa: E402
+from manu.tracking.lookahead.kcf_cv import CvKcfTracker, KcfUnavailable, require_kcf  # noqa: E402
 from manu.tracking.lookahead.polarity import PolarityTracker  # noqa: E402
 from manu.tracking.lookahead.xcorr import match as xcorr_match  # noqa: E402
 from vq_grid import grid_centers, shitiomasi_lambda_min  # noqa: E402
@@ -78,6 +86,14 @@ LOCK_SEARCH_RADIUS = 8       # 锁定判据的 NCC 搜索半径（容忍定位�
 NCC_THRESH = 0.65           # 失锁/闭环的 NCC 阈值（与 vq_grid 一致）
 CLOSURE_THRESH = 3.0        # 闭环往返误差阈值 px（与 vq_grid 一致）
 FLAT_STD_THRESH = 3.0       # 无纹理格判据（与 vq_grid 一致）
+DEFAULT_ARMS = ("xcorr", "patch")   # 跟踪器家族（--arms 可扩到 kcf）
+# KCF 臂的参数覆盖表（None = 用 contrib 默认参数）：
+#   kcf     —— 开箱默认：内部响应阈值 detect_thresh=0.5，响应峰低于它就中止（contrib 自带判据）
+#   kcf_nt  —— 关掉内部响应阈值 => 失锁只由**统一的 NCC 判据**决定，与 xcorr/patch 完全同口径
+KCF_ARM_PARAMS = {
+    "kcf": None,
+    "kcf_nt": {"detect_thresh": 0.0},
+}
 
 RAW_SUFFIXES = {".h264", ".hevc", ".265"}
 
@@ -334,16 +350,69 @@ def _chain_patch(frames, click, horizon, checkpoints, tsize, ncc_thresh):
     return out, snaps
 
 
-def track_click(frames, click, horizons, tsize, radius, ncc_thresh):
-    """Track one clicked point with both tracker families.
+def _chain_kcf(frames, click, horizon, checkpoints, tsize, ncc_thresh, params=None):
+    """One forward chain with the OpenCV contrib KCF tracker (``cv2.legacy.TrackerKCF``).
+
+    判据与 xcorr / patch 臂**完全一致**（同一段代码、同一组阈值）：
+      * 失锁判据：初始模板在跟踪位置附近（±8 px 搜索）的最佳 NCC < ``ncc_thresh``；
+      * 闭环判据：同一套 ``_backward_closure``（往返误差 ≤ 3 px）。
+
+    与另外两臂的**结构性差异**（报告必须写明，不能含糊）：
+      * xcorr 每帧重切模板（无记忆），KCF 用**初始模板 + 在线模型更新**（有外观记忆）；
+      * xcorr 单步搜索 ±12 px，KCF 的搜索窗是模板的 3 倍（OpenCV 默认 padding=1）。
+    因此不同家族的**锁定率绝对值不可直接比**，可比的是「退化曲线拐点对应的画质阈值」。
+    """
+    half = tsize // 2
+    initial, _ = gray_template(frames[0], float(click[0]), float(click[1]), tsize)
+    if initial is None:
+        return {"status": "no_template"}, {}
+    if float(np.std(initial)) < FLAT_STD_THRESH:
+        return {"status": "flat"}, {}
+    try:
+        tracker = CvKcfTracker(template_size=tsize, params=params)
+    except KcfUnavailable as exc:
+        return {"status": "kcf_unavailable", "error": str(exc)}, {}
+    if not tracker.init(frames[0], float(click[0]), float(click[1])):
+        return {"status": "init_failed"}, {}
+    pos = np.asarray([float(click[0]), float(click[1])], dtype=np.float64)
+    survived = 0
+    locks: list[float] = []
+    snaps: dict[int, dict] = {}
+    for step in range(1, horizon + 1):
+        ok, center = tracker.update(frames[step])
+        if not ok or not np.isfinite(center[0]) or not np.isfinite(center[1]):
+            break
+        pos = np.asarray(center, dtype=np.float64)
+        lock = ncc_best(initial, frames[step], float(pos[0]), float(pos[1]), half, LOCK_SEARCH_RADIUS)
+        if not np.isfinite(lock) or lock < ncc_thresh:
+            break
+        survived = step
+        locks.append(float(lock))
+        if step in checkpoints:
+            snaps[step] = {"pos": pos.copy(), "ncc": float(lock)}
+    out = {
+        "status": "ok",
+        "survived": survived,
+        "ncc_last": locks[-1] if locks else float("nan"),
+        "ncc_min": float(min(locks)) if locks else float("nan"),
+        "ncc_median": float(np.median(locks)) if locks else float("nan"),
+        # OpenCV 的 KCF 绑定不暴露响应峰值/唯一性 => 这两个量对 KCF 臂没有定义
+        "peak_median": float("nan"),
+        "uniq_median": float("nan"),
+        "displacement": float(np.linalg.norm(pos - np.asarray(click, dtype=np.float64))),
+    }
+    return out, snaps
+
+
+def track_click(frames, click, horizons, tsize, radius, ncc_thresh, arms=DEFAULT_ARMS):
+    """Track one clicked point with every requested tracker family.
 
     ``horizons`` is the sorted list of checkpoint horizons (e.g. ``[5, 30]``).
+    Returns ``{arm: record}``; every arm sees the *same* frames and the same click,
+    only the tracking kernel differs.
     """
     horizon = max(horizons)
     checkpoints = set(horizons)
-
-    xcorr_rec, xcorr_snaps = _chain_xcorr(frames, click, horizon, checkpoints, tsize, radius, ncc_thresh)
-    patch_rec, patch_snaps = _chain_patch(frames, click, horizon, checkpoints, tsize, ncc_thresh)
 
     def finish(rec, snaps):
         if rec.get("status") != "ok":
@@ -375,7 +444,22 @@ def track_click(frames, click, horizons, tsize, radius, ncc_thresh):
         rec["horizons"] = per_horizon
         return rec
 
-    return finish(xcorr_rec, xcorr_snaps), finish(patch_rec, patch_snaps)
+    out = {}
+    for arm in arms:
+        if arm == "xcorr":
+            rec, snaps = _chain_xcorr(frames, click, horizon, checkpoints, tsize, radius, ncc_thresh)
+        elif arm == "patch":
+            rec, snaps = _chain_patch(frames, click, horizon, checkpoints, tsize, ncc_thresh)
+        elif arm in KCF_ARM_PARAMS:
+            rec, snaps = _chain_kcf(
+                frames, click, horizon, checkpoints, tsize, ncc_thresh, KCF_ARM_PARAMS[arm]
+            )
+        else:
+            raise ValueError(
+                "unknown tracker family %r (known: xcorr, patch, %s)" % (arm, ", ".join(KCF_ARM_PARAMS))
+            )
+        out[arm] = finish(rec, snaps)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -414,11 +498,11 @@ def _arm_summary(records, horizons, closure_thresh):
     return out
 
 
-def run_epoch(frames, clicks, horizons, tsize, radius, ncc_thresh, closure_thresh, threads):
+def run_epoch(frames, clicks, horizons, tsize, radius, ncc_thresh, closure_thresh, threads, arms=DEFAULT_ARMS):
     """Run every click of one epoch (all clicks share the same frame window)."""
 
     def one(click):
-        return track_click(frames, click, horizons, tsize, radius, ncc_thresh)
+        return track_click(frames, click, horizons, tsize, radius, ncc_thresh, arms)
 
     if threads > 1 and len(clicks) > 1:
         with ThreadPoolExecutor(max_workers=min(threads, len(clicks))) as pool:
@@ -427,17 +511,21 @@ def run_epoch(frames, clicks, horizons, tsize, radius, ncc_thresh, closure_thres
         results = [one(click) for click in clicks]
 
     per_click = []
-    for click, (xcorr_rec, patch_rec) in zip(clicks, results):
-        per_click.append({"x": float(click[0]), "y": float(click[1]), "xcorr": xcorr_rec, "patch": patch_rec})
-    flat = sum(1 for rec in per_click if rec["xcorr"].get("status") == "flat")
-    usable = [rec for rec in per_click if rec["xcorr"].get("status") == "ok"]
+    for click, records in zip(clicks, results):
+        entry = {"x": float(click[0]), "y": float(click[1])}
+        for arm in arms:
+            entry[arm] = records[arm]
+        per_click.append(entry)
+    primary = arms[0]
+    flat = sum(1 for rec in per_click if rec[primary].get("status") == "flat")
+    usable = [rec for rec in per_click if rec[primary].get("status") == "ok"]
     summary = {
         "n_clicks": len(per_click),
         "n_flat": flat,
         "n_usable": len(usable),
-        "xcorr": _arm_summary([rec["xcorr"] for rec in per_click], horizons, closure_thresh),
-        "patch": _arm_summary([rec["patch"] for rec in per_click], horizons, closure_thresh),
     }
+    for arm in arms:
+        summary[arm] = _arm_summary([rec[arm] for rec in per_click], horizons, closure_thresh)
     return summary, per_click
 
 
@@ -451,6 +539,7 @@ def analyse_clip(cli, video_path: Path) -> dict:
     horizon = max(horizons)
     ncc_thresh = float(cli.ncc_thresh)
     closure_thresh = float(cli.closure_thresh)
+    arms = list(getattr(cli, "arms", DEFAULT_ARMS))
 
     crop = None
     buffer: list[np.ndarray] = []
@@ -516,7 +605,7 @@ def analyse_clip(cli, video_path: Path) -> dict:
             picks.append(corner if corner is not None else center)
 
         epoch_summary, per_click = run_epoch(
-            buffer, picks, horizons, TEMPLATE_SIZE, SEARCH_RADIUS, ncc_thresh, closure_thresh, cli.threads
+            buffer, picks, horizons, TEMPLATE_SIZE, SEARCH_RADIUS, ncc_thresh, closure_thresh, cli.threads, arms
         )
         epoch_summary["window"] = (cli.start_frame + local_start) // int(round(fps))
         epoch_summary["start_frame"] = int(cli.start_frame + local_start)
@@ -524,23 +613,19 @@ def analyse_clip(cli, video_path: Path) -> dict:
         windows.append(epoch_summary)
         for index, rec in enumerate(per_click):
             texture = texture_measure(gray, rec["x"], rec["y"])
-            clicks_store.append(
-                {
-                    "window": epoch_summary["window"],
-                    "cell": int(picked_index[index]),
-                    "click_mode": mode,
-                    "x": rec["x"],
-                    "y": rec["y"],
-                    "tex_lap_var": texture["lap_var"],
-                    "tex_std": texture["std"],
-                    "tex_lam": texture["lam"],
-                    "xcorr": rec["xcorr"],
-                    "patch": rec["patch"],
-                }
-            )
-
-    all_xcorr = [rec["xcorr"] for rec in clicks_store]
-    all_patch = [rec["patch"] for rec in clicks_store]
+            click_record = {
+                "window": epoch_summary["window"],
+                "cell": int(picked_index[index]),
+                "click_mode": mode,
+                "x": rec["x"],
+                "y": rec["y"],
+                "tex_lap_var": texture["lap_var"],
+                "tex_std": texture["std"],
+                "tex_lam": texture["lam"],
+            }
+            for arm in arms:
+                click_record[arm] = rec[arm]
+            clicks_store.append(click_record)
     summary = {
         "video": video_path.name,
         "sequence": video_path.stem,
@@ -560,10 +645,10 @@ def analyse_clip(cli, video_path: Path) -> dict:
         "template_size": TEMPLATE_SIZE,
         "windows": len(windows),
         "clicks": len(clicks_store),
-        "xcorr": _arm_summary(all_xcorr, horizons, closure_thresh),
-        "patch": _arm_summary(all_patch, horizons, closure_thresh),
-        "elapsed_s": round(time.perf_counter() - started, 1),
     }
+    for arm in arms:
+        summary[arm] = _arm_summary([rec[arm] for rec in clicks_store], horizons, closure_thresh)
+    summary["elapsed_s"] = round(time.perf_counter() - started, 1)
     return {"summary": summary, "windows": windows, "clicks": clicks_store}
 
 
@@ -589,14 +674,43 @@ def parse_args() -> argparse.Namespace:
         choices=["alternating", "center", "corner"],
         help="Where the simulated click lands: cell centre, best corner in the cell, or alternating",
     )
+    parser.add_argument(
+        "--arms",
+        default=",".join(DEFAULT_ARMS),
+        help="Comma separated tracker families (xcorr,patch,kcf); every family sees the same clicks",
+    )
     parser.add_argument("--ncc-thresh", type=float, default=NCC_THRESH)
     parser.add_argument("--closure-thresh", type=float, default=CLOSURE_THRESH)
     parser.add_argument("--limit", type=int, default=0, help="Only process the first N files")
     return parser.parse_args()
 
 
+def parse_arms(text: str) -> list[str]:
+    """Ordered, de-duplicated tracker families."""
+    arms: list[str] = []
+    for part in str(text).split(","):
+        name = part.strip()
+        if name and name not in arms:
+            arms.append(name)
+    return arms
+
+
 def main() -> None:
     cli = parse_args()
+    arms = parse_arms(cli.arms)
+    if not arms:
+        raise SystemExit("--arms needs at least one tracker family")
+    for arm in arms:
+        if arm not in ("xcorr", "patch") and arm not in KCF_ARM_PARAMS:
+            raise SystemExit(
+                "unknown tracker family %r (known: xcorr, patch, %s)" % (arm, ", ".join(KCF_ARM_PARAMS))
+            )
+    if any(arm in KCF_ARM_PARAMS for arm in arms):
+        try:
+            require_kcf()
+        except KcfUnavailable as exc:
+            raise SystemExit("[FATAL] %s" % exc)
+    cli.arms = arms
     out_dir = Path(cli.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     if cli.input:
@@ -615,17 +729,15 @@ def main() -> None:
         target.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
         summary = result["summary"]
         last = "h%d" % summary["horizons"][-1]
+        rates = " ".join("%s_%s=%.4f" % (arm, last, summary[arm][last]["lock_rate"]) for arm in arms)
         print(
-            "[DONE] %s frames=%d windows=%d clicks=%d xcorr_%s=%.4f patch_%s=%.4f (%.1fs)"
+            "[DONE] %s frames=%d windows=%d clicks=%d %s (%.1fs)"
             % (
                 video.name,
                 summary["frames_decoded"],
                 summary["windows"],
                 summary["clicks"],
-                last,
-                summary["xcorr"][last]["lock_rate"],
-                last,
-                summary["patch"][last]["lock_rate"],
+                rates,
                 time.perf_counter() - started,
             ),
             flush=True,

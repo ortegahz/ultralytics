@@ -229,7 +229,9 @@ fuzz-models/
 # NPU 板端构建产物：交叉编译 ELF + 每次跑都会变的检测导出/性能报告
 # （原只在 .git/info/exclude 里，本地有效；这里提到 .gitignore 便于随仓库分发）
 manu/pipeline/npu/out/
-manu/pipeline/npu/.build-include/
+manu/pipeline/npu/.build-include/   # 旧口径暂存区：2026-11-25 已迁到 cache（见 rules.md 铁律二十三）
+#   新位置：workspace/cache/ultralytics/pipeline-artifacts/npu_stage_include/
+#   （可用 MOSAIC_STAGE_DIR 覆盖）
 manu/pipeline/npu/.demo-build-mobilenet/
 
 # 交付权重副本（本机保险副本，与服务器侧 canonical 权重 sha256 一致，但不入库）
@@ -375,11 +377,20 @@ manu/video_quality/report/degrade_lock.csv
 #    父目录同名文件已挡，但带斜杠的模式锚定到目录根、匹配不到子目录 ⇒ 这里补漏 8.4 MB。
 manu/video_quality/report/sot_short/sot_windows.csv
 
-# ⑤ 报告图表反向规则（安全网）：上文有 `*.png`，而报告正文用相对路径引用这些图。
-#    manu/video_quality/.gitignore 里本有 `!report/*.png`，但**该嵌套文件目前未被 git 跟踪**
-#    ⇒ 新克隆会丢掉这条反向规则、导致报告 16 张图全部裂开。故在根 .gitignore 兜一份同样效果
-#    的规则，保证 clone 后依然自洽（不依赖嵌套文件是否入库）。
-!manu/video_quality/report/*.png
+# ⑤ 报告图表：**不再入库**（用户裁决 2026-11-24）
+#    40 张 PNG 全部迁到本机产物区
+#      `cache/ultralytics/repo-artifacts/manu/video_quality/report/`（1:1 镜像仓库相对路径，可原路还原），
+#    可由 `manu/video_quality/vq_*.py` 整批重生成 ⇒ 属「中间产物」，仓库只留报告正文
+#    `REPORT_视频质量指标.md`（其中的图链接已改指 cache 落点）。
+#    ⚠️ 旧口径：曾用 `!manu/video_quality/report/*.png` 反向放行（为让相对路径的图不裂），
+#    结果 40 张图长期堆在工程目录里、污染 PyCharm 文件树 —— 本条已废除该反向规则。
+#    ⚠️ 嵌套 `manu/video_quality/.gitignore` 的规则**优先级更高**，同一份规则在那里也写了一份；
+#    只改本文件压不住（历史上就是这么漏的）。
+manu/video_quality/report/*.png
+# ⑤b KCF 画质线（§308/§309）的派生中间表：可由 vq_*.py 整批重生成，不入库。
+manu/video_quality/report/kcf_*.csv
+manu/video_quality/report/sot_kcf_long/
+manu/video_quality/report/sot_kcf_short/
 
 # --------------------------------------------------------------------------------------
 # 本工程补充（2026-11-23 · 铁律二十五：中间产物出仓库目录，仓库只留「代码 + 长时实验 report」）

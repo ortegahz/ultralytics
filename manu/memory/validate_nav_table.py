@@ -63,7 +63,7 @@ CN_NUM = "零一二三四五六七八九十百"
 # 连带整组导航行判 FAIL（校验器要求同一文件的所有行共用一个行号偏移）。
 # ⇒ 正则现在同时接受阿拉伯数字，norm_label() 把两者归一成同一个整数再比。
 HEAD_NUM_RE = re.compile(
-    r"^#{1,6}\s*(?:§\s*)?([%s0-9]+(?:之[%s0-9]+)?)\s*(?:[、,.：:·]|—|\s|$)" % (CN_NUM, CN_NUM)
+    r"^#{1,6}\s*(?:§\s*)?([%s0-9]+(?:之[%s0-9]+)?)\s*(?:[、,.：:·（）()\[\]【】—–\-|/]|\s|$)" % (CN_NUM, CN_NUM)
 )
 FILE_RE = re.compile(r"`([^`]*archive/[^`]+\.md)`")
 
@@ -142,7 +142,8 @@ def resolve_files(rows):
     """把 '同上' 解析成实际归档文件相对路径。"""
     last = None
     for r in rows:
-        f = r["file"].strip()
+        f = r["file"].strip().strip("`")
+        r["file"] = f
         fm = FILE_RE.search(f)
         if fm:
             r["file"] = fm.group(1)
@@ -200,6 +201,20 @@ def check_nav(rows) -> tuple[bool, list[str]]:
     details = []
     ok_all = True
 
+    # 同一指针的重复行只留一条。
+    # 拆卷后主索引（memory.md §6.2）与卷内导航表可能指向**同一个标题**，
+    # 两行的原始标签写法可能不同（"33" vs "三十三"）⇒ 归一后是同一个指针。
+    # 这不是错误，去重后不影响「每条都必须解析到真标题」这条硬校验。
+    seen = set()
+    deduped = []
+    for r in rows:
+        key = (r["file"], r["line"], norm_label(r["label"]))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(r)
+    rows = deduped
+
     groups: dict[str, list[dict]] = {}
     for r in rows:
         groups.setdefault(r["file"], []).append(r)
@@ -229,7 +244,12 @@ def check_nav(rows) -> tuple[bool, list[str]]:
                 cand_offsets.update({r["line"] - idx for r in grows if hl == norm_label(r["label"])})
 
         chosen = None
-        for off in sorted(cand_offsets):
+        # 候选 offset 的优先级：**0 优先**（= 起始行就是卷内行号，拆卷后的新约定），
+        # 其余沿用旧的数值升序。
+        # 旧顺序（数值升序 = 最负优先）会让候选落在**同名子章节**上：
+        # 例 lookahead 的 §三十（起始行 70 = `### 30.9.17`）被解析到 1266 = `#### 30.9.29.1`。
+        cand_order = ([0] if 0 in cand_offsets else []) + sorted(o for o in cand_offsets if o != 0)
+        for off in cand_order:
             good = True
             prev = None
             for r in sorted(grows, key=lambda x: x["line"]):

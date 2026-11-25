@@ -20,6 +20,7 @@
 #include <opencv2/imgcodecs.hpp>
 
 #include "mosaic_pipeline.h"
+#include "mosaic_paths.h"
 
 // ---------------------------------------------------------------------------
 // 把一帧的检测写成一行 TSV。
@@ -43,12 +44,14 @@ static void WriteTsvLine(FILE* f, const std::string& stem, const MosaicDet* dets
 int main(int argc, char** argv)
 {
     // ---- 命令行参数（默认值就是板卡上的那一套，不带参数也能直接跑）----------
-    std::string raw_root = "/mnt/manu/lq_ir_bmp";
+    // 板卡无关：默认值走 mosaic_paths（env → 交付包内 → 板卡已知路径），
+    // 命令行参数优先级永远高于这些默认值。
+    std::string raw_root = mosaic_paths::FramesRoot();
     std::string sequence = "VIDEO00007_19700101_001324";
     // 模型默认从**板卡 tmpfs** 读：交付目录在 NFS soft 挂载上，6.3 MB 直读会被读坏。
     // 先 `cat <交付目录>/models/p0_off_A_none.rknn > /tmp/p0_off_A_none.rknn` 再跑。
-    std::string model = "/tmp/p0_off_A_none.rknn";
-    std::string kernel_dir = "/root/kernels";
+    std::string model = mosaic_paths::ModelPath();
+    std::string kernel_dir = mosaic_paths::KernelDir();
     std::string dump_tsv; // 空 = 不导出 TSV
     int limit = 60; // 最多跑多少帧
     bool env_gate = true; // 默认体检；--no-env-gate 才跳过

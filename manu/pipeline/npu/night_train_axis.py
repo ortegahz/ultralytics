@@ -118,6 +118,151 @@ L5_BASE = 2107000
 #   · ⚠ **臂号段全新（2108000+）** ⇒ 不动 2107000（L5）也不动 2100000（P）⇒ **零映射风险**；
 #   · ⚠ 本机 18:00 关机 ⇒ **周一之前无法根据 L5 结果临时加轴** ⇒ 必须**现在就预先排好**补网格。
 L5B_BASE = 2108000
+# 🔴🔴🔴 2026-11-23 **PT2_BASE：「nano 富集端出发抛光」轴的臂号段**（全新段，零撞号）
+#   · 依据（台账实测 2026-11-23 12:0x）：**全库 2,297 个已门禁臂里
+#     「六项全过 ∧ 至少一轴严格优」= 0 臂**（57 个六项全过臂**全是纯打平**）⇒ 常规微扫没有出路；
+#   · 已有的 PT1 / L5 / L5B 三条轴**全部从「T1 富 / nano 贫」的供体出发抛光**
+#     （init = 15510@4 / 14963@4 一类，dNano ≈ −11…−36 阶）
+#     ⇒ 抛光只会把 nano 越推越低 ⇒ **结构上补不上 nano 那一轴**；
+#   · ⇒ 唯一剩下的方向：**从「nano 富集端」出发，反向抛光**（规格见 build_pt2_specs）。
+#   ⚠ **臂号段零撞号验证**（扫 `nano_search_ledger.json` 的 arms 键，13,939 个数字臂号）：
+#       · 2110000~2110020 **已被占用**（21 个臂）⇒ 2110000 段**不可用**；
+#       · 连续空闲块 = **2110021~2119999**（9,979 个 id，零占用）；
+#       · ⇒ PT2 段取 **2115000~2115119**（120 臂 = 24 run × 5 epoch），
+#         上下各留 4,880 个空位 ⇒ 不碰 P(2100000+)/LOT(2105000+)/PT1(2106000+)/
+#         L5(2107000+)/L5B(2108000+) ⇒ **零映射风险**；
+#       · `arm_recipe_registry.json`（1,404 条绑定，最大 sid=2102039）在 2115000 段**零命中**。
+PT2_BASE = 2115000
+PT2_EP_PER_RUN = 5      # 每 run 5 个 epoch ⇒ 5 个臂（**逐 epoch 登记**）
+# 🔴🔴🔴 2026-11-23 **PT3_BASE：「T1 富供体 × PX 族配方」局部微扫轴**的臂号段（全新段，零撞号）
+#   · 依据（台账快照实测，数字权威，勿自行推算）：
+#     · 全库 2358 个可读臂里「六项全过 ∧ 至少一轴严格优」= **0 臂** ⇒ 汤轴（权重汤）已被对偶证书证伪；
+#     · 唯一还有希望的是**训练轴**：库里存在「只差一轴」的训练臂（2106006 只差 nano 一轴：dT1 +68.2 阶）；
+#     · **[PX] 族配方是全库唯一「nano 与 T1 同涨」的旋钮**：
+#         1100275（init=98905@5, sw4.2, lr0.3, lr_floor0.3, ep2）⇒ Δnano **+19.5 阶** 且 ΔT1 **+66.3 阶**；
+#         1100287（同 init, lr0.5）⇒ Δnano +18.0 阶 / ΔT1 −10.0 阶；
+#       ⇒ **nano:T1 兑换比 ≈ 1:0.6**（其它配方都是 1:8 ~ 1:200 ⇒ 那是「拿 T1 换 nano」的坏交易）；
+#     · ⇒ **PT3 = 把这个「PX 族配方」施加到「T1 富供体」上** ⇒ 用供体已有的 T1 余量去买 nano。
+#   ⚠ **臂号段零撞号验证**（扫 live 台账 + `.snap_ledger.json` 的 arms 键 + `arm_recipe_registry.json`，只读）：
+#       · 2116000~2119999 **零占用**；自 2116000 起连续空闲 **4000** 个 id（下一占用段 = 2120000）；
+#       · ⇒ PT3 段取 **2116000~2119999**（**上限 4000 臂**）。
+#       · 段位扫描在 `build_pt3_specs` 里**每次现算**（`_pt3_alloc_base`）⇒ 被别人占了就自动后移。
+#   ⚠ **满格需求（2026-11-23 增量）**：配方网格扩成「主网格 72 + 中间带 PT3M 36」= **108 run/供体**
+#       ⇒ 20 供体 × 108 run × 2 臂 = **4320 臂**（2116000~2120319）；
+#       但本段**只有 4000 个连续空闲 id**（2116000~2119999）⇒ **4320 装不下**
+#       ⇒ 满格臂数按**实际段位下调为 4000 臂（2000 run）**，**绝不越界到 2120000+（他人段位）**。
+PT3_BASE = 2116000
+PT3_EP_PER_RUN = 2       # 每 run 2 epoch ⇒ 2 个臂（**逐 epoch 各成一臂**）
+PT3_SEG_MIN_FREE = 4320  # 段位扫描要求：起点起至少连续空闲 4320 个臂号（= 满格需求；装不下则按实际段位下调）
+# 🔴 **他人段位下界**：服务器实测（2026-11-23）`2120000~2120022` 已被他人占用、`2130000+` / `2140000+` 同
+#   ⇒ `2120000+` 属**他人段位** ⇒ PT3 **绝不越界**到那里（哪怕 2120023+ 暂时空闲）。
+PT3_RESERVED_FLOOR = 2120000
+
+# ── PT3 供体表（init 权重）—— **台账实测，数字权威** ──
+#   阶 = (供体读数 − 基线 Baseline_v3.1) / 该轴量子步长；量子见下方 PT3_*_STEP。
+#   列：(trial, epoch, 优先级, dNano阶, dNano4阶, dF1阶, dT1阶, dT3阶, 官方t2fp, 备注)
+#   ⚠ 供体**不在盘 ⇒ 跳过并打日志，但臂号位保留**（不平移 sid↔配方映射 ⇒ 重启后臂号稳定）。
+#
+# 🟢🟢 2026-11-23 **按「总缺口 gap」重排**（主代理实测口径）：
+#   `gap = Σ max(0, −d)  over {nano, nano4, f1, t1, t3}`（t2fp 单独看，不计入 gap）
+#   ⇒ gap 越小 = 离六项全过越近 = **越先跑**（下表已按主代理的「新序」列重排）。
+#   优先级标签按 gap 分档（口径写在 `_pt3_donor_gap` 旁）：
+#     P1 = gap ≤ 100 ｜ P2 = 100 < gap ≤ 200 ｜ P3 = gap > 200。
+#   ⚠ **实测读数一律未改**，只改排列顺序与 prio 标签。
+#   ⚠ **1100148@1 的落位说明**（主代理「新序」列里它写成 12，与 2106022@1 重复 ⇒ 该列缺 17）：
+#     取「新序恰好是 1..20 的一个排列」这一自洽读法 ⇒ **1100148@1 = 第 17 位**
+#     （12543@3 之后、14525@5 之前）。若主代理本意是与 2106022@1 相邻（第 13 位），
+#     只需把下面这一行挪一格即可；**两种读法下前 10 个供体完全一致**
+#     ⇒ 本轮可执行段（2000 run / 4000 臂）**完全不受影响**。
+PT3_DONORS = [
+    # (trial, epoch, 优先级, dNano阶, dNano4阶, dF1阶, dT1阶, dT3阶, 官方t2fp, 备注)
+    (2106006, 2, "P1", -24.5, +17.0, +62.3, +68.2, +24.5, 4, "★只差 nano 一轴（T1 +68.2/nano4 +17/T3 +24.5）"),
+    (14963, 4, "P1", -11.0, +4.0, +193.2, +86.8, -2.2, 4, "★nano 缺口最小(−11 阶)+T1 +86.8 阶 ⇒ A2 吸引子"),
+    (15510, 4, "P1", -36.0, -8.0, +24.6, +159.8, +49.8, 3, "★T1 最强(+159.8 阶)且 T3 +49.8 阶 ⇒ 典型 T1 富供体"),
+    (2106018, 2, "P1", -28.0, -18.0, +245.8, -3.0, +13.2, 1, "F1 最强 +245.8 阶、t2fp 最低 1；T1 贴线 −3 阶"),
+    (1100275, 1, "P1", -7.0, -16.0, +7.8, -36.4, -7.0, 3, "PX 族本体(init=98905@5, sw4.2, lr0.3, lrf0.3)"),
+    (14299, 3, "P1", -24.0, -9.0, +165.3, +37.8, -46.3, 3, "T3 −46.3 阶最差 ⇒ 只作参照"),
+    (14760, 3, "P2", -14.0, -39.0, +133.4, +12.7, -49.5, 2, "F1 +133.4 阶；T3 −49.5 阶最差之一"),
+    (12703, 5, "P2", -33.5, -58.0, +229.1, +160.2, -13.5, 4, "T1 +160.2 阶；nano4 −58 / T3 −13.5 阶"),
+    (14971, 4, "P2", -33.0, -53.0, +163.1, +16.5, -19.6, 4, "F1 +163.1 阶；T1 +16.5 阶"),
+    (1100287, 1, "P2", -8.5, -13.0, -15.7, -112.6, -8.4, 3, "PX 族 lr0.5 变体 ⇒ T1 −112.6 阶（兑换比掉档）"),
+    (12702, 5, "P2", -33.0, -76.0, +218.0, +79.2, -8.1, 2, "F1 +218 阶 / T1 +79.2 阶；nano4 −76 阶"),
+    (2106022, 1, "P3", -0.5, -7.0, +226.8, -200.8, +12.8, 2, "F1 最强(+226.8 阶)但 T1 深亏 −200.8 阶"),
+    (14201, 5, "P2", -36.5, -91.0, +33.4, +44.7, +24.3, 4, "T3 +24.3 阶 / T1 +44.7 阶；nano4 −91 阶"),
+    (12526, 4, "P2", -22.5, -78.0, +77.4, +45.6, -37.6, 5, "F1 +77.4 / T1 +45.6；nano4 −78 / T3 −37.6 阶"),
+    (9915, 5, "P2", -41.5, -116.0, +148.0, +86.2, -16.5, 2, "T1 +86.2 阶 / t2fp 2；nano4 −116 阶"),
+    (12543, 3, "P1", -26.5, -59.0, +123.1, +171.7, -8.7, 10, "T1 +171.7 阶但 t2fp=10 超红线(>5) ⇒ 只作参照"),
+    (1100148, 1, "P2", -6.5, +43.0, -18.4, -98.4, +0.9, 5, "nano4 +43 阶最强；但 F1 −18.4 / T1 −98.4 阶"),
+    (14525, 5, "P3", -38.5, -138.0, +19.1, +19.1, -31.9, 5, "nano4 −138 阶最差 ⇒ 只作参照"),
+    (2106023, 1, "P3", +0.5, +33.0, +123.4, -996.5, +16.2, 5, "nano4 富余 +33 阶但 T1 亏 −996.5 阶"),
+    (2106029, 1, "P3", +9.0, +65.0, -151.7, -1807.7, +0.9, 3, "nano/nano4 富集但 T1 亏 −1807.7 阶、F1 −151.7 阶"),
+]
+PT3_DONOR_BY_KEY = {(d[0], d[1]): d for d in PT3_DONORS}
+
+# ── PT3 配方网格（**任务书给定口径，逐字执行**）──
+#   sw ∈ {4.0,4.1,4.2,4.3} × cp_prob ∈ {0.0,0.05,0.10} × lr ∈ {0.05,0.10,0.20} × lr_floor ∈ {0.2,0.3}
+#   ⇒ 每供体 4×3×3×2 = **72 个 run**；每 run 2 epoch ⇒ **2 臂/run**。
+#   展开顺序 = **字典序**（sw 升序 → cp 升序 → lr 升序 → lrf 升序）⇒ 列表顺序 = 执行顺序。
+PT3_SW_GRID = (4.0, 4.1, 4.2, 4.3)
+PT3_CP_GRID = (0.0, 0.05, 0.10)
+PT3_LR_GRID = (0.05, 0.10, 0.20)
+PT3_LRF_GRID = (0.2, 0.3)
+PT3_RECIPES = [(sw, cp, lr, lrf)
+               for sw in PT3_SW_GRID for cp in PT3_CP_GRID
+               for lr in PT3_LR_GRID for lrf in PT3_LRF_GRID]
+
+# 🟢🟢 2026-11-23 **PT3M「中间带」配方族**（36 条/供体）
+#   依据（主代理实测的配方响应面）：全库里 nano/T1 的兑换完全由 **swl（小目标梯度占比）
+#   + thr（小目标判定阈值）** 决定：
+#     · `sw4.0 / swl1.0 / thr12`（A2 族）⇒ **T1 富 / nano 贫**（14963：dT1 +86.8 / dNano −11.0）；
+#     · `sw5.0 / swl0.1~0.3 / thr16~18`（R2/R4/R5 族）⇒ **nano 富 / T1 死**（12126：dNano +23.0 / dT1 −1738）；
+#     · **中间带（swl 0.5~0.7、thr 13~14）全库零样本** ⇒ 若存在甜点，只可能在那里。
+#   ⇒ 本族在**每个供体**上都跑一遍（与主网格同底子：2 epoch / sched2 / warmup0.3 / l2=0.001 /
+#     mix w2.0 / fb2.75 / ow0.4 / mosaic0.15 / scale0.1 / swb1.0 / maxside3.0 / cp0.05 / lrf0.3）。
+#   排列：sw↑ → swl↑ → thr↑ → lr↑（与主网格同样的字典序口径 ⇒ 臂号稳定可复现）。
+PT3M_SW_GRID = (4.0, 4.2, 4.5)
+PT3M_SWL_GRID = (0.5, 0.7)
+PT3M_THR_GRID = (12.0, 13.0, 14.0)
+PT3M_LR_GRID = (0.1, 0.3)
+PT3M_LRF = 0.3
+PT3M_CP = 0.05
+PT3M_RECIPES = [(sw, swl, thr, lr)
+                for sw in PT3M_SW_GRID for swl in PT3M_SWL_GRID
+                for thr in PT3M_THR_GRID for lr in PT3M_LR_GRID]
+# 每个供体的配方序列 = **72 条主网格 + 36 条中间带** = 108 run ⇒ 216 臂/供体
+PT3_RUNS_PER_DONOR = len(PT3_RECIPES) + len(PT3M_RECIPES)      # = 108
+PT3_ARMS_PER_DONOR = PT3_RUNS_PER_DONOR * PT3_EP_PER_RUN      # = 216
+
+# ── 量化步长（1 量子；台账实测）与基线读数（Baseline_v3.1 = trial 1990055@5）──
+PT3_NANO_STEP = 2.3629e-4   # nano 台阶（🔴 2026-11-23 修正：原 4.73e-4 大了 2 倍。
+                              #   台账实测：7339 个 nano 读数与基线的差值**全部**是 2.3629489603e-4 的整数倍
+                              #   ⇒ 原值会让「近过线」判据松 2 倍 ⇒ 白跑门禁、且门禁内存尖峰翻倍）
+PT3_NANO4_STEP = 2.363e-4    # nano4 台阶
+PT3_F1_STEP = 1.8536e-5      # f1 台阶
+PT3_T1_STEP = 4.5518e-6      # T1 台阶
+PT3_T3_STEP = 5.206e-5       # T3 台阶
+PT3_BASE_NANO = 0.7242438563327032
+PT3_BASE_NANO4 = 0.6609168241965974
+PT3_BASE_F1 = 0.8906832039622916
+PT3_BASE_T1 = 0.8909238824339264
+PT3_BASE_T2FP = 3
+PT3_BASE_T3 = 0.9488855869242199
+
+# ── 门禁短路阈值（**PT3 专用**，与 PT2 的「200 阶 T1 近线」不同，勿照抄）──
+PT3_NEAR_QUANTA = 1.0        # (A) 四轴近过线：nano/nano4/f1/t3 各容差 1 量子
+PT3_T1_NEAR_QUANTA = 5.0     # (B) T1 近线：容差 5 量子
+PT3_TOL = 1e-12              # 所有基线比较的数值容差（语义一律 `>=`）
+# 「读不到某 epoch 的 T1/T3」时的**保守兜底**（绝对值；2-epoch 轻抛 + L2 锚定 ⇒ 假定小幅回吐）
+PT3_T1_FALLBACK_DROP = 2.3e-4   # ≈ 50 个 T1 量子
+PT3_T3_FALLBACK_DROP = 5.2e-4   # ≈ 10 个 T3 量子
+
+# ── PX 族先验（单点实测；**全库唯一「nano 与 T1 同涨」的旋钮**）──
+PT3_PX_TRIAL = 1100275
+PT3_PX_LR = 0.3
+PT3_PX_SW = 4.2
+PT3_PX_NANO_STEPS = 19.5   # Δnano（相对其 init 98905@5）
+PT3_PX_T1_STEPS = 66.3     # ΔT1（同一单点）
+PT3_PX_RATIO = 0.6         # nano:T1 兑换比 ≈ 1:0.6（其它配方 1:8 ~ 1:200）
 LOTTERY_REGISTRY = f"{WORK}/lottery_arm_registry.json"      # 阶段4「中签扫描」臂号段（哈希定位 ⇒ 重启后臂号稳定）      # 阶段3「追加种子扫描」臂号段
 RECIPE_REGISTRY = f"{WORK}/arm_recipe_registry.json"   # 臂号 → 配方描述（防「同号换配方」）
 
@@ -823,6 +968,1021 @@ def build_l5b_specs(args, ns_mod) -> list[dict]:
     return out
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# 🟢🟢🟢 2026-11-23 **PT2 规格：「nano 富集端」出发做 A2 族抛光**（台账实测，数字权威）
+# ─────────────────────────────────────────────────────────────────────────
+# init 集 = 台账里 6 个**「nano 富集」臂**（用它们**自己的 epoch 权重**热启动）：
+#   臂            dNano阶  dNano4阶  dF1阶    dT1阶    dT3阶   t2fp  说明
+#   12126@4       +23.0   +94.0    −165.7   −1738   −309    0    ★首选（R2 种子扫描 5/6 冠军）
+#   12130@3       +12.5   −82.0    −595.0   −3210   −458    0    R2 突变 swl0.2
+#   12131@4       +70.9   +78.0    −699.6   −5776   −1104   0    R2 突变 swl0.1
+#   12183@5       +65.4   +76.0    −707.3   −5751   −1101   0    合成臂 swa_late
+#   12287@3       +67.9   +98.0    −340.2   −6773   −1833   0    R5 突变 uf1
+#   12249@3       +56.0   +154.0   −475.0   −4981   −1297   0    R4 突变 mixw2.2
+#   （阶 = 基线相对；nano 阶用**实测台阶 4.73e-4**，nano4 2.363e-4，f1 1.8536e-5，
+#     T1 4.5518e-6，T3 5.206e-5）
+# A2 吸引子（终点）：14963@4 = dNano −11.0 / dNano4 +4.0 / dF1 +193.2 / **dT1 +86.8** /
+#   dT3 −2.2 / t2fp 4  ⇒ **全台账 dT1>0 的训练臂里 nano 最高的一个**
+PT2_INITS = [(12126, 4), (12130, 3), (12131, 4), (12183, 5), (12287, 3), (12249, 3)]
+# 配方网格：lr × cp_prob × swl（A2 底子：sw4.0 / thr12ms3 / maxside3.0 / mix w2.0 /
+#   fb2.75 / ow0.4 / mosaic0.15 / scale0.1 / sched5 / warmup1.5 / l2=0.001）
+#   ⚠ 完整网格 12 格 × 6 init = 72 run = 360 臂 ≫ 120 臂预算 ⇒ 每个 init 取 **4 个角**，
+#     但**覆盖全部 6 个网格值**（lr{3.5,1.5} / cp{0.00,0.05,0.15} / swl{1.0,0.5}）：
+#     ① (3.5, 0.05, 0.5) ★最高先验：全速爬 T1 + 温和 cp 补 nano + 弱大目标权重保 nano
+#     ② (3.5, 0.00, 1.0) 纯 A2 对照（量轨迹本身：nano 掉多快、T1 爬多快）
+#     ③ (1.5, 0.05, 0.5) 半速 + 温和 cp（若 ① 的 nano 掉太快，这是第二次机会）
+#     ④ (3.5, 0.15, 0.5) 全速 + 强 cp（nano 硬补；代价是 f1）
+PT2_RECIPES = [(3.5, 0.05, 0.5), (3.5, 0.00, 1.0), (1.5, 0.05, 0.5), (3.5, 0.15, 0.5)]
+PT2_T1_STEP = 4.5518e-6      # T1 量化台阶（实测）
+PT2_NANO_STEP = 4.73e-4      # nano 实测台阶（基线相对）
+PT2_NANO4_STEP = 2.363e-4    # nano4 台阶
+PT2_F1_STEP = 1.8536e-5      # f1 台阶
+PT2_T1_NEAR_STEPS = 200      # 「T1 只差 ≤ 200 阶」⇒ 值得花门禁机时（短路阈值）
+PT2_ATTRACTOR = (14963, 4)   # A2 吸引子锚（dT1 +86.8 阶 / dNano −11.0 阶 / t2fp 4）
+# 各 init 的**实测 dT1 缺口**（阶；台账 official.t1 实测）⇒ **台账读不到时的保守兜底**
+#   （否则预测起点会退化成「已在 T1 线上」⇒ 5 个 epoch 全部门禁 ⇒ 机时翻 5 倍）
+PT2_INIT_T1_STEPS = {12126: -1738.0, 12130: -3210.0, 12131: -5776.0,
+                      12183: -5751.0, 12287: -6773.0, 12249: -4981.0}
+
+
+def _pt2_t1_of(ns_mod, trial: int):
+    """台账里某臂的**官方 T1**（读不到 ⇒ None）。"""
+    try:
+        led = ns_mod.load_ledger()
+    except Exception:  # noqa: BLE001
+        return None
+    st = (led.get("arms") or {}).get(str(trial)) or {}
+    t1 = (st.get("official") or {}).get("t1")
+    return float(t1) if t1 is not None else None
+
+
+def _link_ep_ckpt(run_trial: int, arm_id: int, epoch: int) -> None:
+    """把 run 的真实 epoch 权重**软链**到 epoch 臂自己的 trial 目录。
+
+    🔴 为什么必须做：升轨/板卡工具按 `trials/trial_<臂号>/weights/epoch<ep>.pt` 解析 ckpt
+      （`promote_candidate.py:502` / `auto_promote_watch.py:177`）
+      ⇒ 「逐 epoch 登记」的臂（臂号 ≠ 训练 trial 号）必须有**自己的可解析路径**，
+      否则升轨预检会判「ckpt 不存在」⇒ 逐 epoch 捞到的穿越点白白浪费。
+
+    🟢🟢 2026-11-23：**泛化**为 PT2 / PT3 共用（两条轴都是「逐 epoch 各成一臂」⇒ 同一套软链逻辑）。
+    """
+    if int(arm_id) == int(run_trial):
+        return                                    # ep1 的臂号 = 训练 trial 号 ⇒ 真实权重已在盘
+    src = f"{ROOT}/trials/trial_{run_trial}/weights/epoch{epoch}.pt"
+    dst_dir = f"{ROOT}/trials/trial_{arm_id}/weights"
+    dst = f"{dst_dir}/epoch{epoch}.pt"
+    if os.path.islink(dst) or os.path.isfile(dst):
+        return
+    if not os.path.isfile(src):
+        return
+    try:
+        os.makedirs(dst_dir, exist_ok=True)
+        os.symlink(os.path.relpath(src, dst_dir), dst)
+    except OSError:
+        pass
+
+
+# 🔴 兼容别名：旧调用点（PT2）保留；PT3 走同一实现 ⇒ 行为逐字不变
+_pt2_link_ckpt = _link_ep_ckpt
+
+
+def _pt2_handle(spec, traj, gpu, ns_mod) -> list[dict]:
+    """PT2 run：**逐 epoch 登记为臂** + **逐 epoch 官方门禁**（带短路）。
+
+    🔴 **短路规则**（门禁 ~30~90 s/臂 ⇒ 必须先筛后门禁）：
+      只有满足下面任一条的 epoch 才跑官方门禁：
+        ① **三轴全过**：nano ≥ 基线 且 nano4 ≥ 基线 且 f1 ≥ 基线（门禁口径 = `>=`，不是 `>`）；
+        ② **T1 近线**：该 epoch 的 T1 缺口 ≤ 200 阶（4.5518e-6/阶）。
+           · 门禁**前**没有 T1 ⇒ 用**轨迹预测**：
+               T1(k) ≈ T1(init) + (T1(吸引子) − T1(init))·(k−1)/(n_epoch−1)
+             （T1(init) = 台账里 init 臂的 official.t1；T1(吸引子) = 14963@4 的 official.t1）
+           · 某个 epoch 真的门禁过之后 ⇒ 改用**实测 T1** 外推后续 epoch
+             （A2 轨迹的 T1 单调上升 ⇒ 越走越近线 ⇒ 后续 epoch 更值得门禁）；
+        ③ **兜底**：若整条轨迹一个 epoch 都不满足 ①/② ⇒ 门禁「三轴余量最大」的那个 epoch
+           （否则整条轨迹失读 ⇒ 拿不到任何 T1/T3 读数 ⇒ 轴白跑）。
+    """
+    run_trial = int(spec["trial"])
+    arm_ids = [int(x) for x in (spec.get("pt2_ep_arms") or [])]
+    epochs = [int(e) for e in (spec.get("epochs") or [])]
+    p = spec["params"]
+    if not arm_ids:
+        return []
+    b_nano, b_nano4, b_f1 = ns_mod.base_pick_thresholds()
+    base_t1 = float(ns_mod.BASE_V2["t1"])
+    n_ep = max(len(epochs), 1)
+
+    t1_init = _pt2_t1_of(ns_mod, int(spec.get("pt2_init_trial") or 0))
+    t1_attr = _pt2_t1_of(ns_mod, PT2_ATTRACTOR[0])
+    if t1_init is None:
+        # 🔴 台账读不到（并发写导致 JSON 撕裂）⇒ 用**实测的 init 缺口**兜底（保守）
+        t1_init = base_t1 + PT2_INIT_T1_STEPS.get(
+            int(spec.get("pt2_init_trial") or 0), -3000.0) * PT2_T1_STEP
+    if t1_attr is None:
+        t1_attr = base_t1 + 86.8 * PT2_T1_STEP
+
+    def _pred_t1(idx: int, measured: float | None = None) -> float:
+        """第 idx 个 epoch（1..n_ep）的 T1 预测（绝对值）。"""
+        if measured is not None:
+            rest = n_ep - idx
+            if rest <= 0:
+                return measured
+            return measured + (t1_attr - measured) / rest
+        if n_ep <= 1:
+            return t1_init
+        return t1_init + (t1_attr - t1_init) * (idx - 1) / (n_ep - 1)
+
+    # ── ① 逐 epoch 登记（先全部登记 ⇒ 轨迹读数不丢）──
+    led = ns_mod.load_ledger()
+    for i, ep in enumerate(epochs, start=1):
+        m = traj.get(str(ep))
+        if not m or m.get("error"):
+            continue
+        arm_id = arm_ids[i - 1] if i - 1 < len(arm_ids) else arm_ids[-1]
+        _link_ep_ckpt(run_trial, arm_id, ep)
+        st = ns_mod.arm_state(led, arm_id)
+        st["trial"] = arm_id
+        st["params"] = p
+        st["seed"] = spec.get("seed")
+        st["desc"] = f"{spec.get('desc')} ep{ep}"
+        st["channel"] = "PT2"
+        st["trained"] = True
+        st["polish"] = 1
+        st["source_anchor"] = spec.get("source_anchor")
+        st["pt2_run_trial"] = run_trial
+        st["pt2_epoch"] = ep
+        st["pt2_init"] = p.get("init")
+        st["pt2_recipe"] = spec.get("pt2_recipe")
+        st["pt2_traj"] = {str(k): dict(v) for k, v in traj.items() if isinstance(v, dict)}
+        st["nanobench"] = {str(ep): dict(m)}
+        picked = dict(m)
+        picked.update({"epoch": ep, "epoch_key": str(ep), "ckpt": f"epoch{ep}.pt"})
+        st["picked"] = picked
+        st["picked_epoch"] = ep
+        st["select_rule"] = "pt2_per_epoch"
+        st["beat_to_pass_ref"] = "Baseline_v3.1(trial_1990055)"
+    ns_mod.save_ledger(led)
+
+    # ── ② 短路判定（三轴全过 / T1 近线 / 兜底）──
+    cand = []
+    for i, ep in enumerate(epochs, start=1):
+        m = traj.get(str(ep))
+        if not m or m.get("error"):
+            continue
+        three_ok = (m.get("nano", 0) >= b_nano and m.get("nano4", 0) >= b_nano4
+                    and m.get("f1", 0) >= b_f1)
+        gap = (base_t1 - _pred_t1(i)) / PT2_T1_STEP
+        cand.append({"i": i, "ep": ep, "m": m, "three_ok": three_ok, "gap": gap})
+    if not cand:
+        return []
+    force_set = set()
+    if not any(c["three_ok"] or c["gap"] <= PT2_T1_NEAR_STEPS for c in cand):
+        def _marg(c):
+            return min((c["m"].get("nano", 0) - b_nano) / PT2_NANO_STEP,
+                       (c["m"].get("nano4", 0) - b_nano4) / PT2_NANO4_STEP,
+                       (c["m"].get("f1", 0) - b_f1) / PT2_F1_STEP)
+        pick = max(cand, key=_marg)
+        force_set = {pick["ep"]}
+        log(f"[PT2 {run_trial}] 三轴全过/T1 近线都没有 ⇒ 兜底门禁 ep{pick['ep']}（三轴余量最大）")
+
+    # ── ③ 逐 epoch 门禁（实测 T1 会反过来修正后续 epoch 的预测）──
+    recs: list[dict] = []
+    measured_t1 = None
+    for c in cand:
+        i, ep = c["i"], c["ep"]
+        gap = c["gap"]
+        if measured_t1 is not None:
+            gap = (base_t1 - _pred_t1(i, measured=measured_t1)) / PT2_T1_STEP
+        if not (c["three_ok"] or gap <= PT2_T1_NEAR_STEPS or ep in force_set):
+            continue
+        arm_id = arm_ids[i - 1] if i - 1 < len(arm_ids) else arm_ids[-1]
+        _why = ("★ 三轴全过" if c["three_ok"]
+                else (f"T1 近线（≤{PT2_T1_NEAR_STEPS} 阶）" if gap <= PT2_T1_NEAR_STEPS
+                      else "兜底（三轴余量最大）"))
+        log(f"[PT2 {run_trial}] ep{ep} ⇒ 官方门禁（{_why}；T1 缺口≈{gap:+.0f} 阶）")
+        try:
+            off = ns_mod.run_official_gate(run_trial, ep, gpu)
+        except Exception as exc:  # noqa: BLE001
+            off = {"error": str(exc)}
+        led = ns_mod.load_ledger()
+        st = ns_mod.arm_state(led, arm_id)
+        st["official"] = off
+        m = c["m"]
+        st["six_ok"] = bool(
+            off.get("t1") is not None and off.get("t3") is not None
+            and m.get("nano", 0) >= b_nano
+            and m.get("nano4", 0) >= b_nano4
+            and m.get("f1", 0) >= b_f1
+            and off.get("t1", 0) >= base_t1
+            and off.get("t2_fp", 99) <= max(int(ns_mod.BASE_V2.get("t2_fp") or 0), 5)
+            and off.get("t3", 0) >= float(ns_mod.BASE_V2["t3"]))
+        ns_mod.save_ledger(led)
+        if off.get("t1") is not None:
+            measured_t1 = float(off["t1"])
+        log(f"[PT2 {run_trial}] ep{ep} 门禁 = {json.dumps(off, ensure_ascii=False)[:300]}")
+        recs.append({"trial": arm_id, "gpu": gpu, "channel": "PT2",
+                     "run_trial": run_trial, "ep": ep,
+                     "desc": st.get("desc"), "triad": c["three_ok"],
+                     "nano": m.get("nano"), "nano4": m.get("nano4"), "f1": m.get("f1"),
+                     "t1": off.get("t1"), "t2_fp": off.get("t2_fp"), "t3": off.get("t3"),
+                     "six_ok": st.get("six_ok"), "official": off})
+    log(f"[PT2 {run_trial}] 门禁完成：{len(recs)}/{len(cand)} 个 epoch 过了短路")
+    return recs
+
+
+def build_pt2_specs(args, ns_mod) -> list[dict]:
+    """阶段1-E：**「nano 富集端出发」的 A2 抛光轴（PT2）** —— 2026-11-23 新增（全库唯一突破口）。
+
+    🔴 **为什么必须有这条轴**（台账实测，不是推理）：
+      · 全库 2,297 个已门禁臂里「六项全过 ∧ 至少一轴严格优」= **0 臂**
+        （57 个六项全过臂**全是纯打平**）⇒ 常规微扫已经榨干；
+      · 已有的 PT1 / L5 / L5B 三条轴**全部从「T1 富 / nano 贫」的供体出发抛光**
+        （init = 15510@4 / 14963@4 一类，dNano ≈ −11…−36 阶）
+        ⇒ 抛光只会把 nano 越推越低 ⇒ **结构上补不上 nano 那一轴**
+        （实测：2106006 dNano −11 阶 / 14963 dNano −11 阶 —— 都只差 nano 一轴）；
+      · 台账里另有一小撮 **「nano 富集」臂**（本轴 init 集）：dNano +23…+71 阶、t2_fp = 0，
+        代价是 dT1 −1738…−6773 阶、dT3 −309…−1833 阶；
+      · ⇒ **把方向反过来**：从 nano 富集端出发做 **A2 族抛光**
+        （sw4.0 / thr12ms3 / maxside3.0 / mix w2.0 / fb2.75 / ow0.4 / mosaic0.15 /
+          scale0.1 / sched5 / warmup1.5 / l2=0.001），
+        让轨迹**从 nano 富集端一路走到 A2 吸引子**（14963@4：dT1 +86.8 阶 / dNano −11 阶 /
+        dF1 +193 阶 / t2fp 4）⇒ **中途必然经过 (nano ≥ 0, T1 > 0) 的窗口**；
+      · ⚠ **必须逐 epoch 采样 + 逐 epoch 门禁**（现在只 gate `best` epoch ⇒ 会整段错过穿越点）。
+
+    ⚠ **臂号段独立（PT2_BASE = 2115000）**：2110000~2110020 已被占用 ⇒ 2115000 段零占用。
+    ⚠ **每 run = 5 个 epoch = 5 个臂**（臂号连续）⇒ 120 臂预算 = 24 run。
+    """
+    out: list[dict] = []
+    idx = 0
+    _k = 0                                   # 只在真正产臂时推进（seed 口径与历史一致）
+    for at, ae in PT2_INITS:
+        init = f"{ROOT}/trials/trial_{at}/weights/epoch{ae}.pt"
+        _have = os.path.isfile(init)
+        if not _have:
+            log(f"[PT2] nano 富集锚点 {at}@{ae} 权重不在盘 ⇒ 跳过"
+                f"（臂号位仍保留 ⇒ **不平移 sid↔配方映射**）")
+        for (lr, cp, swl) in PT2_RECIPES:
+            sid = PT2_BASE + idx * PT2_EP_PER_RUN
+            arm_ids = [sid + i for i in range(PT2_EP_PER_RUN)]
+            idx += 1
+            if not _have:
+                continue
+            p = base_params(init, 5, 5, 1.5)
+            p.update(lr=lr, lr_floor=0.1, sw=4.0, swb=1.0, swl=swl, thr=12.0,
+                     maxside=3.0, anchor_l2=0.001, anchor_ckpt=init,
+                     cp_prob=cp, cp_max_px=12.0, cp_per_img=2, cp_feather_px=2.0)
+            out.append({"trial": sid, "seed": 870000 + _k * 17, "params": p,
+                        "epochs": [1, 2, 3, 4, 5], "channel": "PT2", "prio": 0,
+                        # 🔴 `source_anchor` 是升轨「抛光家族种子关」的必需字段
+                        "source_anchor": f"{at}@{ae}",
+                        "pt2_ep_arms": arm_ids,
+                        "pt2_init_trial": at, "pt2_init_epoch": ae,
+                        "pt2_recipe": f"lr{lr}_cp{cp}_swl{swl}",
+                        "desc": f"[PT2] nano{at}@{ae} lr{lr} cp{cp} swl{swl} "
+                                f"sw4.0 swb1.0 thr12ms3 l2.001"})
+            _k += 1
+    budget = max(int(getattr(args, "pt2_arms", 120)), 0)
+    if budget and len(out) * PT2_EP_PER_RUN > budget:
+        out = out[:budget // PT2_EP_PER_RUN]
+    if out:
+        log(f"[阶段1-E] nano 富集抛光轴 {len(out)} run = {len(out) * PT2_EP_PER_RUN} 臂"
+            f"（init {[a[0] for a in PT2_INITS]}，臂号 {PT2_BASE}~"
+            f"{PT2_BASE + len(out) * PT2_EP_PER_RUN - 1}）")
+    return out
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# 🟢🟢🟢 2026-11-23 **PT3 规格：「T1 富供体 × PX 族配方」局部微扫轴**
+# ─────────────────────────────────────────────────────────────────────────
+# 🔴 为什么是这一枪（台账实测，数字权威）：
+#   · 汤轴（权重汤）已被对偶证书证伪：全库 2358 个可读臂里「六项全过 ∧ 至少一轴严格优」= **0 臂**；
+#   · 训练轴里已有「**只差一轴**」的近失臂（2106006：dNano −24.5 阶 / dNano4 +17 / dF1 +62.3 /
+#     **dT1 +68.2** / dT3 +24.5 / t2fp 4 ⇒ **只差 nano 一轴**）⇒ 缺口是**结构性的**：
+#     常规抛光只会把 nano 越推越低（PT1/L5/L5B 三轴全部如此）⇒ 补不上；
+#   · 唯一的结构性例外 = **[PX] 族配方**：全库**唯一**「nano 与 T1 同涨」的旋钮
+#     （1100275：init=98905@5, sw4.2, lr0.3, lrf0.3, ep2 ⇒ Δnano **+19.5 阶** ∧ ΔT1 **+66.3 阶**）
+#     ⇒ **nano:T1 兑换比 ≈ 1:0.6**（其它配方是 1:8 ~ 1:200 ⇒ 拿 T1 换 nano 的坏交易）；
+#   · ⇒ **PT3 = 把 PX 族配方施加到「T1 富供体」上** ⇒ 用供体已有的 T1 余量**买** nano。
+#     本轴的成功判据 = 六项门禁（nano/nano4/f1/t1/t3 ≥ 基线 ∧ t2_fp ≤ max(基线 t2_fp, 5)=5）。
+#
+# ⚠ 本块**只读**台账（`.snap_ledger.json` / live 台账）与配方注册表；**不写**这两个文件
+#   （注册表的写入走 `_pt3_bind_registry`，且只在真正开跑时执行 ⇒ `--plan-only` 零副作用）。
+LOCAL_MNT_ROOT = "/home/manu/mnt"   # 本地 sshfs 挂载根（服务器 /mnt/data ↔ 本地 /home/manu/mnt/data）
+
+
+def _local_mirror(path: str) -> str:
+    """服务器绝对路径 → 本地挂载镜像路径（/mnt/x → /home/manu/mnt/x；/tmp/x 同理）。
+
+    🔴 本地 sshfs 挂载把服务器的 `/mnt/data` 挂在 `/home/manu/mnt/data`、
+       `/tmp/pycharm_project_*` 挂在 `/home/manu/mnt/pycharm_project_*`
+       ⇒ 规则 = **去掉第一段目录名 + 挂到 LOCAL_MNT_ROOT 下**。
+    """
+    for prefix in ("/mnt/", "/tmp/"):
+        if path.startswith(prefix):
+            return LOCAL_MNT_ROOT + path[len(prefix) - 1:]
+    return path
+
+
+def _first_existing(*paths: str) -> str | None:
+    """返回第一个**真实存在**的路径（服务器路径优先，其次本地镜像）。"""
+    for p in paths:
+        if p and os.path.exists(p):
+            return p
+    return None
+
+
+def _work_path(name: str) -> str:
+    """WORK 目录下的文件（服务器路径优先，本地镜像兜底 ⇒ 本地也能做只读自检）。"""
+    return (_first_existing(f"{WORK}/{name}", f"{_local_mirror(WORK)}/{name}")
+            or f"{WORK}/{name}")
+
+
+def _pt3_ckpt_path(trial: int, epoch: int) -> str:
+    """供体权重路径（**服务器口径** ⇒ 训练用）。"""
+    return f"{ROOT}/trials/trial_{trial}/weights/epoch{epoch}.pt"
+
+
+def _pt3_ckpt_on_disk(trial: int, epoch: int) -> bool:
+    """供体权重是否**实测在盘**（服务器路径或本地镜像任一命中即算在盘）。"""
+    p = _pt3_ckpt_path(trial, epoch)
+    return os.path.isfile(p) or os.path.isfile(_local_mirror(p))
+
+
+_PT3_ARMS_CACHE: dict | None = None
+
+
+def _pt3_ledger_arms() -> dict:
+    """台账 arms 快照（**只读**）：live 台账优先，缺项用 `.snap_ledger.json` 补。"""
+    global _PT3_ARMS_CACHE
+    if _PT3_ARMS_CACHE is not None:
+        return _PT3_ARMS_CACHE
+    arms: dict = {}
+    for name in ("nano_search_ledger.json", ".snap_ledger.json"):
+        try:
+            with open(_work_path(name), "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except Exception:  # noqa: BLE001
+            continue
+        for k, v in (data.get("arms") or {}).items():
+            arms.setdefault(str(k), v)      # live 台账先入 ⇒ snap 只补缺项
+    _PT3_ARMS_CACHE = arms
+    return arms
+
+
+def _pt3_registry() -> dict:
+    """配方注册表（臂号 → 配方描述；**只读**）。"""
+    try:
+        with open(_work_path("arm_recipe_registry.json"), "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _pt3_own_arm_ids() -> set[int]:
+    """**本轴自己**登记/执行的臂号（注册表配方前缀 "[PT3]"）⇒ 不算「他人占用」。
+
+    🔴🔴 2026-11-23 13:2x 实测踩坑（重启即自锁死）：
+      · PT3 首跑把 2116000~2119999 **全部**写进 `arm_recipe_registry.json`（配方前缀 "[PT3] "）；
+      · 重启时 `_pt3_used_arm_ids()` 把这 4000 个 id 全判成「已占用」
+        ⇒ `_pt3_alloc_base()` 扫不到任何连续空闲块 ⇒ 臂计划 PT3=0 ⇒ **整条 PT3 轴永久失效**。
+      · 修法：把**本轴自己**的条目排除出「占用集」；段位 [PT3_BASE, PT3_RESERVED_FLOOR) 本就是 PT3 专属段。
+    """
+    own: set[int] = set()
+    for k, v in _pt3_registry().items():
+        # ⚠ 前缀是 "[PT3]" **和** "[PT3M]"（中间带族）两种 ⇒ 用 startswith("[PT3") 兜住
+        if not str(v).startswith("[PT3"):
+            continue
+        try:
+            own.add(int(str(k)))
+        except Exception:  # noqa: BLE001
+            pass
+    return own
+
+
+def _pt3_used_arm_ids() -> set[int]:
+    """台账 + 配方注册表里**他人已占用**的臂号（数字臂号；排除本轴自己的条目）。"""
+    own = _pt3_own_arm_ids()
+    used: set[int] = set()
+    for k in _pt3_ledger_arms().keys():
+        try:
+            sid = int(str(k))
+        except Exception:  # noqa: BLE001
+            continue
+        if sid in own:
+            continue
+        used.add(sid)
+    for k in _pt3_registry().keys():
+        try:
+            sid = int(str(k))
+        except Exception:  # noqa: BLE001
+            continue
+        if sid in own:
+            continue
+        used.add(sid)
+    return used
+
+
+def _pt3_alloc_base(need: int) -> tuple[int, str, int]:
+    """扫描台账 + 注册表 ⇒ 找起点 ≥ PT3_BASE 的**第一个连续空闲**臂号段。
+
+    🔴 **绝不越界到他人段位**（硬规则）：
+      · 允许区间 = **[PT3_BASE, PT3_RESERVED_FLOOR)** = `2116000~2119999`
+        （服务器实测：`2120000~2120022` 已被他人占用、`2130000+` / `2140000+` 同
+        ⇒ `2120000+` 属**他人段位** ⇒ 本轴**不碰 2120023+ 等后续空段**）；
+      · 区间内优先取**第一块容量 ≥ need 的连续空闲段**；没有 ⇒ 取**第一块**空闲段
+        并**按其真实容量下调**（调用方打日志说明实际可用臂数）。
+      · 满格需求 = 20 供体 × 108 run × 2 臂 = **4320 臂**；本段只有 **4000** 个空闲 id
+        ⇒ **4320 装不下 ⇒ 满格按实际段位下调为 4000 臂（2000 run）**。
+
+    返回 (起点, 说明, 该段容量=可用臂数)。
+    """
+    used = _pt3_used_arm_ids()
+    need = max(int(need), PT3_SEG_MIN_FREE)
+    scan_limit = 200000       # 扫描上限（防「台账读不到 ⇒ used 为空」时的死循环）
+    ceiling = min(PT3_RESERVED_FLOOR, PT3_BASE + scan_limit)
+    blocks: list[tuple[int, int]] = []
+    start = None
+    for i in range(PT3_BASE, ceiling):
+        if i in used:
+            if start is not None:
+                blocks.append((start, i - 1))
+                start = None
+        elif start is None:
+            start = i
+    if start is not None:
+        blocks.append((start, ceiling - 1))
+    if not blocks:
+        return PT3_BASE, (f"⚠ 自 {PT3_BASE} 起至 {ceiling - 1} **无任何连续空闲臂号** ⇒ PT3 段不可用"), 0
+    # 优先「第一块容量 ≥ need 的空闲段」；都没有 ⇒ 取第一块并按其容量下调
+    pick = next((b for b in blocks if (b[1] - b[0] + 1) >= need), blocks[0])
+    seg_start, seg_end = pick
+    free = seg_end - seg_start + 1
+    next_used = min((u for u in used if u > seg_end), default=None)
+    if free >= need:
+        note = (f"起点 {seg_start}（连续空闲段 {seg_start}~{seg_end}，容量 {free} 个 id ≥ 需求 {need}）"
+                + (f"；下一占用段 = {next_used}（他人段位，**不越界**）" if next_used is not None else ""))
+        return seg_start, note, free
+    # 容量不足 ⇒ 按实际段位下调（**不跨到他人段位**）
+    note = (f"起点 {seg_start}（连续空闲段 {seg_start}~{seg_end}，容量 **{free} 个 id** < 需求 {need} ⇒ "
+            f"**满格按实际段位下调**为 {free} 臂（{free // PT3_EP_PER_RUN} run）")
+    if next_used is not None:
+        note += f"；下一占用段 = {next_used}（他人段位，**不越界**）"
+    note += f"；允许区间上限 = {ceiling - 1}（`PT3_RESERVED_FLOOR` 之后属他人段位）"
+    return seg_start, note, free
+
+
+def _pt3_base_vals(ns_mod=None) -> dict:
+    """基线读数（优先取 `nano_search.BASE_V2` ⇒ 与台账逐位一致；否则用内置常量）。"""
+    b = {"nano": PT3_BASE_NANO, "nano4": PT3_BASE_NANO4, "f1": PT3_BASE_F1,
+         "t1": PT3_BASE_T1, "t2_fp": PT3_BASE_T2FP, "t3": PT3_BASE_T3}
+    bv = (getattr(ns_mod, "BASE_V2", None) or {}) if ns_mod is not None else {}
+    for k in ("nano", "nano4", "f1", "t1", "t3"):
+        if bv.get(k) is not None:
+            b[k] = float(bv[k])
+    if bv.get("t2_fp") is not None:
+        b["t2_fp"] = int(bv["t2_fp"])
+    return b
+
+
+def _pt3_donor_reading(donor: tuple) -> dict:
+    """供体的实测读数（台账优先；读不到 ⇒ 用阶数表换算成绝对值）。"""
+    t, ep, prio, dn, dn4, df1, dt1, dt3, t2fp, note = donor
+    out = {"trial": t, "epoch": ep, "prio": prio, "note": note,
+           "d_nano": dn, "d_nano4": dn4, "d_f1": df1, "d_t1": dt1, "d_t3": dt3,
+           "t2fp": t2fp, "nano": None, "nano4": None, "f1": None,
+           "t1": None, "t3": None, "src": "阶数表(内置)"}
+    st = _pt3_ledger_arms().get(str(t)) or {}
+    pk = st.get("picked") or {}
+    of = st.get("official") or {}
+    if pk.get("nano") is not None:
+        out["nano"] = float(pk["nano"])
+        out["nano4"] = float(pk.get("nano4") or 0.0)
+        out["f1"] = float(pk.get("f1") or 0.0)
+        out["src"] = "台账 picked"
+    if of.get("t1") is not None:
+        out["t1"] = float(of["t1"])
+        out["t3"] = float(of.get("t3") or 0.0)
+        out["t2fp"] = int(of.get("t2_fp") or t2fp)
+        out["src"] = "台账 picked+official"
+    # 官方 T1/T3 读不到 ⇒ 用阶数表换算（保守但可用）
+    if out["t1"] is None:
+        out["t1"] = PT3_BASE_T1 + dt1 * PT3_T1_STEP
+    if out["t3"] is None:
+        out["t3"] = PT3_BASE_T3 + dt3 * PT3_T3_STEP
+    return out
+
+
+def _pt3_donor_gap(donor: tuple) -> float:
+    """供体的**总缺口 gap** = Σ max(0, −d)，over {nano, nano4, f1, t1, t3}（t2fp 不计入）。
+
+    · gap 越小 = 离「六项全过」越近 = **越先跑**（2026-11-23 增量：供体表按 gap 升序重排）；
+    · 优先级分档：**P1 = gap ≤ 100 ｜ P2 = 100 < gap ≤ 200 ｜ P3 = gap > 200**。
+    """
+    return float(sum(max(0.0, -float(x)) for x in donor[3:8]))
+
+
+def _pt3_donor_order_label(donor: tuple) -> str:
+    """供体的展示标签：`trial@epoch`（日志用）。"""
+    return f"{donor[0]}@{donor[1]}"
+
+
+def _pt3_recipe_plan() -> list[dict]:
+    """**单个供体的完整配方序列** = 72 条主网格 + 36 条 PT3M 中间带 = 108 run。
+
+    🔴 **列表顺序 = 执行顺序 = 臂号顺序**（供体 i 占用
+       `PT3_BASE + i*216 ~ PT3_BASE + i*216 + 215`）：
+      · 前 72 条 = `PT3_RECIPES`（sw↑ → cp↑ → lr↑ → lrf↑ 的**字典序**）；
+      · 后 36 条 = `PT3M_RECIPES`（sw↑ → swl↑ → thr↑ → lr↑ 的字典序）。
+    """
+    out: list[dict] = []
+    for (sw, cp, lr, lrf) in PT3_RECIPES:
+        out.append({"band": "M0", "sw": sw, "cp": cp, "lr": lr, "lrf": lrf,
+                    "swl": 1.0, "thr": 12.0})
+    for (sw, swl, thr, lr) in PT3M_RECIPES:
+        out.append({"band": "M1", "sw": sw, "cp": PT3M_CP, "lr": lr, "lrf": PT3M_LRF,
+                    "swl": swl, "thr": thr})
+    return out
+
+
+def _pt3_lin_extrap(points: dict, idx: int):
+    """线性插值/外推（points: {x: y}；x = epoch 序号，**0 = 供体起点**）。"""
+    if not points:
+        return None
+    if idx in points:
+        return float(points[idx])
+    xs = sorted(points)
+    if len(xs) == 1:
+        return float(points[xs[0]])
+    lo = [x for x in xs if x < idx]
+    hi = [x for x in xs if x > idx]
+    if lo and hi:
+        x1, x2 = lo[-1], hi[0]
+    elif lo:
+        x1, x2 = lo[-2], lo[-1]
+    else:
+        x1, x2 = hi[0], hi[1]
+    y1, y2 = float(points[x1]), float(points[x2])
+    if x2 == x1:
+        return y1
+    return y1 + (y2 - y1) * (idx - x1) / (x2 - x1)
+
+
+def build_pt3_specs(args, ns_mod=None) -> list[dict]:
+    """阶段1-F：**PT3「T1 富供体 × PX 族配方」局部微扫轴** —— 2026-11-23 新增。
+
+    🔴 **臂号映射（必须稳定 ⇒ 重启后臂号↔配方一一对应）**：
+      · `臂号 = 段起点 + run_index*2 + (epoch-1)`（**逐 epoch 连续**，每 run 2 臂）；
+      · `run_index` 遍历 **所有供体 × 全部 108 个配方**（72 主网格 + 36 中间带；含不在盘的供体 ⇒ 臂号位保留、
+        **不平移映射**）⇒ 供体缺失不会让后面的臂号漂移；
+      · 供体 i 占用 `段起点 + i*216 ~ 段起点 + i*216 + 215`（108 run × 2 臂）
+        ⇒ **中间带的臂号排在同一供体的主网格臂号之后**（不另开段）；
+      · 段起点 = `_pt3_alloc_base()` 现算（默认 PT3_BASE；被占 ⇒ 向后找连续空闲段）。
+    🔴 **预算**：`--pt3-arms` 单位是**臂**（不是 run）⇒ `run 数 = pt3_arms // 2`；
+      **列表顺序 = 执行顺序**（供体按 gap 升序；同供体内 72 主网格（sw↑ → cp↑ → lr↑ → lrf↑）
+      → 36 中间带（sw↑ → swl↑ → thr↑ → lr↑））。
+    🔴 **段位容量是硬上限**：`2116000~2119999` 只有 **4000** 个连续空闲 id ⇒ 满格 4320 臂
+      **装不下** ⇒ 实际按 **4000 臂（2000 run）** 下调，**绝不越界到 2120000+（他人段位）**。
+    """
+    budget = max(int(getattr(args, "pt3_arms", 0) or 0), 0)
+    if budget <= 0:
+        log(f"[阶段1-F] PT3 轴关闭（--pt3-arms=0）⇒ 不排任何臂")
+        return []
+    n_runs_total = len(PT3_DONORS) * PT3_RUNS_PER_DONOR
+    n_arms_total = n_runs_total * PT3_EP_PER_RUN
+    base, seg_note, capacity = _pt3_alloc_base(n_arms_total)
+    log(f"[阶段1-F] PT3 臂号段：{seg_note}｜理论满格 {n_runs_total} run = {n_arms_total} 臂")
+    # 🔴 段位容量是**硬上限**（不越界到他人段位）；预算 `--pt3-arms` 再在其下截断
+    max_runs = capacity // PT3_EP_PER_RUN
+    if max_runs < n_runs_total:
+        log(f"[阶段1-F] ⚠ 段位容量 {capacity} 臂 < 理论满格 {n_arms_total} 臂 ⇒ "
+            f"**满格按实际段位下调为 {capacity} 臂（{max_runs} run）**；"
+            f"最后一个供体可能被截断（臂号仍连续、不重叠）")
+    budget_runs = budget // PT3_EP_PER_RUN
+    if budget_runs < max_runs:
+        max_runs = budget_runs
+    out: list[dict] = []
+    run_index = 0
+    _k = 0                                   # 只在真正产臂时推进（seed 位与臂号位分离）
+    for donor in PT3_DONORS:
+        t, ep = donor[0], donor[1]
+        have = _pt3_ckpt_on_disk(t, ep)
+        if not have:
+            log(f"[PT3] 供体 {t}@{ep} 权重**不在盘** ⇒ 跳过"
+                f"（臂号位保留 ⇒ **不平移 sid↔配方映射**）")
+        for rc in _pt3_recipe_plan():
+            sid = base + run_index * PT3_EP_PER_RUN
+            run_index += 1
+            if not have:
+                continue
+            if len(out) >= max_runs:
+                break                       # 段位容量 / 预算用尽 ⇒ 停止（臂号仍连续）
+            sw, cp, lr, lrf = rc["sw"], rc["cp"], rc["lr"], rc["lrf"]
+            init = _pt3_ckpt_path(t, ep)
+            p = base_params(init, 2, 2, 0.3)
+            p.update(lr=lr, lr_floor=lrf, sw=sw, swl=rc["swl"], swb=1.0,
+                     thr=rc["thr"], maxside=3.0, mix="w2.0", fb=2.75, ow=0.4,
+                     mosaic=0.15, scale=0.10, anchor_l2=0.001, anchor_ckpt=init)
+            if float(cp) > 0.0:
+                # 🔴 cp=0 时**不加** cp flag（与现有 L5/PT1 口径一致：`train_cmd` 只在 cp>0 时加）
+                p.update(cp_prob=cp, cp_max_px=12.0,
+                         cp_per_img=2, cp_feather_px=2.0)
+            if rc["band"] == "M1":
+                desc = (f"[PT3M] t1donor{t}@{ep} sw{sw} swl{rc['swl']} thr{rc['thr']} cp{cp} "
+                        f"lr{lr} lrf{lrf} swb1.0 maxside3.0 l2.001")
+                recipe = f"M1_sw{sw}_swl{rc['swl']}_thr{rc['thr']}_cp{cp}_lr{lr}_lrf{lrf}"
+            else:
+                desc = (f"[PT3] t1donor{t}@{ep} sw{sw} cp{cp} lr{lr} lrf{lrf} "
+                        f"swl{rc['swl']} swb1.0 thr{rc['thr']}ms3 l2.001")
+                recipe = f"sw{sw}_cp{cp}_lr{lr}_lrf{lrf}"
+            out.append({"trial": sid, "seed": 880000 + _k * 17, "params": p,
+                        "epochs": [1, 2], "channel": "PT3", "prio": 0,
+                        # 🔴 `source_anchor` 是升轨「抛光家族种子关」的必需字段
+                        "source_anchor": f"{t}@{ep}",
+                        "pt3_ep_arms": [sid, sid + 1],
+                        "pt3_init_trial": t, "pt3_init_epoch": ep,
+                        "pt3_band": rc["band"],
+                        "pt3_recipe": recipe,
+                        "desc": desc})
+            _k += 1
+        if len(out) >= max_runs:
+            break
+    if out:
+        used_donors: list[str] = []
+        for sp in out:
+            lb = _pt3_donor_order_label((sp["pt3_init_trial"], sp["pt3_init_epoch"]))
+            if lb not in used_donors:
+                used_donors.append(lb)
+        log(f"[阶段1-F] PT3 轴 {len(out)} run = {len(out) * PT3_EP_PER_RUN} 臂"
+            f"（供体序 {used_donors}，"
+            f"臂号 {out[0]['trial']}~{out[-1]['pt3_ep_arms'][-1]}）")
+    return out
+
+
+def _pt3_bind_registry(specs: list[dict]) -> list[dict]:
+    """把 PT3 的臂号↔配方绑定写进配方注册表（**沿用既有唯一性机制**）。
+
+    · 注册表里同号不同配方 ⇒ **宁可不跑**（否则「权重已存在 ⇒ 跳过训练」会把旧权重当新配方 ⇒ 假读数）；
+    · 注册表里没有、但该臂号目录里已有权重 ⇒ 同样跳过（历史遗留臂号）。
+    """
+    reg = _pt3_registry()
+    kept, dropped = [], []
+    for sp in specs:
+        desc = sp["desc"]
+        bad = None
+        for arm_id in (sp.get("pt3_ep_arms") or [sp["trial"]]):
+            key = str(arm_id)
+            old = reg.get(key)
+            if old is not None and old != desc:
+                bad = (key, old)
+                break
+            if old is None:
+                tdir = f"{ROOT}/trials/trial_{arm_id}"
+                try:
+                    has_ck = os.path.isdir(f"{tdir}/weights") and any(
+                        n.endswith(".pt") for n in os.listdir(f"{tdir}/weights"))
+                except Exception:  # noqa: BLE001
+                    has_ck = False
+                if has_ck:
+                    bad = (key, "历史遗留权重目录")
+                    break
+        if bad:
+            dropped.append((sp["trial"], bad[0], bad[1]))
+            continue
+        kept.append(sp)
+    for tr, key, old in dropped:
+        log(f"[PT3 臂号冲突] run {tr} 的臂 {key} 已绑定「{old}」⇒ 跳过该 run")
+    for sp in kept:
+        for arm_id in (sp.get("pt3_ep_arms") or [sp["trial"]]):
+            reg[str(arm_id)] = sp["desc"]
+    try:
+        with open(_work_path("arm_recipe_registry.json"), "w", encoding="utf-8") as fh:
+            json.dump(reg, fh, ensure_ascii=False, indent=1)
+    except Exception as exc:  # noqa: BLE001
+        log(f"[PT3] 配方注册表写失败：{exc}")
+    return kept
+
+
+def _pt3_handle(spec, traj, gpu, ns_mod) -> list[dict]:
+    """PT3 run：**逐 epoch 登记为臂** + **逐 epoch 官方门禁**（PT3 专用短路规则）。
+
+    🔴 **短路规则**（门禁很贵 ⇒ 先筛后门禁；**与 PT2 的阈值不同**）：
+      (A) **四轴近过线**：nano ≥ 基线−1 量子 ∧ nano4 ≥ 基线−1 量子 ∧ f1 ≥ 基线−1 量子
+                           ∧ t3 ≥ 基线−1 量子；
+      (B) **T1 近线**：该 epoch 的 t1 ≥ 基线−5 量子；
+      (C) **兜底**：整条 run 没有任何 epoch 满足 (A)/(B) ⇒ 对「**归一化缺口最小**」的 epoch
+          跑一次门禁（归一化缺口 = 四轴缺口各自除以自己的量子步长后求和）。
+      · 比较一律用 **`>=`** 语义（基线比较带容差 `PT3_TOL`），**不用**严格 `>`；
+      · `six_ok` 的 t2_fp 上限 = **max(基线 t2_fp, 5)**。
+
+    🔴 **门禁前读不到 t1/t3 怎么办**（绝不崩）：
+      ① 该 epoch 自己已门禁过 ⇒ 用实测值；
+      ② 同 run 其它 epoch 的实测值（+ 供体起点 epoch0）⇒ **线性外推**；
+      ③ 仍读不到 ⇒ **供体臂的实测 T1 + 保守兜底值**（`PT3_T1_FALLBACK_DROP`）。
+    """
+    run_trial = int(spec["trial"])
+    arm_ids = [int(x) for x in (spec.get("pt3_ep_arms") or [])]
+    epochs = [int(e) for e in (spec.get("epochs") or [])]
+    p = spec["params"]
+    if not arm_ids:
+        return []
+    base = _pt3_base_vals(ns_mod)
+    b_nano, b_nano4, b_f1 = base["nano"], base["nano4"], base["f1"]
+    base_t1, base_t3 = base["t1"], base["t3"]
+    t2fp_max = max(int(base["t2_fp"]), 5)
+    donor = PT3_DONOR_BY_KEY.get((int(spec.get("pt3_init_trial") or 0),
+                                  int(spec.get("pt3_init_epoch") or 0)))
+    donor_t1 = donor_t3 = None
+    if donor is not None:
+        _rd = _pt3_donor_reading(donor)
+        donor_t1 = _rd.get("t1")
+        donor_t3 = _rd.get("t3")
+
+    def _pred_t1(idx: int, measured: dict):
+        """第 idx 个 epoch（1..n_ep）的 T1 预测（绝对值；链：实测 → 线性外推 → 供体+保守兜底）。"""
+        if idx in measured:
+            return float(measured[idx])
+        pts: dict = {}
+        if donor_t1 is not None:
+            pts[0] = float(donor_t1)          # 供体 = 这条 run 的 epoch0
+        for k, v in measured.items():
+            if k != idx:
+                pts[int(k)] = float(v)
+        if len(pts) >= 2:
+            v = _pt3_lin_extrap(pts, idx)
+            if v is not None:
+                return v
+        if donor_t1 is not None:
+            return float(donor_t1) - PT3_T1_FALLBACK_DROP
+        return base_t1 - PT3_T1_FALLBACK_DROP
+
+    def _pred_t3(idx: int, measured: dict):
+        """T3 预测（与 T1 同链；门禁短路时 t3 是哨兵 −1.0 ⇒ 不入 points）。"""
+        if idx in measured:
+            return float(measured[idx])
+        pts: dict = {}
+        if donor_t3 is not None:
+            pts[0] = float(donor_t3)
+        for k, v in measured.items():
+            if k != idx:
+                pts[int(k)] = float(v)
+        if len(pts) >= 2:
+            v = _pt3_lin_extrap(pts, idx)
+            if v is not None:
+                return v
+        if donor_t3 is not None:
+            return float(donor_t3) - PT3_T3_FALLBACK_DROP
+        return base_t3 - PT3_T3_FALLBACK_DROP
+
+    def _rule_a(m: dict, t3_pred) -> bool:
+        """(A) 四轴近过线（nano / nano4 / f1 / t3，各容差 1 量子）。"""
+        if t3_pred is None:
+            return False
+        return bool(
+            float(m.get("nano", 0)) >= b_nano - PT3_NEAR_QUANTA * PT3_NANO_STEP - PT3_TOL
+            and float(m.get("nano4", 0)) >= b_nano4 - PT3_NEAR_QUANTA * PT3_NANO4_STEP - PT3_TOL
+            and float(m.get("f1", 0)) >= b_f1 - PT3_NEAR_QUANTA * PT3_F1_STEP - PT3_TOL
+            and float(t3_pred) >= base_t3 - PT3_NEAR_QUANTA * PT3_T3_STEP - PT3_TOL)
+
+    def _rule_b(t1_pred) -> bool:
+        """(B) T1 近线（容差 5 量子）。"""
+        if t1_pred is None:
+            return False
+        return bool(float(t1_pred) >= base_t1 - PT3_T1_NEAR_QUANTA * PT3_T1_STEP - PT3_TOL)
+
+    def _norm_gap(m: dict, t3_pred) -> float:
+        """归一化缺口 = 四轴缺口各除以自己的量子步长后求和（越小越接近过线）。"""
+        g = 0.0
+        for key, bv, step in (("nano", b_nano, PT3_NANO_STEP),
+                              ("nano4", b_nano4, PT3_NANO4_STEP),
+                              ("f1", b_f1, PT3_F1_STEP)):
+            v = m.get(key)
+            g += ((bv - float(v)) / step) if v is not None else 1e6
+        g += ((base_t3 - float(t3_pred)) / PT3_T3_STEP) if t3_pred is not None else 1e6
+        return g
+
+    # ── ① 逐 epoch 登记（先全部登记 ⇒ 轨迹读数不丢）──
+    led = ns_mod.load_ledger()
+    for i, ep in enumerate(epochs, start=1):
+        m = traj.get(str(ep))
+        if not m or m.get("error"):
+            continue
+        arm_id = arm_ids[i - 1] if i - 1 < len(arm_ids) else arm_ids[-1]
+        _link_ep_ckpt(run_trial, arm_id, ep)
+        st = ns_mod.arm_state(led, arm_id)
+        st["trial"] = arm_id
+        st["params"] = p
+        st["seed"] = spec.get("seed")
+        st["desc"] = f"{spec.get('desc')} ep{ep}"
+        st["channel"] = "PT3"
+        st["trained"] = True
+        st["polish"] = 1
+        st["source_anchor"] = spec.get("source_anchor")
+        st["pt3_run_trial"] = run_trial
+        st["pt3_epoch"] = ep
+        st["pt3_init"] = p.get("init")
+        st["pt3_recipe"] = spec.get("pt3_recipe")
+        st["pt3_traj"] = {str(k): dict(v) for k, v in traj.items() if isinstance(v, dict)}
+        st["nanobench"] = {str(ep): dict(m)}
+        picked = dict(m)
+        picked.update({"epoch": ep, "epoch_key": str(ep), "ckpt": f"epoch{ep}.pt"})
+        st["picked"] = picked
+        st["picked_epoch"] = ep
+        st["select_rule"] = "pt3_per_epoch"
+        st["beat_to_pass_ref"] = "Baseline_v3.1(trial_1990055)"
+        # 🔴 家族键（与 `family_key.polish_family_key` 的兜底口径逐字一致 ⇒ 派生值相同）
+        st["family_key"] = ("polish:lr=%s|l2=%s|fb=%s|ep=%s"
+                            % (p.get("lr"), p.get("anchor_l2"),
+                               p.get("freeze_bn", 0), p.get("epochs")))
+    ns_mod.save_ledger(led)
+
+    # ── ② 短路判定（(A) 四轴近过线 / (B) T1 近线 / (C) 兜底）──
+    cand = []
+    for i, ep in enumerate(epochs, start=1):
+        m = traj.get(str(ep))
+        if not m or m.get("error"):
+            continue
+        t1_pred = _pred_t1(i, {})
+        t3_pred = _pred_t3(i, {})
+        cand.append({"i": i, "ep": ep, "m": m, "t1": t1_pred, "t3": t3_pred,
+                     "a": _rule_a(m, t3_pred), "b": _rule_b(t1_pred),
+                     "gap": _norm_gap(m, t3_pred)})
+    if not cand:
+        return []
+    force_set = set()
+    if not any(c["a"] or c["b"] for c in cand):
+        pick = min(cand, key=lambda c: c["gap"])
+        force_set = {pick["ep"]}
+        log(f"[PT3 {run_trial}] 四轴近线/T1 近线都没有 ⇒ 兜底门禁 ep{pick['ep']}"
+            f"（归一化缺口最小 {pick['gap']:.1f}）")
+
+    # ── ③ 逐 epoch 门禁（实测 T1/T3 会反过来修正后续 epoch 的预测）──
+    recs: list[dict] = []
+    measured_t1: dict = {}
+    measured_t3: dict = {}
+    for c in cand:
+        i, ep = c["i"], c["ep"]
+        t1_pred = _pred_t1(i, measured_t1)
+        t3_pred = _pred_t3(i, measured_t3)
+        a_ok = _rule_a(c["m"], t3_pred)
+        b_ok = _rule_b(t1_pred)
+        if not (a_ok or b_ok or ep in force_set):
+            continue
+        arm_id = arm_ids[i - 1] if i - 1 < len(arm_ids) else arm_ids[-1]
+        _why = ("★(A) 四轴近过线" if a_ok
+                else ("(B) T1 近线" if b_ok else "(C) 兜底（归一化缺口最小）"))
+        log(f"[PT3 {run_trial}] ep{ep} ⇒ 官方门禁（{_why}；"
+            f"T1 预测={t1_pred:.7f}（缺口 {(base_t1 - t1_pred) / PT3_T1_STEP:+.0f} 阶）"
+            f" / T3 预测={t3_pred:.7f}）")
+        try:
+            off = ns_mod.run_official_gate(run_trial, ep, gpu)
+        except Exception as exc:  # noqa: BLE001
+            off = {"error": str(exc)}
+        led = ns_mod.load_ledger()
+        st = ns_mod.arm_state(led, arm_id)
+        st["official"] = off
+        m = c["m"]
+        st["six_ok"] = bool(
+            off.get("t1") is not None and off.get("t3") is not None
+            and float(m.get("nano", 0)) >= b_nano
+            and float(m.get("nano4", 0)) >= b_nano4
+            and float(m.get("f1", 0)) >= b_f1
+            and float(off.get("t1", 0)) >= base_t1
+            and int(off.get("t2_fp", 99)) <= t2fp_max
+            and float(off.get("t3", 0)) >= base_t3)
+        ns_mod.save_ledger(led)
+        # 🔴 门禁的 T1 短路会让 T2/T3 不评（哨兵 −1.0）⇒ 只把**正数**读数写进 points
+        if off.get("t1") is not None and float(off["t1"]) > 0:
+            measured_t1[i] = float(off["t1"])
+        if off.get("t3") is not None and float(off["t3"]) > 0:
+            measured_t3[i] = float(off["t3"])
+        log(f"[PT3 {run_trial}] ep{ep} 门禁 = {json.dumps(off, ensure_ascii=False)[:300]}")
+        recs.append({"trial": arm_id, "gpu": gpu, "channel": "PT3",
+                     "run_trial": run_trial, "ep": ep,
+                     "desc": st.get("desc"), "triad": bool(a_ok or b_ok),
+                     "nano": m.get("nano"), "nano4": m.get("nano4"), "f1": m.get("f1"),
+                     "t1": off.get("t1"), "t2_fp": off.get("t2_fp"), "t3": off.get("t3"),
+                     "six_ok": st.get("six_ok"), "official": off})
+    log(f"[PT3 {run_trial}] 门禁完成：{len(recs)}/{len(cand)} 个 epoch 过了短路")
+    return recs
+
+
+def _pt3_print_plan(specs: list[dict], args) -> None:
+    """`--plan-only`：打印**完整臂计划**（臂号 / 供体 / 配方 / 预测说明）后直接退出。
+
+    🔴 本函数**只读**：不训练、不跑门禁、不写台账、不写配方注册表。
+    """
+    print("", flush=True)
+    print("=" * 108, flush=True)
+    print("PT3 计划干跑（--plan-only）：「T1 富供体 × PX 族配方」局部微扫轴", flush=True)
+    print("=" * 108, flush=True)
+    used = _pt3_used_arm_ids()
+    # ---- 供体表（在盘实测）----
+    donors_on, donors_off = [], []
+    for d in PT3_DONORS:
+        (donors_on if _pt3_ckpt_on_disk(d[0], d[1]) else donors_off).append(d)
+    print(f"[供体表] 共 {len(PT3_DONORS)} 个供体：在盘 {len(donors_on)} 个 / 不在盘 {len(donors_off)} 个",
+          flush=True)
+    print(f"{'供体(trial@ep)':>18} {'prio':>4} {'在盘':>5} {'dNano':>8} {'dNano4':>8} {'dF1':>9} "
+          f"{'dT1':>9} {'dT3':>8} {'t2fp':>5} {'gap':>8}  备注", flush=True)
+    for d in PT3_DONORS:
+        on = "是" if _pt3_ckpt_on_disk(d[0], d[1]) else "**否**"
+        print(f"{str(d[0]) + '@' + str(d[1]):>18} {d[2]:>4} {on:>5} {d[3]:>+8.1f} {d[4]:>+8.1f} "
+              f"{d[5]:>+9.1f} {d[6]:>+9.1f} {d[7]:>+8.1f} {d[8]:>5} {_pt3_donor_gap(d):>8.1f}  {d[9]}",
+              flush=True)
+    if donors_off:
+        print(f"[供体表] ⚠ 不在盘的供体（**跳过但保留臂号位**）："
+              f"{[(d[0], d[1]) for d in donors_off]}", flush=True)
+    print(f"[供体序] gap 升序（gap = Σ max(0,−d)，over nano/nano4/f1/t1/t3；t2fp 不计入）："
+          f"{[_pt3_donor_order_label(d) for d in PT3_DONORS]}", flush=True)
+    # ---- 配方网格 ----
+    print(f"[配方网格] sw{PT3_SW_GRID} × cp{PT3_CP_GRID} × lr{PT3_LR_GRID} × lrf{PT3_LRF_GRID} "
+          f"= {len(PT3_RECIPES)} run/供体（M0 主网格，字典序展开）；每 run {PT3_EP_PER_RUN} epoch ⇒ "
+          f"{PT3_EP_PER_RUN} 臂/run", flush=True)
+    print(f"[配方网格 M1 中间带] sw{PT3M_SW_GRID} × swl{PT3M_SWL_GRID} × thr{PT3M_THR_GRID} × "
+          f"lr{PT3M_LR_GRID} = {len(PT3M_RECIPES)} run/供体（swl↑ → thr↑ → lr↑ 字典序）",
+          flush=True)
+    print(f"[固定项] M0：swl=1.0 swb=1.0 thr=12.0 maxside=3.0 mix=w2.0 fb=2.75 ow=0.4 "
+          f"mosaic=0.15 scale=0.1 anchor_l2=0.001 epochs=2 sched=2 warmup=0.3", flush=True)
+    print(f"[固定项] M1：swb=1.0 maxside=3.0 mix=w2.0 fb=2.75 ow=0.4 mosaic=0.15 scale=0.1 "
+          f"anchor_l2=0.001 epochs=2 sched=2 warmup=0.3 lrf={PT3M_LRF} cp={PT3M_CP}", flush=True)
+    print(f"[臂布局] 每供体 {PT3_RUNS_PER_DONOR} run（72 M0 + 36 M1）= {PT3_ARMS_PER_DONOR} 臂；"
+          f"供体 i 占用 `段起点 + {PT3_ARMS_PER_DONOR}*i ~ +{PT3_ARMS_PER_DONOR}*i + "
+          f"{PT3_ARMS_PER_DONOR - 1}`（**中间带排在本供体主网格之后，不另开段**）", flush=True)
+    # ---- 臂计划 ----
+    arm_ids = []
+    for sp in specs:
+        arm_ids.extend(int(x) for x in (sp.get("pt3_ep_arms") or [sp["trial"]]))
+    print(f"[臂计划] run {len(specs)} 个 / 臂 {len(arm_ids)} 个；"
+          f"臂号 {arm_ids[0] if arm_ids else '-'}~{arm_ids[-1] if arm_ids else '-'}", flush=True)
+    for sp in specs:
+        rd = _pt3_donor_reading(PT3_DONOR_BY_KEY[(sp["pt3_init_trial"], sp["pt3_init_epoch"])])
+        # 配方四元组直接从 params 取（pt3_recipe = swX_cpY_lrZ_lrfW，仅作日志用）
+        _sw = sp["params"]["sw"]
+        _cp = float(sp["params"].get("cp_prob") or 0.0)
+        _lr = float(sp["params"]["lr"])
+        _lrf = float(sp["params"]["lr_floor"])
+        _swl = sp["params"].get("swl")
+        _thr = sp["params"].get("thr")
+        _band = sp.get("pt3_band") or "M0"
+        gap_nano = max(0.0, -float(rd["d_nano"]))
+        est_nano = PT3_PX_NANO_STEPS * (_lr / PT3_PX_LR)      # 仅按 lr 线性缩放 PX 单点（下界）
+        est_t1 = PT3_PX_T1_STEPS * (_lr / PT3_PX_LR)
+        t1_after = float(rd["d_t1"]) + est_t1
+        near_b = (rd["t1"] - PT3_T1_FALLBACK_DROP
+                  >= PT3_BASE_T1 - PT3_T1_NEAR_QUANTA * PT3_T1_STEP - PT3_TOL)
+        print(f"  臂 {sp['pt3_ep_arms'][0]}（ep1）/ {sp['pt3_ep_arms'][1]}（ep2）"
+              f" | 供体 {sp['pt3_init_trial']}@{sp['pt3_init_epoch']}"
+              f"（{rd['prio']}, dNano {rd['d_nano']:+.1f} 阶 / dT1 {rd['d_t1']:+.1f} 阶）"
+              f" | [{_band}] 配方 sw{_sw} swl{_swl} thr{_thr} cp{_cp} lr{_lr} lrf{_lrf}"
+              f" | 预测：nano 缺口 {gap_nano:.1f} 阶；PX 先验(lr 线性缩放) "
+              f"Δnano {est_nano:+.1f} 阶 / ΔT1 {est_t1:+.1f} 阶 ⇒ T1 落点 {t1_after:+.1f} 阶"
+              f"；(B)T1 近线={'是' if near_b else '否'}"
+              f"（Δnano/ΔT1 未建模 sw·cp 增益 ⇒ 打印值为下界）", flush=True)
+    # ---- 自检 ----
+    print("", flush=True)
+    print("[自检]", flush=True)
+    dup = sorted({i for i in arm_ids if arm_ids.count(i) > 1})
+    print(f"  · 臂数 = {len(arm_ids)}｜run 数 = {len(specs)}｜本计划用到的供体数 = "
+          f"{len({(sp['pt3_init_trial'], sp['pt3_init_epoch']) for sp in specs})}"
+          f"｜供体表总数 = {len(PT3_DONORS)}（在盘 {len(donors_on)} / 不在盘 {len(donors_off)}）",
+          flush=True)
+    print(f"  · 臂号零重复：{'✅ 通过（0 重复）' if not dup else '❌ 失败 ' + str(dup[:20])}", flush=True)
+    conflict = sorted(set(arm_ids) & used)
+    print(f"  · 与台账/注册表零冲突：{'✅ 通过（0 冲突）' if not conflict else '❌ 失败 ' + str(conflict[:20])}",
+          flush=True)
+    # ---- 每个供体的臂号连续性（供体 i ⇒ i*216 起的连续段）+ 配方族分布 ----
+    per_donor: dict[tuple, list[int]] = {}
+    for sp in specs:
+        per_donor.setdefault((sp["pt3_init_trial"], sp["pt3_init_epoch"]), []).extend(
+            int(x) for x in (sp.get("pt3_ep_arms") or [sp["trial"]]))
+    bad_cont = []
+    for (t, ep), ids in per_donor.items():
+        ids_sorted = sorted(ids)
+        if ids_sorted != list(range(ids_sorted[0], ids_sorted[0] + len(ids_sorted))):
+            bad_cont.append(f"{t}@{ep}")
+    band_cnt: dict[str, int] = {}
+    for sp in specs:
+        b = sp.get("pt3_band") or "M0"
+        band_cnt[b] = band_cnt.get(b, 0) + 1
+    first_key = list(per_donor)[0] if per_donor else None
+    print(f"  · 每供体臂号连续且不重叠：{'✅ 通过' if not bad_cont else '❌ 失败 ' + str(bad_cont)}"
+          f"（供体数 {len(per_donor)}；首个 {first_key or '-'} ⇒ 臂号 "
+          f"{min(per_donor[first_key]) if first_key else '-'}~"
+          f"{max(per_donor[first_key]) if first_key else '-'}）", flush=True)
+    print(f"  · 配方族分布：M0 主网格 {band_cnt.get('M0', 0)} run / M1 中间带 "
+          f"{band_cnt.get('M1', 0)} run（每供体 72 + 36）", flush=True)
+    _full_arms = len(PT3_DONORS) * PT3_RUNS_PER_DONOR * PT3_EP_PER_RUN
+    base_now, seg_note_now, cap_now = _pt3_alloc_base(_full_arms)
+    print(f"  · 臂号段：起点 {base_now}｜可用连续空闲 {cap_now} 臂｜满格需求 {_full_arms} 臂 ⇒ "
+          f"{'装得下' if cap_now >= _full_arms else '**装不下 ⇒ 按实际段位下调**'}"
+          f"（{seg_note_now}）", flush=True)
+    print(f"  · 本计划供体执行序："
+          f"{[_pt3_donor_order_label((sp['pt3_init_trial'], sp['pt3_init_epoch'])) for sp in specs[:3]]}"
+          f"…（共 {len(per_donor)} 个供体进入本计划）", flush=True)
+    print(f"  · 台账已占用臂号数 = {len(used)}｜注册表绑定数 = {len(_pt3_registry())}", flush=True)
+    print("  · 本次干跑**未训练、未门禁、未写任何文件**。", flush=True)
+    print("=" * 108, flush=True)
+
+
 def build_cp_axis_specs(args, ns_mod) -> list[dict]:
     """阶段3-A：**cp（Copy-Paste）强度轴** —— 今夜实测逼出来的新方向。
 
@@ -1069,6 +2229,17 @@ def main() -> None:
                     help="阶段1-C：T1 供体二代长训轴臂数（§282；0 = 不跑）")
     ap.add_argument("--l5b-arms", type=int, default=42,
                     help="阶段1-D：L5 的 lr/cp 补网格轴臂数（§282；0 = 不跑）")
+    ap.add_argument("--pt2-arms", type=int, default=120,
+                    help="阶段1-E：nano 富集端 A2 抛光轴（PT2）臂数"
+                         "（每 run 5 epoch ⇒ 每臂 1 epoch；0 = 不跑）")
+    ap.add_argument("--pt3-arms", type=int, default=0,
+                    help="阶段1-F：PT3「T1 富供体 × PX 族配方」局部微扫轴臂数"
+                         "（单位=**臂**；每 run 2 epoch ⇒ 2 臂/run；"
+                         "每供体 108 run（72 主网格 + 36 中间带）= 216 臂；"
+                         "满格 20 供体 = 4320 臂，受臂号段容量限制会自动下调；0 = 不跑）")
+    ap.add_argument("--plan-only", action="store_true",
+                    help="只打印完整臂计划（臂号/供体/配方/预测说明）后**直接退出**："
+                         "不训练、不跑门禁、不写台账、不写配方注册表（零副作用自检）")
     ap.add_argument("--lottery-arms", type=int, default=40,
                     help="阶段4：每轮中签扫描最多排多少臂")
     ap.add_argument("--lottery-target-n", type=int, default=6,
@@ -1078,6 +2249,20 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=20261116)
     ap.add_argument("--report", default=f"{WORK}/night_train_axis_report.json")
     args = ap.parse_args()
+
+    # 🟢🟢 2026-11-23：**`--plan-only` 只读模式**（上线前自检用）
+    #   · 打印完整臂计划（臂号 / 供体 / 配方 / 预测说明）后**直接退出**；
+    #   · **不训练、不跑门禁、不写台账、不写配方注册表** ⇒ 零副作用、零 GPU 作业；
+    #   · 放在训练栈 import **之前** ⇒ 本机没有 `/tmp/pycharm_project_*` 也能跑通。
+    if args.plan_only:
+        try:
+            _pt3_specs = build_pt3_specs(args, None)
+        except Exception as exc:  # noqa: BLE001
+            log(f"PT3 计划构造失败：{exc}")
+            _pt3_specs = []
+        _pt3_print_plan(_pt3_specs, args)
+        log("=== --plan-only：计划已打印 ⇒ 直接退出（未训练、未门禁、未写任何文件）===")
+        return
 
     os.environ["NANO_BENCH_WORKERS"] = "2"
     sys.path.insert(0, REPO)
@@ -1109,6 +2294,20 @@ def main() -> None:
         lot_specs = []
     for sp in lot_specs:
         sp["prio"] = -2                      # 最高优先级（比 cp 轴还先）
+    pt2_specs = []
+    try:
+        pt2_specs = build_pt2_specs(args, NS)
+    except Exception as exc:  # noqa: BLE001
+        log(f"nano 富集抛光轴构造失败（不影响其它阶段）：{exc}")
+        pt2_specs = []
+    # 🟢🟢 2026-11-23：**PT3 段「T1 富供体 × PX 族配方」局部微扫轴**
+    #   · 先绑配方注册表（沿用既有唯一性机制：同号不同配方 ⇒ 宁可不跑）⇒ 再做幂等过滤。
+    pt3_specs = []
+    try:
+        pt3_specs = _pt3_bind_registry(build_pt3_specs(args, NS))
+    except Exception as exc:  # noqa: BLE001
+        log(f"PT3 轴构造失败（不影响其它阶段）：{exc}")
+        pt3_specs = []
     pt1_specs = []
     try:
         pt1_specs = build_pt1_specs(args, NS)
@@ -1148,6 +2347,35 @@ def main() -> None:
         return bool(((_st.get("picked") or {}).get("nano") is not None)
                     and ((_st.get("official") or {}).get("t1") is not None))
 
+    # 🔴 幂等（PT3）：run 的 **ep1 臂**已有 picked.nano **且** official.t1 ⇒ 整条 run 跳过；
+    #   ⚠ 只有 picked、official.t1 缺失的 run **不跳过** ⇒ 要把 T1 读数补上（否则供体池永远缺 T1）。
+    _pt3_keep = []
+    _pt3_skip_done = 0
+    _pt3_keep_no_t1 = 0
+    for sp in pt3_specs:
+        _st = _a0.get(str(sp["trial"])) or {}
+        _pk = (_st.get("picked") or {}).get("nano")
+        _t1 = (_st.get("official") or {}).get("t1")
+        if _pk is not None and _t1 is not None:
+            _pt3_skip_done += 1
+            continue
+        if _pk is not None:
+            _pt3_keep_no_t1 += 1
+        _pt3_keep.append(sp)
+    if _pt3_skip_done or _pt3_keep_no_t1:
+        log(f"[幂等] PT3 轴：已完成(读数+T1)跳过 {_pt3_skip_done} 个 run；"
+            f"有读数但缺官方 T1 ⇒ 保留补测 {_pt3_keep_no_t1} 个 run")
+    pt3_specs = _pt3_keep
+    # 🔴 幂等：PT2 run 若已登记过 epoch 读数 ⇒ 不重复烧算力（重启续跑）
+    _pt2_keep = []
+    for sp in pt2_specs:
+        _st = _a0.get(str(sp["trial"])) or {}
+        if (_st.get("picked") or {}).get("nano") is not None:
+            continue                        # 已有读数 ⇒ 不重复烧算力
+        _pt2_keep.append(sp)
+    if len(_pt2_keep) != len(pt2_specs):
+        log(f"[幂等] PT2 轴已有读数的 run {len(pt2_specs) - len(_pt2_keep)} 个 ⇒ 跳过")
+    pt2_specs = _pt2_keep
     _pt1_keep = [sp for sp in pt1_specs if not _done_with_t1(sp)]
     if len(_pt1_keep) != len(pt1_specs):
         log(f"[幂等] PT1 轴已有 T1 读数的臂 {len(pt1_specs) - len(_pt1_keep)} 个 ⇒ 跳过")
@@ -1173,8 +2401,15 @@ def main() -> None:
     l5b_specs = _l5b_keep
     # ⚠ 列表顺序 = 执行顺序（`next_spec()` = `q.pop(0)`）
     #   ⇒ **L5 / L5B 紧跟 PT1 跑**（PT1 是 2 epoch 轻抛，L5/L5B 是 5 epoch 长训 ⇒ 尺度不同，互不替代）
-    specs = lot_specs + pt1_specs + l5_specs + l5b_specs + cp_specs + specs
-    log(f"臂计划 {len(specs)} 条（LOT={len(lot_specs)} / PT1={len(pt1_specs)} / L5={len(l5_specs)} / "
+    # 🟢🟢 2026-11-23：**PT2（nano 富集端抛光）插到 PT1/L5/L5B 之前**
+    #   理由：PT1/L5/L5B 三轴都从「T1 富 / nano 贫」的供体出发 ⇒ 结构上补不上 nano 那一轴；
+    #   PT2 是**全库唯一**还有结构性希望的通道（从 nano 富集端反向抛光 ⇒ 轨迹穿过可行区）。
+    # 🟢🟢 2026-11-23：**PT3 插到 PT2 之前**（PT3 的先验更强 ⇒ [PX] 族是全库唯一 nano&T1 同涨的旋钮）
+    specs = lot_specs + pt3_specs + pt2_specs + pt1_specs + l5_specs + l5b_specs + cp_specs + specs
+    log(f"臂计划 {len(specs)} 条（LOT={len(lot_specs)} / "
+        f"PT3={len(pt3_specs)}（{len(pt3_specs) * PT3_EP_PER_RUN} 臂）/ "
+        f"PT2={len(pt2_specs)}（{len(pt2_specs) * PT2_EP_PER_RUN} 臂）/ "
+        f"PT1={len(pt1_specs)} / L5={len(l5_specs)} / "
         f"L5B={len(l5b_specs)} / CP={len(cp_specs)} / "
         f"P={sum(1 for s in specs if s['channel']=='P')} / "
         f"T={sum(1 for s in specs if s['channel']=='T')}）｜并发 {args.arms}｜GPU {gpus}｜"
@@ -1277,7 +2512,7 @@ def main() -> None:
             #   否则 `promote_candidate.check_arm` 的种子关分支永远进不去
             #   （`recipe_stats()` 只收 `init == cs_t0043.pt` 的臂 ⇒ 抛光臂不在普通配方组里）
             #   ⇒ 训练出来的臂**永远升不了轨**（与板卡是否空闲无关）。
-            if spec["channel"] in ("P", "PT1", "L5", "L5B"):
+            if spec["channel"] in ("P", "PT1", "L5", "L5B", "PT2", "PT3"):
                 st["polish"] = 1
                 st["source_anchor"] = spec.get("source_anchor")
             traj = st.setdefault("nanobench", {})
@@ -1310,16 +2545,24 @@ def main() -> None:
             # ---- 选 epoch ----
             b_nano, b_nano4, b_f1 = NS.base_pick_thresholds()
             best, how = NS.pick_epoch(traj, b_nano, b_nano4, b_f1)
-            if best:
+            # 🔴🔴 2026-11-23：PT2 = **逐 epoch 各自成臂** ⇒ 不能用 `best` 过滤
+            #   （`best` 会整段错过「轨迹穿越可行区」的那个 epoch ⇒ 本轴的全部意义就没了）
+            _is_pt2 = (spec.get("channel") == "PT2")
+            # 🟢🟢 2026-11-23：PT3 同理 = **逐 epoch 各自成臂**（臂号 = run 首臂号 + ep−1）
+            _is_pt3 = (spec.get("channel") == "PT3")
+            if best and not (_is_pt2 or _is_pt3):
                 st["picked"] = best
                 st["picked_epoch"] = best["epoch"]
                 st["select_rule"] = how
                 st["beat_to_pass_ref"] = "Baseline_v3.1(trial_1990055)"
             NS.save_ledger(led)
             # ---- 三轴全过才跑官方门禁（贵）----
-            triad = bool(best and best.get("nano", 0) > NS.BASE_V2["nano"]
-                         and best.get("nano4", 0) > NS.BASE_V2["nano4"]
-                         and best.get("f1", 0) > NS.BASE_V2["f1"])
+            # 🔴🔴 2026-11-23 真 bug 修复：triad 判据 `>` ⇒ `>=`
+            #   权威口径（`six_criteria_audit.judge`）是 **nano/nano4/f1 ≥ 基线**；
+            #   老代码用严格 `>` ⇒ **恰好等于基线**的候选臂被误杀（漏门禁 ⇒ 永远量不出 T1）。
+            triad = bool(best and best.get("nano", 0) >= NS.BASE_V2["nano"]
+                         and best.get("nano4", 0) >= NS.BASE_V2["nano4"]
+                         and best.get("f1", 0) >= NS.BASE_V2["f1"])
             # 🟢 round-2：**近失臂也跑官方门禁**（min-margin ≥ -0.3σ）
             #   目的：昨夜唯一三轴全过的臂 T2_fp=3 / T3 差 4e-6 ⇒ 必须搞清「哪些配方保 T2_fp≤1」
             #   ⇒ 只看三轴是不够的，得把官方两轨一起量出来，才能指导下一轮 sw/lr/cp 的取舍。
@@ -1337,7 +2580,25 @@ def main() -> None:
             #   triad / near(margin≥−0.3σ) 关 ⇒ 而它们的**唯一价值就是 T1 余量**
             #   ⇒ 不打官方门禁就永远量不出 T1 ⇒ 也就永远进不了 §270 新轴的供体池 ⇒ 链断。
             _force_gate = (spec.get("channel") in ("PT1", "L5", "L5B"))
-            if (triad or near or _force_gate) and best:
+            if _is_pt2:
+                # 🔴🔴🔴 2026-11-23：**PT2 逐 epoch 登记 + 逐 epoch 官方门禁**（带短路）
+                #   · 每个 epoch 单独成臂（臂号 = run 首臂号 + ep−1）⇒ 轨迹上每个采样点都是候选臂；
+                #   · 门禁**不按 best 过滤** ⇒ 不会整段错过穿越点；
+                #   · 门禁很贵（30~90 s/臂）⇒ 先过「三轴全过 / T1 近线 ≤200 阶」短路
+                #     （详见 `_pt2_handle` 的注释块）。
+                _pt2_recs = _pt2_handle(spec, traj, gpu, NS)
+                with dlock:
+                    done.extend(_pt2_recs)
+            elif _is_pt3:
+                # 🔴🔴🔴 2026-11-23：**PT3 逐 epoch 登记 + 逐 epoch 官方门禁**（PT3 专用短路）
+                #   · 每个 epoch 单独成臂（臂号 = PT3_BASE + run_index*2 + ep−1）；
+                #   · 门禁**不按 best 过滤** ⇒ 不会整段错过穿越点；
+                #   · 短路规则 = (A) 四轴近过线 / (B) T1 近线(5 量子) / (C) 兜底（归一化缺口最小）
+                #     （**与 PT2 的阈值不同**，详见 `_pt3_handle` 的注释块）。
+                _pt3_recs = _pt3_handle(spec, traj, gpu, NS)
+                with dlock:
+                    done.extend(_pt3_recs)
+            elif (triad or near or _force_gate) and best:
                 _why = ("★ 三轴全过" if triad else
                         ("近失臂" if near else "强制门禁（唯一价值在 T1 余量）"))
                 log(f"[{trial}] {_why}（边际 {_marg:+.3f}σ）⇒ 跑官方门禁（GPU{gpu}）")
@@ -1348,16 +2609,19 @@ def main() -> None:
                 led = NS.load_ledger()
                 st = NS.arm_state(led, trial)
                 st["official"] = off
-                # 🔴 six_ok 必须用**严格六项**（与 six_criteria_audit.judge 同口径）：
-                #   nano/nano4/f1 **严格大于**基线 + t1 ≥ 基线 + t2_fp ≤ 基线(1) + t3 ≥ 基线
+                # 🔴 six_ok 必须用**六项判据**（与 six_criteria_audit.judge 同口径）：
+                #   nano/nano4/f1 **≥**基线 + t1 ≥ 基线 + t2_fp ≤ max(基线,5) + t3 ≥ 基线
                 #   （昨夜误用门禁自带的 official_ok：t2_fp≤36 ⇒ 把 t2_fp=3 的臂误标 six_ok）
+                # 🔴🔴 2026-11-23：`>` ⇒ `>=`（与 `six_criteria_audit.judge` 逐字对齐）
+                #   + T2 上限改用权威口径 `max(基线 t2_fp, 5)`（老代码 ≤基线 t2_fp=3 ⇒ 比权威更严
+                #   ⇒ t2_fp=4 的合法六项全过臂会被误标 five_ok）。
                 st["six_ok"] = bool(
                     off.get("t1") is not None and off.get("t3") is not None
-                    and best.get("nano", 0) > NS.BASE_V2["nano"]
-                    and best.get("nano4", 0) > NS.BASE_V2["nano4"]
-                    and best.get("f1", 0) > NS.BASE_V2["f1"]
+                    and best.get("nano", 0) >= NS.BASE_V2["nano"]
+                    and best.get("nano4", 0) >= NS.BASE_V2["nano4"]
+                    and best.get("f1", 0) >= NS.BASE_V2["f1"]
                     and off.get("t1", 0) >= NS.BASE_V2["t1"]
-                    and off.get("t2_fp", 99) <= NS.BASE_V2["t2_fp"]
+                    and off.get("t2_fp", 99) <= max(int(NS.BASE_V2.get("t2_fp") or 0), 5)
                     and off.get("t3", 0) >= NS.BASE_V2["t3"])
                 rec["official"] = off
                 NS.save_ledger(led)

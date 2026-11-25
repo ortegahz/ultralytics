@@ -616,6 +616,37 @@ struct MosaicPipeline {
   size_t tracked_queue_max = 4096;
   // How many frames the cap has dropped so far (reported once).
   uint64_t tracked_queue_dropped = 0;
+  // ---- v10.7: the TRACKED-result callback --------------------------------
+  //
+  // The callback flavour of mosaic_pipeline_collect_tracked(): the client
+  // gets the fusion's answer for a frame -- ONE box per CONFIRMED target
+  // (the cross-scale duplicates are already merged by
+  // MergeCandidatesByRadius) -- delivered on the library's own dispatch
+  // thread, so the client needs no thread of its own.
+  //
+  // THE SWITCH (the same semantics as the result callback):
+  //   tracked_cb != NULL  ->  the tracked output is DELIVERED by the
+  //                           dispatcher (via tracked_cb_q) and is NOT
+  //                           queued for mosaic_pipeline_collect_tracked()
+  //                           any more: that queue would grow by one item
+  //                           per frame, forever, for a client that never
+  //                           drains it.
+  //   tracked_cb == NULL  ->  the tracked output goes back to tracked_q,
+  //                           i.e. exactly the behaviour before this
+  //                           callback existed.
+  // The items pending in the OTHER path are moved over when the switch
+  // flips, so nothing is lost in either direction.
+  MosaicTrackedCallback tracked_cb = nullptr;
+  void* tracked_cb_user = nullptr;
+  std::deque<TrackedItem> tracked_cb_q;
+  // The one-time warning: in the tracked-only mode the raw detection stream
+  // is NOT buffered, so mosaic_pipeline_collect() has nothing to return.
+  bool tracked_only_warned = false;
+  // How many raw frames the tracked-only mode dropped (reported at the
+  // flush): the raw candidates are not buffered at all in that mode.
+  uint64_t raw_dropped_tracked_only = 0;
+  // How many frames the tracked callback received (reported at the flush).
+  uint64_t tracked_cb_delivered = 0;
   // The offline (Pass 2 + Pass 3) output: it only exists after the flush.
   std::vector<std::vector<mosaic::TrackFusionDet>> fused_frames;
   size_t fused_pos = 0;
@@ -2249,8 +2280,21 @@ struct MosaicPipeline {
       ri.comps = std::move(comps);
       {
         std::lock_guard<std::mutex> lk(m_out);
-        if (cb) cb_q.push_back(std::move(ri));
-        else out_q.push_back(std::move(ri));
+        if (cb) {
+          cb_q.push_back(std::move(ri));
+        } else if (tracked_cb && !cb_ex) {
+          // THE TRACKED-ONLY MODE: the client registered the tracked
+          // callback and NO result callback => it does not read the raw
+          // detection stream either.  Buffering it would grow the queue by
+          // one item per frame, forever (nothing ever drains it) => the raw
+          // candidates are simply not produced.
+          //
+          // (With cb_ex set the raw frames still go to out_q, exactly as
+          // they did before this callback existed.)
+          ++raw_dropped_tracked_only;
+        } else {
+          out_q.push_back(std::move(ri));
+        }
       }
       cv_out.notify_all();
     }
@@ -2320,19 +2364,32 @@ struct MosaicPipeline {
     ti.dets = std::move(dets);
     {
       std::lock_guard<std::mutex> lk(m_out);
-      tracked_q.push_back(std::move(ti));
-      // The cap (v10.6): drop the OLDEST frames past it.  A client that
-      // consumes the tracked output as it arrives never notices; a client
-      // that ignores it must not leak one item per frame.
-      while (tracked_q.size() > tracked_queue_max) {
-        tracked_q.pop_front();
-        ++tracked_queue_dropped;
-        if (tracked_queue_dropped == 1) {
-          fprintf(stderr,
-                  "[warn] the tracked output queue passed %zu frames and nobody consumed it: "
-                  "the oldest frames are dropped (set MOSAIC_TRACK_QUEUE_MAX to raise the cap, "
-                  "or call mosaic_pipeline_collect_tracked() to drain it)\n",
-                  tracked_queue_max);
+      if (tracked_cb) {
+        // The CALLBACK path (v10.7): the tracked output leaves through the
+        // dispatcher and is NOT queued for mosaic_pipeline_collect_tracked()
+        // -- that queue would grow by one item per frame for a client that
+        // never drains it (the very trap this callback removes).
+        tracked_cb_q.push_back(std::move(ti));
+        // The wake-up is delivered UNDER m_out: the dispatcher waits on
+        // cv_out with m_out held, so a notify issued without the lock can be
+        // LOST (the waiter evaluated its predicate but had not yet
+        // enqueued).
+        cv_out.notify_all();
+      } else {
+        tracked_q.push_back(std::move(ti));
+        // The cap (v10.6): drop the OLDEST frames past it.  A client that
+        // consumes the tracked output as it arrives never notices; a client
+        // that ignores it must not leak one item per frame.
+        while (tracked_q.size() > tracked_queue_max) {
+          tracked_q.pop_front();
+          ++tracked_queue_dropped;
+          if (tracked_queue_dropped == 1) {
+            fprintf(stderr,
+                    "[warn] the tracked output queue passed %zu frames and nobody consumed it: "
+                    "the oldest frames are dropped (set MOSAIC_TRACK_QUEUE_MAX to raise the cap, "
+                    "or call mosaic_pipeline_collect_tracked() to drain it)\n",
+                    tracked_queue_max);
+          }
         }
       }
     }
@@ -2408,19 +2465,76 @@ struct MosaicPipeline {
   // The dispatcher: hands the results to the callback.
   // -------------------------------------------------------------------------
   void dispatch_loop() {
+    // TWO INDEPENDENT PATHS SHARE THIS ONE DISPATCHER THREAD:
+    //   cb_q        -> the RAW detection results -> MosaicResultCallback /
+    //                  MosaicResultCallbackEx
+    //   tracked_cb_q-> the TRACKED results        -> MosaicTrackedCallback
+    // When both are pending they ALTERNATE, so neither can starve the
+    // other (the raw path is a debug aid, the tracked path is the product).
+    bool last_was_raw = false;
     for (;;) {
       ResultItem ri;
+      TrackedItem ti;
+      bool have_raw = false;
+      bool have_tracked = false;
       {
         std::unique_lock<std::mutex> lk(m_out);
-        cv_out.wait_for(lk, std::chrono::milliseconds(kWaitTimeoutMs), [this] { return !cb_q.empty() || abort || flushed; });
+        cv_out.wait_for(lk, std::chrono::milliseconds(kWaitTimeoutMs),
+                        [this] { return !cb_q.empty() || !tracked_cb_q.empty() || abort || flushed; });
         if (abort) break;
-        if (cb_q.empty()) {
+        const bool raw_ready = !cb_q.empty();
+        const bool trk_ready = !tracked_cb_q.empty();
+        if (!raw_ready && !trk_ready) {
           if (flushed) break;
           continue;
         }
-        ri = std::move(cb_q.front());
-        cb_q.pop_front();
+        // Take the path that did NOT run last (when both are ready).
+        const bool take_raw = raw_ready && (!trk_ready || !last_was_raw);
+        if (take_raw) {
+          ri = std::move(cb_q.front());
+          cb_q.pop_front();
+          have_raw = true;
+        } else {
+          ti = std::move(tracked_cb_q.front());
+          tracked_cb_q.pop_front();
+          have_tracked = true;
+        }
+        last_was_raw = take_raw;
       }
+      if (have_tracked) {
+        // ---- the TRACKED path -------------------------------------------
+        MosaicTrackedCallback tfn = nullptr;
+        void* tuser = nullptr;
+        {
+          std::lock_guard<std::mutex> lk(m_out);
+          tfn = tracked_cb;
+          tuser = tracked_cb_user;
+          if (!tfn) {
+            // The callback was removed while this item was in flight: hand it
+            // back to the polling path instead of dropping it.
+            tracked_q.push_front(std::move(ti));
+            cv_tracked.notify_all();
+            continue;
+          }
+        }
+        // The callback speaks MosaicTrackedDet, the pipeline speaks
+        // mosaic::TrackFusionDet.
+        std::vector<MosaicTrackedDet> tdets(ti.dets.size());
+        for (size_t i = 0; i < ti.dets.size(); ++i) {
+          tdets[i].track_id = ti.dets[i].track_id;
+          tdets[i].x = ti.dets[i].x;
+          tdets[i].y = ti.dets[i].y;
+          tdets[i].score = ti.dets[i].score;
+          tdets[i].infilled = ti.dets[i].infilled ? 1 : 0;
+        }
+        {
+          std::lock_guard<std::mutex> lk(m_out);
+          ++tracked_cb_delivered;
+        }
+        tfn(tuser, ti.id, tdets.data(), (int32_t)tdets.size());
+        continue;
+      }
+      // ---- the RAW path ------------------------------------------------
       MosaicResultCallback fn = nullptr;
       MosaicResultCallbackEx fn_ex = nullptr;
       void* user = nullptr;
@@ -4037,6 +4151,25 @@ static int32_t CollectImpl(MosaicPipeline* p, int64_t* frame_id, void** frame_us
   // then reads a defined NULL instead of an uninitialized value.
   if (frame_user) *frame_user = nullptr;
   if (!p) return -1;
+  // THE TRACKED-ONLY MODE: the client registered the tracked callback and
+  // NO result callback => the raw candidates are not buffered at all (they
+  // would grow the queue by one item per frame, forever).  Fail fast with a
+  // clear message instead of blocking until the flush.
+  {
+    std::lock_guard<std::mutex> lk(p->m_out);
+    if (p->tracked_cb && !p->cb && !p->cb_ex) {
+      if (!p->tracked_only_warned) {
+        p->tracked_only_warned = true;
+        fprintf(stderr,
+                "[warn] the tracked callback is registered and no result callback is: the raw "
+                "detection stream is NOT buffered, so mosaic_pipeline_collect() has nothing to "
+                "return.  Register a result callback too (mosaic_pipeline_set_result_callback), "
+                "or call mosaic_pipeline_set_tracked_callback(p, NULL, NULL) to get the raw "
+                "stream back.\n");
+      }
+      return -1;
+    }
+  }
   ResultItem ri;
   {
     std::unique_lock<std::mutex> lk(p->m_out);
@@ -4246,6 +4379,16 @@ int32_t mosaic_pipeline_flush(MosaicPipeline* p) {
       fprintf(stderr,
               "[i] fallback summary: clean -- no camera-queue drop, no skipped feature, "
               "no skipped detection, no degraded GMC fit, no voided GMC frame\n");
+    }
+    // v10.7: the tracked callback's own summary (only when it was used, so
+    // the output of a client that does not use it is byte-identical to
+    // before).
+    if (p->tracked_cb || p->tracked_cb_delivered || p->raw_dropped_tracked_only) {
+      fprintf(stderr,
+              "[i] tracked callback: %llu frames delivered, %llu raw frames not buffered "
+              "(tracked-only mode)\n",
+              (unsigned long long)p->tracked_cb_delivered,
+              (unsigned long long)p->raw_dropped_tracked_only);
     }
   }
   p->cv_out.notify_all();
@@ -4621,6 +4764,16 @@ int32_t mosaic_pipeline_set_track_fusion(MosaicPipeline* p, const MosaicTrackFus
 int32_t mosaic_pipeline_collect_tracked(MosaicPipeline* p, int64_t* frame_id, MosaicTrackedDet* out,
                                         int32_t max_out) {
   if (!p) return -1;
+  // The tracked callback is registered => the tracked output is delivered by
+  // the dispatcher and this queue stays EMPTY => fail fast instead of
+  // blocking until the flush.  (The two scopes are SEPARATE on purpose: the
+  // lock order is m_out -> (release) -> m_fusion, the same order the engine
+  // side uses -- holding m_out while taking m_fusion would deadlock against
+  // RunFusionStep, which takes them the other way round.)
+  {
+    std::lock_guard<std::mutex> lk(p->m_out);
+    if (p->tracked_cb) return -1;
+  }
   {
     // The online tracked output only exists while the fusion engine is
     // enabled. If it is off, `tracked_q` stays empty forever and the wait
@@ -4654,6 +4807,53 @@ int32_t mosaic_pipeline_collect_tracked(MosaicPipeline* p, int64_t* frame_id, Mo
     return ncopy;
   }
   return n;
+}
+
+// ---------------------------------------------------------------------------
+// Register the TRACKED-result callback (see MosaicTrackedCallback).
+//
+// The switch (the same semantics as mosaic_pipeline_set_result_callback()):
+//   cb != NULL  ->  the tracked output is DELIVERED by the dispatcher and is
+//                   NOT queued for mosaic_pipeline_collect_tracked() any more
+//                   (that queue would grow by one item per frame, forever,
+//                   for a client that never drains it -- the very trap this
+//                   callback removes).
+//   cb == NULL  ->  the callback is removed and the tracked output goes back
+//                   to the queue (mosaic_pipeline_collect_tracked()).
+// The items pending in the OTHER path are moved over when the switch flips,
+// so nothing is lost in either direction.
+//
+// This is an ADDITION: mosaic_pipeline_collect_tracked() and every other
+// public interface are UNCHANGED, and MOSAIC_API_VERSION stays 10.
+// ---------------------------------------------------------------------------
+int32_t mosaic_pipeline_set_tracked_callback(MosaicPipeline* p, MosaicTrackedCallback cb,
+                                             void* user) {
+  if (!p) return -1;
+  {
+    std::lock_guard<std::mutex> lk(p->m_out);
+    p->tracked_cb = cb;
+    p->tracked_cb_user = user;
+    if (cb) {
+      // The switch TO the callback path: the items already queued for the
+      // polling path are handed to the callback instead (nothing is lost).
+      while (!p->tracked_q.empty()) {
+        p->tracked_cb_q.push_back(std::move(p->tracked_q.front()));
+        p->tracked_q.pop_front();
+      }
+    } else {
+      // The switch BACK to the polling path: the items waiting for the
+      // dispatcher go back into the queue, in order.
+      while (!p->tracked_cb_q.empty()) {
+        p->tracked_q.push_back(std::move(p->tracked_cb_q.front()));
+        p->tracked_cb_q.pop_front();
+      }
+    }
+    // The wake-ups are delivered under m_out (the dispatcher waits on cv_out
+    // with m_out held, so a notify issued without the lock can be LOST).
+    p->cv_out.notify_all();
+    p->cv_tracked.notify_all();
+  }
+  return 0;
 }
 
 int32_t mosaic_pipeline_collect_fused(MosaicPipeline* p, int64_t* frame_id, MosaicTrackedDet* out,

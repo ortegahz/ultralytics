@@ -2,6 +2,13 @@
 
 > **样本**：好视频 18 条 + 坏视频 7 条，合计 307,910 帧；**执行机** `huangzhe@192.168.99.40:32222`（conda env `uav`）；**产物目录** `/tmp/pycharm_project_10ae9e2e/manu/video_quality/report/`
 
+> **📌 图表落点说明（铁律二十五，2026-11-24）**：**代码产生的中间产物一律出仓库目录** —— 本文档正文（结论文字）随仓库入库，
+> **图表本身不再入库**。全部图表的 canonical 落点 =
+> `/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/`。
+> 该目录 **1:1 镜像仓库相对路径**（把仓库相对路径原样拼到 `repo-artifacts/` 后面即命中 ⇒ **可原路还原**），
+> 图表也可由 `manu/video_quality/vq_*.py` 整批重生成。
+> 下文正文里**只写文件名**的图表（如 `chart_metrics_osd.png`、`chart_grid_heatmap.png`）同指该目录。
+
 ## 〇、数据构成（先把话说清楚）
 
 - **好视频组**：18 条源视频（红外 6 条 + 可见光 12 条），全部为 30 fps 裸 H.264。
@@ -83,6 +90,34 @@
 
 🔴 **长时程（1 秒）没有可用的单指标单线**（48 个组合里长时程只有红外 `blockiness` 一条勉强成立，可见光与混池全部**无解**），
 业务若只要「锁住目标本体」，**应以短时程（5 帧）为准**（详见 9.5）。
+
+🧪 **【2026-11-24 追加】换 KCF 跟踪器重做一遍（领导要求）：结论不翻车，且给出第二个家族的独立验证。**
+用 **OpenCV contrib 的 KCF**（`cv2.legacy.TrackerKCF`；主仓库 `opencv-python` 不含 KCF，须装 `opencv-contrib-python`）
+把第九节的整条因果链（合格线 + 膝点 + 盲测）**原样重跑**：**22 条源片 + 3 条桌面录屏 + 396 个退化变体**，
+**点击点与 xcorr 版逐位相同**（22/22）⇒ 两个家族画的是同一条退化曲线。结论：
+
+- **短时程（5 帧）**：IR 三条线（`global_contrast ≥ 0.8026` / `blockiness ≤ 1.0744` / `entropy ≥ 7.3706`）
+  与 VIS 两条线（`lap_var ≥ 2384.5` / `global_contrast ≥ 0.7377`）**与 xcorr 版同指标同口径**，
+  `entropy` 线**逐位相同**；
+- **长时程（1 秒）**：IR 仍只有 `blockiness ≤ 1.0406` 一条；VIS 从「无解」多出两条**极严**的单指标参考线
+  （`lap_var ≥ 3357.2` 覆盖率 3.0%、`edge_density ≥ 0.1976` 覆盖率 20.1%），
+  但 AND 组合后**好片通过 0/691** ⇒ **「长时程可见光无解」这条结论不变**；
+- **膝点**：**红外侧两家族几乎逐位一致**（IR 采用线 `global_contrast ≥ 0.5779 AND lap_var ≥ 6.49`，
+  KCF 家族给 `0.577855 AND 6.918433`；长时程 `0.57763 AND 7.843251` **逐位相同**），
+  盲测表现**逐位相同**（片级 好片误杀 16.667% / 坏片拦截 100%，窗级 26.055% / 88.789%）；
+  **可见光长时程两家族不一致**（`lap_var` 270.79 vs 171.38）⇒ 该格继续按**不采用**处理；
+- 🔴 **必须一起汇报的差异**：`vq_sot_verify.py` 的「与 §271 网格法逐片一致性」检查，
+  **xcorr 家族平均差 0.082（PASS）而 KCF 家族 0.161（超 0.12 容差 ⇒ FAIL）**
+  ⇒ **不同跟踪器家族的绝对锁定率不可互换**，KCF 数字只在 KCF 家族内自洽，**与 xcorr 版并列、不做数值合并**。
+- 详见 **§9.10**（含 contrib KCF 的源码级说明、两个臂的定义、敏感性分析与全部复现命令）。
+- ✅ **跨家族「方法无关性（Method-Agnostic）」成立（边界见 §9.10.12）**：像素互相关与经典相关滤波
+  两类原理完全不同的跟踪器**各自独立**反推出的**被采用的两条线几乎逐位复现**
+  （短 IR `global_contrast` **0.577855 逐位相同**、长 IR `lap_var` **7.843251 逐位相同**），
+  **盲测坏片拦截 100% 相同**（IR 16.667% / 100%，VIS 0% / 100%）
+  ⇒ **红线卡的是图像本身的物理信息底线，不是某一个跟踪器的实现细节**；
+  🔴 边界：①**VIS 长时程两家族不一致**（`lap_var` 差 58%）⇒ 该格本就不采用；
+  ②两家族**绝对锁定率刻度不可互换**（verify CHECK 1：xcorr 0.082 PASS / KCF 0.161 FAIL）
+  ⇒ 数值**并列呈现、不做合并**；③坏源片仅 4 条，仍属**小样本结论**。
 
 ## 二、分组统计与区分度
 
@@ -428,19 +463,19 @@
 
 ## 六、图表
 
-![红外模态指标区分度](chart_metrics_ir.png)
+![红外模态指标区分度](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_metrics_ir.png)
 
-![可见光模态指标区分度](chart_metrics_vis.png)
+![可见光模态指标区分度](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_metrics_vis.png)
 
-![全部指标 AUC 排序](chart_auc_ir.png)
+![全部指标 AUC 排序](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_auc_ir.png)
 
-![可见光模态 AUC 排序](chart_auc_vis.png)
+![可见光模态 AUC 排序](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_auc_vis.png)
 
-![红外逐秒质量指标时间线](chart_timeseries_ir.png)
+![红外逐秒质量指标时间线](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_timeseries_ir.png)
 
-![可见光逐秒质量指标时间线](chart_timeseries_vis.png)
+![可见光逐秒质量指标时间线](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_timeseries_vis.png)
 
-![挂飞录屏证据：实为操作员桌面录屏](evidence_挂飞录屏实为桌面录屏_t300s.png)
+![挂飞录屏证据：实为操作员桌面录屏](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/evidence_挂飞录屏实为桌面录屏_t300s.png)
 
 > 图中横轴为组别（好/坏），纵轴为该指标在序列级分位数上的取值；标题里的 AUC 视频级/窗口级分别是保守口径与统计功效口径。
 
@@ -450,6 +485,21 @@
 > `chart_grid_crosstab.png`（红线分级 × 任意点选可用率）、`chart_grid_perclip.png`（逐条视频 TGR/DET/UGR）、
 > `chart_grid_auc.png`（网格指标 AUC 对照）、`chart_grid_redline.png`（红线窗口的可用率分布）、
 > `chart_grid_timeline.png`（UGR 逐秒时间线）。
+
+## 六·附、📘《图像解读手册》PDF（40 张图逐张讲清楚）
+
+> 产物区落点（**不入库**）：
+> `../cache/ultralytics/repo-artifacts/manu/video_quality/report/图像解读手册_40张图.pdf`
+> （**50 页 / 3.7 MB**；40 张 PNG 全部内嵌，逐页图注带文件名 + md5）。
+> 生成脚本 `manu/video_quality/vq_chart_doc.py`（**本地纯绘图，不需要 cv2 / 视频解码**，约 24 s）：
+>
+> ```bash
+> python3 manu/video_quality/vq_chart_doc.py
+> ```
+>
+> 手册按六个族群（①指标区分度 9 张 ②48 宫格任意点选 6 张 ③xcorr 膝点 8 张 ④KCF 主臂 8 张
+> ⑤KCF 默认臂 8 张 ⑥取证 1 张）逐张给「**画的是什么 / 看图要点 / 一句话结论**」三段，
+> 膝点页另附**该格确切数值与来源 CSV**（数值现场读 CSV，不手工抄写）。
 
 ## 七、复现命令（可直接复制）
 
@@ -542,12 +592,15 @@ python manu/video_quality/vq_sot_verify.py --sot-dir /tmp/sot_out,/tmp/sot_out_o
 for f in comparison.csv stats.csv tail_compare.csv tail_slices.csv resample_bias.txt; do
   [ -f "${VQ_PROD}/report/$f" ] && cp -f "${VQ_PROD}/report/$f" manu/video_quality/report/
 done
-cp -f ${VQ_PROD}/report/chart_*.png manu/video_quality/report/
+#     🔴 图表不入库（铁律二十五）：落 cache 的 repo-artifacts 镜像目录（1:1 镜像仓库相对路径，可原路还原）
+mkdir -p /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report
+cp -f ${VQ_PROD}/report/chart_*.png /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/
 #     ② 宫格结论表 + 图（grid_windows.csv = 26490 行逐秒大表 = 中间产物）
 for f in grid_summary.csv grid_compare.csv grid_crosstab.csv grid_sensitivity.csv grid_thresholds.json; do
   [ -f "${VQ_PROD}/report/$f" ] && cp -f "${VQ_PROD}/report/$f" manu/video_quality/report/
 done
-cp -f ${VQ_PROD}/report/chart_grid_*.png manu/video_quality/report/
+mkdir -p /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report
+cp -f ${VQ_PROD}/report/chart_grid_*.png /run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/
 #     ③ SOT 结论表（长时程进 report/；短时程进 report/sot_short/，另存一份带 _short 后缀的扁平副本）
 for f in sot_groups.csv sot_discrimination.csv sot_thresholds.csv sot_tau_det.csv sot_clips.csv; do
   [ -f "${VQ_PROD}/report/sot_long/$f" ]  && cp -f "${VQ_PROD}/report/sot_long/$f"  manu/video_quality/report/
@@ -570,7 +623,8 @@ CHECK 5 的 `global_contrast re-derived thr` 必须**等于**存档阈值（实�
 
 产物（铁律二十五：中间产物出仓库目录，结论级才入库）：
 - **中间产物（留在 `${VQ_PROD}/report/`，不入库）**：`metrics_table.csv` / `windows.csv` / `comparison.json` / `stats.json` / `tail_compare.json`；
-- **结论级（入库 `manu/video_quality/report/`）**：`comparison.csv` / `stats.csv` / `tail_compare.csv` / `tail_slices.csv` / `*.png` / 本报告。
+- **结论级（入库 `manu/video_quality/report/`）**：`comparison.csv` / `stats.csv` / `tail_compare.csv` / `tail_slices.csv` / 本报告；
+- **图表（🔴 不入库）**：`*.png` 落 `cache/ultralytics/repo-artifacts/manu/video_quality/report/`（1:1 镜像仓库相对路径，可原路还原）。
 
 ## 八、全图任意点选可跟踪性（空间可跟踪性）：把「糊+灰+压」与「点得准跟得住」定量挂钩
 
@@ -643,7 +697,7 @@ CHECK 5 的 `global_contrast re-derived thr` 必须**等于**存档阈值（实�
 
 ### 8.4 空间分布：好片是「整幅都能点」，坏片是「整幅都不能点」
 
-![6×8 网格的空间分布：好片 vs 坏片](chart_grid_heatmap.png)
+![6×8 网格的空间分布：好片 vs 坏片](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_grid_heatmap.png)
 
 - **好片（IR / VIS）**：48 个格子的可用比例**高度均匀**（IR 每格 0.58 ~ 0.86，VIS 每格 0.66 ~ 0.79），
   ⇒ 操作员**点哪都不会踩空**；
@@ -682,17 +736,17 @@ CHECK 5 的 `global_contrast re-derived thr` 必须**等于**存档阈值（实�
 
 **（d）分级 × 可用率的散点（每条视频一个点）**
 
-![画质红线分级 × 任意点选可用率](chart_grid_crosstab.png)
+![画质红线分级 × 任意点选可用率](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_grid_crosstab.png)
 
 **（e）逐条视频 UGR 随时间的分布（好片 / 坏片各取两条）**
 
-![任意点选可用率时间线](chart_grid_timeline.png)
+![任意点选可用率时间线](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_grid_timeline.png)
 
-![逐条视频的 TGR / DET / UGR 对照](chart_grid_perclip.png)
+![逐条视频的 TGR / DET / UGR 对照](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_grid_perclip.png)
 
-![网格指标与既有质量指标的 AUC 对照](chart_grid_auc.png)
+![网格指标与既有质量指标的 AUC 对照](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_grid_auc.png)
 
-![红线窗口的网格可用率分布](chart_grid_redline.png)
+![红线窗口的网格可用率分布](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_grid_redline.png)
 
 ### 8.6 方法无关性：LK 光流对照实验（结论：**方法选择不是中性的**）
 
@@ -1209,6 +1263,26 @@ LK 跟的是**平滑的明暗梯度**，而失焦画面里这种梯度**依然�
    红外 `edge_density`、红外 `blockiness`、可见光 `global_contrast`、可见光 `edge_density`）
    **只作物理参照、不作准入线**；表 D 采用线的每个组件均 `knee_reliable=1`。
 
+
+****图 · 物理崩溃拐点（xcorr 家族，8 张）****
+
+> 每张图 **左＝短时程(5 帧)、右＝长时程(1 秒)**；X 轴＝**退化后的实测画质值**，Y 轴＝SOT 锁定率 UGR；蓝点＝退化变体逐 1 秒窗口，红细线＝分箱曲线，黑粗线＝保序回归+PCHIP 平滑；竖虚线：绿＝Kneedle 膝点、橙＝PCHIP 曲率膝点、紫＝锁定率 0.5 交点、**黑＝最终采用膝点**。
+
+![IR / blockiness 膝点](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_ir_blockiness.png)
+
+![IR / edge_density 膝点](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_ir_edge_density.png)
+
+![IR / entropy 膝点](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_ir_entropy.png)
+
+![IR / global_contrast 膝点](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_ir_global_contrast.png)
+
+![IR / lap_var 膝点](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_ir_lap_var.png)
+
+![VIS / edge_density 膝点](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_vis_edge_density.png)
+
+![VIS / global_contrast 膝点](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_vis_global_contrast.png)
+
+![VIS / lap_var 膝点](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_vis_lap_var.png)
 ### 9.6 与第八节（§271）的交叉互证 + 独立复算验收
 
 - **两套独立实现互相佐证**：第八节是**暴力 NCC 搜索**（每格独立找峰），本节是**链式 SOT 跟踪**（逐帧重切模板再配准）。
@@ -1328,12 +1402,12 @@ python manu/video_quality/vq_degrade_knee.py combo --knee manu/video_quality/rep
 # 5-7) 带拐点标注的衰减曲线图（8 张：每模态 × 指标，左=短时程 / 右=长时程）
 python manu/video_quality/vq_degrade_knee.py charts --knee manu/video_quality/report/knee_thresholds.csv \
   --curve manu/video_quality/report/degrade_curve.csv --windows ${VQ_PROD}/report/degrade_windows.csv \
-  --lock ${VQ_PROD}/report/degrade_lock.csv --chart-dir manu/video_quality/report
+  --lock ${VQ_PROD}/report/degrade_lock.csv --chart-dir "${VQ_PROD}/report"
 # 5-8) 生成 9.5.9 小节并写回报告（数字全部从 CSV 现场读，不手抄）
 python manu/video_quality/vq_degrade_report.py --out /tmp/section_959.md --apply
 ```
 
-> **第 5 步产物**（服务器侧，全部落在 `manu/video_quality/report/`）：
+> **第 5 步产物**（服务器侧，全部落在 `manu/video_quality/report/`；🔴 **图表（PNG）例外** ⇒ 落 `${VQ_PROD}/report`（产物根），**不入库、不回仓库**）：
 > `degrade_windows.csv`（4730 行＝396 变体 × 逐 1s 窗口 × 8 指标）、
 > `degrade_lock.csv`（3938 行，与 SOT 逐窗对齐）、
 > `degrade_curve.csv`（992 行＝分族 352 + 分箱 640）、
@@ -1366,6 +1440,303 @@ python manu/video_quality/vq_degrade_report.py --out /tmp/section_959.md --apply
 > 📌 **`vq_sot_transfer.py` 已删除**（与 `vq_sot_admission_verify.py` 的 **CHECK E** 功能重复，
 > 且两者写**同一个产物文件** `sot_admission_transfer.csv` 会互相覆盖）
 > ⇒ **跨模态迁移体检由 `vq_sot_admission_verify.py` CHECK E 唯一承担**。
+
+### 9.10 🧪 KCF 版重做（领导追加要求）：把同一套实验换 **KCF 跟踪器** 再跑一遍
+
+> 📌 **关系声明**：本小节是**追加**在 9.5 / 9.5.9 之上的**第三个并列口径**，**不替换**前文结论。
+> 9.5.1~9.5.9 的准入线、膝点线、混池禁用、gap 只作分界线、诚实口径**一条不动**；
+> 本节回答的是「**换成 KCF 这类核相关跟踪器，结论会不会翻**」。
+
+#### 9.10.1 为什么是 OpenCV contrib 的 KCF（而不是自己写一份 KCF）
+
+| 问题 | 实测结论 |
+| --- | --- |
+| OpenCV 主仓库有没有 KCF？ | **没有**。`opencv/modules/video/src/tracker/` 里只有 MIL / MedianFlow / GOTURN / Nano / Vit，`grep -ri kcf` **零命中**；KCF 只在 **opencv_contrib** 的 `modules/tracking`（Python 侧名 `cv2.legacy.TrackerKCF_create`） |
+| 服务器现装的 cv2 有没有？ | **没有**。`opencv-python 4.10.0.84` 的 `cv2.legacy` 不存在（`hasattr(cv2,'TrackerKCF_create')=False`） |
+| 怎么装？ | `pip install --no-deps --target /tmp/pylibs_cvcontrib opencv-contrib-python==4.10.0.84`，跑时 `PYTHONPATH=/tmp/pylibs_cvcontrib` 注入 ⇒ **隔离目录，不污染共享 conda env `uav`**（`uav` 里的 `opencv-python` 原样不动，其它工作线零影响） |
+| contrib 的 `TrackerKCF` 到底是什么？ | 源码 `modules/tracking/src/trackerKCF.cpp`：**高斯核 + 傅里叶域滤波 + 在线模型更新**（KCF 形式化）+ FSR 风格的压缩特征。实测运行期默认参数：`detect_thresh=0.5`（内部响应阈值）、`sigma=0.2`、`lambda=1e-4`、`interp_factor=0.075`（α）、`resize=1`（**半分辨率处理**）、`desc_npca=1`(HOG) + `desc_pca=2`(CN，PCA 压到 2 维) |
+| 参数能改吗？ | 能：`TrackerKCF::read(const FileNode&)` 先重置成默认值、只读 YAML 里出现的键 ⇒ 用 `FileStorage` 写 YAML 再 `tracker.read(fs.root())` 读回。⚠️ `fs.getFirstTopLevelNode()` 那个节点**不是 map**，传进去会报 `isMap()` 断言 |
+
+#### 9.10.2 两个 KCF 臂（同一次解码、同一批点击、同一判据）
+
+| 臂 | 跟踪器 | 参数 | 失锁判据 |
+| --- | --- | --- | --- |
+| `kcf` | `cv2.legacy.TrackerKCF` | contrib **开箱默认**（含 `detect_thresh=0.5`） | contrib 内部响应阈值 **+** 统一 NCC 判据 |
+| `kcf_nt` | 同上 | `detect_thresh=0`（关掉内部阈值） | **只有统一 NCC 判据**（初始模板在跟踪位置 ±8 px 的最佳 NCC < 0.65 ⇒ 失锁） |
+
+> 🔑 **为什么要分两臂**：实测发现 contrib 的 `detect_thresh=0.5` 是**所有失锁的唯一来源**
+> （把它关掉后，同一批点击原本在第 4~20 帧就中断的链条**全部跟满 30 帧**）⇒ 它是**外观置信度门限**，
+> 不是几何伪影，但它是 contrib 自带的魔法数。`kcf_nt` 臂把失锁判据**完全交给统一的 NCC 判据**，
+> 于是**三个家族（xcorr / patch / kcf_nt）的判定标准逐字相同**，可比性最强。
+
+#### 9.10.3 ✅ 协议一致性（可比性的前提）：点击点**逐个完全相同**
+
+22 条源片的每个点击的 `(window, cell, click_mode, x, y, tex_lap_var, tex_std, tex_lam)`
+与 xcorr 版**逐位相同**（`CLICKS_IDENTICAL: True`，22/22 clips，0 条不同）
+⇒ 两个家族画的是**同一条退化曲线**，膝点可以直接比。
+
+另：探针脚本加 `--arms` 后，**默认臂输出与改前脚本、与服务器既有 `sot_out` 产物逐字节一致**
+（`OLD_vs_NEW identical: True`、`NEW_vs_STORED identical: True`）⇒ 本节**没有改动**前文任何数字。
+
+#### 9.10.4 判别力：跟踪分 AUC（好片为正类，混池口径）
+
+| 口径 | xcorr | **KCF** | 指标侧 AUC（与家族无关） |
+| --- | --- | --- | --- |
+| 短时程（5 帧） | 0.898653 | **0.878634** | lap_var 0.896152 / edge_density 0.901649 / global_contrast 0.918928 / blockiness 0.894445 / entropy 0.874495 |
+| 长时程（1 秒） | 0.841294 | **0.860606** | 同上 |
+
+指标↔跟踪分的 Spearman：KCF **0.45~0.74**（xcorr 0.45~0.83）⇒ **两个家族的跟踪分都强（0.84~0.90），
+且与画质指标的相关性同量级** ⇒ 结论不是某一个跟踪器的伪影。
+
+#### 9.10.5 KCF 版「画质合格线」（4 条真实坏片硬切，与 §9.5 同口径）
+
+| 时程 | 模态 | 指标 | 算子 | **KCF 线** | 好片 TPR | 坏片 FPR | 覆盖率 | xcorr 版同指标线 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 短 5 帧 | IR | global_contrast | ≥ | **0.802616** | 0.913978 | 0 | 0.230769 | 0.776744 |
+| 短 5 帧 | IR | blockiness | ≤ | **1.07442** | 0.900000 | 0 | 0.669975 | 1.14537 |
+| 短 5 帧 | IR | entropy | ≥ | **7.37059** | 0.925743 | 0 | 0.501241 | **7.37059（逐位相同）** |
+| 短 5 帧 | VIS | lap_var | ≥ | **2384.46** | 0.958621 | 0 | 0.419682 | 2789.84 |
+| 短 5 帧 | VIS | global_contrast | ≥ | **0.737747** | 0.928571 | 0 | 0.040521 | 0.703448 |
+| 长 1 秒 | IR | blockiness | ≤ | **1.040557** | 0.901961 | 0 | 0.379653 | 1.03192 |
+| 长 1 秒 | VIS | lap_var | ≥ | **3357.21** | 0.904762 | 0 | **0.030391** | 无解 |
+| 长 1 秒 | VIS | edge_density | ≥ | **0.197635** | 0.978417 | 0 | **0.201158** | 无解 |
+
+- ✅ **短时程两个模态的「线集合」与 xcorr 版完全一致**（IR 3 条 / VIS 2 条，同指标同名），
+  数值除 `global_contrast`（0.7767→0.8026）与 VIS `lap_var`（2789.8→2384.5）外基本重合。
+- 🔴 **长时程可见光从「无解」变成「有 2 条单指标线」**（`lap_var ≥ 3357.21`、`edge_density ≥ 0.197635`，
+  坏片 FPR 都是 0）——**但覆盖率只有 3.0% / 20.1%**，且与其它指标做 AND 组合后
+  **好片通过数 = 0 / 691**（xcorr 版同样是 0/3138）⇒
+  **「长时程可见光没有可用的单指标单线」这条结论不变**，只是多了两条**极严的单指标参考线**。
+- 🔴 **长时程红外仍然只有 `blockiness` 一条**（1.03192 → 1.040557），与 §一「长时程以短时程为准」一致。
+
+#### 9.10.6 KCF 版「物理崩溃拐点」（396 个退化变体，X=退化后实测画质，Y=SOT 锁定率）
+
+| 时程 | 模态 | 指标 | **KCF 膝点** | `knee_reliable` | xcorr 膝点 | 一致性 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 短 | IR | global_contrast | **0.577855** | 1 | 0.577855 | ✅ **逐位相同** |
+| 短 | IR | lap_var | **6.918433** | 1 | 6.493031 | +6.5%，同量级 |
+| 短 | IR | edge_density | **0.004803** | 1 | 0.01999（xcorr 侧 reliable=0） | 仅 KCF 侧可靠 |
+| 短 | VIS | lap_var | **270.794141** | 1 | 306.473878 | −11.6%，同量级 |
+| 短 | VIS | global_contrast | 0.708696 | 0 | 0.708696（同样 unreliable） | 逐位相同，但**两家族都不可用** |
+| 长 | IR | global_contrast | **0.57763** | 1 | 0.573831 | +0.7% |
+| 长 | IR | lap_var | **7.843251** | 1 | 7.843251 | ✅ **逐位相同** |
+| 长 | IR | edge_density | **0.007345** | 1 | 0.007345 | ✅ **逐位相同** |
+| 长 | VIS | lap_var | **270.794141** | 1 | 171.384126 | **+58%：两家族不一致** |
+| 长 | VIS | global_contrast / edge_density | 0.501745 / 0.089019 | **0** | 0.27881 / 0.078302（xcorr 侧 reliable=1） | 🔴 **两家族不一致** |
+
+- ✅ **红外侧两个家族的膝点几乎逐位一致** ⇒ §287.1 的 IR 采用线
+  （`global_contrast ≥ 0.5779 AND lap_var ≥ 6.493`）在 KCF 家族下**同样成立**：
+  KCF 家族对应线为 **`global_contrast ≥ 0.577855 AND lap_var ≥ 6.918433`**（短）/
+  **`global_contrast ≥ 0.57763 AND lap_var ≥ 7.843251`**（长）。
+- 🔴 **可见光长时程两家族不一致**（`lap_var` 270.79 vs 171.38，且 global_contrast / edge_density
+  在 KCF 家族 `knee_reliable=0`）⇒ 该格**继续按「不采用」处理**，只作物理参照。
+
+
+****图 · 物理崩溃拐点（KCF 家族 `kcf_nt` 主臂，8 张）****
+
+> 同 §9.5.9 的画法，Y 轴锁定率换成 **KCF 家族**（主臂 `kcf_nt`）。与 §9.5.9 的 xcorr 图对照即「两家族在同一画质值处一起崩」的图形证据。
+
+![IR / blockiness 膝点](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcf_ir_blockiness.png)
+
+![IR / edge_density 膝点](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcf_ir_edge_density.png)
+
+![IR / entropy 膝点](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcf_ir_entropy.png)
+
+![IR / global_contrast 膝点](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcf_ir_global_contrast.png)
+
+![IR / lap_var 膝点](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcf_ir_lap_var.png)
+
+![VIS / edge_density 膝点](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcf_vis_edge_density.png)
+
+![VIS / global_contrast 膝点](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcf_vis_global_contrast.png)
+
+![VIS / lap_var 膝点](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcf_vis_lap_var.png)
+#### 9.10.7 盲测（4 条**未参与标定**的真实坏片 + 18 条好片）
+
+| 线 | KCF 家族（片级 好片误杀 / 坏片拦截） | xcorr 家族 | 判定 |
+| --- | --- | --- | --- |
+| 短 VIS `lap_var ≥ 270.794` | **0% / 100%**（窗级 0.289% / 91.332%） | 0% / 100% | ✅ 两家族**完全相同** |
+| 长 VIS `lap_var ≥ 270.794` | **0% / 100%** | 0% / 100% | ✅ 完全相同 |
+| 短 IR `global_contrast ≥ 0.577855` | **16.667% / 100%**（窗级 26.055% / 88.789%） | 16.667% / 100% | ✅ **逐位相同** |
+| 短 IR `global_contrast ≥ 0.577855 AND lap_var ≥ 6.91843` | **16.667% / 100%**（窗级 26.055% / 88.789%） | 同上 | ✅ **逐位相同** |
+| 长 IR `global_contrast ≥ 0.57763 AND lap_var ≥ 7.84325` | **16.667% / 100%**（窗级 26.055% / 88.789%） | 同上 | ✅ **逐位相同** |
+| 短/长 IR `lap_var` 单独用 | **0% / 0%** | 0% / 0% | 🔴 IR 的 `lap_var` 单独**无区分度**，必须与 `global_contrast` 组合 |
+
+⇒ **换成 KCF 之后，IR 采用线与 VIS 采用线的盲测表现与 xcorr 家族逐位相同**
+⇒ §一 的结论「**换跟踪器家族不翻车**」得到第二个家族的独立验证。
+
+#### 9.10.8 敏感性：KCF 内部的响应阈值（`detect_thresh`）会不会左右结论？
+
+把膝点主臂换成 contrib **默认参数**的 `kcf` 臂重跑（`kcf_default_knee_thresholds.csv`）：
+
+| 时程/模态/指标 | `kcf_nt`（关内部阈值） | `kcf`（默认阈值） | 差异 |
+| --- | --- | --- | --- |
+| 短 IR global_contrast | 0.577855 | 0.577855 | ✅ 逐位相同 |
+| 短 IR lap_var | 6.918433 | 6.918433 | ✅ 逐位相同 |
+| 短 VIS lap_var | 270.794141 | 270.794141 | ✅ 逐位相同 |
+| 长 IR lap_var | 7.843251 | 7.843251 | ✅ 逐位相同 |
+| 长 VIS lap_var | 270.794141 | 270.794141 | ✅ 逐位相同 |
+| 长 IR global_contrast | 0.57763 | 0.566708 | −1.9% |
+
+⇒ **膝点位置对 contrib 内部响应阈值不敏感**（唯一有差异的一格只差 1.9%，仍远小于 15% 的可靠性门限）。
+
+
+****图 · 物理崩溃拐点（KCF 默认参数臂 `kcf`，敏感性对照，8 张）****
+
+> 同 §9.5.9 的画法，Y 轴锁定率换成 **KCF contrib 默认参数臂**（`detect_thresh=0.5`）⇒ 敏感性对照：与 `kcf_nt` 主臂几乎重合，说明膝点位置不依赖 contrib 内部响应阈值。
+
+![IR / blockiness 膝点](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcfdefault_ir_blockiness.png)
+
+![IR / edge_density 膝点](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcfdefault_ir_edge_density.png)
+
+![IR / entropy 膝点](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcfdefault_ir_entropy.png)
+
+![IR / global_contrast 膝点](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcfdefault_ir_global_contrast.png)
+
+![IR / lap_var 膝点](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcfdefault_ir_lap_var.png)
+
+![VIS / edge_density 膝点](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcfdefault_vis_edge_density.png)
+
+![VIS / global_contrast 膝点](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcfdefault_vis_global_contrast.png)
+
+![VIS / lap_var 膝点](/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcfdefault_vis_lap_var.png)
+#### 9.10.9 🔴 本节的一条 FAIL（必须一起汇报）
+
+`vq_sot_verify.py` 的 **CHECK 1「与 §271 网格法的逐片一致性」**：
+
+| 家族 | 平均 \\|SOT lock − grid tgr_raw\\| | 容差 | 判定 |
+| --- | --- | --- | --- |
+| xcorr | **0.082**（worst 0.208） | 0.12 | ✅ PASS |
+| **KCF** | **0.161**（worst 0.384） | 0.12 | 🔴 **FAIL** |
+
+- 该检查是**跨实现一致性**（SOT 探针 vs 网格法），**不是**阈值推导正确性；
+  verify 的其余检查（窗口对齐、分组中位数独立复算、阈值复现）在 KCF 臂上**全部 PASS**，
+  `vq_sot_admission_verify.py` 长/短双口径 **[RESULT] PASS**。
+- 📌 **长/短两个口径实测同一数值**：首轮批跑在长口径（`sot_kcf_long/sot_thresholds.csv`）报 FAIL 后被截断，
+  短口径（`sot_kcf_short/sot_thresholds.csv`）已于 2026-11-24 在服务器**补跑** ⇒ 同样是
+  **mean 0.161 / worst 0.384** ⇒ 该 FAIL 不是单一口径的偶发。
+- 🔴 **结论**：**不同跟踪器家族的绝对锁定率不可互换**（KCF 是半分辨率 + 在线模型更新 + 3 倍模板搜索窗，
+  xcorr 是全分辨率 + 逐帧重切模板 + ±12 px 搜索）⇒
+  **KCF 版数字只在 KCF 家族内部自洽**，与 xcorr 版**并列呈现、绝不做数值合并**；
+  **对外只报「同一指标、两个家族给出同一条线」这种定性结论 + 各自的具体线值**。
+
+#### 9.10.10 KCF 版的局限（必须一起汇报）
+
+1. **测的是「任意点选位置的可跟踪性」，不是「跟踪无人机本身的成功率」**（测试片无无人机）。
+2. **contrib 的 `TrackerKCF` 是 FSR/KCF 变体，且 `resize=1` 半分辨率处理**
+   ⇒ 绝对锁定率与全分辨率的 xcorr 臂**不可直接比**（见 9.10.9）。
+3. **`detect_thresh=0.5` 是 contrib 自带阈值**，已用 `kcf_nt` 臂做对照（结论不变，见 9.10.8）。
+4. **IR / VIS 必须分模态**，混池线跨模态禁用；**gap 线只作分界线**。
+5. **坏源片只有 4 条** ⇒「坏片拦截 100%」属**小样本结论**，上线前必须扩样重标。
+6. **膝点线是必要条件、非充分条件**（低于线基本跟不住，过线不等于一定跟得住）；
+   `knee_reliable` 是选线的**一票否决项**（两法差 > 15% 量程只作物理参照）。
+7. **依赖**：KCF 只在 `opencv-contrib-python` 里；服务器侧装在隔离目录 `/tmp/pylibs_cvcontrib`
+   （`PYTHONPATH` 注入）⇒ **产品若要上 KCF，依赖必须一起带**；
+   本仓库用 `manu/tracking/lookahead/kcf_cv.py` 做薄适配（缺 contrib 时**显式报错**，不静默退化）。
+
+#### 9.10.11 复现命令（可直接复制）
+
+```bash
+# 执行机：huangzhe@192.168.99.40:32222    conda env: uav    工作目录：/tmp/pycharm_project_a7d966e6
+# 0) 装 contrib 的 KCF（隔离目录，不动共享 env 的 opencv-python）
+pip install --no-deps --target /tmp/pylibs_cvcontrib opencv-contrib-python==4.10.0.84
+export PYTHONPATH=/tmp/pylibs_cvcontrib:$PWD:$PWD/manu/video_quality
+
+# 1) 逐片模拟点击 + KCF 链式跟踪（两个臂一起出）
+python manu/video_quality/vq_sot_link_driver.py --jobs /tmp/sot_jobs.tsv \
+  --out-dir /tmp/kcf_out --workers 22 --threads 4 --click-mode alternating --arms kcf,kcf_nt
+python manu/video_quality/vq_sot_link_driver.py --jobs /tmp/sot_jobs_osd.tsv \
+  --out-dir /tmp/kcf_out_osd --workers 3 --threads 4 --click-mode alternating --arms kcf,kcf_nt
+python manu/video_quality/vq_sot_link_driver.py --jobs /tmp/vq_degrade/jobs.tsv \
+  --out-dir /tmp/vq_degrade/kcf_out --workers 16 --threads 4 --arms kcf,kcf_nt
+
+# 2) 聚合 + 合格线反解（长 / 短两个口径）
+python manu/video_quality/vq_sot_compare.py --sot-dir /tmp/kcf_out,/tmp/kcf_out_osd \
+  --windows ${VQ_PROD}/report/windows.csv --grid-summary ${VQ_PROD}/report/grid_summary.csv \
+  --out-dir ${VQ_PROD}/report/sot_kcf_long --score kcf_nt_long_ugr --arms kcf,kcf_nt
+python manu/video_quality/vq_sot_compare.py --sot-dir /tmp/kcf_out,/tmp/kcf_out_osd \
+  --windows ${VQ_PROD}/report/windows.csv --grid-summary ${VQ_PROD}/report/grid_summary.csv \
+  --out-dir ${VQ_PROD}/report/sot_kcf_short --score kcf_nt_short_ugr --arms kcf,kcf_nt
+
+# 3) 独立复算验收（CHECK 1 对 KCF 家族是 FAIL，见 9.10.9）
+python manu/video_quality/vq_sot_verify.py --sot-dir /tmp/kcf_out,/tmp/kcf_out_osd \
+  --windows ${VQ_PROD}/report/windows.csv --grid-summary ${VQ_PROD}/report/grid_summary.csv \
+  --thresholds ${VQ_PROD}/report/sot_kcf_long/sot_thresholds.csv --arms kcf_nt
+python manu/video_quality/vq_sot_admission_verify.py --sot-dir /tmp/kcf_out,/tmp/kcf_out_osd \
+  --windows ${VQ_PROD}/report/windows.csv --report-dir ${VQ_PROD}/report/sot_kcf_long \
+  --score kcf_nt_long_ugr --kind source --arms kcf_nt
+
+# 4) 膝点（主臂 kcf_nt）+ 盲测 + 组合 + 图
+python manu/video_quality/vq_degrade_knee.py curve --variants /tmp/vq_degrade/variants.csv \
+  --windows ${VQ_PROD}/report/degrade_windows.csv --sot-dir /tmp/vq_degrade/kcf_out --tau-dir /tmp/kcf_out \
+  --lock-out ${VQ_PROD}/report/kcf_degrade_lock.csv --out ${VQ_PROD}/report/kcf_degrade_curve.csv --arms kcf_nt,kcf
+python manu/video_quality/vq_degrade_knee.py knee --curve ${VQ_PROD}/report/kcf_degrade_curve.csv \
+  --out ${VQ_PROD}/report/kcf_knee_thresholds.csv
+python manu/video_quality/vq_degrade_knee.py blindtest --knee ${VQ_PROD}/report/kcf_knee_thresholds.csv \
+  --sot-windows ${VQ_PROD}/report/sot_kcf_long/sot_windows.csv \
+  --long-thresholds ${VQ_PROD}/report --short-thresholds ${VQ_PROD}/report/sot_short \
+  --out ${VQ_PROD}/report/kcf_knee_blindtest.csv --arms kcf_nt,kcf
+python manu/video_quality/vq_degrade_knee.py combo --knee ${VQ_PROD}/report/kcf_knee_thresholds.csv \
+  --sot-windows ${VQ_PROD}/report/sot_kcf_long/sot_windows.csv \
+  --long-thresholds ${VQ_PROD}/report --short-thresholds ${VQ_PROD}/report/sot_short \
+  --out ${VQ_PROD}/report/kcf_knee_combos.csv --arms kcf_nt,kcf
+python manu/video_quality/vq_degrade_knee.py charts --knee ${VQ_PROD}/report/kcf_knee_thresholds.csv \
+  --curve ${VQ_PROD}/report/kcf_degrade_curve.csv --windows ${VQ_PROD}/report/degrade_windows.csv \
+  --lock ${VQ_PROD}/report/kcf_degrade_lock.csv --chart-dir ${VQ_PROD}/report --arms kcf_nt,kcf
+```
+
+> **本节产物**（已入库）：`kcf_knee_thresholds.csv`、`kcf_knee_blindtest.csv`、`kcf_knee_combos.csv`、
+> `kcf_degrade_curve.csv`、`kcf_default_knee_thresholds.csv`、`kcf_default_knee_blindtest.csv`、
+> `kcf/sot_kcf_long/`、`kcf/sot_kcf_short/`（阈值与判别力表）、
+> `chart_degrade_knee_kcf_{ir,vis}_{metric}.png`（8 张）+ `chart_degrade_knee_kcfdefault_*`（8 张）。
+> 中间产物（探针 JSON、396 个退化变体的锁定率表）留在服务器 `/tmp/kcf_out*` 与 `/tmp/vq_degrade/kcf_out/`。
+> **本节未提交（按铁律〇之三之二），仅落工作区。**
+
+#### 9.10.12 结论口径收口：「跟踪器算法无关性（Method-Agnostic）」及其**边界**
+
+**一句话结论（可直接汇报）**：我们分别用**像素互相关（xcorr，逐帧重切模板 + ±12 px 搜索）**和
+**经典相关滤波（KCF，高斯核 + 傅里叶域滤波 + 在线模型更新）**两类原理完全不同的跟踪器
+**各自独立**反推画质物理崩溃拐点 ⇒ **被采用的两条线几乎逐位复现、盲测拦截率 100% 相同**
+⇒ 卡住的是**图像本身的物理信息底线**，不是某一个跟踪器的实现细节。
+
+**① 逐格对照（X = 退化后实测画质指标值，Y = SOT 锁定率；数值取自 `kcf_knee_thresholds.csv` 与 `knee_thresholds.csv`）**
+
+| 时程/模态/指标 | xcorr 膝点 | **KCF 膝点** | 差异 | 判定 |
+| --- | --- | --- | --- | --- |
+| 短 IR global_contrast | 0.577855 | **0.577855** | **逐位相同** | ✅ 方法无关 |
+| 短 IR lap_var | 6.493031 | **6.918433** | +6.5% | ✅ 同量级 |
+| 短 VIS lap_var | 306.473878 | **270.794141** | −11.6% | ✅ 同量级（两家族各报一条线，盲测结论相同） |
+| 长 IR global_contrast | 0.573831 | **0.57763** | +0.7% | ✅ 同量级 |
+| 长 IR lap_var | 7.843251 | **7.843251** | **逐位相同** | ✅ 方法无关 |
+| 长 IR edge_density | 0.007345 | **0.007345** | **逐位相同** | ✅ 方法无关 |
+| 长 VIS lap_var | 171.384126 | 270.794141 | **+58%** | 🔴 **不一致 ⇒ 该格不采用** |
+| 长 VIS global_contrast / edge_density | 0.27881 / 0.078302（reliable=1） | 0.501745 / 0.089019（**reliable=0**） | — | 🔴 **不一致 ⇒ 不采用** |
+
+**② 边界（必须一起说，别把「完全一致」讲过头）**
+
+- ✅ **方法无关性成立于「被采用的两条线」**：IR 短/长、VIS 短 —— 这才是对外报的线；
+- 🔴 **不成立于 VIS 长时程**（`lap_var` 差 58%，另两项在 KCF 家族 `knee_reliable=0`）
+  ⇒ 但该格**本来就按「不采用」处理**（xcorr 侧 AND 组合好片 0/691）⇒ **不构成对结论的挑战**；
+- 🔴 **「一致」指的是「线位一致」，不是「绝对锁定率一致」**（见 9.10.9）—— 两家族的锁定率刻度不同，
+  **数值并列呈现、不做合并**；
+- 🔴 坏源片只有 **4 条** ⇒ 「坏片拦截 100%」仍属**小样本结论**，上线前必须扩样重标。
+
+**③ 盲测（4 条未参与标定的真实坏片 + 18 条好片）**：两家族**逐位相同** ——
+IR 片级 好片误杀 **16.667%** / 坏片拦截 **100%**（窗级 26.055% / 88.789%）；
+VIS 片级 好片误杀 **0%** / 坏片拦截 **100%** ⇒ **换跟踪器家族，坏片照样拦得住、好片照样放得过去**。
+
+**④ 部署口径（工程细节，汇报可略）**
+
+- **线上画质门禁不跑跟踪器**（只算全图 `global_contrast` / `lap_var` 等指标）⇒ **无需引入 `opencv-contrib`**；
+- 但**产品跟踪链路若要用 OpenCV 的 KCF**，编译 / 打包必须带入 **`opencv_contrib` 的 `tracking` 模块**
+  （官方 `opencv-python` 主仓库里没有 KCF，见 9.10.1）。
+
+**⑤ 汇报话术（可直接引用）**
+
+> 「我们用像素互相关和经典相关滤波两类原理完全不同的跟踪器**各自独立**反推画质崩溃拐点，
+> 得到的**红外采用线几乎逐位一致**、**盲测坏片拦截率 100% 相同**，
+> 说明这条红线卡的是**图像本身的物理信息底线**，而不是某一个跟踪器的实现细节。
+> 唯一的差异是两种跟踪器的**绝对锁定率刻度不同**，所以数值**并列呈现、不做合并**。」
 
 ## 附录：逐条视频明细
 

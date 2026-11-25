@@ -26,11 +26,11 @@
 #   T1CLOSE_GPU=2 T1CLOSE_PARITY=1 setsid nohup bash $W/scripts/t1close_synth.sh >> $W/t1close_gpu2.log 2>&1 &
 set -u
 REPO=/tmp/pycharm_project_10ae9e2e; PY=/home/huangzhe/anaconda3/envs/uav/bin/python
-W=/mnt/data/siping/runs/npu20ms/nano_search; END="${T1CLOSE_END:-2026-11-23 21:00}"
+W=/mnt/data/siping/runs/npu20ms/nano_search; END="${T1CLOSE_END:-2026-11-30 09:00}"
 GPU="${T1CLOSE_GPU:-3}"
 PARITY="${T1CLOSE_PARITY:-0}"          # 0/1 ⇒ 与另一条合成通道**分片互斥**（零重复）
 NCHUNK="${T1CLOSE_NCHUNK:-8}"
-SIDBASE="${T1CLOSE_SID_BASE:-2130000}"     # 213xxxx 段 = nanolift 轴独占（212xxxx 已被 bridge 轴占满）
+SIDBASE="${T1CLOSE_SID_BASE:-2140000}"     # 214xxxx 段 = T1 岭线轴独占
 SIDSPAN="${T1CLOSE_SID_SPAN:-2000}"
 MAXBATCH="${T1CLOSE_MAX_BATCH:-5}"         # nanolift 轴共 6 批（0~5）
 # 🔴 2026-11-23 10:35 **默认生成器 = nanolift 轴**（A 叶四元组 × 桥接锚交叉配方）：
@@ -40,7 +40,7 @@ MAXBATCH="${T1CLOSE_MAX_BATCH:-5}"         # nanolift 轴共 6 批（0~5）
 #     ⇒ nanolift batch5 = A 叶四元组 {1100275,1102004,1104407,1623003} × 桥接锚 1612001
 # ⚠️ **cron 复活只传 3 个 env**（t1close_cron.sh: T1CLOSE_GPU/PARITY/END）
 #    ⇒ **默认值必须写死在这里**，否则 cron 一拉起就退回旧轴（本轮踩过：10:25 实例跑的是 bridge 轴）
-GEN="${T1CLOSE_GEN:-$W/scripts/gen_nanolift_recipes.py}"   # 配方生成器可换
+GEN="${T1CLOSE_GEN:-$W/scripts/gen_t1ridge_recipes.py}"   # 配方生成器可换（默认 = T1 岭线/供体剂量轴）
 cd "$REPO" || exit 1
 export PYTHONPATH=. OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 NUMEXPR_NUM_THREADS=4 NUMBA_NUM_THREADS=4
 LOG=$W/t1close_synth_gpu${GPU}.log

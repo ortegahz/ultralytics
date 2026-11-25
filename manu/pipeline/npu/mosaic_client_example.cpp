@@ -49,38 +49,82 @@
 #include <opencv2/imgcodecs.hpp>
 
 #include "mosaic_pipeline.h"
+#include "mosaic_paths.h"
 
 // ---------------------------------------------------------------------------
-// 默认值：板卡上零参数直接跑。换自己的路径就覆盖对应的那一个（位置参数）。
+// 默认值：板卡上零参数直接跑。换自己的路径就覆盖对应的那一个（命令行参数）。
+// 板卡无关 —— 路径一律走 mosaic_paths（env → 交付包内 → 板卡已知路径），
+// 命令行参数优先级永远高于这些默认值。
 // ---------------------------------------------------------------------------
-static const char* kFrameDir  = "/mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324";
-// 模型默认从**板卡 tmpfs** 读（交付目录在 NFS soft 挂载上，6.3 MB 直读会被读坏）。
-// 先 `cat <交付目录>/models/p0_off_A_none.rknn > /tmp/p0_off_A_none.rknn` 再跑。
-static const char* kModel     = "/tmp/p0_off_A_none.rknn";
-static const char* kKernelDir = "/mnt/manu/mosaic_sdk/runtime/kernels";
+// 默认序列名：帧目录 = 帧根目录(mosaic_paths::FramesRoot) + 序列名。
+static const char* kSequence  = "VIDEO00007_19700101_001324";
 // 21 帧 = GMC 的一个完整历史窗口。喂不满 21 帧也能出结果（早期帧的历史会被
 // clamp），但**喂满 21 帧才是认证质量的拟合**。
 static const int kDefaultFrames = 21;
 
 int main(int argc, char** argv)
 {
-    // 用法：mosaic_client_example [帧目录] [模型路径] [kernel 目录] [帧数]
-    if (argc > 5)
+    // 用法：mosaic_client_example [--frames-dir D] [--model M] [--kernel-dir K]
+    //                        [--seq S] [--frames N]
+    //       mosaic_client_example [帧目录] [模型路径] [kernel 目录] [帧数]（旧写法，仍兼容）
+    // --xxx 优先于位置参数；两者都不给时用 mosaic_paths 的板卡无关默认值。
+    std::string frame_dir; // 空 = 用默认值
+    std::string model;     // 空 = 用默认值
+    std::string kernel;    // 空 = 用默认值
+    std::string seq = kSequence;
+    int want = kDefaultFrames;
+
+    int pos = 0;
+    for (int i = 1; i < argc; ++i)
     {
-        fprintf(stderr, "用法: %s [帧目录] [模型路径] [kernel 目录] [帧数]\n", argv[0]);
-        return 2;
+        const std::string arg = argv[i];
+        const bool wants_value = (arg == "--frames-dir" || arg == "--model" ||
+            arg == "--kernel-dir" || arg == "--seq" || arg == "--frames");
+        if (wants_value && i + 1 >= argc)
+        {
+            fprintf(stderr, "[FATAL] %s 缺少参数值\n", arg.c_str());
+            fprintf(stderr, "用法: %s [--frames-dir D] [--model M] [--kernel-dir K] [--seq S] [--frames N]\n", argv[0]);
+            return 2;
+        }
+        if (arg == "--frames-dir") frame_dir = argv[++i];
+        else if (arg == "--model") model = argv[++i];
+        else if (arg == "--kernel-dir") kernel = argv[++i];
+        else if (arg == "--seq") seq = argv[++i];
+        else if (arg == "--frames") want = atoi(argv[++i]);
+        else if (arg.size() > 1 && arg[0] == '-')
+        {
+            fprintf(stderr, "[FATAL] 未知参数 %s\n", arg.c_str());
+            fprintf(stderr, "用法: %s [--frames-dir D] [--model M] [--kernel-dir K] [--seq S] [--frames N]\n", argv[0]);
+            return 2;
+        }
+        else
+        {
+            // 旧的位置参数写法：[帧目录] [模型路径] [kernel 目录] [帧数]
+            switch (pos++)
+            {
+                case 0: frame_dir = arg; break;
+                case 1: model = arg; break;
+                case 2: kernel = arg; break;
+                case 3: want = atoi(arg.c_str()); break;
+                default:
+                    fprintf(stderr, "[FATAL] 多余的位置参数 %s\n", arg.c_str());
+                    fprintf(stderr, "用法: %s [--frames-dir D] [--model M] [--kernel-dir K] [--seq S] [--frames N]\n", argv[0]);
+                    return 2;
+            }
+        }
     }
-    const char* frame_dir = (argc > 1) ? argv[1] : kFrameDir;
-    const char* model     = (argc > 2) ? argv[2] : kModel;
-    const char* kernel    = (argc > 3) ? argv[3] : kKernelDir;
-    const int   want      = (argc > 4) ? atoi(argv[4]) : kDefaultFrames;
+
+    // 板卡无关的默认值：帧目录 = 帧根目录 + 序列名；模型 / kernel 各自回落。
+    if (frame_dir.empty()) frame_dir = mosaic_paths::FramesRoot() + "/" + seq;
+    if (model.empty()) model = mosaic_paths::ModelPath();
+    if (kernel.empty()) kernel = mosaic_paths::KernelDir();
 
     // ---- 1) 建流水线：配置就上面那几行 -------------------------------------
     MosaicOpenOptions opt = {};
     opt.version     = MOSAIC_API_VERSION;
     opt.preset      = MOSAIC_PRESET_REALTIME;    // 最优档：3 级流水线 + D=3
-    opt.model_path  = model;
-    opt.kernel_dir  = kernel;
+    opt.model_path  = model.c_str();
+    opt.kernel_dir  = kernel.c_str();
     opt.check_env   = 1;      // raw_root 为空 ⇒ 这一步自动跳过（不是失败）
 
     char err[512] = {0};
@@ -111,10 +155,10 @@ int main(int argc, char** argv)
         // frame_path 只在回调期间有效 ⇒ 必须立刻拷贝，不能存指针。
         if (out && frame_path) out->push_back(std::string(frame_path));
     };
-    if (mosaic_pipeline_list_frames(frame_dir, on_frame, &frames, 4096) <= 0 ||
+    if (mosaic_pipeline_list_frames(frame_dir.c_str(), on_frame, &frames, 4096) <= 0 ||
         frames.empty())
     {
-        fprintf(stderr, "[FATAL] %s 下没有帧\n", frame_dir);
+        fprintf(stderr, "[FATAL] %s 下没有帧\n", frame_dir.c_str());
         mosaic_pipeline_destroy(p);
         return 1;
     }

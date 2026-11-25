@@ -7,7 +7,7 @@ REPO=/tmp/pycharm_project_10ae9e2e
 PY=/home/huangzhe/anaconda3/envs/uav/bin/python
 W=/mnt/data/siping/runs/npu20ms/nano_search
 LOG=$W/day_supervisor.log
-END="${SUP_END:-2026-11-23 21:00}"
+END="${SUP_END:-2026-11-30 09:00}"
 cd $REPO || exit 1
 export PYTHONPATH=. OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 NUMEXPR_NUM_THREADS=4 NUMBA_NUM_THREADS=4
 log(){ echo "[$(date "+%F %T")] $*" >> $LOG; }
@@ -86,14 +86,14 @@ while :; do
       synth0) setsid nohup bash $W/scripts/synth_gpu0_d6.sh >> $W/d6_gpu0.log 2>&1 < /dev/null 9>&- & ;;
       synth1) setsid nohup bash $W/scripts/synth_gpu1_d5.sh >> $W/d5_gpu1.log 2>&1 < /dev/null 9>&- & ;;
       trackbw) setsid nohup $PY -u manu/pipeline/npu/trackb_promote_watch.py --watch --interval 600 \
-               --deadline "${SUP_END:-2026-11-23 21:00}" >> $W/trackb_promote_watch.log 2>&1 < /dev/null 9>&- & ;;
+               --deadline "${SUP_END:-2026-11-30 09:00}" >> $W/trackb_promote_watch.log 2>&1 < /dev/null 9>&- & ;;
       synth2) setsid nohup bash $W/scripts/synth_gpu2_d4.sh >> $W/d4_gpu2.log 2>&1 < /dev/null 9>&- & ;;
       synth3) setsid nohup bash $W/scripts/synth_gpu3_d3.sh >> $W/d3_gpu3.log 2>&1 < /dev/null 9>&- & ;;
       boardw) setsid nohup $PY -u manu/pipeline/npu/board_t4_watch.py --watch --interval 600 \
-               --deadline "${SUP_END:-2026-11-23 21:00}" >> $W/board_t4_watch.log 2>&1 < /dev/null 9>&- & ;;
+               --deadline "${SUP_END:-2026-11-30 09:00}" >> $W/board_t4_watch.log 2>&1 < /dev/null 9>&- & ;;
       promow) setsid nohup $PY -u manu/pipeline/npu/auto_promote_watch.py --watch --interval 600 \
-               --deadline "${SUP_END:-2026-11-23 21:00}" >> $W/auto_promote_watch.log 2>&1 < /dev/null 9>&- & ;;
-      guard) setsid nohup $PY -u /tmp/baseline_guard.py "${SUP_END:-2026-11-23 21:00}" >> $W/baseline_guard.log 2>&1 < /dev/null 9>&- & ;;
+               --deadline "${SUP_END:-2026-11-30 09:00}" >> $W/auto_promote_watch.log 2>&1 < /dev/null 9>&- & ;;
+      guard) setsid nohup $PY -u /tmp/baseline_guard.py "${SUP_END:-2026-11-30 09:00}" >> $W/baseline_guard.log 2>&1 < /dev/null 9>&- & ;;
       nw) setsid nohup bash $W/scripts/nano_watchdog.sh >> $W/nano_watchdog_runner.log 2>&1 < /dev/null 9>&- & ;;
       mreport) setsid nohup bash $W/scripts/morning_report_sched.sh \
                >> $W/morning_report_sched_runner.log 2>&1 < /dev/null 9>&- & ;;

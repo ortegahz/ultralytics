@@ -307,3 +307,56 @@ run.bat D:\videos
 因此本仓库的 `build_exe.bat` / `run.bat` 已改成纯 ASCII + CRLF，
 中文提示改由 `msg_cn.txt`（UTF-8 无 BOM）配合 `chcp 65001` + `type` 输出。
 **改这两个 `.bat` 时请沿用该纪律。**
+
+---
+
+## 7. 把交付包拆成 N 份（发给多个标注员）
+
+`split_delivery.py` 把一份 Windows 交付包按「等量」拆成 N 份，每份**自包含**
+（工具 + 免装 Python 的 exe + 课件 + Python 安装包 + 自己的视频与预标注），
+发给不同的标注员并行标注。
+
+```bash
+# 只看分配方案，不落盘
+python3 manu/point_annotator/split_delivery.py \
+    --master <母包目录> --out-dir <输出目录> --parts 3 --plan
+
+# 真正生成
+python3 manu/point_annotator/split_delivery.py \
+    --master <母包目录> --out-dir <输出目录> --parts 3
+
+# 验收（结构 / 配对 / 逐字节 md5 / 等量 / 无重复无遗漏）
+python3 manu/point_annotator/verify_split.py \
+    --master <母包目录> --parts-dir <输出目录>
+```
+
+### 「等量」按什么算
+
+**不是按条数**（视频长短能差十几倍），**也不只是按总帧数**
+（预标注覆盖率可能从 0% 到 90% 不等 ⇒ 没底稿的帧要手工落点，有底稿的帧只需核对）。
+本工具同时对齐三个指标：
+
+| 指标 | 含义 |
+| --- | --- |
+| 总帧数 | 每帧都要过一遍的总量 |
+| 手工帧数 | 视频帧数 − 预标注覆盖帧数 = 必须人工落点的帧 |
+| 工作量当量 | 手工帧 × 1.0 + 有底稿帧 × 0.35（核对/微调的折算） |
+
+分配算法 = **LPT 播种**（工作量降序进当前最轻的一份）+ **局部搜索**
+（单条挪动 / 两条对调，直到三份的最大相对偏差最小）。
+
+### 产物
+
+* 每份一个目录 `<前缀>N/`，含母包的全部骨架（`.bat` / `msg_cn.txt` / `README_先看这个.md` /
+  `tool/` / `docs/` / `python-3.10.0-amd64.exe`），**按份改写** `README` 与 `msg_cn.txt`；
+* 每份的 `videos/annotations/` 建**空目录** ⇒ 标注员直接从第一条开始标；
+* **不带**：母包的试跑草稿、`tool/build/`（PyInstaller 中间态）、旧 `*.log`；
+* 每份一份 `_split_manifest.md5`（逐文件 md5）⇒ `md5sum -c` 自校验；
+* 输出目录根有一份《交付说明.md》（清单、等量数据、发放与回收流程、复验命令）。
+
+### 两个坑
+
+1. **帧数别用 `ffprobe -count_frames`**（逐帧解码，几百条视频要十几分钟）⇒
+   用容器表里的 `nb_frames`（毫秒级）；
+2. **`.bat` 是 CRLF + 纯 ASCII**（见 §6）⇒ 改写时**按行拆（保留行尾）再插回**，
+   按 `\n` 找锚点必然落空。

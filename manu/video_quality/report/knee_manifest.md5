@@ -1,26 +1,47 @@
-# 膝点标定（第二子目标）＋ P0/P1/P2 审计修复 —— 产物 md5 清单
-# 服务器侧：huangzhe@192.168.99.40:32222  /tmp/pycharm_project_a7d966e6
-# 生成时间：2026-11-20 19:58
-# 主机侧拉回后：cd <仓库根> && md5sum -c manu/video_quality/report/knee_manifest.md5
-# 2026-11-23 刷新：以下 3 个 memory 文件在追加「膝点标定」段后哈希已变，已用 ssh 直连服务器逐字节复核（server md5 == local md5），再更新本清单：
-#   ssh -p 32222 huangzhe@192.168.99.40 'cd /tmp/pycharm_project_a7d966e6 && md5sum manu/memory/*.md manu/memory/.slim_memory.md'
-110ec3e25ac0e55b3025b002e2ba63ec  manu/memory/.slim_memory.md
-9b6c4f2cb6df486354730d73f5bb4d43  manu/memory/memory.md
-7eb8565e6d88b6932880c8a3d74bd342  manu/memory/memory_compact.md
-2f29835d7aa6534ef7a252bed72640e5  manu/memory/video_quality_metrics_20261119.md
-b911a7e488ab2f8bcc9c24b0205e0246  manu/video_quality/report/REPORT_视频质量指标.md
-de08bb6ab60eee7af903d4bb368684ac  manu/video_quality/report/chart_degrade_knee_ir_blockiness.png
-c26e9a978aa97cbaf68558cb36fe9802  manu/video_quality/report/chart_degrade_knee_ir_edge_density.png
-b2d100ec3d0570cc5b7095c7cc43a7bf  manu/video_quality/report/chart_degrade_knee_ir_entropy.png
-3f2d42d362fde4d837c2223bf75b02b6  manu/video_quality/report/chart_degrade_knee_ir_global_contrast.png
-559d6618614eca90038165e97db13c5d  manu/video_quality/report/chart_degrade_knee_ir_lap_var.png
-bc4058afb515e2f50cc0f1925676786d  manu/video_quality/report/chart_degrade_knee_vis_edge_density.png
-b64b6a48af26b9bb6a9ed696ee13dc4c  manu/video_quality/report/chart_degrade_knee_vis_global_contrast.png
-ecd0d50745079d0b607100d0030c2cb0  manu/video_quality/report/chart_degrade_knee_vis_lap_var.png
+# 膝点标定（第二子目标）＋ P0/P1/P2 审计修复 ＋ **KCF 版重做（第二家族）** —— 产物 md5 清单
+#
+# 【2026-11-25 刷新】2026-11-24 的「产物区迁移」只改了 .gitignore 与报告里的图链接，**文件没有搬**，
+#   ⇒ 40 张 PNG 与 kcf 派生表在仓库里消失、报告图链全裂。已从服务器把原件按其权威清单
+#   `report/_moved_manifest.tsv`（82 项，含 md5/bytes）**逐字节还原**到本机产物区
+#   `../cache/ultralytics/repo-artifacts/manu/video_quality/report/`（1:1 镜像原仓库相对路径），
+#   **82/82 项 md5 与服务器清单逐位一致**（含 40 张 PNG）。
+#
+# 校验命令（仓库根执行）：md5sum -c manu/video_quality/report/knee_manifest.md5
+#   当前 **90 条**：48 csv + 24 png + 12 py + 5 md + 1 pdf（路径相对仓库根，`../cache/...` 指产物区）。
+#   其中 `manu/memory/{memory.md,.slim_memory.md,memory_compact.md,video_quality_metrics_20261119.md}`
+#   **四条是「活基线」**——记忆库每次滚动都会改，
+#   本清单的 md5 于 2026-11-25（§310/§311/§312 写入后）同步刷新；**记忆库再动就要再刷这三条**，否则 -c 会报 FAILED。
+# 产物区路径为**相对仓库根**的 `../cache/...` ⇒ 换机器只需保证 cache 落点存在即可复验。
+#
+# 服务器侧：huangzhe@192.168.99.40:32222  /tmp/pycharm_project_a7d966e6/manu/video_quality/report
+#   权威清单：report/_moved_manifest.tsv（服务器侧留有同一批原件，可再次还原）
+#
+# 说明：
+#   * 图表（PNG）按 2026-11-24 用户裁决**不入库**，仓库只留「代码 + 报告正文 + 本清单」；
+#   * `*sot_windows.csv` / `degrade_lock.csv` / `degrade_windows.csv` 等体积大的中间表亦不入库；
+#   * KCF 派生表（kcf_*.csv、sot_kcf_*）同样只落产物区。
+#
+# 服务器侧注意：服务器工作目录 /tmp/pycharm_project_a7d966e6 **没有** cache 落点
+#   ⇒ 本清单的 `../cache/...` 条目在服务器上不可解析；服务器侧请用同源的
+#   `manu/video_quality/report/_moved_manifest.tsv`（82 项，含 md5/bytes）自校验。
+d211ce12f29b93112d957ec6334da226  manu/memory/.slim_memory.md
+426598ef0278cf7147ea689ea51d1cf6  manu/memory/memory.md
+8b798239cc64cc74b2aa8bb0dfafa396  manu/memory/memory_compact.md
+5a8382baa28889057f561b1a7af83bcd  manu/memory/video_quality_metrics_20261119.md
+d4cdf0d1fb3300accc65bc0c85d50780  manu/video_quality/report/REPORT_视频质量指标.md
+d97b9bb415a727863e386ffed325c299  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/图像解读手册_40张图.pdf
+de08bb6ab60eee7af903d4bb368684ac  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_ir_blockiness.png
+c26e9a978aa97cbaf68558cb36fe9802  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_ir_edge_density.png
+b2d100ec3d0570cc5b7095c7cc43a7bf  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_ir_entropy.png
+3f2d42d362fde4d837c2223bf75b02b6  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_ir_global_contrast.png
+559d6618614eca90038165e97db13c5d  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_ir_lap_var.png
+bc4058afb515e2f50cc0f1925676786d  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_vis_edge_density.png
+b64b6a48af26b9bb6a9ed696ee13dc4c  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_vis_global_contrast.png
+ecd0d50745079d0b607100d0030c2cb0  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_vis_lap_var.png
 2772032cc411a137a603eb3fb5b8027c  manu/video_quality/report/degrade_curve.csv
-47b4aba72fbc2fe7fe29f0d130bd09eb  manu/video_quality/report/degrade_lock.csv
+47b4aba72fbc2fe7fe29f0d130bd09eb  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/degrade_lock.csv
 0be9515c45f37b37bf8496bbe716e599  manu/video_quality/report/degrade_variants.csv
-f0afce3eff227cf8a4f5bbcb945e99f2  manu/video_quality/report/degrade_windows.csv
+f0afce3eff227cf8a4f5bbcb945e99f2  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/degrade_windows.csv
 889b27b990a42e6a6c33c661030095cf  manu/video_quality/report/knee_blindtest.csv
 412058dedc2aaf899eb3f1f9bdc5dd91  manu/video_quality/report/knee_combos.csv
 ea398e9d57b9e9a79e61344fdcb5204f  manu/video_quality/report/knee_thresholds.csv
@@ -36,13 +57,60 @@ c5ec4358a86cc5bc44e2f9f75e470282  manu/video_quality/report/sot_short/sot_thresh
 c4bec0070f0ecf719423e1b67db82ca4  manu/video_quality/report/sot_short/sot_thresholds_ir.csv
 4e8323476396d91d845cc2f96996a877  manu/video_quality/report/sot_short/sot_thresholds_vis.csv
 ad9b39e4f16cb5f662c61d4a7f917041  manu/video_quality/report/sot_tau_det.csv
-ff836a1c1b9bcde70e39390b20e0f4eb  manu/video_quality/vq_degrade_knee.py
+994efab494e398e0be41f0585dbcf075  manu/video_quality/vq_degrade_knee.py
+30983f5a4ce90dfd9e7e536bd83feb06  manu/video_quality/vq_chart_doc.py
 619dd401f07630e51cf7ef2bb504f6be  manu/video_quality/vq_degrade_prepare.py
 49bdfd987ae020f5813d81ec3c73fc64  manu/video_quality/vq_degrade_report.py
 d978a8bd2c771cf02342e785a72a493b  manu/video_quality/vq_metrics.py
-51dbf827c3aeee223952fcd5feeb9368  manu/video_quality/vq_sot_admission_verify.py
-560e41a39a5c3dcc03546894d0335870  manu/video_quality/vq_sot_compare.py
-ebc6aa0980d4951765ce95237376803d  manu/video_quality/vq_sot_link.py
-b1de859720c63b617bb01363a9eb183c  manu/video_quality/vq_sot_link_driver.py
-3e57e2bfc2c8e23374ca84f2799dce74  manu/video_quality/vq_sot_verify.py
+f1e7b04bedefc726c0e86aabc7ae7268  manu/video_quality/vq_sot_admission_verify.py
+0f4aca2b8e3eb46469a81c5a95e88977  manu/video_quality/vq_sot_compare.py
+831e13153f688e024fd09d5b580a00d8  manu/video_quality/vq_sot_link.py
+a9dfff79b1bbaf3fe746626543337fa0  manu/video_quality/vq_sot_link_driver.py
+d61d50f934d5fde6e7339407712f99c9  manu/video_quality/vq_sot_verify.py
 dd8aa950faca7dc94769745723bab0a5  manu/video_quality/vq_stats.py
+8232ae5315072daa300732be0026e1c8  manu/tracking/lookahead/kcf_cv.py
+188cf8135e639b3abfe669f656700f6f  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/kcf_knee_thresholds.csv
+edf922e20d9ccff03914e2b5c24f74d6  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/kcf_knee_blindtest.csv
+abee0e694f0e5f23311444e0ef9f5f86  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/kcf_knee_combos.csv
+62d49d1c4873c0cd8dae502a1996109f  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/kcf_degrade_curve.csv
+7706e0387f8a1e0ee5662dc0a81c702d  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/kcf_default_knee_thresholds.csv
+475ce1d325430591c9459350582ec794  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/kcf_default_knee_blindtest.csv
+b754ecd920b858d628d88f7f7804d06c  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/kcf_default_degrade_curve.csv
+c009ca9450ead75746e14c3b6833bd7c  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcf_ir_blockiness.png
+4aaa1c5ee9c864858ce959bdde110490  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcf_ir_edge_density.png
+cc1348b4661a4fad1d93e5eba023693a  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcf_ir_entropy.png
+73ecdcf1d60d3236fae4549653510d07  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcf_ir_global_contrast.png
+836bdd37767be2a0967c84bf4ba3a18b  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcf_ir_lap_var.png
+20c9b651467466c80e71902047d6ebde  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcf_vis_edge_density.png
+b5f72bcab342d935d9884ab66ca5f917  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcf_vis_global_contrast.png
+d5eea1f4c7a6da0a5901a1ec2f2c32c2  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcf_vis_lap_var.png
+5f3fec5f44d3b592d1670d718ea58a12  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcfdefault_ir_blockiness.png
+ffa2047145b3dcc22d97acf789e8c37d  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcfdefault_ir_edge_density.png
+b364ade90b9d5d86bd09e04b182fb2c0  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcfdefault_ir_entropy.png
+32032dd775e3aa77742439823567aeca  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcfdefault_ir_global_contrast.png
+0490380bad8d99b670799c3faebed0cc  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcfdefault_ir_lap_var.png
+64b7c8a856dda2113550450c4351afad  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcfdefault_vis_edge_density.png
+35e8fbe6119c1c406e2fac34caa5d38d  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcfdefault_vis_global_contrast.png
+a805406444f299d0550eeed7b31cc034  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_kcfdefault_vis_lap_var.png
+763d91b8c68df021243c0ea55484cc89  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/sot_kcf_short/sot_admission_lines.csv
+8fcf15fa2dc8afee93fcafb1c64a310c  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/sot_kcf_short/sot_admission_transfer.csv
+0a2f3de6af4dfc4e486610e755b615c1  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/sot_kcf_short/sot_clips.csv
+e953304898aea76263549a682769ce3d  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/sot_kcf_short/sot_combined_rules.csv
+4ac3940b7aecc5b50619287559dcc57f  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/sot_kcf_short/sot_discrimination.csv
+3212bb33461b9a8ad9eee1de7c0b87cd  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/sot_kcf_short/sot_groups.csv
+d29110c311cb30abde37721d9e4dddc5  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/sot_kcf_short/sot_percentile_rules.csv
+ad9b39e4f16cb5f662c61d4a7f917041  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/sot_kcf_short/sot_tau_det.csv
+6d1add025905a9cf1a2a12f3e0458652  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/sot_kcf_short/sot_thresholds.csv
+02a400da39a530eb097192a8d4ecfa2d  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/sot_kcf_short/sot_thresholds_ir.csv
+94aca9e505cfec6ae184f30255e69f54  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/sot_kcf_short/sot_thresholds_vis.csv
+851d14b3adfcf0bdc5e0771a0eeb05f1  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/sot_kcf_long/sot_admission_lines.csv
+306d733baf1b720610390bea6a18116f  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/sot_kcf_long/sot_admission_transfer.csv
+0a2f3de6af4dfc4e486610e755b615c1  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/sot_kcf_long/sot_clips.csv
+1e0915e2b67efa0511936aee216fcef2  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/sot_kcf_long/sot_combined_rules.csv
+df8b5de4a5e535dda128421c0b807a2d  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/sot_kcf_long/sot_discrimination.csv
+3212bb33461b9a8ad9eee1de7c0b87cd  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/sot_kcf_long/sot_groups.csv
+ca8970a73a243e12d2c9ec457eccf956  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/sot_kcf_long/sot_percentile_rules.csv
+ad9b39e4f16cb5f662c61d4a7f917041  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/sot_kcf_long/sot_tau_det.csv
+c2a356fcef14a0ff60366805775002b3  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/sot_kcf_long/sot_thresholds.csv
+147500b906d589a55cdd2390a1a1650e  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/sot_kcf_long/sot_thresholds_ir.csv
+1e7fef178055baa9689d9a6498e068de  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/sot_kcf_long/sot_thresholds_vis.csv

@@ -65,7 +65,11 @@ W = "/mnt/data/siping/runs/npu20ms/nano_search"
 LEDGER = os.path.join(W, "nano_search_ledger.json")
 ROOT = "/mnt/data/siping/runs/npu20ms_offcal"
 CLAIM = os.path.join(W, ".gate_claim")
-CLAIM_TTL = 45 * 60
+# 🔴🔴 2026-11-23 12:5x —— CLAIM_TTL 45min → 100min
+#   坑：单轮 8 臂 × ~9.5min ≈ 76min > 原 45min ⇒ 同一臂在 TTL 过期后会被两条通道同时抢
+#   （`night_soup_batch.py:233-235` 只在门禁目录已存在时跳过 ⇒ 存在创建竞态窗口）
+#   ⇒ TTL 必须 > 单轮时长；配合 `timeout 3600→5400`（见 gate_loop_d1*.sh / t1close_gate.sh）
+CLAIM_TTL = 100 * 60
 
 # 🔴 2026-11-19 09:50 **门禁入队口径放宽**（周末算力不许空转）
 #   现场证据：基线 nano .7242439 是全盘最高 ⇒ 「nano/nano4/f1 三轴同时 ≥ 基线」**恒空**
@@ -117,7 +121,10 @@ STALE_GATE_SEC = 5400  # 有门禁目录但没报告且 mtime 新于 90min ⇒ �
 # 【回退】本文件**未被 git 跟踪** ⇒ 回退用交付说明里的备份副本覆盖；
 #   或把 `TRAIN_TIER` 设为 0 且 `TRAIN_EXPLORE_MULT` 设为 1（收窄到「仅 strict 训练臂」）。
 TRAIN_TIER = 1             # training-arm tier: 1 = after strict soup / before near soup; 0 = after all soup
-TRAIN_EXPLORE_MULT = 4     # three-axis tolerance multiplier for the training-arm explore tier (1 = off)
+TRAIN_EXPLORE_MULT = 4     # training-arm explore tier: three-axis tolerance multiplier for the training-arm explore tier (1 = off)
+
+# 🔴 2026-11-23 12:20 —— 汤臂 near 档的 f1 硬门槛开关（见下方 near_ok 注释）；0 = 回到老口径
+GATE_NEAR_STRICT = int(os.environ.get("GATE_NEAR_STRICT", "1"))
 
 
 def _epoch_key(ep) -> str:
@@ -217,6 +224,53 @@ def _has_pos_axis(st, of, base) -> bool:
     return False
 
 
+# 🔴🔴 2026-11-23 11:40 —— **各轴量化台阶（实测，勿改）**
+#   读数不是连续量，而是「整数 TP/FP/FN 的有理函数」⇒ 每轴有一个最小台阶：
+#     nano  ≈ 2.363e-4  nano4 ≈ 2.363e-4
+#     f1    ≈ 1.90e-5   t1   ≈ 1.85e-5（T1 集约 43.5 万样本 ⇒ 1 个 TP = 4.6e-6~1.9e-5）
+#     t3    ≈ 5.20e-5   t2_fp = 1 个虚警（整数）
+#   ⇒ 「离六项全过还差几个台阶」是一个**可比的整数/半整数**，比比绝对差值有用得多。
+# 🔴🔴 2026-11-23 12:05 —— **修 _Q_NANO 写反的 bug**（原表 nano=4.726e-4 / nano4=2.363e-4）
+#   实测 2287 个已门禁臂的 Δ 分布：|Δnano| 的**最小非零台阶 = 2.363e-4**（近失族 114 臂命中），
+#   |Δnano4| 的最小台阶也是 2.363e-4（nano4 是 nano 的子集 ⇒ 一次检出同时影响两轴，
+#   故两轴台阶相同；原表把 nano 写成 4.726e-4 = **大了 2 倍** ⇒ 缺口被低估、排序失真）。
+_Q_NANO, _Q_NANO4, _Q_F1, _Q_T1, _Q_T3 = 2.363e-4, 2.363e-4, 1.90e-5, 1.85e-5, 5.20e-5
+
+# 🔴🔴 2026-11-23 12:05 —— **fam_gap 语义修正用的两个常量**
+#   _GAP_DEAD  = 「该族已证伪：六项全过但**零头寸**（没有任何一轴严格优于基线）」
+#                ⇒ 它离「可升轨」是**无穷远**，绝不能记成 gap=0（否则霸占队首）。
+#   _GAP_NEW   = 新血统（无任何已门禁兄弟臂）时，在自身 bench 缺口上加的「门禁轴未知」代价。
+_GAP_DEAD = 99.0
+_GAP_NEW = 1.0
+
+
+def _strict3(pk, base) -> bool:
+    """bench 三轴（nano/nano4/f1）是否**同时 ≥ 基线** ⇒ 该臂才可能补齐六项。"""
+    pk = pk or {}
+    for k in ("nano", "nano4", "f1"):
+        v = pk.get(k)
+        if v is None or float(v) < float(base[k]) - 1e-12:
+            return False
+    return True
+
+
+def _gap6(pk, of, base) -> float:
+    """离「六项全过」还差多少个量化台阶（欠 t2_fp 记 1 个台阶；无读数的轴不计）。"""
+    g = 0.0
+    for k, q in (("nano", _Q_NANO), ("nano4", _Q_NANO4), ("f1", _Q_F1)):
+        v = (pk or {}).get(k)
+        if v is not None and float(v) < float(base[k]) - 1e-12:
+            g += (float(base[k]) - float(v)) / q
+    for k, q in (("t1", _Q_T1), ("t3", _Q_T3)):
+        v = (of or {}).get(k)
+        if v is not None and float(v) < float(base[k]) - 1e-12:
+            g += (float(base[k]) - float(v)) / q
+    v = (of or {}).get("t2_fp")
+    if v is not None and int(v) > int(base.get("t2_fp") or 0):
+        g += 1.0
+    return g
+
+
 def main():
     chan = sys.argv[1] if len(sys.argv) > 1 else "x"
     # 🔴 --dry：只打印不建 claim（claim 会挡住真正的门禁通道 ⇒ 调试绝不能带 claim 跑）
@@ -261,6 +315,21 @@ def main():
     lin_t1 = {}      # mkey -> max(dT1)  over 已门禁兄弟臂
     lin_n = {}       # mkey -> 已门禁兄弟臂个数
     lin_pos = {}     # mkey -> 1 若该成员集里**存在**任何一轴严格优于基线的已门禁臂
+    # 🔴🔴 2026-11-23 11:40 新增两张表（**修两处误判的关键证据**）：
+    #   lin_strict[mkey] = 该成员集里存在「bench 三轴全 ≥ 基线」的已门禁兄弟臂
+    #        ⇒ 该血统**有能力**补齐六项（缺的是 T1/T3）⇒ 不是死路
+    #   lin_gap[mkey]    = 该成员集已门禁兄弟臂里「离六项全过的最小台阶数」
+    #        ⇒ 用来把**离升轨最近的族**排到队首（实测：近失族 1.7~3.0 台阶，
+    #          而桥接族 nano4 欠 5 个台阶 ⇒ 桥接族永远不可能 6/6）
+    lin_strict = {}
+    lin_gap = {}
+    # 🔴🔴 2026-11-23 12:05 新增 lin_tie[mkey]：
+    #   = 该成员集里存在「六项全过却**零头寸**」（无任何一轴严格优于基线）的已门禁兄弟臂。
+    #   ⇒ 该族**永远不可能产出可升轨臂**（读数与基线同格）⇒ fam_gap 记 _GAP_DEAD。
+    #   ⚠️ 旧实现把这类兄弟臂算成 gap=0，而**基线臂 1990055 本身就在基线族里**（t2_fp=3 ⇒ gap=0）
+    #      ⇒ 基线族 1179 个纯打平臂全部 fam_gap=0 ⇒ 霸占 stage 2 前排，
+    #      把 132 个「只欠 T1 一轴」的近失族臂挤到 rk 1400+ ⇒ 门禁机时空转。
+    lin_tie = {}
     T1LIN_DEAD_MIN_N = 5   # 证伪所需的最少样本量（<5 ⇒ 证据不足，不降权）
     gmap = build_gate_map()          # ★ 台账 official 段恒为 null ⇒ 官方三轨只能读磁盘门禁报告
     for sid, st in arms.items():
@@ -283,6 +352,17 @@ def main():
         lin_n[mkey] = lin_n.get(mkey, 0) + 1
         if not lin_pos.get(mkey) and _has_pos_axis(st, of, base):
             lin_pos[mkey] = 1
+        _pk0 = st.get("picked") or {}
+        if _strict3(_pk0, base):
+            lin_strict[mkey] = 1
+        _g0 = _gap6(_pk0, of, base)
+        # 🔴🔴 2026-11-23 12:05 —— **纯打平兄弟臂不作为「近失距离」证据**
+        #   判据：没有任何一轴严格优于基线（_has_pos_axis=False）⇒ 零头寸 ⇒ 永不可升轨。
+        if _has_pos_axis(st, of, base):
+            if _g0 < lin_gap.get(mkey, 1e9):
+                lin_gap[mkey] = _g0
+        else:
+            lin_tie[mkey] = 1
         fam = str(st.get("soup_family") or "")
         bucket_best[fam] = max(bucket_best.get(fam, 0), p)
         bucket_n[fam] = bucket_n.get(fam, 0) + 1
@@ -310,6 +390,15 @@ def main():
         lin_n[mkey] = lin_n.get(mkey, 0) + 1
         if not lin_pos.get(mkey) and _has_pos_axis(st, of, base):
             lin_pos[mkey] = 1
+        _pk1 = st.get("picked") or {}
+        if _strict3(_pk1, base):
+            lin_strict[mkey] = 1
+        _g1 = _gap6(_pk1, of, base)
+        if _has_pos_axis(st, of, base):
+            if _g1 < lin_gap.get(mkey, 1e9):
+                lin_gap[mkey] = _g1
+        else:
+            lin_tie[mkey] = 1
 
     # 🔴 2026-11-18 17:40：**Track-B 家族兄弟插队**
     #   升轨工具 promote_trackb 要求「同家族 Track-B 合格臂 ≥ 2」才有复现票。
@@ -356,9 +445,22 @@ def main():
                 continue
         strict_ok = (pk.get("nano", 0) >= base["nano"] and pk.get("nano4", 0) >= base["nano4"]
                      and pk.get("f1", 0) >= base["f1"])
-        near_ok = (pk.get("nano", 0) >= base["nano"] - TOL_NANO
-                   and pk.get("nano4", 0) >= base["nano4"] - TOL_NANO4
-                   and pk.get("f1", 0) >= base["f1"] - TOL_F1)
+        # 🔴🔴🔴 2026-11-23 12:20 —— **near 档收紧**（实测能省掉 ~50% 的门禁机时）
+        #   权威判据（`promote_candidate.py` L206-234，已复核）：nano / nano4 / f1 三轴
+        #   都是**硬门槛**（`c["f1"] = pk["f1"] >= base["f1"]`）⇒ **f1 < 基线 ⇒ 六项必败**。
+        #   现场：215xxxx「口袋」臂（gen_pocket_recipes.py）的 6 个锚点 dF1 = −1~−4 量子
+        #   ⇒ **全部注定失败**，却占掉了 4 条门禁通道里的一整条（实测在打 2150007/2150011~16/2150020）。
+        #   ⇒ 汤臂的 near 档改成：**f1 必须 ≥ 基线（逐位）**，nano/nano4 保留原容差
+        #      （bench 复测有 ±1~2 量子的抖动 ⇒ 留后路）。
+        #   ⇒ 想回退：GATE_NEAR_STRICT=0
+        if is_soup and GATE_NEAR_STRICT:
+            near_ok = (pk.get("nano", 0) >= base["nano"] - TOL_NANO
+                       and pk.get("nano4", 0) >= base["nano4"] - TOL_NANO4
+                       and pk.get("f1", 0) >= base["f1"])
+        else:
+            near_ok = (pk.get("nano", 0) >= base["nano"] - TOL_NANO
+                       and pk.get("nano4", 0) >= base["nano4"] - TOL_NANO4
+                       and pk.get("f1", 0) >= base["f1"] - TOL_F1)
         if not (strict_ok or near_ok):
             # R1 FIX 2026-11-20: training-arm EXPLORE tier (wider tolerance).
             #   Last-resort backfill only => never steals machine time from soup arms.
@@ -476,10 +578,19 @@ def main():
         #   ⇒ 光加排序键**没用**（实测：加键后队列原样不动，因为桥接臂在 near 档、
         #      证伪家族在 strict 档，near 永远压不过 strict）⇒ **必须让 t1lin 直接改档位**。
         _lt = lin_t1.get(mkey)
-        if _lt is not None and _lt > 0:
-            t1lin = 1          # 该成员集已被证明能顶开 T1（桥接家族）⇒ 提到第 0 档
+        # 🔴🔴 2026-11-23 11:45 —— **修正误判 A**：t1lin=1（血统能顶开 T1）**不等于**该臂能六项全过。
+        #   实测：桥接家族（1100275+1102004+1612001…）的兄弟臂 dT1 = +2.81e-5（确实能顶 T1），
+        #   但它 **nano4 必负**（如 2120019 nano4=0.6604442 < 基线 0.6609168）
+        #   ⇒ **永远不可能六项全过** ⇒ 把它插到队首 = 门禁机时（8 倍瓶颈）纯浪费。
+        #   ⇒ t1lin=1 现在**额外要求**「候选臂本身 bench 三轴全过」或「同成员集有 strict3 兄弟臂」。
+        if _lt is not None and _lt > 0 and (strict_ok or lin_strict.get(mkey)):
+            t1lin = 1          # 该成员集已被证明能顶开 T1 **且**有能力补齐六项 ⇒ 提到第 0 档
+        # 🔴🔴 2026-11-23 11:45 —— **修正误判 B**：死路判据不能只看「兄弟臂 dT1 全 < 0」。
+        #   实测：近失族（211xxxx 等）132 个兄弟臂**只欠 T1 3~9 个台阶**、其余轴严格优于基线
+        #   ⇒ 它们是**最有价值**的候选，不是死路。真正的死路是「连 bench 三轴都过不了」。
         elif (lin_n.get(mkey, 0) >= T1LIN_DEAD_MIN_N
-              and not lin_pos.get(mkey)):
+              and not lin_pos.get(mkey)
+              and not lin_strict.get(mkey)):
             # 🔴 2026-11-23 11:15 **降权判据升级为「全轴」**：
             #   只看 max(dT1) 会误埋「T1 打平但 T3 严格更优」的候选族
             #   （证据：1910071 的 T3=0.9489376 > 基线 0.9488856，它所属成员集
@@ -501,10 +612,26 @@ def main():
         if t1lin != 0:
             # t1lin != 0 时档位已定 ⇒ soup_rank 不再影响分组，但仍保留在元组里供排序参考
             soup_rank = 1 if is_soup else 0
+        # 🔴🔴 2026-11-23 11:45 新增索引 16 = fam_gap（该成员集离六项全过的最小台阶数）
+        #   证据表 lin_gap 来自**已门禁**兄弟臂 ⇒ 新合成的微扫臂也能继承它所在族的「近失距离」
+        #   ⇒ 排队时「离升轨最近的族」永远在前（实测近失族 1.7~3.0 台阶 vs 桥接族 ≥5 台阶）
+        # 🔴🔴 2026-11-23 12:05 —— **fam_gap 三态语义**（修 Heisenberg 复核的缺陷 1 + 缺陷 2）
+        #   ① 族内有「有头寸」的已门禁兄弟臂 ⇒ 用族的最优台阶（并取自身 bench 缺口的较大者）
+        #   ② 族内只有「零头寸纯打平」兄弟臂 ⇒ 该族已证伪 ⇒ _GAP_DEAD（永不可升轨，排末位）
+        #   ③ 全新血统（无任何已门禁兄弟臂）⇒ **退化为候选自身的 bench 缺口 + _GAP_NEW**
+        #      （旧实现写死 9.9 ⇒ 214xxxx 腿②「掺 T1 供体」这批唯一有望翻正 T1 的配方被排到 rk 2000+）
+        _own_gap = _gap6(pk, of, base)
+        _gap_fam = lin_gap.get(mkey)
+        if _gap_fam is not None:
+            _fgap = max(_gap_fam, _own_gap)
+        elif lin_tie.get(mkey):
+            _fgap = _GAP_DEAD
+        else:
+            _fgap = _own_gap + _GAP_NEW
         cands.append((tier, strict_bench, f1win, famboost, t3win, dw3,
                       -bucket_n.get(fam, 0), bucket_best.get(fam, 0),
                       -near_dist, margin(pk, base), -int(sid), int(sid),
-                      soup_rank, stage, novel_bench, t1lin))
+                      soup_rank, stage, novel_bench, t1lin, _fgap))
     # 🔴🔴 2026-11-19 10:25 **两段式门禁队列（只把「还可能升轨」的臂送门禁）**
     #   升轨判据（promote_candidate.py，`res["ok"] = all(c.values())`）= **七项全过**
     #   = nano / nano4 / F1 / T1 / T2_fp / T3 / 板卡ms
@@ -531,11 +658,12 @@ def main():
     #   ⇒ 汤臂的**相对顺序**与老代码完全一致（stage 0 在 stage 2 之前，内部排序键不变）。
     # 🟢 2026-11-23 09:00：novel_bench（索引 14）置于**最前** ⇒ 真候选优先于基线克隆臂
     # 🔴 2026-11-23 10:45：**t1lin（索引 15）置于最前** ⇒ T1 正血统插队 / 证伪血统降权
+    # 🔴🔴 2026-11-23 11:45：**fam_gap（索引 16）紧跟 t1lin** ⇒ 同档位里「离六项全过最近的族」在前。
     def _k_strict(c):
-        return (-c[15], -c[14], -c[4], -c[0], c[5], -c[2], -c[3], -c[9], c[11])
+        return (-c[15], c[16], -c[14], -c[4], -c[0], c[5], -c[2], -c[3], -c[9], c[11])
 
     def _k_near(c):
-        return (-c[15], -c[14], -c[4], -c[0], -c[2], -c[9], c[11])
+        return (-c[15], c[16], -c[14], -c[4], -c[0], -c[2], -c[9], c[11])
 
     _b0 = sorted([c for c in cands if c[13] == 0], key=_k_strict)
     _b1 = sorted([c for c in cands if c[13] == 1], key=_k_strict)
@@ -548,7 +676,7 @@ def main():
     #   ⇒ 整晚门禁机时（~740s/臂，瓶颈）全部空转。已定位并补回。
     cands = _strict + _near
     out = []
-    for _t, _sb, _fw, _fb, _tw, _dw, _nb, _bp, _nd, _m, _s, sid, _sr, _sg, _nv, _tl in cands:
+    for _t, _sb, _fw, _fb, _tw, _dw, _nb, _bp, _nd, _m, _s, sid, _sr, _sg, _nv, _tl, _fg in cands:
         if not DRY:
             cf = os.path.join(CLAIM, str(sid))
             try:

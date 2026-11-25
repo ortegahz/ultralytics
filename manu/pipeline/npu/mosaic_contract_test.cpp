@@ -32,13 +32,18 @@
 // ===========================================================================
 #include <opencv2/imgcodecs.hpp>
 
+#include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "mosaic_pipeline.h"
+#include "mosaic_paths.h"
 
 namespace {
 
@@ -68,12 +73,14 @@ bool SameStr(const char* a, const char* b) {
 // Every knob of the example demo lives here, with the ONBOARD defaults, so
 // the demo runs with no arguments at all.
 struct DemoArgs {
-  std::string raw_root = "/mnt/manu/lq_ir_bmp";
+  // 板卡无关：默认值走 mosaic_paths（env → 交付包内 → 板卡已知路径），
+  // 命令行参数优先级永远高于这些默认值。
+  std::string raw_root = mosaic_paths::FramesRoot();
   std::string sequence = "VIDEO00007_19700101_001324";
   // 模型默认从**板卡 tmpfs** 读（交付目录是 NFS soft 挂载，6.3 MB 直读会被读坏）。
   // 先 `cat <交付目录>/models/p0_off_A_none.rknn > /tmp/p0_off_A_none.rknn` 再跑。
-  std::string model = "/tmp/p0_off_A_none.rknn";
-  std::string kernel_dir = "/root/kernels";
+  std::string model = mosaic_paths::ModelPath();
+  std::string kernel_dir = mosaic_paths::KernelDir();
   std::string golden;
   int limit = 60;
   bool env_gate = true;   // the environment check gates the run, unless the
@@ -86,6 +93,92 @@ void CollectFrame(void* user, int32_t index, const char* frame_path) {
   (void)index;
   std::vector<std::string>* out = static_cast<std::vector<std::string>*>(user);
   if (out && frame_path) out->push_back(std::string(frame_path));
+}
+
+// ---------------------------------------------------------------------------
+// v10.7: the sinks for the CALLBACK contracts.
+//
+// The callbacks run on the LIBRARY'S dispatch thread, so everything they
+// touch is mutex-protected.  The sink is what lets the test wait for a
+// callback without polling the library's queues.
+// ---------------------------------------------------------------------------
+struct CallbackSink {
+  std::mutex m;
+  std::condition_variable cv;
+  int raw_calls = 0;
+  int tracked_calls = 0;
+  int tracked_dets = 0;        // the total number of tracked entries delivered
+  int64_t min_fid = -1;
+  int64_t max_fid = -1;
+  int64_t last_fid = -1;
+  bool out_of_order = false;   // the tracked frames must arrive in axis order
+
+  void OnRaw(int64_t fid) {
+    (void)fid;
+    std::lock_guard<std::mutex> lk(m);
+    ++raw_calls;
+    cv.notify_all();
+  }
+
+  void OnTracked(int64_t fid, int32_t n) {
+    std::lock_guard<std::mutex> lk(m);
+    ++tracked_calls;
+    tracked_dets += n;
+    if (min_fid < 0 || fid < min_fid) min_fid = fid;
+    if (fid > max_fid) max_fid = fid;
+    // The dispatcher must deliver the tracked frames IN THE ORDER the
+    // tracker produced them (the frame axis is monotonic).
+    if (last_fid >= 0 && fid <= last_fid) out_of_order = true;
+    last_fid = fid;
+    cv.notify_all();
+  }
+
+  bool OutOfOrder() {
+    std::lock_guard<std::mutex> lk(m);
+    return out_of_order;
+  }
+
+  bool WaitRaw(int target, int timeout_ms) {
+    std::unique_lock<std::mutex> lk(m);
+    return cv.wait_for(lk, std::chrono::milliseconds(timeout_ms),
+                        [this, target] { return raw_calls >= target; });
+  }
+
+  bool WaitTracked(int target, int timeout_ms) {
+    std::unique_lock<std::mutex> lk(m);
+    return cv.wait_for(lk, std::chrono::milliseconds(timeout_ms),
+                        [this, target] { return tracked_calls >= target; });
+  }
+
+  int RawCalls() {
+    std::lock_guard<std::mutex> lk(m);
+    return raw_calls;
+  }
+  int TrackedCalls() {
+    std::lock_guard<std::mutex> lk(m);
+    return tracked_calls;
+  }
+  int TrackedDets() {
+    std::lock_guard<std::mutex> lk(m);
+    return tracked_dets;
+  }
+  // Are all the delivered frame ids inside [lo, hi]?
+  bool TrackedIdsInRange(int64_t lo, int64_t hi) {
+    std::lock_guard<std::mutex> lk(m);
+    if (tracked_calls == 0) return false;
+    return min_fid >= lo && max_fid <= hi;
+  }
+};
+
+void OnRawCb(void* user, int64_t frame_id, const MosaicDet* dets, int32_t n_dets) {
+  (void)dets;
+  (void)n_dets;
+  static_cast<CallbackSink*>(user)->OnRaw(frame_id);
+}
+
+void OnTrackedCb(void* user, int64_t frame_id, const MosaicTrackedDet* dets, int32_t n_dets) {
+  (void)dets;
+  static_cast<CallbackSink*>(user)->OnTracked(frame_id, n_dets);
 }
 
 }  // namespace
@@ -521,6 +614,168 @@ static int RunContractTests(const DemoArgs& args) {
       Check(handle_ok, "push_frame: the handle is the library's own dense number (0,1,2,...)");
       Check(back_ok, "collect: the caller's own frame number comes back UNCHANGED");
       mosaic_pipeline_destroy(pf2);
+    }
+  }
+
+  // ---- 8c. THE TRACKED-RESULT CALLBACK (v10.7) ---------------------------
+  //
+  // The tracked callback is the callback flavour of collect_tracked(): the
+  // client gets ONE entry per CONFIRMED TARGET (the cross-scale duplicates
+  // are merged by the library) and it needs no thread of its own.
+  //
+  // It runs here, AFTER the main pipeline and the push_frame pipeline are
+  // destroyed, because the board tolerates exactly TWO RKNN contexts and
+  // each pipeline holds both of them.
+  {
+    // (a) The NULL pipeline is rejected -- no resources needed at all.
+    Check(mosaic_pipeline_set_tracked_callback(nullptr, OnTrackedCb, nullptr) == -1,
+          "set_tracked_callback: a NULL pipeline is rejected");
+
+    CallbackSink sink;
+    MosaicPipelineConfig ct;
+    mosaic_pipeline_config_defaults(&ct);
+    mosaic_pipeline_config_set_paths(&ct, args.model.c_str(), args.kernel_dir.c_str(),
+                                     args.sequence.c_str());
+    char err3[256] = {0};
+    MosaicPipeline* pt = mosaic_pipeline_create(&ct, err3, sizeof(err3));
+    Check(pt != nullptr, "set_tracked_callback: a real pipeline is created for the callback contract");
+    if (pt) {
+      // The raw result callback paces the loop (one push, one raw result);
+      // the tracked callback collects the tracked results.
+      Check(mosaic_pipeline_set_result_callback(pt, OnRawCb, &sink) == 0,
+            "set_tracked_callback: the result callback is registered for the pacing");
+      Check(mosaic_pipeline_set_tracked_callback(pt, OnTrackedCb, &sink) == 0,
+            "set_tracked_callback: registering the tracked callback succeeds");
+
+      // The GMC needs a WHOLE 21-frame history before it produces anything,
+      // and a track needs min_hits=3 + confirm_consec=2 hits before it is
+      // confirmed => the first frames carry no tracked output at all.  45
+      // frames is plenty.
+      const int kProbe = 45;
+      int pushed = 0;
+      for (int i = 0; i < kProbe && i < (int)frames.size(); ++i) {
+        const cv::Mat img = cv::imread(frames[i], cv::IMREAD_GRAYSCALE);
+        if (img.empty()) break;
+        if (mosaic_pipeline_push_frame(pt, img.data, img.cols, img.rows, 2000000 + i) < 0) break;
+        ++pushed;
+        // PACING: the push never blocks, so the producer must not run ahead
+        // of the pipeline (the camera queue would overflow and the frames
+        // would be dropped).  The wait is short on purpose: until the GMC's
+        // history is whole there is NO raw result to wait for, and the loop
+        // simply goes on at 5 frames per second -- which is below the
+        // pipeline's own rate, so nothing is ever dropped.
+        sink.WaitRaw(pushed, 200);
+      }
+      Check(pushed > 0, "tracked callback: the frames are pushed");
+      // The tracked result of the last frames may still be in flight.
+      sink.WaitTracked(1, 30000);
+      Check(sink.TrackedCalls() >= 1,
+            "tracked callback: the callback is invoked with the tracked result");
+      Check(sink.TrackedDets() >= 1,
+            "tracked callback: at least one confirmed target is delivered");
+      Check(sink.TrackedIdsInRange(2000000, 2000000 + pushed),
+            "tracked callback: the delivered frame ids are the caller's own");
+
+      // While the tracked callback is registered, the POLLING path is
+      // switched off -- that is the whole point: that queue would grow by
+      // one item per frame, forever.
+      MosaicTrackedDet tdet[16];
+      int64_t tfid = -1;
+      Check(mosaic_pipeline_collect_tracked(pt, &tfid, tdet, 16) == -1,
+            "tracked callback: collect_tracked is switched off while the callback is registered");
+
+      // The switch BACK: the tracked output goes to the queue again.
+      Check(mosaic_pipeline_set_tracked_callback(pt, nullptr, nullptr) == 0,
+            "set_tracked_callback: removing the callback succeeds");
+      bool got_again = false;
+      for (int i = 0; i < 12 && !got_again; ++i) {
+        const int fi = (kProbe + i) % (int)frames.size();
+        const cv::Mat img = cv::imread(frames[fi], cv::IMREAD_GRAYSCALE);
+        if (img.empty()) break;
+        mosaic_pipeline_push_frame(pt, img.data, img.cols, img.rows, 3000000 + i);
+        int64_t id = -1;
+        if (mosaic_pipeline_collect_tracked(pt, &id, tdet, 16) >= 0) got_again = true;
+      }
+      Check(got_again,
+            "set_tracked_callback: the tracked output goes back to the queue when the callback is removed");
+      mosaic_pipeline_destroy(pt);
+    }
+  }
+
+  // ---- 8d. THE TRACKED-ONLY MODE (v10.7) ---------------------------------
+  //
+  // A client that registers the tracked callback and NOTHING else does not
+  // read the raw detection stream any more => the library must NOT buffer it
+  // (one item per frame, forever) => collect() says so instead of blocking.
+  {
+    MosaicPipelineConfig cs;
+    mosaic_pipeline_config_defaults(&cs);
+    mosaic_pipeline_config_set_paths(&cs, args.model.c_str(), args.kernel_dir.c_str(),
+                                     args.sequence.c_str());
+    char err4[256] = {0};
+    MosaicPipeline* ps = mosaic_pipeline_create(&cs, err4, sizeof(err4));
+    Check(ps != nullptr, "tracked callback: a real pipeline is created for the tracked-only mode");
+    if (ps) {
+      CallbackSink sink2;
+      mosaic_pipeline_set_tracked_callback(ps, OnTrackedCb, &sink2);
+      for (int i = 0; i < 3 && i < (int)frames.size(); ++i) {
+        const cv::Mat img = cv::imread(frames[i], cv::IMREAD_GRAYSCALE);
+        if (img.empty()) break;
+        mosaic_pipeline_push_frame(ps, img.data, img.cols, img.rows, 4000000 + i);
+      }
+      MosaicDet rdet[16];
+      int64_t rfid = -1;
+      Check(mosaic_pipeline_collect(ps, &rfid, rdet, 16) == -1,
+            "tracked callback: the raw stream is not buffered in the tracked-only mode");
+      mosaic_pipeline_destroy(ps);
+    }
+  }
+
+  // ---- 8e. THE FLUSH LIFECYCLE OF THE TRACKED CALLBACK (v10.7) -------------
+  //
+  // The client is allowed to destroy the pipeline right after flush() returns,
+  // so flush() MUST NOT return before every already-dispatched callback has
+  // finished -- otherwise that callback would touch a destroyed pipeline.
+  // The invariant is directly observable: once flush() has returned, NO
+  // further tracked callback may fire.
+  {
+    MosaicPipelineConfig cf;
+    mosaic_pipeline_config_defaults(&cf);
+    mosaic_pipeline_config_set_paths(&cf, args.model.c_str(), args.kernel_dir.c_str(),
+                                     args.sequence.c_str());
+    char err5[256] = {0};
+    MosaicPipeline* pf = mosaic_pipeline_create(&cf, err5, sizeof(err5));
+    Check(pf != nullptr, "flush: a real pipeline is created for the flush lifecycle");
+    if (pf) {
+      CallbackSink sink3;
+      // The raw callback is registered only to PACE the loop (one push, one
+      // raw result); the tracked callback is the one under test.
+      mosaic_pipeline_set_result_callback(pf, OnRawCb, &sink3);
+      mosaic_pipeline_set_tracked_callback(pf, OnTrackedCb, &sink3);
+      // Push and do NOT wait for the tracked results: the tracked output of
+      // the last frames is still in flight when flush() is called -- that is
+      // exactly the case this invariant is about.
+      const int kFlushFrames = 45;
+      int pushed = 0;
+      for (int i = 0; i < kFlushFrames && i < (int)frames.size(); ++i) {
+        const cv::Mat img = cv::imread(frames[i], cv::IMREAD_GRAYSCALE);
+        if (img.empty()) break;
+        if (mosaic_pipeline_push_frame(pf, img.data, img.cols, img.rows, 5000000 + i) < 0) break;
+        ++pushed;
+        sink3.WaitRaw(pushed, 200);
+      }
+      Check(mosaic_pipeline_flush(pf) == 0, "flush: the tracked-callback pipeline flushes");
+      const int after_flush = sink3.TrackedCalls();
+      // A generous window: if flush() did NOT wait for the callbacks, the
+      // dispatcher would run the pending ones HERE and the counter would grow.
+      std::this_thread::sleep_for(std::chrono::milliseconds(800));
+      Check(sink3.TrackedCalls() == after_flush,
+            "flush: no tracked callback fires after flush() returned");
+      Check(after_flush > 0,
+            "flush: the tracked callback ran before flush() returned");
+      Check(!sink3.OutOfOrder(),
+            "tracked callback: the frames are delivered in the frame-axis order");
+      mosaic_pipeline_destroy(pf);
     }
   }
 
@@ -1113,21 +1368,24 @@ static int RunContractTests(const DemoArgs& args) {
     // or a branch that stopped running one) shows up here instead of silently
     // making the test weaker.
     //
-    // 195, not 108: on a healthy board this test runs 196 assertions in all,
+    // 213, not 195: on a healthy board this test runs 217 assertions in all
+    // (199 before the v10.7 tracked-callback cases + the 13 new ones + the
+    // 4 new flush-lifecycle ones -- THIS self-check is already one of the
+    // 199, so it must NOT be added again),
     // and THIS one is the last of them -- it is evaluated before it is
-    // counted, so the counter reads 195 at exactly this point (board run:
-    // "[RESULT] 196 passed, 0 failed", with 195 [PASS] lines ahead of this
-    // one).  The old floor of 108 was left over from the 104-assertion era
-    // and let 88 assertions be deleted without anyone noticing.
+    // counted, so the counter reads 216 at exactly this point.  The old floor
+    // of 108 was left over from the 104-assertion era and let 88 assertions
+    // be deleted without anyone noticing; the floor is raised with every
+    // batch of new cases.
     // 把当前计数打进失败信息：否则「被删了断言」与「某个运行期分支没走到」
     // 会显示成同一句话，看着像测试被人改过。
     char self_check_msg[192];
     snprintf(self_check_msg, sizeof(self_check_msg),
-             "self-check: the contract test still runs at least 195 assertions "
+             "self-check: the contract test still runs at least 213 assertions "
              "(counted %d before this check; fewer means an assertion was "
              "dropped OR a runtime branch did not run)",
              g_pass + g_fail);
-    Check(g_pass + g_fail >= 195, self_check_msg);
+    Check(g_pass + g_fail >= 213, self_check_msg);
   }
 
   // ---- 7. the golden fingerprint -------------------------------------------
