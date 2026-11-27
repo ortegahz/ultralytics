@@ -584,3 +584,41 @@ desktop.ini
 #     📌 **正式工具不挡**：如 `six_criteria_strict.py`（只读审计器，是产品代码）**不命中**本规则。
 #     📌 若某天某个 `_probe*.py` 升格为正式工具，改名去掉下划线前缀即可自动解除屏蔽。
 _probe*.py
+
+# ⑭ 红外画质评估 v2（`iqa_v2/`，2026-11-26~27 新增）—— 口径沿用铁律二十三 §23-1/§23-2：
+#     仓库只留「**代码 ＋ 结论级产物 ＋ 长时实验 report**」，**大体量明细 / 服务器工作副本 /
+#     中间转存目录**一律不入库。
+#     ① **大体量明细**（逐目标 × 逐档位，8~11 MB/份，共 3 份 ≈ 30 MB）：
+#        `degrade_detail*.csv`（基线轮 / 深轮 / 服务器 full）。
+#        它**本来就不进** md5 清单 —— 裸 md5 的行序由 `imap_unordered` 决定 ⇒ 每次重跑都变 ⇒
+#        改登记「顺序无关」规范摘要 `iqa_v2/output_deep/manifest_deep.bulk.canonical.txt`
+#        （rules.md 铁律五十二）；可由同一段代码整批重生成。
+#     ② **中间转存目录** `post_check/stage/`（8.8 MB × 2）：产物搬运中转，内容与 `output*/` 重复。
+#     ③ **服务器工作副本** `iqa_v2/server_out*/`：服务器侧工作区原样搬回本机的**副本**
+#        （与本机 `iqa_v2/*.py` / `output*/` 重复）⇒ 不入库；
+#        ⚠️ 但其中 `server_out_final/files/*.py` 是 `acceptance_deep.py` 的
+#        **默认冻结基线代码目录**（`--code-dir` 默认值）⇒ **代码必须留**，
+#        故这里只挡明细 CSV 与 stage 转存，不挡整目录。
+#     ④ **陈旧草稿副本** `REPORT_V2_ANTIUAV.stale_local_20261126.md`（已被现役版取代）。
+#     ⑤ **保留入库**：`iqa_v2/**/*.py`（代码）、`*.md`（长时实验 report / 规格书 / 交接）、
+#        `*.json`（机器判定结果）、`*.md5` + `*.canonical.txt`（清单校验入口）、
+#        `*.txt`（门禁/审计小日志，KB 级可审计证据）、
+#        `_baseline_code_20261126/` 与 `_deep_code_20261127/`（**冻结代码镜像**：
+#        基线清单的代码条目只能跟它核对 —— rules.md 铁律五十三；
+#        实测 `manifest_v2.md5` 的 10 条代码条目在镜像里 **10/10 逐位相符**）。
+#     ⑥ `iqa_v2/output*/windows.csv`（262 KB × 2）**反向放行**：它是 `manifest_deep.md5`
+#        登记的**产物条目** ⇒ 不入库则 fresh clone 上 `md5sum -c` 会报「could not be read」。
+iqa_v2/**/degrade_detail*.csv
+iqa_v2/**/post_check/stage/
+iqa_v2/REPORT_V2_ANTIUAV.stale_local_20261126.md
+!iqa_v2/output/windows.csv
+!iqa_v2/output_deep/windows.csv
+
+# ⑮ memory 滚动归档的**回滚安全快照**（`archive/.volumes_before_*`）—— 中间产物，不入库
+#     （里面是滚动前的卷名清单 / 文件副本，KB~MB 级；真正的归档正文在 `archive/NN_*.md`）。
+manu/memory/archive/.volumes_before_*
+
+# ⑯ 板端构建目录的**软链指针** `manu/pipeline/npu/build` —— 实体在
+#     `workspace/cache/ultralytics/pipeline-artifacts/sdk_v1`（铁律二十三 §23-2 的 canonical 落点），
+#     仓库里只留一个指向本机绝对路径的软链 ⇒ 换机/clone 后必然失效 ⇒ **整个挡掉**。
+manu/pipeline/npu/build
