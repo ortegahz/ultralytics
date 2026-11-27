@@ -54,6 +54,23 @@ DEST="$NFS_ROOT/mosaic_sdk"
 #    仍可用 --board root@192.168.0.211 指定。
 BOARD="${BOARD:-root@192.168.1.115}"
 BOARD_PORT="${BOARD_PORT:-22}"
+# 🔴 板卡跑本 SDK 时需要的额外库搜索路径（**默认空 = 不设任何 LD_LIBRARY_PATH**）。
+#
+#   为什么要留这个口：不同板子的 OpenCV 装在不同地方 ——
+#     * **OPI5（实际部署板，192.168.1.115）**：OpenCV 4.8 在 /usr/lib
+#       ⇒ 由板卡 ldconfig 解析 ⇒ **不需要**设这个变量（默认空 = 原行为）；
+#     * **ematech（实验板，192.168.0.64）**：OpenCV 4.8 在 **/root/mosaic/opencv**
+#       （板上**没有** /usr/lib/libopencv_*.so.408）⇒ 不设就必然报
+#       `error while loading shared libraries: libopencv_*.so.408: cannot open shared object file`。
+#
+#   用法：BOARD_LD_LIBRARY_PATH=/root/mosaic/opencv bash copy_to_nfs.sh --verify --board root@192.168.0.64
+#   ⇒ **只影响板卡执行测试时的环境**，不改包内容、不改 OPI5 的既有行为。
+BOARD_LD_LIBRARY_PATH="${BOARD_LD_LIBRARY_PATH:-}"
+# 🔴 板卡上的**帧根目录**（默认 /mnt/manu/lq_ir_bmp = OPI5 的 NFS 挂载点）。
+#   ematech 实验板上没有这个挂载 ⇒ 用 BOARD_RAW_ROOT 覆盖成实际路径。
+#   用法：BOARD_RAW_ROOT=/tmp/rawroot BOARD_LD_LIBRARY_PATH=/root/mosaic/opencv \
+#         bash copy_to_nfs.sh --verify --board root@192.168.0.64
+BOARD_RAW_ROOT="${BOARD_RAW_ROOT:-/mnt/manu/lq_ir_bmp}"
 BOARD_DEST="${BOARD_DEST:-}"
 
 # 板卡侧的中转目录（只在 /tmp 下；/tmp 是 tmpfs，3.9 G）
@@ -754,10 +771,12 @@ if [ "$DO_VERIFY" = "1" ]; then
       # ⚠️ `2>&1` 必须有：mosaic_contract_test 把 `[RESULT] N passed, 0 failed`
       #    打到 **stderr**（mosaic_contract_test.cpp:1098），只捕获 stdout 会让
       #    下面的 `grep '0 failed'` 必然落空 ⇒ 误报「没找到 0 failed」。
-    out="$(ssh_board "timeout -k 10 '$BOARD_TEST_TIMEOUT' bash -s -- '$VERIFY_TMP_DIR' '$tag' '$want_md5' '$BOARD_DEST/out/$tag' $args" 2>&1 <<'REMOTE'
+    out="$(ssh_board "timeout -k 10 '$BOARD_TEST_TIMEOUT' bash -s -- '$VERIFY_TMP_DIR' '$tag' '$want_md5' '$BOARD_DEST/out/$tag' '$BOARD_LD_LIBRARY_PATH' '$BOARD_RAW_ROOT' $args" 2>&1 <<'REMOTE'
 set -uo pipefail
 export LC_ALL=C
-tmp_dir="$1"; tag="$2"; want_md5="$3"; src="$4"; shift 4
+tmp_dir="$1"; tag="$2"; want_md5="$3"; src="$4"; board_ld="$5"; board_raw="$6"; shift 6
+export BOARD_LD_LIBRARY_PATH="$board_ld"
+export BOARD_RAW_ROOT="$board_raw"
 tmp="${tmp_dir}/${tag}"
 
 cleanup() {
@@ -813,6 +832,10 @@ for a in "$@"; do
 done
 set -- "${new_args[@]}"
 
+# 🔴 按需注入板卡特有的库搜索路径（默认空 ⇒ 不设，OPI5 行为不变）。
+[ -n "${BOARD_LD_LIBRARY_PATH}" ] && export LD_LIBRARY_PATH="$BOARD_LD_LIBRARY_PATH"
+# 🔴 帧根目录：板卡契约测试/demo 的环境体检要它（ematech 上不是 /mnt/manu/lq_ir_bmp）。
+[ -n "${BOARD_RAW_ROOT}" ] && export MOSAIC_RAW_ROOT="$BOARD_RAW_ROOT"
 rc=0
 "$tmp" "$@" || rc=$?
 exit $rc
@@ -911,7 +934,7 @@ REMOTE
   #    本身），而且 [0/5] 没把模型落成时 /tmp 里没这个文件 ⇒ 参数原样传给程序 ⇒
   #    程序只报「找不到模型」，更难定位。
   run_board_test "最小集成示范" "mosaic_client_example" \
-    "/mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324" \
+    "$BOARD_RAW_ROOT/VIDEO00007_19700101_001324" \
     "${BOARD_DEST:-$DEFAULT_BOARD_DEST}/models/p0_off_A_none.rknn" \
     "$BOARD_DEST/runtime/kernels" \
     6 || rc=$?
@@ -933,10 +956,13 @@ REMOTE
   tp_w_mce="$(md5sum "$PKG_DIR/out/mosaic_client_example" | cut -d' ' -f1)"
   tp_w_so="$(md5sum "$PKG_DIR/out/libmosaic_pipeline.so"   | cut -d' ' -f1)"
   tp_tmp="$VERIFY_TMP_DIR"
-  tp_out="$(ssh_board "bash -s -- '$tp_tmp' '$BOARD_DEST' '$tp_w_mce' '$tp_w_so'" 2>&1 <<'REMOTE'
+  tp_out="$(ssh_board "bash -s -- '$tp_tmp' '$BOARD_DEST' '$tp_w_mce' '$tp_w_so' '$BOARD_LD_LIBRARY_PATH' '$BOARD_RAW_ROOT'" 2>&1 <<'REMOTE'
 set -uo pipefail
 export LC_ALL=C
-tmp="$1"; dest="$2"; w_mce="$3"; w_so="$4"
+tmp="$1"; dest="$2"; w_mce="$3"; w_so="$4"; board_ld="$5"; board_raw="$6"
+# 🔴 板卡特有的库路径（ematech 的 OpenCV 在 /root/mosaic/opencv，不在 ldconfig 里）。
+#    **为空 = OPI5 语义**（全部依赖由板卡 ldconfig 解析 ⇒「不设 LD_LIBRARY_PATH 也能跑」）。
+if [ -n "$board_ld" ]; then export LD_LIBRARY_PATH="$board_ld"; fi
 cleanup() {
   find "$tmp" -mindepth 1 -delete 2>/dev/null || true
   rmdir "$tmp" 2>/dev/null || true
@@ -957,19 +983,21 @@ g_so="$(md5sum "$tmp/libmosaic_pipeline.so"   | cut -d' ' -f1)"
 echo "  [stage] 共享库 + 示范程序已落板卡 /tmp，md5 与本机源文件逐位一致"
 
 # ---- ① 板卡 ldconfig 能不能满足 DT_NEEDED --------------------------------
-echo "  -- ① 板卡 ldconfig 解析 DT_NEEDED --"
-missing="$(ldd "$tmp/mosaic_client_example" 2>/dev/null | grep 'not found' || true)"
+# 🔴 ldd 也要**带上本板库路径**（board_ld）才准：ematech 的 OpenCV 不在 ldconfig 里，
+#    不带路径去 ldd 会把「库在 /root/mosaic/opencv」误报成「板卡自带库不全」。
+echo "  -- ① 板卡 ldconfig 解析 DT_NEEDED（带本板库路径）--"
+missing="$(LD_LIBRARY_PATH="$board_ld" ldd "$tmp/mosaic_client_example" 2>/dev/null | grep 'not found' || true)"
 if [ -n "$missing" ]; then
   echo "[ERROR] 板卡上解析不了这些依赖（板卡自带库不全）：" >&2
   printf '%s\n' "$missing" >&2
   exit 4
 fi
-ldd "$tmp/mosaic_client_example" 2>/dev/null | sed 's/^/     /'
+LD_LIBRARY_PATH="$board_ld" ldd "$tmp/mosaic_client_example" 2>/dev/null | sed 's/^/     /'
 
 # ---- ② 共享库由 \$ORIGIN 找到（不设 LD_LIBRARY_PATH）----------------------
 echo "  -- ② \$ORIGIN 解析共享库 --"
 unset LD_LIBRARY_PATH
-found="$(ldd "$tmp/mosaic_client_example" 2>/dev/null | grep 'libmosaic_pipeline' | sed 's/.*=> //;s/ (.*//')"
+found="$(LD_LIBRARY_PATH="$board_ld" ldd "$tmp/mosaic_client_example" 2>/dev/null | grep 'libmosaic_pipeline' | sed 's/.*=> //;s/ (.*//')"
 case "$found" in
   "$tmp"/*) echo "     [ok] libmosaic_pipeline.so 由 \$ORIGIN 解析到：$found" ;;
   *) echo "[ERROR] libmosaic_pipeline.so 没被 \$ORIGIN 解析到（实际：$found）" >&2; exit 4 ;;
@@ -992,13 +1020,35 @@ if [ -f "$MODEL" ]; then
 else
   echo "     [warn] 交付目录里没有 models/p0_off_A_none.rknn，跳过模型拷贝（旧包没有自带模型）"
 fi
+# 🔴 「不设 LD_LIBRARY_PATH」这条是 **OPI5 语义**（它的 OpenCV 在 /usr/lib，
+#    由板卡 ldconfig 解析）。**ematech 这类板的 OpenCV 不在 ldconfig 路径**
+#    （在 /root/mosaic/opencv）⇒ 不设必然加载失败 —— 那**不是**「板卡自带库不全」，
+#    而是**板卡的库摆放位置不同**。
+#    ⇒ 只有在 board_ld 为空（OPI5 口径）时才做「不设」这条硬门禁；
+#      否则改做「带板卡库路径」的等价验证，并**如实说明**差别。
+if [ -z "$board_ld" ]; then
+  unset LD_LIBRARY_PATH
+  "$tmp/mosaic_client_example" \
+    "$board_raw/VIDEO00007_19700101_001324" \
+    "$MODEL" \
+    "$dest/runtime/kernels" \
+    6
+  rc=$?
+  [ "$rc" = "0" ] && echo "  [ok] 未设 LD_LIBRARY_PATH 也跑通了（用的全是板卡自带库）"
+  exit $rc
+fi
+
+echo "     [info] 本板 OpenCV 不在 ldconfig 路径（board_ld=$board_ld）"
+echo "     [info] ⇒ 「不设 LD_LIBRARY_PATH」这条 OPI5 门禁**不适用本板**（不是库不全，是库的位置不同）"
+echo "     [info] ⇒ 改为「带上本板库路径」的等价验证："
+export LD_LIBRARY_PATH="$board_ld"
 "$tmp/mosaic_client_example" \
-  "/mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324" \
+  "$board_raw/VIDEO00007_19700101_001324" \
   "$MODEL" \
   "$dest/runtime/kernels" \
   6
 rc=$?
-[ "$rc" = "0" ] && echo "  [ok] 未设 LD_LIBRARY_PATH 也跑通了（用的全是板卡自带库）"
+[ "$rc" = "0" ] && echo "  [ok] 用本板库路径（LD_LIBRARY_PATH=$board_ld）跑通了"
 exit $rc
 REMOTE
 )" || tp_rc=$?
@@ -1029,14 +1079,14 @@ rc=0
 # ⚠️ 这里的 --model 同样**故意传交付目录里的路径** ⇒ run_board_test 自动把它
 #    cat 到板卡 /tmp 并替换（`case "$a" in *.rknn)`）⇒ 不要改成 /tmp（理由见 [3/5]）。
 run_board_test "异步模板 push-all" "mosaic_async_client_example" \
-  --frames-dir "/mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324" \
+  --frames-dir "$BOARD_RAW_ROOT/VIDEO00007_19700101_001324" \
   --model "${BOARD_DEST:-$DEFAULT_BOARD_DEST}/models/p0_off_A_none.rknn" \
   --kernel-dir "$BOARD_DEST/runtime/kernels" \
   --out "$VERIFY_TMP_DIR/async_gate_pa" --frames 60 --fps 25 --mode push-all --inflight 4 || rc=$?
 [ "$rc" = "0" ] || die "板卡多线程模板(push-all)失败（退出码 $rc）—— 反压关机路径死锁、或模板有回归"
 rc=0
 run_board_test "异步模板 app-drop" "mosaic_async_client_example" \
-  --frames-dir "/mnt/manu/lq_ir_bmp/VIDEO00007_19700101_001324" \
+  --frames-dir "$BOARD_RAW_ROOT/VIDEO00007_19700101_001324" \
   --model "${BOARD_DEST:-$DEFAULT_BOARD_DEST}/models/p0_off_A_none.rknn" \
   --kernel-dir "$BOARD_DEST/runtime/kernels" \
   --out "$VERIFY_TMP_DIR/async_gate_ad" --frames 60 --fps 25 --mode app-drop || rc=$?
