@@ -24,10 +24,10 @@
 # 服务器侧注意：服务器工作目录 /tmp/pycharm_project_a7d966e6 **没有** cache 落点
 #   ⇒ 本清单的 `../cache/...` 条目在服务器上不可解析；服务器侧请用同源的
 #   `manu/video_quality/report/_moved_manifest.tsv`（82 项，含 md5/bytes）自校验。
-d211ce12f29b93112d957ec6334da226  manu/memory/.slim_memory.md
-426598ef0278cf7147ea689ea51d1cf6  manu/memory/memory.md
-8b798239cc64cc74b2aa8bb0dfafa396  manu/memory/memory_compact.md
-5a8382baa28889057f561b1a7af83bcd  manu/memory/video_quality_metrics_20261119.md
+53805cd53eeebd999cf0f44dfbba7ae3  manu/memory/.slim_memory.md
+a9e0ac0de8d29179d105b1f5162318a9  manu/memory/memory.md
+efb4d1f35a57d1fb23677749daf72014  manu/memory/memory_compact.md
+480ff0ce4b5e724e24d44079a25b72cc  manu/memory/video_quality_metrics_20261119.md
 d4cdf0d1fb3300accc65bc0c85d50780  manu/video_quality/report/REPORT_视频质量指标.md
 d97b9bb415a727863e386ffed325c299  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/图像解读手册_40张图.pdf
 de08bb6ab60eee7af903d4bb368684ac  ../cache/ultralytics/repo-artifacts/manu/video_quality/report/chart_degrade_knee_ir_blockiness.png
