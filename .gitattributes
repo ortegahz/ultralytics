@@ -1,0 +1,6 @@
+# iqa_v2 的产物 CSV 用 Python csv 模块写出（默认 lineterminator = \r\n），
+# 而 md5 清单是按**磁盘字节**算的 ⇒ 必须**原样入库**。
+# 本机 gitconfig 设了 core.autocrlf=input ⇒ 提交时会把 \r\n 归一化成 \n
+# ⇒ fresh clone 上 `md5sum -c iqa_v2/output_deep/manifest_deep.md5` 必然失败
+# （37 个 csv 全部对不上）。用 `-text` 关掉行尾转换，只作用于 iqa_v2。
+iqa_v2/**/*.csv -text
