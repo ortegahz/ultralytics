@@ -128,6 +128,7 @@ fill_placeholders() {
   sed -E \
     -e "s|\{\{SRC_ROOT\}\}|$ROOT|g" \
     -e "s|\{\{PKG_ROOT\}\}|$DEST|g" \
+    -e "s|\{\{SDK_VERSION\}\}|$SDK_VERSION|g" \
     -e "s|\{\{NFS_ROOT\}\}|$NFS_ROOT_V|g" \
     -e "s|\{\{BOARD\}\}|$BOARD_V|g" \
     -e "s|\{\{BOARD_PORT\}\}|$BOARD_PORT_V|g" \
@@ -192,6 +193,7 @@ purpose_of() {
   case "$1" in
     README.md)                    echo "使用说明（四条命令 + 交付/零参数/NFS/一键拷贝 各节）" ;;
     MANIFEST.md)                  echo "**本交付清单**（由 make_build_dir.sh 生成）" ;;
+    VERSION)                     echo "**发布版本号**（release version）：本交付包的版本，如 \`1.0.0\`；由包内 \`src/npu/mosaic_pipeline.h\` 的 \`MOSAIC_SDK_VERSION\` 宏**自动生成**，两者不会漂移。版本规则：主版本(1)只由用户决定、次版本(2)=大改动、修订号(3)=小改动（详见 memory \`rules.md\`）" ;;
     build_lib.sh)                 echo "构建脚本①：只编译库 -> out/libmosaic_pipeline.so（**共享库**，SONAME=libmosaic_pipeline.so）" ;;
     build_demo.sh)                echo "构建脚本②：只编译测试程序 -> out/mosaic_api_test + out/mosaic_client_example + out/mosaic_async_client_example + out/mosaic_contract_test + out/rknn_mosaic_e2e（用 -lmosaic_pipeline + -rpath \$ORIGIN 链接同目录的 .so）" ;;
     copy_to_nfs.sh)               echo "一键脚本：编译 + 拷贝到 NFS + md5 回验 +（可选）板卡验证" ;;
@@ -302,6 +304,24 @@ copy_one() {
 # 库与 demo 的源
 copy_one "$ROOT/mosaic_pipeline.cpp"            "src/npu/mosaic_pipeline.cpp"
 copy_one "$ROOT/mosaic_pipeline.h"              "src/npu/mosaic_pipeline.h"
+
+# ---------------------------------------------------------------------------
+# 【发布版本号】生成交付包根目录的 VERSION（一行版本号 + 换行）。
+#   **唯一权威源 = 头文件里的 MOSAIC_SDK_VERSION 宏**（本脚本不硬编码版本号）。
+#   提取用的是**拷贝后**的那份头（$DEST/src/npu/mosaic_pipeline.h）而不是
+#   $ROOT 那份 ⇒ 包内自洽：VERSION 与包里的头**不会漂移**。
+#   提取不到 ⇒ die（不许产出一个没有版本号的交付包）。
+# ---------------------------------------------------------------------------
+SDK_HDR="$DEST/src/npu/mosaic_pipeline.h"
+SDK_VERSION="$(sed -nE '/^[[:space:]]*#define[[:space:]]+MOSAIC_SDK_VERSION[[:space:]]+"/{
+                 s/^[[:space:]]*#define[[:space:]]+MOSAIC_SDK_VERSION[[:space:]]+"([^"]+)".*/\1/p
+                 q
+               }' "$SDK_HDR")"
+[ -n "$SDK_VERSION" ] || die "头文件里找不到 MOSAIC_SDK_VERSION 宏（无法生成 VERSION）：$SDK_HDR"
+printf '%s\n' "$SDK_VERSION" > "$DEST/VERSION"
+add_expected "VERSION"   # 不登记的话会被 [5/8] 的陈旧文件清理当成多余文件删掉
+printf "  [ok] %-46s <- %s\n" "VERSION" "$SDK_VERSION (来自 mosaic_pipeline.h)"
+
 # v10.5: the spatio-temporal track fusion kernel (own translation unit; the
 # public C ABI to drive it lives in mosaic_pipeline.h).
 copy_one "$ROOT/mosaic_track_fusion.cpp"        "src/npu/mosaic_track_fusion.cpp"
@@ -601,6 +621,10 @@ E2E_MD5=$(md5_or_placeholder "$DEST/out/rknn_mosaic_e2e")
 CADENCE_PROBE_MD5=$(md5_or_placeholder "$DEST/out/mosaic_cadence_probe")
 TRACK_DUMP_MD5=$(md5_or_placeholder "$DEST/out/mosaic_track_dump")
 TRACKED_CB_EXAMPLE_MD5=$(md5_or_placeholder "$DEST/out/mosaic_tracked_cb_example")
+# SDK_VERSION（发布版本号）**不用在这里算**：它在 [2/8] 里就已经从包内头文件
+#   src/npu/mosaic_pipeline.h 的 MOSAIC_SDK_VERSION 宏提取好了（唯一权威源），
+#   同名的 VERSION 生成物也已落盘 ⇒ 这里直接用（供 fill_placeholders 回填
+#   {{SDK_VERSION}} 占位符）。
 
 README_TMP="$(mktemp)"
 fill_placeholders "$README_TPL" "$README_TMP"

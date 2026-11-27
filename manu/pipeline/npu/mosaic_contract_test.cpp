@@ -779,6 +779,36 @@ static int RunContractTests(const DemoArgs& args) {
     }
   }
 
+  // ---- 8f. THE RELEASE VERSION (v1.0.0) ------------------------------------
+  //
+  // The SDK reports its release version in THREE places: the header macro
+  // (what the caller compiled against), the runtime call (the library that is
+  // ACTUALLY loaded) and the package's VERSION file (generated from the
+  // header).  They MUST agree -- if the runtime string differs from the
+  // macro, the header and the library come from different builds.
+  {
+    char v[32];
+    memset(v, 0, sizeof(v));
+    const int32_t n = mosaic_pipeline_sdk_version(v, (int32_t)sizeof(v));
+    Check(n == (int32_t)strlen(MOSAIC_SDK_VERSION),
+          "version: the runtime version string has the macro's length");
+    Check(strcmp(v, MOSAIC_SDK_VERSION) == 0,
+          "version: the runtime version equals the header macro");
+    // A too-small buffer truncates but still terminates.
+    char small[4];
+    memset(small, 0x7f, sizeof(small));
+    const int32_t m = mosaic_pipeline_sdk_version(small, (int32_t)sizeof(small));
+    Check(m == (int32_t)sizeof(small) - 1,
+          "version: a too-small buffer is truncated to cap-1 bytes");
+    Check(small[sizeof(small) - 1] == '\0',
+          "version: the truncated version string is still NUL-terminated");
+    // Bad arguments are rejected.
+    Check(mosaic_pipeline_sdk_version(nullptr, 32) == -1,
+          "version: a NULL buffer is rejected");
+    Check(mosaic_pipeline_sdk_version(v, 0) == -1,
+          "version: a zero capacity is rejected");
+  }
+
   // ---- 9. THE DECOUPLED THREE-STAGE PIPELINE (v10) --------------------------
   //
   // Stage 1 (pre-process) -> Buffer A -> Stage 2 (NPU) -> Buffer B ->
@@ -1368,12 +1398,12 @@ static int RunContractTests(const DemoArgs& args) {
     // or a branch that stopped running one) shows up here instead of silently
     // making the test weaker.
     //
-    // 213, not 195: on a healthy board this test runs 217 assertions in all
+    // 218, not 195: on a healthy board this test runs 223 assertions in all
     // (199 before the v10.7 tracked-callback cases + the 13 new ones + the
     // 4 new flush-lifecycle ones -- THIS self-check is already one of the
     // 199, so it must NOT be added again),
     // and THIS one is the last of them -- it is evaluated before it is
-    // counted, so the counter reads 216 at exactly this point.  The old floor
+    // counted, so the counter reads 222 at exactly this point.  The old floor
     // of 108 was left over from the 104-assertion era and let 88 assertions
     // be deleted without anyone noticing; the floor is raised with every
     // batch of new cases.
@@ -1381,11 +1411,11 @@ static int RunContractTests(const DemoArgs& args) {
     // 会显示成同一句话，看着像测试被人改过。
     char self_check_msg[192];
     snprintf(self_check_msg, sizeof(self_check_msg),
-             "self-check: the contract test still runs at least 213 assertions "
+             "self-check: the contract test still runs at least 218 assertions "
              "(counted %d before this check; fewer means an assertion was "
              "dropped OR a runtime branch did not run)",
              g_pass + g_fail);
-    Check(g_pass + g_fail >= 213, self_check_msg);
+    Check(g_pass + g_fail >= 218, self_check_msg);
   }
 
   // ---- 7. the golden fingerprint -------------------------------------------

@@ -130,6 +130,14 @@ int main(int argc, char** argv)
         mosaic_pipeline_destroy(pipeline);
         return 1;
     }
+    // The RELEASE version of the SDK that is ACTUALLY loaded (the library),
+    // next to the compile-time macro MOSAIC_SDK_VERSION (the header).  If
+    // the two disagree, the header and the library are different builds.
+    {
+        char sdk_v[32];
+        mosaic_pipeline_sdk_version(sdk_v, (int32_t)sizeof(sdk_v));
+        printf("[demo] mosaic sdk v%s\n", sdk_v);
+    }
     printf("[demo] 后处理模式 %s\n", post_mode_name.c_str());
 
     // ---- 可选：把逐帧检测导出成 TSV（给 PC 评分器打分）---------------------

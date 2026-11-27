@@ -36,6 +36,7 @@
 包根目录（仓库内是 build/，交付给集成方时是 mosaic_sdk/）
 ├── README.md          ← 你正在看的这份（四条命令）  ★由 packaging/README.template.md 生成
 ├── MANIFEST.md        ← 交付清单（md5 表自动生成）★由 packaging/MANIFEST.template.md 生成
+├── VERSION            ← **本交付包的版本号**（一行 `1.0.0`）★由 packaging/make_build_dir.sh 从头文件生成
 ├── build_lib.sh       ← 只编译库
 ├── build_demo.sh      ← 只编译测试程序
 ├── build_probes.sh    ← 只编译两个板卡验证探针
@@ -79,15 +80,15 @@
 > （见「板卡依赖矩阵」）。
 
 > **交付到 NFS 时是整棵树一起拷**（不是只拷几个产物文件）：板卡侧看到的目录
-> 结构与这里一一对应——`src/ include/ runtime/ models/ out/` + 顶层 10 个文件
-> （`README.md` / `MANIFEST.md` / `build_lib.sh` / `build_demo.sh` /
+> 结构与这里一一对应——`src/ include/ runtime/ models/ out/` + 顶层 11 个文件
+> （`README.md` / `MANIFEST.md` / `VERSION` / `build_lib.sh` / `build_demo.sh` /
 > `build_probes.sh` / `build_board_native.sh` / `copy_to_nfs.sh` /
 > `fetch_board_libs.sh` / `fetch_opencv_headers.sh` / `known_hosts`）。
 
 交付包磁盘上共 **{{TOTAL_COUNT}}** 个文件 = 受管 **{{FILE_COUNT}}** 个
 （源码 **{{SRC_COUNT}}** 个（`src/`）+ 第三方头 **{{HDR_COUNT}}** 个
 （`include/`）+ kernel 资产 **{{KERNEL_COUNT}}** 个（`runtime/`）
-+ 模型 **1** 个（`models/`）+ 顶层 9 个文件（含本 README）
++ 模型 **1** 个（`models/`）+ 顶层 10 个文件（含本 README）
 + `MANIFEST.md` 自身）+ `out/` 编译产物 **{{OUT_COUNT}}** 个。
 
 产物（**全部 aarch64**；可执行文件与共享库是 ELF，`out/libmosaic_pipeline.a` 是目标文件归档）：
@@ -184,6 +185,55 @@ uid/gid/mtime）⇒ **同样稳定**。详见文末「md5 的三个已知差异�
 > **除构建路径外所有字符串字面量完全一致**（差异只来自 `assert` 宏里的
 > `__FILE__`），且**上板跑全序列的逐帧特征 md5 与检测 TSV 逐字节相同**
 > ⇒ 差异**纯属路径字符串**，不触及任何行为。
+
+---
+
+## 🏷️ 版本（当前 = `{{SDK_VERSION}}`）
+
+> **本交付包当前版本 = `{{SDK_VERSION}}`**（**第一次打标**）。
+> 这个版本号由 `packaging/make_build_dir.sh` 从 `src/npu/mosaic_pipeline.h` 的
+> `MOSAIC_SDK_VERSION` 宏**自动读出**再回填到本节 ⇒ 文档、包根的 `VERSION` 文件、
+> 头文件三者**同源**，不会各写各的。
+
+### 三个载体：分别是哪个版本、什么时候用哪个
+
+| 载体 | 在哪 | 说的是哪个版本 | 什么时候用 |
+|---|---|---|---|
+| `MOSAIC_SDK_VERSION` 宏 | `src/npu/mosaic_pipeline.h` | **头文件 / 编译期**的版本（你的代码是照着它编的） | 编译期分支（配 `MOSAIC_SDK_VERSION_MAJOR` / `_MINOR` / `_PATCH`）、给自己的日志打版本 |
+| `mosaic_pipeline_sdk_version(char* buf, int32_t cap)` | 公开 C ABI（**v1.0.0 新增**） | **实际加载的那个 `.so`** 的版本（板上跑的到底是哪一版） | **现场排查**：板卡上跑的到底是哪一版 |
+| `VERSION` 文件 | `<交付包根>/VERSION` | **这个交付包**的版本（内容就是一行 `1.0.0`） | 脚本 / 人工**一眼可查**（`cat VERSION`） |
+
+```cpp
+/* 运行时问一句「我加载的这版库，自己是哪个版本」 */
+char v[32];
+int32_t n = mosaic_pipeline_sdk_version(v, sizeof(v));   /* "1.0.0" */
+```
+
+* `mosaic_pipeline_sdk_version()` 的语义：把**库内编译进去**的版本串写进 `buf`
+  并返回写入长度（**不含**结尾 `NUL`）；`buf == NULL` 或 `cap <= 0` 返回 `-1`；
+  `cap` 不够时**截断但仍 `NUL` 结尾**；**对 `NULL` 流水线安全**
+  （版本属于**库**，不属于流水线）。
+* 🟢 **三处必须一致**：`MOSAIC_SDK_VERSION` 宏 == 运行时调用返回的字符串
+  == `VERSION` 文件的内容。
+  🔴 **宏与运行时调用返回的字符串不同 ⇒ 头文件与库不是同一次构建**
+  ⇒ **重新编译**（用交付包里的头重编，别拿旧头凑）。
+
+### 版本规则（**本项目的规矩**）
+
+| 位 | 含义 | 什么时候动 |
+|---|---|---|
+| **主版本**（第一位） | —— | **只由用户决定**：**没有用户明确指示，不许自己动** |
+| **次版本**（第二位） | **大改动**：破坏性行为变更 / 新的交付参数组 / 公开接口重构 | 这三类发生了才动 |
+| **修订号**（第三位） | **小改动**：新增可选接口 / 修复 / 探针 / 文档 / 测试 | 这几类走这里 |
+
+⇒ 当前 `{{SDK_VERSION}}` ⇒ 后续**小改动走 `1.0.x`**、**大改动走 `1.x.0`**；
+**主版本位在用户明确发话前一律不动**。
+
+### 版本历史
+
+| 版本 | 日期 | 内容 |
+|---|---|---|
+| `v1.0.0` | 2026-11-27 | 首个打标版本：v10.7 跟踪结果回调 `mosaic_pipeline_set_tracked_callback`（纯追加，公开接口 34→35）+ 版本号机制本身（公开接口 35→36）+ 契约 **223 passed / 0 failed**（ematech 板卡实测）+ 板端运行时回读 `mosaic_pipeline_sdk_version()` = `1.0.0` |
 
 ---
 
@@ -981,14 +1031,18 @@ ssh -p {{BOARD_PORT}} {{BOARD}} 'cat /mnt/manu/mosaic_sdk/models/p0_off_A_none.r
        （`collect` / `collect_tracked`）、**不要** `destroy` 流水线；
        `flush()` 会**等所有已派发的回调执行完**再返回，`destroy()` 会 **join 派发线程**
        ⇒ **不存在回调访问野指针**。
-3. **公开接口集合 = 2026-11-20 交付版 + v10.7 追加的 1 个**
+3. **公开接口集合 = 2026-11-20 交付版 + v10.7 追加的 1 个 + v1.0.0 追加的 1 个**
    （`MOSAIC_API_VERSION` 仍然是 `10`）：
    `open` / `set_post_mode` / `set_result_callback` /
    **`set_tracked_callback`（v10.7 新增）** / `push`（或 `push_frame`）/
-   `collect` / `collect_tracked` / `collect_fused` / `flush` / `destroy` ——
+   `collect` / `collect_tracked` / `collect_fused` / `flush` / `destroy` /
+   **`sdk_version`（v1.0.0 新增，只用来查版本）** ——
    **跟踪的打开与配置仍然不需要任何新接口**；
    v10.7 **只追加**了 `set_tracked_callback`，**既有接口一个都没改**
    （`mosaic_pipeline_collect_tracked()` 的语义与返回值逐字节不变）。
+   * **公开 `mosaic_pipeline_*` 接口总数：v10.7 `34 → 35`、v1.0.0 `35 → 36`**
+     （v1.0.0 新增的是 `mosaic_pipeline_sdk_version()`）——
+     **两次都是纯追加**，`MOSAIC_API_VERSION` **仍是 `10`**（既有接口语义一字未改）。
 
 ### 🟩 嵌入式接「一目标一框」：**改 1 个函数名 + 1 个结构体类型**（v10.7）
 
@@ -2132,6 +2186,8 @@ bash copy_to_nfs.sh --build --verify      # 编译 + 拷贝 + 上板验证，一
 | 换板卡 | `bash copy_to_nfs.sh --board root@1.2.3.4:2222` | 覆盖 ssh 目标与端口 |
 | 换板卡落点 | `bash copy_to_nfs.sh --board-dest /mnt/manu/mosaic_sdk` | 板卡侧交付目录（NFS 根不可写、需经板卡中转时用它） |
 | 上板验证 | `bash copy_to_nfs.sh --verify` | 拷贝后 ssh 到板卡**串行**跑：契约测试（`--limit 60`）→ demo（`--limit 6`）→ 最小集成示范（`--limit 6`），**任一非 0 退出即失败** |
+| 板卡库路径 | `BOARD_LD_LIBRARY_PATH=/root/mosaic/opencv bash copy_to_nfs.sh --verify` | **板卡的 OpenCV 不在 ldconfig 路径时**用它（ematech 实验板 = `/root/mosaic/opencv`；OPI5 交付板的 OpenCV 在 `/usr/lib` ⇒ **不需要**设）。**默认为空 = 不设任何 `LD_LIBRARY_PATH`**（原行为不变） |
+| 板卡帧根目录 | `BOARD_RAW_ROOT=/tmp/rawroot bash copy_to_nfs.sh --verify` | **板卡上的帧根目录**（默认 `/mnt/manu/lq_ir_bmp` = OPI5 的 NFS 挂载点）。ematech 实验板没有这个挂载 ⇒ 用它指到实际帧目录（其下须是「帧根/**序列名**/帧文件」两层） |
 
 > ⚠️ **NFS 根只读时**：本机 NFS 根不可写 ⇒ 脚本把整树**先经板卡 `/tmp`（tmpfs）
 > 中转**，再落到板卡上的交付目录（`--board-dest` 指定）。
@@ -2139,6 +2195,14 @@ bash copy_to_nfs.sh --build --verify      # 编译 + 拷贝 + 上板验证，一
 > ⚠️ **绝不能往板卡 `/root` 写大文件**：板卡根分区 `/root` 的 ext4 已损坏，
 > >1 MB 的二进制会被写坏。中转只走 `/tmp`（tmpfs），用完自动清理；
 > `--verify` 只**执行**已有的程序，**不往板卡 `/root` 写任何东西**。
+>
+> 🔴 **两块板的库位置不一样，`--verify` 的第 4 道门禁要区别对待**：
+> 那道门禁验的是「**不设** `LD_LIBRARY_PATH` 也能跑 ⇒ 用的全是板卡自带库」——
+> 这对 **OPI5 交付板成立**（OpenCV 在 `/usr/lib`，由板卡 `ldconfig` 解析），
+> 但对 **ematech 实验板不成立**（它的 OpenCV 在 `/root/mosaic/opencv`，**不在** `ldconfig` 里）。
+> ⇒ 设了 `BOARD_LD_LIBRARY_PATH` 时，脚本会**自动改做「带上本板库路径」的等价验证**，
+> 并**如实打印** `[info] 「不设 LD_LIBRARY_PATH」这条 OPI5 门禁不适用本板（不是库不全，是库的位置不同）`
+> —— **不会把「库在别处」误报成「板卡自带库不全」**。
 >
 > ℹ️ `--verify` 的三个测试**任一失败会自动重试一次**（等 5 s）并打印 `[retry]`：
 > 板卡上的 NFS 是 **soft 挂载**，刚写完 25 MB 产物就立刻读帧可能撞上瞬时 I/O 错误

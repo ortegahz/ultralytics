@@ -213,6 +213,14 @@ int main(int argc, char** argv)
         mosaic_pipeline_destroy(p);
         return 1;
     }
+    // The RELEASE version of the SDK that is ACTUALLY loaded (the library),
+    // next to the compile-time macro MOSAIC_SDK_VERSION (the header).  If
+    // the two disagree, the header and the library are different builds.
+    {
+        char sdk_v[32];
+        mosaic_pipeline_sdk_version(sdk_v, (int32_t)sizeof(sdk_v));
+        printf("[demo] mosaic sdk v%s\n", sdk_v);
+    }
     printf("[mode] %s\n", tracked_only
                                   ? "tracked-only（只注册跟踪回调 = 嵌入式最小用法）"
                                   : "both（两路回调都注册 = 同帧对照用）");

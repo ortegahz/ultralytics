@@ -64,6 +64,15 @@ static const int kDefaultFrames = 21;
 
 int main(int argc, char** argv)
 {
+    // The RELEASE version of the SDK that is ACTUALLY loaded (the library),
+    // next to the compile-time macro MOSAIC_SDK_VERSION (the header).  If
+    // the two disagree, the header and the library are different builds.
+    {
+        char sdk_v[32];
+        mosaic_pipeline_sdk_version(sdk_v, (int32_t)sizeof(sdk_v));
+        printf("[demo] mosaic sdk v%s\n", sdk_v);
+    }
+
     // 用法：mosaic_client_example [--frames-dir D] [--model M] [--kernel-dir K]
     //                        [--seq S] [--frames N]
     //       mosaic_client_example [帧目录] [模型路径] [kernel 目录] [帧数]（旧写法，仍兼容）

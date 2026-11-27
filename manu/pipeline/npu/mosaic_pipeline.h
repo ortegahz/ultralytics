@@ -164,6 +164,54 @@ extern "C" {
  * reading the wrong fields. */
 #define MOSAIC_API_VERSION 10
 
+/* ---- the SDK's RELEASE version -------------------------------------------
+ *
+ * MOSAIC_API_VERSION (above) is the ABI version: it changes ONLY when a
+ * public STRUCT LAYOUT changes (then the old callers must be recompiled).
+ * MOSAIC_SDK_VERSION is the RELEASE version of the delivered SDK: it changes
+ * on every delivery, even when the ABI is untouched, so that a board, a
+ * package, a screenshot or a bug report can be pinned to exactly ONE build.
+ *
+ *   v1.0.0 -- the first tagged release.
+ *
+ * THE RULES (they are also a rule of this project):
+ *   * the MAJOR (first) number belongs to the USER -- it changes ONLY when
+ *     the user says so, never on your own initiative;
+ *   * the MINOR (second) number is for BIG changes: a breaking behaviour
+ *     change, a new delivery parameter group, a restructured public
+ *     interface;
+ *   * the PATCH (third) number is for SMALL changes: a new optional
+ *     interface, a fix, a probe, documentation, a test.
+ *
+ * TWO ways to read the version, and they MUST agree:
+ *   * this macro -- the version of the HEADER (what the caller compiled
+ *     against);
+ *   * mosaic_pipeline_sdk_version() below -- the version of the LIBRARY that
+ *     is actually LOADED (what is really running on the board).
+ * If they differ, the header and the library come from different builds:
+ * recompile against the delivered header.
+ *
+ * This is an ADDITION: no existing interface, struct layout or behaviour
+ * changed, and MOSAIC_API_VERSION STAYS 10. */
+#define MOSAIC_SDK_VERSION        "1.0.0"
+#define MOSAIC_SDK_VERSION_MAJOR  1
+#define MOSAIC_SDK_VERSION_MINOR  0
+#define MOSAIC_SDK_VERSION_PATCH  0
+
+/* The RELEASE version of the LIBRARY that is actually loaded.
+ *
+ * Writes at most `cap` bytes into `buf`, always NUL-terminated (when
+ * cap > 0), and returns the number of bytes written (excluding the NUL), or
+ * -1 on a bad argument.  Safe on a NULL pipeline: the version belongs to
+ * the library, not to a pipeline.
+ *
+ *   char v[32];
+ *   mosaic_pipeline_sdk_version(v, sizeof(v));   // "1.0.0"
+ *   LOGINFO("[MOSAIC] sdk v%s\n", v);
+ *
+ * Added in v1.0.0: an ADDITION, MOSAIC_API_VERSION stays 10. */
+int32_t mosaic_pipeline_sdk_version(char* buf, int32_t cap);
+
 /* ---- canvas modes ------------------------------------------------------- */
 enum {
   /* native 640x512 at (0,0) + thumb160 160x128 at (0,512) + thumb80 80x64 at

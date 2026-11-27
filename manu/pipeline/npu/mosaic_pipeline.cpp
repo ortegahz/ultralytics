@@ -2580,6 +2580,23 @@ struct MosaicPipeline {
 
 extern "C" {
 
+// The RELEASE version of the library that is actually loaded.  It is compiled
+// IN, so it describes THIS .so -- not the header the caller compiled against
+// (compare the two: MOSAIC_SDK_VERSION in the header vs this call).
+int32_t mosaic_pipeline_sdk_version(char* buf, int32_t cap) {
+  if (!buf || cap <= 0) return -1;
+  const char* v = MOSAIC_SDK_VERSION;
+  const size_t n = strlen(v);
+  if ((size_t)cap <= n) {
+    // Truncated, but still a valid C string.
+    memcpy(buf, v, (size_t)cap - 1);
+    buf[cap - 1] = '\0';
+    return (int32_t)cap - 1;
+  }
+  memcpy(buf, v, n + 1);
+  return (int32_t)n;
+}
+
 void mosaic_pipeline_config_defaults(MosaicPipelineConfig* cfg) {
   if (!cfg) return;
   cfg->version = MOSAIC_API_VERSION;

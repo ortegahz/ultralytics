@@ -26,8 +26,8 @@
 
 ```
 mosaic_sdk/
-├── README.md / MANIFEST.md / build_lib.sh / build_demo.sh / build_probes.sh
-│   build_board_native.sh / copy_to_nfs.sh / fetch_board_libs.sh
+├── README.md / MANIFEST.md / VERSION / build_lib.sh / build_demo.sh /
+│   build_probes.sh / build_board_native.sh / copy_to_nfs.sh / fetch_board_libs.sh
 │   fetch_opencv_headers.sh / known_hosts
 ├── src/
 │   ├── npu/    mosaic_pipeline.cpp/.h, mosaic_core.h, mosaic_post_gpu.h,
@@ -71,8 +71,9 @@ mosaic_sdk/
 * ℹ️ **`out/mosaic_tracked_cb_example`（v10.7 新增产物）**：**跟踪结果回调示范可执行文件**
   —— 注册 `mosaic_pipeline_set_tracked_callback` 拿**一目标一框**的跟踪结果，
   并与原始候选框做**同帧对照**。它用的是**纯追加**的新公开接口
-  （公开 `mosaic_pipeline_*` 接口 `34 → 35`，`MOSAIC_API_VERSION` **仍是 10**，
-  既有接口一字未改）。源码在 `src/npu/mosaic_tracked_cb_example.cpp`。
+  （公开 `mosaic_pipeline_*` 接口 v10.7 时 `34 → 35`、v1.0.0 再 `35 → 36`，
+  `MOSAIC_API_VERSION` **仍是 10**，既有接口一字未改）。
+  源码在 `src/npu/mosaic_tracked_cb_example.cpp`。
 * ⚠️ **本包不携带任何第三方 .so/.a**（**没有第三方依赖目录**）：OpenCV /
   RKNN Runtime / RGA / OpenCL 全部**动态链接板卡自带的库**（见 §C 的
   **板卡依赖矩阵**）。库本身**同时**以**共享库** `out/libmosaic_pipeline.so`
@@ -93,6 +94,40 @@ mosaic_sdk/
   ⇒ 客户照抄命令必然失败；现已改为包内路径。
   ⚠️ 模型在 NFS 上是 **soft 挂载**，**板卡直读会被读坏** ⇒ 板上使用前仍须
   先 `cat` 到板卡 `/tmp`。
+
+### 🏷️ 版本（当前 = `{{SDK_VERSION}}`）
+
+> **本交付包当前版本 = `{{SDK_VERSION}}`**（**第一次打标**）。这个版本号由
+> `packaging/make_build_dir.sh` 从 `src/npu/mosaic_pipeline.h` 的 `MOSAIC_SDK_VERSION`
+> 宏**自动读出**再回填到本节 ⇒ 与包根的 `VERSION` 文件**同源**，不会各写各的。
+
+**三个载体：分别是哪个版本、什么时候用哪个**
+
+| 载体 | 在哪 | 说的是哪个版本 | 什么时候用 |
+|---|---|---|---|
+| `MOSAIC_SDK_VERSION` 宏 | `src/npu/mosaic_pipeline.h` | **头文件 / 编译期**的版本（客户代码是照着它编的） | 编译期分支（配 `MOSAIC_SDK_VERSION_MAJOR` / `_MINOR` / `_PATCH`）、给自己的日志打版本 |
+| `mosaic_pipeline_sdk_version(char* buf, int32_t cap)` | 公开 C ABI（**v1.0.0 新增**） | **实际加载的那个 `.so`** 的版本（板上跑的到底是哪一版） | **现场排查**：板卡上跑的到底是哪一版 |
+| `VERSION` 文件 | `<交付包根>/VERSION` | **这个交付包**的版本（内容就是一行 `1.0.0`） | 脚本 / 人工**一眼可查**（`cat VERSION`） |
+
+* `mosaic_pipeline_sdk_version()` 的语义：把**库内编译进去**的版本串写进 `buf`
+  并返回写入长度（**不含**结尾 `NUL`）；`buf == NULL` 或 `cap <= 0` 返回 `-1`；
+  `cap` 不够时**截断但仍 `NUL` 结尾**；**对 `NULL` 流水线安全**
+  （版本属于**库**，不属于流水线）。
+* 🟢 **三处必须一致**：`MOSAIC_SDK_VERSION` 宏 == 运行时调用返回的字符串
+  == `VERSION` 文件的内容。
+  🔴 **宏与运行时调用返回的字符串不同 ⇒ 头文件与库不是同一次构建**
+  ⇒ **重新编译**（用交付包里的头重编，别拿旧头凑）。
+* **版本规则（本项目的规矩）**：**主版本（第一位）只由用户决定**
+  （**没有用户明确指示不许自己动**）；**次版本（第二位）= 大改动**
+  （破坏性行为变更 / 新的交付参数组 / 公开接口重构）；
+  **修订号（第三位）= 小改动**（新增可选接口 / 修复 / 探针 / 文档 / 测试）。
+  ⇒ 当前 `{{SDK_VERSION}}` ⇒ 后续**小改动走 `1.0.x`**、**大改动走 `1.x.0`**。
+
+**版本历史**
+
+| 版本 | 日期 | 内容 |
+|---|---|---|
+| `v1.0.0` | 2026-11-27 | 首个打标版本：v10.7 跟踪结果回调 `mosaic_pipeline_set_tracked_callback`（纯追加，公开接口 34→35）+ 版本号机制本身（公开接口 35→36）+ 契约 **223 passed / 0 failed**（ematech 板卡实测）+ 板端运行时回读 `mosaic_pipeline_sdk_version()` = `1.0.0` |
 
 ### 新板（Orange Pi 5）上的实际落地布局
 
@@ -125,8 +160,9 @@ mosaic_sdk/
 | `mosaic_client_example`（零参数） | 21 帧 52 目标，rc=0 |
 | `mosaic_async_client_example`（零参数） | 120 帧进 / 326 目标出 |
 | `ldd` | 全部解析成功，**无 `not found`** |
-| 线上库**已替换**（2026-11-25，集成方授权；替换时 app **处于停止状态**） | 板上 `/home/orangepi/libmosaic_pipeline.so`（**app 实际加载点**）、`/usr/lib/`、`/root/bts/` 三处均已换成本包这份（md5 `{{LIB_SO_MD5}}`）；**回滚备份 = `*.bak.20261125a`**（md5 `a819d6e4dc5c10bdc79a67362e79bf31`，= 被替换掉的那一版）；⚠️ 板上**原有**的 `*.bak.20261125`（md5 `c7682e3c…` / `08c8d76d…`）**不是**本次这一版的备份，**别搞混**；`/root/mosaic-test/old/` 下的更早副本**刻意保留未动**。替换方式 = 同目录写临时文件再 `mv` 原子替换（**不动运行中进程的 inode**）。**替换后复验（全部实测）**：`ldd /home/orangepi/app` **无 `not found`**；`nm -D --defined-only` 行数 **335 → 335**、全局 `T` 符号 **127 → 128**、公开 `mosaic_pipeline_*` **34 → 35**；**丢失 1 个内部 C++ 符号** `MosaicPipeline::RunFusionStep(const std::vector<mosaic::TrackFusionCand>&)`（该类在公开头里是**不透明类型** ⇒ 客户端**不可能**引用；app `nm -D --undefined-only` 实测**无引用**）；**检测 TSV md5 仍是 `ceea5fe670a0e996eae0dbffc8c22c11`（= 改造前基线，逐字节相同）**；契约 **217 passed / 0 failed**；`--mode tracked-only`（只注册跟踪回调）**60 帧 / 60 框 / 单帧最多 1 框 / 帧内 `track_id` 重复 0 帧**。⚠️ **app 实跑未验证**（替换时 app 未运行，**未擅自启动客户 app**）|
-| **v10.7 纯追加**（跟踪结果回调） | 新增公开接口 **`mosaic_pipeline_set_tracked_callback`**（**跟踪结果回调**，**一目标一框**）⇒ 公开 `mosaic_pipeline_*` 接口 `34 → 35`、`.so` 导出符号总数 `335 → 335`（**净增 0**：新增 1 个**公开**符号，同时内部 C++ 符号 `MosaicPipeline::RunFusionStep(...)` 因签名由 const-ref 改 rvalue-ref 而**下线** —— 该类在公开头里是**不透明类型**（`typedef struct MosaicPipeline MosaicPipeline;`）⇒ 客户端**不可能**引用它，app 无影响）、`MOSAIC_API_VERSION` **仍是 10**（**既有公开接口一字未改**）；契约断言 `199 → 217`（新增 **18** 条：**13** 条跟踪回调（注册/退回/切换/队列关闭/tracked-only）+ **5** 条 `flush()` 生命周期 / 派发顺序（`flush()` 返回后**不再有任何跟踪回调触发** ⇒ 嵌入式可「`flush()`→`destroy()`」连写，**绝不会**回调访问已销毁流水线的野指针）；交付包新增产物 `out/mosaic_tracked_cb_example`；**两板实测**（Orange Pi 5 `192.168.1.115` + ematech `192.168.0.64`，2026-11-25）：**只注册跟踪回调一个即可**拿到「一目标一框」（`--mode tracked-only` ⇒ tracked 回调 **60 帧 / 60 框 / 单帧最多 1 框**、**帧内 `track_id` 重复 0 帧**、`mosaic_pipeline_collect()` 返回 **-1** 即原始流未缓冲）⇒ **两个回调不是必须同时注册**（第二个只为**同帧对照**）；契约 **217 passed / 0 failed** |
+| 线上库**已替换**（2026-11-25，集成方授权；替换时 app **处于停止状态**） | 板上 `/home/orangepi/libmosaic_pipeline.so`（**app 实际加载点**）、`/usr/lib/`、`/root/bts/` 三处均已换成本包这份（md5 `{{LIB_SO_MD5}}`）；**回滚备份 = `*.bak.20261125a`**（md5 `a819d6e4dc5c10bdc79a67362e79bf31`，= 被替换掉的那一版）；⚠️ 板上**原有**的 `*.bak.20261125`（md5 `c7682e3c…` / `08c8d76d…`）**不是**本次这一版的备份，**别搞混**；`/root/mosaic-test/old/` 下的更早副本**刻意保留未动**。替换方式 = 同目录写临时文件再 `mv` 原子替换（**不动运行中进程的 inode**）。**替换后复验（全部实测）**：`ldd /home/orangepi/app` **无 `not found`**；`nm -D --defined-only` 行数 **335 → 335**、全局 `T` 符号 **127 → 128**、公开 `mosaic_pipeline_*` **34 → 35**（**v10.7 当时的实测值**；v1.0.0 又纯追加了 `mosaic_pipeline_sdk_version` ⇒ 现行公开接口 **36**）；**丢失 1 个内部 C++ 符号** `MosaicPipeline::RunFusionStep(const std::vector<mosaic::TrackFusionCand>&)`（该类在公开头里是**不透明类型** ⇒ 客户端**不可能**引用；app `nm -D --undefined-only` 实测**无引用**）；**检测 TSV md5 仍是 `ceea5fe670a0e996eae0dbffc8c22c11`（= 改造前基线，逐字节相同）**；契约 **217 passed / 0 failed**；`--mode tracked-only`（只注册跟踪回调）**60 帧 / 60 框 / 单帧最多 1 框 / 帧内 `track_id` 重复 0 帧**。⚠️ **app 实跑未验证**（替换时 app 未运行，**未擅自启动客户 app**）|
+| **v10.7 纯追加**（跟踪结果回调） | 新增公开接口 **`mosaic_pipeline_set_tracked_callback`**（**跟踪结果回调**，**一目标一框**）⇒ 公开 `mosaic_pipeline_*` 接口 `34 → 35`（**v10.7 当时**）、`.so` 导出符号总数 `335 → 335`（**净增 0**：新增 1 个**公开**符号，同时内部 C++ 符号 `MosaicPipeline::RunFusionStep(...)` 因签名由 const-ref 改 rvalue-ref 而**下线** —— 该类在公开头里是**不透明类型**（`typedef struct MosaicPipeline MosaicPipeline;`）⇒ 客户端**不可能**引用它，app 无影响）、`MOSAIC_API_VERSION` **仍是 10**（**既有公开接口一字未改**）；契约断言 `199 → 217`（新增 **18** 条：**13** 条跟踪回调（注册/退回/切换/队列关闭/tracked-only）+ **5** 条 `flush()` 生命周期 / 派发顺序（`flush()` 返回后**不再有任何跟踪回调触发** ⇒ 嵌入式可「`flush()`→`destroy()`」连写，**绝不会**回调访问已销毁流水线的野指针）；交付包新增产物 `out/mosaic_tracked_cb_example`；**两板实测**（Orange Pi 5 `192.168.1.115` + ematech `192.168.0.64`，2026-11-25）：**只注册跟踪回调一个即可**拿到「一目标一框」（`--mode tracked-only` ⇒ tracked 回调 **60 帧 / 60 框 / 单帧最多 1 框**、**帧内 `track_id` 重复 0 帧**、`mosaic_pipeline_collect()` 返回 **-1** 即原始流未缓冲）⇒ **两个回调不是必须同时注册**（第二个只为**同帧对照**）；契约 **217 passed / 0 failed** |
+| **v1.0.0 纯追加**（版本号机制） | 新增公开接口 **`mosaic_pipeline_sdk_version`**（`int32_t mosaic_pipeline_sdk_version(char* buf, int32_t cap)`：把**库内编译进去**的版本串写进 `buf` 并返回写入长度（不含结尾 `NUL`）；`buf == NULL` 或 `cap <= 0` 返回 `-1`；`cap` 不够时**截断但仍 `NUL` 结尾**；**对 `NULL` 流水线安全** —— 版本属于**库**不属于流水线）⇒ 公开 `mosaic_pipeline_*` 接口 **`35 → 36`**、`MOSAIC_API_VERSION` **仍是 10**（**纯追加，既有公开接口语义一字未改**）；公开头新增 `MOSAIC_SDK_VERSION` / `MOSAIC_SDK_VERSION_MAJOR` / `MOSAIC_SDK_VERSION_MINOR` / `MOSAIC_SDK_VERSION_PATCH`（= `"1.0.0"` / 1 / 0 / 0）；交付包根目录新增 **`VERSION`** 文件（内容 = `1.0.0`，由 `make_build_dir.sh` 从头文件的 `MOSAIC_SDK_VERSION` 宏**自动生成**）；**版本规则**：**主版本（第一位）只由用户决定**（没有用户明确指示不许自己动）、**次版本（第二位）= 大改动**（破坏性行为变更 / 新的交付参数组 / 公开接口重构）、**修订号（第三位）= 小改动**（新增可选接口 / 修复 / 探针 / 文档 / 测试）⇒ 当前 `1.0.0`，后续小改动走 `1.0.x`、大改动走 `1.x.0`；⚠️ **`.so` 导出符号总数等 `nm -D` 实测数字本次未复验**（`.so` 尚未重编）⇒ 上面的 `335 → 335` / `127 → 128` 等历史数字**保持原样不动**；契约 **217 passed / 0 failed** |
 | glibc 兼容 | 本 SDK 产物最高需求 `GLIBC_2.29`（buildroot 9.3.0）≤ 板上 2.36 ⇒ 可上板 |
 | **板卡原生重编**（`build_board_native.sh`，板载 g++ **12.2.0**） | ✅ **`BUILD_BOARD_NATIVE_OK`**：用**包内 4.8 头** + 板卡 4.8 运行库编出 `.so`，NEEDED = 7×`libopencv_*.so.408` + `libOpenCL.so.1` + `librga.so.2` + `librknnrt.so`（**`-lOpenCL` / `-lrga` 全程未用**）；该原生产物跑 60 帧的检测 TSV md5 **仍是 `ceea5fe670a0e996eae0dbffc8c22c11`**（= 改造前基线，与交叉编译产物**逐字节相同**）、契约 **217 passed / 0 failed** ⇒ **集成方在这块板上就能自己重编，不用回宿主机** |
 | RGA ABI | `sizeof(rga_buffer_t)=96`、`offsetof(handle)=92`、handle 回读 `0x12345678` 一致 ⇒ 与本 SDK 的假设一致 |
@@ -226,6 +262,7 @@ mosaic_sdk/
 | 一键脚本 | `copy_to_nfs.sh` | 编译 + 整树拷贝到 NFS + md5 回验 +（可选）板卡验证 |
 | 主机密钥 | `known_hosts` | 板卡主机密钥基线（ssh 严格校验用；板卡换密钥会直接失败，这是故意的） |
 | 文档 | `README.md` / `MANIFEST.md` | 使用说明 / 本清单 |
+| **版本文件** | `VERSION` | **本交付包的版本号**（内容 = `1.0.0`，一行）；由 `make_build_dir.sh` 从 `src/npu/mosaic_pipeline.h` 的 `MOSAIC_SDK_VERSION` 宏**自动生成** ⇒ 与头文件、运行时 `mosaic_pipeline_sdk_version()` **同源** |
 
 **交付包包含源码（`src/**`）、第三方头（`include/**`）、kernel 资产
 （`runtime/kernels/**`）、构建脚本（`build_lib.sh` / `build_demo.sh`）与预编译
