@@ -1,0 +1,4 @@
+metric,line_value,deciding_tracker,deciding_family,curve_set,stratum,xcorr_line,kcf_legacy_line,csrt_line,cross_arm_dev_pct,xcorr_ref,kcf_legacy_ref,csrt_ref,n_candidates,note
+target_local_contrast,0.18916642395250532,xcorr,motion,common_good,all,0.18916642395250532,nan,0.053589818617938836,nan,0.10142637788877125,0.1460233163394955,0.053589818617938836,1,每族膝点取最小值（最严的一族说了算）；跨臂线位不合并求平均；CSRT 为同族对照臂，只作参照不参与取值
+target_lap_var,541.0926320913259,xcorr,motion,common_good,all,541.0926320913259,nan,1110.8123761621703,nan,505.6237725578302,1110.8123761621703,1110.8123761621703,1,每族膝点取最小值（最严的一族说了算）；跨臂线位不合并求平均；CSRT 为同族对照臂，只作参照不参与取值
+local_scr,5.828548284248887,xcorr,blur,common_good,all,5.828548284248887,nan,2.2567990402085116,nan,5.828548284248887,4.485791651897692,2.2567990402085116,2,每族膝点取最小值（最严的一族说了算）；跨臂线位不合并求平均；CSRT 为同族对照臂，只作参照不参与取值

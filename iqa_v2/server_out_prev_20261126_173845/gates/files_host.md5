@@ -1,0 +1,14 @@
+bbc9519e895c48a0132cbd2c3bca4fc1  correlations_v2.csv
+cc66815f9ac302d3a2aa8603210d4196  dataset_anti_uav.py
+29a79f7cae13f9e547c7e2f72ba5c1a0  dataset_manifest.json
+6e47b22ab6c2112728310147db4c5424  degradation_4d.py
+e01072fab14a62635ee959b67d8e6954  degrade_detail.csv
+00311f8c58b99a8c456f922a3954afef  knee_thresholds_v2.csv
+27f7a3df33636a465dc9176d146143ab  make_manifest_v2.py
+ef5980252b451917fe63e5dc89a9875f  manifest_v2.md5
+6bd2fc02dc0bb76425d113a7e49104d4  run_eval_v2.py
+ab4899a8d3d9580f0c9661a6f4ea236d  tail_analysis_v2.csv
+8622fc0c82342592a40a5e7bfcef8fdd  target_roi_metrics.py
+272bca85d4394a299e8aa92cdcdaf987  test_iqa_v2.py
+f7e36318a2a1d8c6cbf0f10e4384b8e9  verify_recalc_v2.py
+90fe248469e231c00e5160f1844b8818  windows.csv

@@ -1,0 +1,45 @@
+iqa_v2/test_iqa_v2.py::test_constraint_lines_only_from_valid_curves [32mPASSED[0m[33m [ 93%][0m
+iqa_v2/test_iqa_v2.py::test_level_success_profile_accepts_monotone_decay_curve [32mPASSED[0m[33m [ 95%][0m
+iqa_v2/test_iqa_v2.py::test_flat_success_curve_is_degenerate [32mPASSED[0m[33m      [ 97%][0m
+iqa_v2/test_iqa_v2.py::test_level_metric_profile_flags_contrast_local_scr_non_monotone [32mPASSED[0m[33m [100%][0m
+
+[33m=============================== warnings summary ===============================[0m
+../../home/huangzhe/anaconda3/envs/uav/lib/python3.10/site-packages/anyio/pytest_plugin.py:14
+  /home/huangzhe/anaconda3/envs/uav/lib/python3.10/site-packages/anyio/pytest_plugin.py:14: PytestRemovedIn10Warning: _pytest.python.CallSpec2 has been renamed to CallSpec.
+  The CallSpec2 alias will be removed in pytest 10.
+  Update imports to use CallSpec instead.
+  See https://docs.pytest.org/en/stable/deprecations.html#callspec2-renamed
+    from _pytest.python import CallSpec2
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+============================= slowest 30 durations =============================
+4.64s setup    iqa_v2/test_iqa_v2.py::test_infrared_polarity_symmetry_on_real_frame
+1.04s call     iqa_v2/test_iqa_v2.py::test_legacy_kcf_update_lags_one_frame
+0.91s call     iqa_v2/test_iqa_v2.py::test_degradation_worsens_tracking_cle_on_real_window
+0.45s call     iqa_v2/test_iqa_v2.py::test_simulation_pool_is_dataset_level_good_segments
+0.32s call     iqa_v2/test_iqa_v2.py::test_csrt_follows_moving_target
+0.30s call     iqa_v2/test_iqa_v2.py::test_degradation_metrics_move_monotonically
+0.23s call     iqa_v2/test_iqa_v2.py::test_guard_judges_the_curve_the_knee_comes_from
+0.15s call     iqa_v2/test_iqa_v2.py::test_no_visible_modality_file_is_referenced
+0.12s call     iqa_v2/test_iqa_v2.py::test_level_metric_profile_flags_contrast_local_scr_non_monotone
+0.09s call     iqa_v2/test_iqa_v2.py::test_infrared_polarity_symmetry_on_real_frame
+0.05s call     iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[0-0]
+0.05s call     iqa_v2/test_iqa_v2.py::test_infrared_polarity_symmetry_local_scr
+0.05s call     iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[2-2]
+0.04s call     iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[320-1]
+0.04s call     iqa_v2/test_iqa_v2.py::test_tiny_target_regions_still_valid
+0.04s call     iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[637-2]
+0.04s call     iqa_v2/test_iqa_v2.py::test_output_manifest_md5_all_ok
+0.04s call     iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[320-510]
+0.04s call     iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[2-509]
+0.03s call     iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[637-509]
+0.03s call     iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[639-511]
+0.02s call     iqa_v2/test_iqa_v2.py::test_all_windows_are_valid_five_frame_targets
+0.02s call     iqa_v2/test_iqa_v2.py::test_small_target_threshold_constant
+0.02s call     iqa_v2/test_iqa_v2.py::test_legacy_kcf_tracks_moving_target
+0.01s call     iqa_v2/test_iqa_v2.py::test_legacy_kcf_detect_thresh_high_collapses_to_origin
+0.01s call     iqa_v2/test_iqa_v2.py::test_report_same_family_grades_match_the_curve_guard
+0.01s call     iqa_v2/test_iqa_v2.py::test_simulation_base_is_pure_and_holdout_never_simulated
+
+(3 durations < 0.005s hidden.  Use -vv to show these durations.)
+[33m======================== [32m44 passed[0m, [33m[1m1 warning[0m[33m in 9.03s[0m[33m =========================[0m

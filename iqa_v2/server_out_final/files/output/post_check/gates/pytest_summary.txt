@@ -1,0 +1,6 @@
+0.01s call     iqa_v2/test_iqa_v2.py::test_all_windows_are_valid_five_frame_targets
+0.01s call     iqa_v2/test_iqa_v2.py::test_legacy_kcf_detect_thresh_high_collapses_to_origin
+0.01s call     iqa_v2/test_iqa_v2.py::test_simulation_base_is_pure_and_holdout_never_simulated
+
+(4 durations < 0.005s hidden.  Use -vv to show these durations.)
+[33m[32m44 passed[0m, [33m[1m1 warning[0m[33m in 6.50s[0m[0m

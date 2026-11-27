@@ -1,0 +1,45 @@
+{
+  "_superseded_by": {
+    "file": "iqa_v2/_gates_deep_final_20261127.json",
+    "note": "⚠️ **本文件是 2026-11-27 10:45 的 host 侧复跑留痕，已被 `iqa_v2/_gates_deep_final_20261127.json` 取代**（那份含两侧实测 + 冻结快照 md5 表）⇒ **引用当前门禁结论请以最终留痕为准**；本文件只作**历史留痕**保留。其数字已按当前实测刷新过一遍（见各条 summary 的「收尾刷新」标注），但**生成时间戳**仍为 10:45 那次跑批。"
+  },
+  "pytest": {
+    "rc": 0,
+    "summary": "**152 passed**（无 skip、无 fail）—— iqa_v2/test_iqa_v2.py + test_canonical_digest.py + test_compare_rounds.py + test_recheck_curves.py + test_deep_round_guard.py + **iqa_v2/test_acceptance_deep.py**（收尾时新增的 **21 条**判定器回归测试⇒ 131 → 152）；host 本地数据集 IQA_V2_DATASET_ROOT=<workspace>/data/anti-uav/4th ⇒ 3 个真实帧用例也真跑（非 skip）（**收尾刷新**：10:45 那一版是 131 passed / 5 个测试文件）"
+  },
+  "verify_recalc": {
+    "rc": 0,
+    "summary": "[VERIFY] 全部通过（容差 1e-06）：ROI 抽样 120 行最大绝对误差 6.821e-13；膝点复算 21 个最大绝对误差 0.000e+00；曲线有效性复算 162 条不一致 0 条"
+  },
+  "md5sum": {
+    "rc": 0,
+    "summary": "深轮清单 iqa_v2/output_deep/manifest_deep.md5：**OK 35 行 / FAILED 0 行（rc=0）**（**收尾刷新**：10:45 那一版是 33 行）；旁挂顺序无关规范摘要 iqa_v2/output_deep/manifest_deep.bulk.canonical.txt：ok 2 / failed 0（rc=0）"
+  },
+  "audit_final": {
+    "rc": 0,
+    "summary": "总计 41 条：PASS 41 / FAIL 0 / WARN 0（深轮口径：audit_final.py iqa_v2/output_deep iqa_v2/REPORT_V2_DEEP.md）"
+  },
+  "compare_rounds": {
+    "rc": 0,
+    "summary": "looser_count=0（无更松线位）、stricter_count=1、new_count=1、none_count=1；verdict=NEEDS_ACTION（指「报告须披露口径变化」，非失败）；决定臂 xcorr→kcf_legacy、决定族 motion→blur ⇒ 已在报告披露"
+  },
+  "manifest_deep": {
+    "rc": 0,
+    "summary": "host 侧重新生成 iqa_v2/output_deep/manifest_deep.md5（**35 项，自校验 35/35，登记名无重复**；**收尾刷新**：10:45 那一版是 33 项）；代码条目改用**冻结深轮代码镜像** iqa_v2/_deep_code_20261127/ 核对；服务器侧 10:19 那一版另存为 iqa_v2/output_deep/manifest_deep.server_20261127.md5（md5 89e1cc75…，服务器侧 md5sum -c rc=0）"
+  },
+  "baseline_manifest_note": {
+    "rc": 1,
+    "summary": "冻结基线清单 iqa_v2/output/manifest_v2.md5（自身 md5 a72bc7fa…，**逐字未改**）在 host 上的**裸** md5sum -c：**OK 17 / FAILED 8** —— 失败的 8 条 = **7 个代码条目**（深轮**刻意**演进过的代码：audit_final.py / degradation_4d.py / make_manifest_v2.py / recheck_curves.py / **regression_v2.py**（术语统一一并改到）/ run_eval_v2.py / test_iqa_v2.py）+ 1 条服务器侧绝对路径（/tmp/iqa_v2_cache/degrade_detail.csv，host 无此 cache ⇒ 报「不可读」）；服务器侧同口径 **OK 18 / FAILED 7**（代码已与深轮清单逐条同步 ⇒ 漂移的是同样这 7 条；cache 明细在服务器侧可读 ⇒ 该条 OK）。**全部产物条目（iqa_v2/output/ 的 csv+json 与 3 份报告正文）逐字节未动** ⇒ 规格书 C3 成立；代码条目的核对基准是冻结镜像 iqa_v2/_baseline_code_20261126/（10/10 逐位相符）—— 裸 md5sum -c 拿**活代码**核对**历史清单**，任何一次后续改码都会变红（设计使然，非数据被改）。（**收尾刷新**：10:45 那一版写的是 OK 18 / FAILED 7 = 6 条代码条目 ⇒ **漏了 `regression_v2.py`**）"
+  },
+  "host": {
+    "machine": "host（本地主机）",
+    "python": "/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/.venv-iqa/bin/python (3.14.6, cv2 4.10.0, numpy 2.5.5)",
+    "dataset_root": "/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/data/anti-uav/4th",
+    "note": "**未连服务器、未训练、未推理、未重评估、未下载数据**；本文件是 host 侧复跑门禁的结果记录"
+  },
+  "c4_scope_decision": {
+    "decision": "C4 的 md5sum 门禁 = **深轮清单** iqa_v2/output_deep/manifest_deep.md5（rc=0, **35/35**）；冻结基线清单**逐字不动**，只保留其**证据链**作用（冻结副本 + 冻结代码镜像）",
+    "rationale": "与 iqa_v2/test_iqa_v2.py 的 _verify_manifest(..., BASELINE_CODE_DIR) / DEEP_CODE_DIR 同口径；重生成基线清单会抹掉「基线代码自 11-26 未变」这条证据"
+  },
+  "generated_at": "2026-11-27T10:45:44+08:00"
+}

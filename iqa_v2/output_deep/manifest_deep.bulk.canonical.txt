@@ -1,0 +1,16 @@
+# 红外图像质量评估 v2 —— 大体量明细 CSV 的**顺序无关规范摘要**（canonical digest）旁挂清单
+#
+# 为什么单独一份：明细行由 run_eval_v2.py 的 pool.imap_unordered(...) 收集
+#   ⇒ 同一份输入重跑一次，CSV 的**行序**会变（内容不变）
+#   ⇒ 对它做裸 md5 必然「假失败」（把行序抖动误判成数据变化）
+#   ⇒ 这里登记的是「先规范化（键唯一 + 规范行串 + 排序）再摘要」的口径 ⇒ 行序无关。
+#
+# 校验命令（仓库根执行；退出码 0 = 全部一致）：
+#     python3 iqa_v2/canonical_digest.py verify <本文件>
+#
+# 格式：<规范摘要>  <明细 CSV 绝对路径>（与 md5sum 清单同形；# 开头的行是注释、不校验）
+# 裸 md5（仅供人读、**不可校验**）：ccb5618b2c6c5c2311cb60668997389d  /tmp/iqa_v2_cache_deep/degrade_detail.csv
+# 裸 md5（仅供人读、**不可校验**）：ccb5618b2c6c5c2311cb60668997389d  iqa_v2/output_deep/degrade_detail_v2.csv
+#
+md5:82fb447b38160379cde55722e792fe12  /tmp/iqa_v2_cache_deep/degrade_detail.csv
+md5:82fb447b38160379cde55722e792fe12  iqa_v2/output_deep/degrade_detail_v2.csv

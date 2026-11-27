@@ -201,7 +201,12 @@ addopts = "--doctest-modules --durations=30 --color=yes"
 markers = [
     "slow: skip slow tests unless --slow is set",
 ]
-norecursedirs = [".git", "dist", "build"]
+norecursedirs = [".git", "dist", "build",
+                # 🔴 iqa_v2 下的「归档/冻结镜像」目录**不是**测试代码：
+                #   --doctest-modules 会把它们当模块导入 ⇒ 冻结镜像里的
+                #   run_eval_v2.py 被抢进 sys.path ⇒ 真实模块 import 失败
+                #   （pytest iqa_v2/ 41 个 collection error，交付门禁漏文件）。
+                "_baseline_code_*", "_deep_code_*", "server_out*", "__pycache__"]
 
 [tool.coverage.run]
 source = ["ultralytics/"]

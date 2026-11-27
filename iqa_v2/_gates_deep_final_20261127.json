@@ -1,0 +1,66 @@
+{
+ "scope": "深轮（deep round）**最终**交付门禁 —— host 与服务器**两侧**实跑，双侧结论一致",
+ "generated_at": "2026-11-27T12:23:10+08:00",
+ "pytest": {
+  "rc": 0,
+  "summary": "host `.venv-iqa`（numpy 2.5.5 / scipy 1.18.1 / cv2 4.10.0）`pytest iqa_v2/ -q`（IQA_V2_DATASET_ROOT=<workspace>/data/anti-uav/4th）⇒ **152 passed / 0 skipped / 0 failed**（含新增 `iqa_v2/test_acceptance_deep.py` 的 **21 条**判定器回归测试 ⇒ 131 → 152）；服务器（conda uav，PYTHONPATH=/tmp/pylibs_cvcontrib）⇒ **150 passed / 2 skipped / 0 failed**（2 skipped = `test_iqa_v2.py` 里数据可得性分支的 `pytest.skip`，host 侧同批用例可跑）—— 📌 服务器侧**已收尾**：深轮清单 **35 项**把 `iqa_v2/test_acceptance_deep.py` 登记为代码条目且服务器 `md5sum -c` rc=0 ⇒ 服务器**物理持有**该文件 ⇒ 同样 collected 152 条 ⇒ 152 − 2 skipped = **150 passed**"
+ },
+ "verify_recalc": {
+  "rc": 0,
+  "summary": "host 独立复算（不 import 主聚合模块）：ROI 抽样 120 行最大绝对误差 **6.821e-13**；膝点复算 21 个最大绝对误差 **0.000e+00**；曲线有效性复算 162 条**不一致 0 条**；分箱/逐档跨度相对误差 0.000e+00、单调性列一致 162/162 ⇒ 全部通过（容差 1e-06）。服务器同口径 rc=0"
+ },
+ "md5sum": {
+  "rc": 0,
+  "summary": "深轮清单 `iqa_v2/output_deep/manifest_deep.md5`（**35 项**，md5 `542f0b864d86e274e057662d5fa4097a`）：**host 35/35 OK / FAILED 0**；**服务器 35/35 OK / FAILED 0** ⇒ 双侧一致。旁挂顺序无关规范摘要 `manifest_deep.bulk.canonical.txt`（md5 `1adc546ba3bb4fb26dd5258be2d50743`）：host & server 均 ok 2 / failed 0"
+ },
+ "audit_final": {
+  "rc": 0,
+  "summary": "host & server 双侧：`audit_final.py` 深轮 **41 PASS / 0 FAIL / 0 WARN**；基线轮（防基线被改）**41 PASS / 0 FAIL / 0 WARN**"
+ },
+ "compare_rounds": {
+  "rc": 0,
+  "summary": "host & server 双侧 `compare_rounds.py --strict` ⇒ rc=0；target_local_contrast 0.18916642 → 0.10056222（**DEEP_STRICTER**）、target_lap_var nan → 220.61512（**DEEP_NEW**）、local_scr 5.8285483 → nan（**DEEP_NONE**）⇒ **无更松线位**，B5 成立。⚠️ 同一次输出另给 `verdict: NEEDS_ACTION` / `notes_required: 3`（决定臂 `xcorr` → `kcf_legacy`、决定族 `motion` → `blur`）⇒ **已在报告 §6.2 逐条披露**（§6.2 的披露由生成器**现场对账两份约束线表**自动生成，两台机器读同一份 CSV ⇒ 逐字相同）。⚠️ 表格里 local_scr 的 final_line 列回退显示基线 5.8285483，那是**保守回退显示**，深轮判定为 nan、**不进入对外免责声明**（报告 §6.2）"
+ },
+ "acceptance_deep": {
+  "rc": 0,
+  "summary": "host & server 双侧 a-priori 判定器 22 条：**PASS 19 / PARTIAL 1 / FAIL 2** —— **A1 FAIL**（主臂最重档跟住率最低 87.9%，无一组合跌破 50% ⇒ 曲线**没塌**，膝点只能叫「弯折点」）与 **A4 FAIL**（local_scr 盲测间隔 2.00 pp < 50 pp）是**本轮的实测结论**（不是门禁缺陷）；**C4 PASS**（门禁均 rc=0）；其余 A2 PARTIAL / A3 PASS / B1~B6 PASS / C1~C3 PASS / D1~D8 PASS。判定器回归测试 `iqa_v2/test_acceptance_deep.py` 21 条，host & server 全绿（测试已改为**优先读两侧通用**的 `_gates_deep_final_20261127.json` ⇒ 两侧 22 条结论**逐条一致**）"
+ },
+ "baseline_integrity": {
+  "rc": 0,
+  "summary": "冻结基线**产物条目**两侧 `md5sum -c` 全部 OK（**host 14 条**（`iqa_v2/output/` 下 10 csv + 1 json + 3 份报告正文）／**服务器 15 条**（多 1 条 cache 明细 `/tmp/iqa_v2_cache/degrade_detail.csv`，**host 上无此文件**））；基线清单**裸** `md5sum -c` 在 host 侧 rc=1（**OK 17 / FAILED 8** = **7 条代码条目漂移**（`audit_final.py` / `degradation_4d.py` / `make_manifest_v2.py` / `recheck_curves.py` / **`regression_v2.py`**（术语统一一并改到）/ `run_eval_v2.py` / `test_iqa_v2.py`）+ 1 条 cache 绝对路径不可读），服务器侧同口径 **OK 18 / FAILED 7**（代码已与深轮清单逐条同步 ⇒ 漂移的是同样这 7 条；cache 明细在服务器侧可读 ⇒ 该条 OK），但**基线清单自身 md5 `a72bc7fa5c267b853943416fb2670820` 逐字未改** ⇒ 规格 C3「基线产物不得被覆盖」成立。📌 这 7 条**不是手抄的**：报告 §11.1 现场拿**两份清单**对账（基线清单 vs 深轮清单登记的代码 md5）自动算 ⇒ 两侧逐字相同"
+ },
+ "frozen_snapshot": {
+  "report_deep_md5": "46eff65164b1d0a8421686b99a0876bc",
+  "report_deep_generator_md5": "122e3347ca897ca11345daf4166c105f",
+  "memory_section_deep_md5": "5f0865ac44cb5d39610cabc9f012dcf6",
+  "manifest_deep_md5": "542f0b864d86e274e057662d5fa4097a",
+  "manifest_deep_sidecar_md5": "1adc546ba3bb4fb26dd5258be2d50743",
+  "deep_code_mirror": "iqa_v2/_deep_code_20261127/（21 个 .py 逐字节拷贝 + README.md；**随报告生成器的两处修订重冻一次**——§11.1 的基线漂移数改为现场对账、§6.2 补跨轮口径披露 ⇒ `report_deep_v2.py` md5 `122e3347…`；逐文件 md5 见该目录 README 表格；镜像与活代码**逐字节相同**）",
+  "baseline_manifest_md5": "a72bc7fa5c267b853943416fb2670820",
+  "baseline_report_final_md5": "dbcfbedd9114d13a95538319bc7d8a22",
+  "baseline_memory_section_md5": "a6bf9a81a5aedfa803153a02e1e505f6",
+  "spec_md5": "1f9d92de857d6d2066fcc94f0647baf0",
+  "memory_md_md5": "46dc5387fd179727cfa5eaec51e65cc0",
+  "_note": "本清单**不**登记 `iqa_v2/HOST_ACCEPTANCE_DEEP_20261127.md` 的 md5 —— 那份验收记录**指向**本文件，反向登记会成循环依赖；请直接 `md5sum` 该文件核对。  ｜ `iqa_v2/_gates_deep_host_20261127.json` 是 10:45 那批 host 复跑留痕，**已被本文件取代**（其数字已按当前实测刷新并加了取代标注）⇒ 引用现行门禁结论只看本文件。",
+  "acceptance_deep_md5": "bfaff96f1b8b334745e43562ff7362bf",
+  "acceptance_deep_test_md5": "74c6228ec81f56d5e3f82b27544d1b95",
+  "report_deep_acceptance_md5": "b7ac75e83186b124e5ba62ba961f9e12",
+  "gates_deep_host_json_md5": "1bd08320e5ed973495b44d0edfd31d02"
+ },
+ "host": {
+  "machine": "host（本地主机）",
+  "python": "/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/workspace/.venv-iqa/bin/python",
+  "dataset_root": "/run/media/manu/3061aec8-10bf-45ee-abd2-03ec85b7f084/data/anti-uav/4th",
+  "note": "host 侧 `verify_recalc_v2.py` 需显式 `--dataset-root`（默认值是服务器路径）"
+ },
+ "server": {
+  "machine": "huangzhe@192.168.99.40:32222，/tmp/pycharm_project_a7d966e6",
+  "python": "/home/huangzhe/anaconda3/envs/uav/bin/python（PYTHONPATH=/tmp/pylibs_cvcontrib）",
+  "note": "服务器侧 `pyproject.toml` 已同步（`norecursedirs` 排除两个冻结镜像目录）⇒ 否则 `--doctest-modules` 会把镜像里的同名模块抢进 sys.path ⇒ 38 个 collection error"
+ },
+ "not_done": "本轮**未**训练、**未**推理重评估、**未**下载数据集、**未**改基线产物、**未**改动 `manu/video_quality/` 的 v1 代码；深轮仅重跑 `--phase regress`（1.2 s，**仅 note 列文案变化，数值列逐格零漂移**）与报告/清单重生成，**未重跑 26 条退化仿真**",
+ "memory_merge": {
+  "rc": 0,
+  "summary": "记忆库主档 `manu/memory/memory.md` 并入 **§320**（深轮），并已把 §319/§320 与三个派生档（`memory_compact.md` / `.slim_memory.md` / `video_quality_metrics_20261119.md` §10.9）的「好片误杀」口径统一为「**错误豁免**」（红线是**免责线**：值 < 线位 ⇒ 进入免责区间 ⇒ **线位越小越严格**）；⚠️ 派生档与 `rules.md` 里其余「误杀」属 **v1 准入线 / 运维 / 训练实验**语境，**刻意保留原文**。本轮收尾：§320 正文按**前缀/后缀逐字节不变**的**原地替换**写法同步成稿（含深轮清单 35 项、基线漂移 7 条、跨轮口径变化三条披露），随后 `roll_memory.py` rc=0、`check_memory_roll.py` rc=0 **全绿**（零丢失锚点前缀 md5 `d4494edc3c0d` 与锚点行数**未变**）、`validate_nav_table.py` rc=0 **355/355 解析成功** ⇒ §320 正文与成稿 `iqa_v2/MEMORY_SECTION_DEEP.md` **逐字节等同**"
+ }
+}

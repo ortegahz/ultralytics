@@ -1,0 +1,23 @@
+# 红外图像质量评估 v2（Target-Centric，Anti-UAV 红外）—— 产物 MD5 清单
+#
+# 生成脚本：iqa_v2/make_manifest_v2.py（仓库根执行）
+# 校验命令：md5sum -c iqa_v2/output/manifest_v2.md5（路径相对仓库根）
+#
+# 覆盖：代码(7) + 结论级产物(csv/json + 报告正文) + 大体量明细(绝对路径，位于 cache 侧)
+# ⚠️ 明细 CSV 按「中间产物不入库」口径不入库，只在本清单里登记 md5 作为证据链。
+#
+# md5
+cc66815f9ac302d3a2aa8603210d4196  iqa_v2/dataset_anti_uav.py
+6e47b22ab6c2112728310147db4c5424  iqa_v2/degradation_4d.py
+27f7a3df33636a465dc9176d146143ab  iqa_v2/make_manifest_v2.py
+6bd2fc02dc0bb76425d113a7e49104d4  iqa_v2/run_eval_v2.py
+8622fc0c82342592a40a5e7bfcef8fdd  iqa_v2/target_roi_metrics.py
+272bca85d4394a299e8aa92cdcdaf987  iqa_v2/test_iqa_v2.py
+f7e36318a2a1d8c6cbf0f10e4384b8e9  iqa_v2/verify_recalc_v2.py
+bbc9519e895c48a0132cbd2c3bca4fc1  iqa_v2/output/correlations_v2.csv
+00311f8c58b99a8c456f922a3954afef  iqa_v2/output/knee_thresholds_v2.csv
+ab4899a8d3d9580f0c9661a6f4ea236d  iqa_v2/output/tail_analysis_v2.csv
+90fe248469e231c00e5160f1844b8818  iqa_v2/output/windows.csv
+29a79f7cae13f9e547c7e2f72ba5c1a0  iqa_v2/output/dataset_manifest.json
+3fdd3effc8c3b1827fb9cce989060323  iqa_v2/REPORT_V2_ANTIUAV.md
+443dbae2260b07ccd8abeaa3c2268c8d  /tmp/iqa_v2_cache/degrade_detail.csv

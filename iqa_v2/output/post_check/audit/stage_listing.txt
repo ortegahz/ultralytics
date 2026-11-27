@@ -1,0 +1,14 @@
+total 8936
+drwxrwxr-x 2 huangzhe huangzhe    4096 Nov 26 18:49 .
+drwxrwxr-x 5 huangzhe huangzhe    4096 Nov 26 17:27 ..
+-rw-rw-r-- 1 huangzhe huangzhe  137599 Nov 26 18:49 blind_real_v2.csv
+-rw-rw-r-- 1 huangzhe huangzhe    1177 Nov 26 18:49 constraint_lines_v2.csv
+-rw-rw-r-- 1 huangzhe huangzhe   15435 Nov 26 18:49 correlations_v2.csv
+-rw-rw-r-- 1 huangzhe huangzhe  121469 Nov 26 18:49 degrade_detail.csv
+-rw-rw-r-- 1 huangzhe huangzhe 8106091 Nov 26 18:49 degrade_detail_v2.csv
+-rw-rw-r-- 1 huangzhe huangzhe   73475 Nov 26 18:49 knee_thresholds_v2.csv
+-rw-rw-r-- 1 huangzhe huangzhe    4145 Nov 26 18:49 regression_v2.csv
+-rw-rw-r-- 1 huangzhe huangzhe  389857 Nov 26 18:49 segment_class_v2.csv
+-rw-rw-r-- 1 huangzhe huangzhe    7362 Nov 26 18:49 split_v2.csv
+-rw-rw-r-- 1 huangzhe huangzhe    3048 Nov 26 18:49 tail_analysis_v2.csv
+-rw-rw-r-- 1 huangzhe huangzhe  261974 Nov 26 18:49 windows.csv

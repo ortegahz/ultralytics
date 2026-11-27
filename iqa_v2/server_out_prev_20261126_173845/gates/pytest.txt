@@ -1,0 +1,101 @@
+[1m============================= test session starts ==============================[0m
+platform linux -- Python 3.10.20, pytest-9.2.0, pluggy-1.7.0 -- /home/huangzhe/anaconda3/envs/uav/bin/python
+cachedir: .pytest_cache
+rootdir: /tmp/pycharm_project_a7d966e6
+configfile: pyproject.toml
+plugins: anyio-4.14.2
+[1mcollecting ... [0mcollected 25 items
+
+iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[2-2] [32mPASSED[0m[33m [  4%][0m
+iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[0-0] [32mPASSED[0m[33m [  8%][0m
+iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[637-509] [32mPASSED[0m[33m [ 12%][0m
+iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[639-511] [32mPASSED[0m[33m [ 16%][0m
+iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[2-509] [32mPASSED[0m[33m [ 20%][0m
+iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[637-2] [32mPASSED[0m[33m [ 24%][0m
+iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[320-1] [32mPASSED[0m[33m [ 28%][0m
+iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[320-510] [32mPASSED[0m[33m [ 32%][0m
+iqa_v2/test_iqa_v2.py::test_tiny_target_regions_still_valid [32mPASSED[0m[33m       [ 36%][0m
+iqa_v2/test_iqa_v2.py::test_infrared_polarity_symmetry_local_scr [32mPASSED[0m[33m  [ 40%][0m
+iqa_v2/test_iqa_v2.py::test_infrared_polarity_symmetry_on_real_frame [32mPASSED[0m[33m [ 44%][0m
+iqa_v2/test_iqa_v2.py::test_dataset_manifest_is_ir_only_and_single_target [32mPASSED[0m[33m [ 48%][0m
+iqa_v2/test_iqa_v2.py::test_all_windows_are_valid_five_frame_targets [32mPASSED[0m[33m [ 52%][0m
+iqa_v2/test_iqa_v2.py::test_no_visible_modality_file_is_referenced [32mPASSED[0m[33m [ 56%][0m
+iqa_v2/test_iqa_v2.py::test_degradation_metrics_move_monotonically [32mPASSED[0m[33m [ 60%][0m
+iqa_v2/test_iqa_v2.py::test_jpeg_on_ir_is_not_a_sharpness_or_blockiness_axis [32mPASSED[0m[33m [ 64%][0m
+iqa_v2/test_iqa_v2.py::test_degradation_worsens_tracking_cle_on_real_window [32mPASSED[0m[33m [ 68%][0m
+iqa_v2/test_iqa_v2.py::test_legacy_kcf_update_lags_one_frame [32mPASSED[0m[33m      [ 72%][0m
+iqa_v2/test_iqa_v2.py::test_legacy_kcf_tracks_moving_target [32mPASSED[0m[33m       [ 76%][0m
+iqa_v2/test_iqa_v2.py::test_legacy_kcf_detect_thresh_high_collapses_to_origin [32mPASSED[0m[33m [ 80%][0m
+iqa_v2/test_iqa_v2.py::test_csrt_follows_moving_target [32mPASSED[0m[33m            [ 84%][0m
+iqa_v2/test_iqa_v2.py::test_conditions_cover_all_four_degradation_families [32mPASSED[0m[33m [ 88%][0m
+iqa_v2/test_iqa_v2.py::test_motion_angle_is_deterministic_and_in_range [32mPASSED[0m[33m [ 92%][0m
+iqa_v2/test_iqa_v2.py::test_output_manifest_md5_all_ok [31mFAILED[0m[31m            [ 96%][0m
+iqa_v2/test_iqa_v2.py::test_small_target_threshold_constant [32mPASSED[0m[31m       [100%][0m
+
+=================================== FAILURES ===================================
+[31m[1m_______________________ test_output_manifest_md5_all_ok ________________________[0m
+
+    [0m[94mdef[39;49;00m[90m [39;49;00m[92mtest_output_manifest_md5_all_ok[39;49;00m():[90m[39;49;00m
+        manifest_path = OUTPUT_DIR / [33m"[39;49;00m[33mmanifest_v2.md5[39;49;00m[33m"[39;49;00m[90m[39;49;00m
+        [94mif[39;49;00m [95mnot[39;49;00m manifest_path.is_file():[90m[39;49;00m
+            pytest.skip([33m"[39;49;00m[33m还没生成 [39;49;00m[33m%s[39;49;00m[33m"[39;49;00m % manifest_path)[90m[39;49;00m
+        result = subprocess.run([[33m"[39;49;00m[33mmd5sum[39;49;00m[33m"[39;49;00m, [33m"[39;49;00m[33m-c[39;49;00m[33m"[39;49;00m, [96mstr[39;49;00m(manifest_path)], cwd=[96mstr[39;49;00m(REPO),[90m[39;49;00m
+                                capture_output=[94mTrue[39;49;00m, text=[94mTrue[39;49;00m)[90m[39;49;00m
+>       [94massert[39;49;00m result.returncode == [94m0[39;49;00m, [33m"[39;49;00m[33mmd5sum -c 失败：[39;49;00m[33m\n[39;49;00m[33m%s[39;49;00m[33m"[39;49;00m % result.stdout[-[94m2000[39;49;00m:][90m[39;49;00m
+[1m[31mE       AssertionError: md5sum -c 失败：[0m
+[1m[31mE         iqa_v2/dataset_anti_uav.py: OK[0m
+[1m[31mE         iqa_v2/degradation_4d.py: FAILED[0m
+[1m[31mE         iqa_v2/make_manifest_v2.py: OK[0m
+[1m[31mE         iqa_v2/run_eval_v2.py: OK[0m
+[1m[31mE         iqa_v2/target_roi_metrics.py: OK[0m
+[1m[31mE         iqa_v2/test_iqa_v2.py: OK[0m
+[1m[31mE         iqa_v2/verify_recalc_v2.py: OK[0m
+[1m[31mE         iqa_v2/output/correlations_v2.csv: OK[0m
+[1m[31mE         iqa_v2/output/knee_thresholds_v2.csv: OK[0m
+[1m[31mE         iqa_v2/output/tail_analysis_v2.csv: OK[0m
+[1m[31mE         iqa_v2/output/windows.csv: OK[0m
+[1m[31mE         iqa_v2/output/dataset_manifest.json: OK[0m
+[1m[31mE         iqa_v2/REPORT_V2_ANTIUAV.md: OK[0m
+[1m[31mE         /tmp/iqa_v2_cache/degrade_detail.csv: OK[0m
+[1m[31mE         [0m
+[1m[31mE       assert 1 == 0[0m
+[1m[31mE        +  where 1 = CompletedProcess(args=['md5sum', '-c', '/tmp/pycharm_project_a7d966e6/iqa_v2/output/manifest_v2.md5'], returncode=1, stdout='iqa_v2/dataset_anti_uav.py: OK\niqa_v2/degradation_4d.py: FAILED\niqa_v2/make_manifest_v2.py: OK\niqa_v2/run_eval_v2.py: OK\niqa_v2/target_roi_metrics.py: OK\niqa_v2/test_iqa_v2.py: OK\niqa_v2/verify_recalc_v2.py: OK\niqa_v2/output/correlations_v2.csv: OK\niqa_v2/output/knee_thresholds_v2.csv: OK\niqa_v2/output/tail_analysis_v2.csv: OK\niqa_v2/output/windows.csv: OK\niqa_v2/output/dataset_manifest.json: OK\niqa_v2/REPORT_V2_ANTIUAV.md: OK\n/tmp/iqa_v2_cache/degrade_detail.csv: OK\n', stderr='md5sum: WARNING: 1 computed checksum did NOT match\n').returncode[0m
+
+[1m[31miqa_v2/test_iqa_v2.py[0m:523: AssertionError
+[33m=============================== warnings summary ===============================[0m
+../../home/huangzhe/anaconda3/envs/uav/lib/python3.10/site-packages/anyio/pytest_plugin.py:14
+  /home/huangzhe/anaconda3/envs/uav/lib/python3.10/site-packages/anyio/pytest_plugin.py:14: PytestRemovedIn10Warning: _pytest.python.CallSpec2 has been renamed to CallSpec.
+  The CallSpec2 alias will be removed in pytest 10.
+  Update imports to use CallSpec instead.
+  See https://docs.pytest.org/en/stable/deprecations.html#callspec2-renamed
+    from _pytest.python import CallSpec2
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+============================= slowest 30 durations =============================
+3.11s setup    iqa_v2/test_iqa_v2.py::test_infrared_polarity_symmetry_on_real_frame
+0.70s call     iqa_v2/test_iqa_v2.py::test_jpeg_on_ir_is_not_a_sharpness_or_blockiness_axis
+0.42s call     iqa_v2/test_iqa_v2.py::test_legacy_kcf_update_lags_one_frame
+0.32s call     iqa_v2/test_iqa_v2.py::test_degradation_worsens_tracking_cle_on_real_window
+0.18s call     iqa_v2/test_iqa_v2.py::test_degradation_metrics_move_monotonically
+0.13s call     iqa_v2/test_iqa_v2.py::test_csrt_follows_moving_target
+0.06s call     iqa_v2/test_iqa_v2.py::test_output_manifest_md5_all_ok
+0.05s call     iqa_v2/test_iqa_v2.py::test_infrared_polarity_symmetry_local_scr
+0.04s call     iqa_v2/test_iqa_v2.py::test_infrared_polarity_symmetry_on_real_frame
+0.04s call     iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[2-2]
+0.04s call     iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[0-0]
+0.03s call     iqa_v2/test_iqa_v2.py::test_tiny_target_regions_still_valid
+0.03s call     iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[320-510]
+0.03s call     iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[637-2]
+0.03s call     iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[2-509]
+0.03s call     iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[320-1]
+0.02s call     iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[637-509]
+0.02s call     iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[639-511]
+0.02s call     iqa_v2/test_iqa_v2.py::test_legacy_kcf_tracks_moving_target
+0.01s call     iqa_v2/test_iqa_v2.py::test_legacy_kcf_detect_thresh_high_collapses_to_origin
+0.01s call     iqa_v2/test_iqa_v2.py::test_all_windows_are_valid_five_frame_targets
+0.01s call     iqa_v2/test_iqa_v2.py::test_small_target_threshold_constant
+
+(8 durations < 0.005s hidden.  Use -vv to show these durations.)
+[36m[1m=========================== short test summary info ============================[0m
+[31mFAILED[0m iqa_v2/test_iqa_v2.py::[1mtest_output_manifest_md5_all_ok[0m - AssertionError: md5sum -c 失败：
+[31m=================== [31m[1m1 failed[0m, [32m24 passed[0m, [33m1 warning[0m[31m in 5.56s[0m[31m ====================[0m

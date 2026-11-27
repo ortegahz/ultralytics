@@ -1,0 +1,36 @@
+# 红外图像质量评估 v2（Target-Centric，Anti-UAV 红外）—— 产物 MD5 清单
+#
+# 生成脚本：iqa_v2/make_manifest_v2.py（仓库根执行）
+# 校验命令：md5sum -c iqa_v2/output/manifest_v2.md5（路径相对仓库根）
+#
+# 覆盖：代码 + 结论级产物(csv/json + 报告正文) + 大体量明细(绝对路径，位于 cache 侧)
+# ⚠️ 明细 CSV 按「中间产物不入库」口径不入库，只在本清单里登记 md5 作为证据链。
+#
+# md5
+c5e10bd256b3ea9658ee18f43c31636e  iqa_v2/audit_final.py
+968b2e248bca9b6125c5010fe9158639  iqa_v2/audit_final_host.py
+b2af3387938ff85de30b8c0227997e21  iqa_v2/canonical_digest.py
+cc66815f9ac302d3a2aa8603210d4196  iqa_v2/dataset_anti_uav.py
+617e12f30812e53b400cc6586d3d9774  iqa_v2/degradation_4d.py
+a06465d8848699b6fb68dab0db362fb7  iqa_v2/make_manifest_v2.py
+f5b0949f0f1e8423f3bd47bb7008992b  iqa_v2/recheck_curves.py
+ba98cbc778330367866d008e286af9d1  iqa_v2/regression_v2.py
+e81adfe04aff2299c082b6b4c27831cf  iqa_v2/run_eval_v2.py
+8622fc0c82342592a40a5e7bfcef8fdd  iqa_v2/target_roi_metrics.py
+c4faf8262257c2411e8ef4b4aee607d3  iqa_v2/test_canonical_digest.py
+d033d8ac2d4d3d4452e81091685251b4  iqa_v2/test_iqa_v2.py
+1833cec3b06a22ddf97d65d6c112758e  iqa_v2/verify_recalc_v2.py
+420d7337cb0a5d9b3dda553de5830744  iqa_v2/output_deep/blind_real_v2.csv
+acd17b3020ddad3858f095b403d0bf03  iqa_v2/output_deep/constraint_lines_v2.csv
+df3be4d918c68bfe359ca42d1b625130  iqa_v2/output_deep/correlations_v2.csv
+ccb5618b2c6c5c2311cb60668997389d  iqa_v2/output_deep/degrade_detail_v2.csv
+306b4438faa977bf46aca0a6d46e6c34  iqa_v2/output_deep/knee_thresholds_v2.csv
+08b1625a6c667422d8e55357b5790b0a  iqa_v2/output_deep/regression_v2.csv
+504cb0e05b49b269e589388531ab7e40  iqa_v2/output_deep/segment_class_v2.csv
+ba1fcfcfa8d87d8de310b3dc1a2485c7  iqa_v2/output_deep/split_v2.csv
+ab4899a8d3d9580f0c9661a6f4ea236d  iqa_v2/output_deep/tail_analysis_v2.csv
+90fe248469e231c00e5160f1844b8818  iqa_v2/output_deep/windows.csv
+6b037eedf8086505af3631dd7f5b8f56  iqa_v2/output_deep/dataset_manifest.json
+774861c343a3c9c035e3f511e0146c71  iqa_v2/REPORT_V2_DEEP.md
+a6bf9a81a5aedfa803153a02e1e505f6  iqa_v2/MEMORY_SECTION.md
+ccb5618b2c6c5c2311cb60668997389d  /tmp/iqa_v2_cache_deep/degrade_detail.csv

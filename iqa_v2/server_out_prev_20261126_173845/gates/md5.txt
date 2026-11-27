@@ -1,0 +1,15 @@
+iqa_v2/dataset_anti_uav.py: OK
+iqa_v2/degradation_4d.py: FAILED
+iqa_v2/make_manifest_v2.py: OK
+iqa_v2/run_eval_v2.py: OK
+iqa_v2/target_roi_metrics.py: OK
+iqa_v2/test_iqa_v2.py: OK
+iqa_v2/verify_recalc_v2.py: OK
+iqa_v2/output/correlations_v2.csv: OK
+iqa_v2/output/knee_thresholds_v2.csv: OK
+iqa_v2/output/tail_analysis_v2.csv: OK
+iqa_v2/output/windows.csv: OK
+iqa_v2/output/dataset_manifest.json: OK
+iqa_v2/REPORT_V2_ANTIUAV.md: OK
+/tmp/iqa_v2_cache/degrade_detail.csv: OK
+md5sum: WARNING: 1 computed checksum did NOT match

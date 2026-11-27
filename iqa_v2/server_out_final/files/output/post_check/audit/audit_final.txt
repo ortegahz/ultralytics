@@ -1,0 +1,46 @@
+==============================================================================
+v2 交付物完成度审计：/tmp/pycharm_project_a7d966e6/iqa_v2/output/post_check/stage
+==============================================================================
+识别到的产物表: blind, constraint, detail, knee, regression, segment, split, windows
+✅ PASS  R1    退化轴只剩 blur/motion/contrast，JPEG 压缩轴已剔除  ——  实测退化族: ['blur', 'clean', 'contrast', 'motion']
+✅ PASS  R1b   未引入加性白噪声退化轴  ——  实测退化族: ['blur', 'clean', 'contrast', 'motion']
+✅ PASS  R1c   三族红外物理退化轴齐备（blur/motion/contrast）  ——  实测: ['blur', 'clean', 'contrast', 'motion']
+✅ PASS  R2    底座纯净化：仿真池内 clean 档起点跟住率须≈100%（xcorr）  ——  实测 1.0000（12/12 窗口）
+✅ PASS  R2    底座纯净化：仿真池内 clean 档起点跟住率须≈100%（kcf_legacy）  ——  实测 1.0000（12/12 窗口）
+✅ PASS  R2    底座纯净化：仿真池内 clean 档起点跟住率须≈100%（csrt）  ——  实测 1.0000（12/12 窗口）
+✅ PASS  R2b   退化强度递增 ⇒ 核心指标单调不增（任务书 §四.2 单调性假设）  ——  违反的(族,指标): 无（9 组合全部成立）
+✅ PASS  R3    序列级切分无交叉（同源泄露检查）  ——  按列 'split'：标定 137 序列 / 留出 59 序列 / 交集 0
+✅ PASS  R3b   切分比例约 7:3（标定占 60%%~80%%）  ——  实测 0.699
+✅ PASS  R3c   留出集零参与阈值搜索（明细中无留出集的非 clean 行）  ——  泄露序列: 无
+✅ PASS  R4a   好片段留出集的**好片误杀率（False Alarm Rate）**已报出
+✅ PASS  R4b   跟丢片段/真实坏片的**坏片拦截率（Interception Rate）**已报出
+✅ PASS  R4c   一般片段的**临界敏感性**已报出
+✅ PASS  R4d   三分法回归测试有独立结果表  ——  行数 15
+✅ PASS  R4e   回归表覆盖好片段留出集/一般片段/跟丢片段三个分层  ——  实测 set: ['good_holdout', 'lost', 'mediocre', 'real_bad', 'real_good']
+✅ PASS  R4f   回归表使用的门槛与约束线表一致  ——  不一致: 无
+✅ PASS  R5    核心指标有**可靠**膝点（knee_reliable=1，双算法偏差≤15%量程）：target_local_contrast  ——  该指标 36 行，其中可靠 4 行
+✅ PASS  R5    核心指标有**可靠**膝点（knee_reliable=1，双算法偏差≤15%量程）：target_lap_var  ——  该指标 36 行，其中可靠 6 行
+✅ PASS  R5    核心指标有**可靠**膝点（knee_reliable=1，双算法偏差≤15%量程）：local_scr  ——  该指标 36 行，其中可靠 3 行
+✅ PASS  R8b   XCorr 与 KCF 不得合并求平均（跨家族纪律）  ——  违规行 0
+✅ PASS  R8    膝点双算法交叉验证字段齐备（Kneedle + PCHIP + 偏差 + reliable）  ——  缺: []
+✅ PASS  R5d   约束线表**只含三项核心指标**（v1 全图指标不得进红线）  ——  实测指标集: ['local_scr', 'target_lap_var', 'target_local_contrast']
+✅ PASS  R5e   v1 全图指标（global_*）未进约束线，只作对照  ——  违规: 无
+✅ PASS  R5f   每条约束线都能在膝点表里找到对应的**可靠**膝点且数值一致  ——  对不上: 无
+✅ PASS  R5k   本轮无有效红线的指标必须在约束线表里显式记为 nan 并附原因（不得静默消失）  ——  声明为无红线: ['target_lap_var']；缺声明: 无；缺原因: 无
+✅ PASS  R5g   约束线不得来自「跟住率从未塌掉」的退化曲线（跨度 ≥ 0.05）  ——  退化候选: 无
+✅ PASS  R5h   独立复算膝点能复现约束线数值（明细→分箱→Kneedle/PCHIP）  ——  复算不一致: 无
+✅ PASS  R5i   跨臂线位差不可比（至少一条主臂无有效线位）时，报告须声明「算法无关性不成立」  ——  cross_arm_dev_pct 全 nan（KCF 侧线位: ['nan', 'nan', 'nan']）；报告已声明算法无关性: True
+✅ PASS  R6    免责声明口径逐字落地（含物理成因与免责边界）  ——  四个关键片段齐备
+✅ PASS  R6b   免责声明给出可执行数值门槛  ——  读到的门槛: ['2.69', '5.828548', '541.09', '541.093', '819.55']
+✅ PASS  R6c   免责声明里的数值门槛与约束线表**一致**  ——  不一致: 无
+✅ PASS  R6e   对外可发布版（§10.3）里的数值门槛**全部**是当前生效的约束线  ——  §10.3 门槛: ['0.1891664']；生效线位: {'target_local_contrast': '0.189166', 'target_lap_var': 'nan', 'local_scr': '5.82855'}；不匹配: 无
+✅ PASS  R6d   误杀率偏高的指标（>5%%）在免责声明旁有降级/限定说明  ——  实测: [('target_local_contrast', 12.63), ('local_scr', 25.79)]
+✅ PASS  R7    小目标子集（max(w,h)≤20px）已单列  ——  strata: ['all', 'small']
+✅ PASS  R7b   明细含小目标标记列（small_target）  ——  取值: [0, 1]
+✅ PASS  R10   真实坏片盲测明细同时含坏片与好片对照  ——  实测分组: {'bad': 248, 'good': 300}
+✅ PASS  R10b  真实坏片样本量小已标注（小样本级、不可外推）  ——  坏片帧数 248
+✅ PASS  R11   曲线过浅（最重档跟住率仍高）时，报告须声明膝点是「弯折点」而非「崩溃点」  ——  过浅的族: ['blur(最重档平均跟住率 1.000)', 'motion(最重档平均跟住率 1.000)', 'contrast(最重档平均跟住率 1.000)']
+✅ PASS  R9    正式交付模型（trial_0080/RC2）替换状态已交代  ——  已明确写为「待替换」：正式交付模型替换待标注回收后执行、待标注回收后执行、未启动任何训练
+------------------------------------------------------------------------------
+总计 39 条：PASS 39 / FAIL 0 / WARN 0
+（WARN = 证据不足、需人工判读；**不算通过**）

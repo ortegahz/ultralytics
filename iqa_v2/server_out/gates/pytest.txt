@@ -1,0 +1,124 @@
+[1m============================= test session starts ==============================[0m
+platform linux -- Python 3.10.20, pytest-9.2.0, pluggy-1.7.0 -- /home/huangzhe/anaconda3/envs/uav/bin/python
+cachedir: .pytest_cache
+rootdir: /tmp/pycharm_project_a7d966e6
+configfile: pyproject.toml
+plugins: anyio-4.14.2
+[1mcollecting ... [0mcollected 31 items
+
+iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[2-2] [32mPASSED[0m[33m [  3%][0m
+iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[0-0] [32mPASSED[0m[33m [  6%][0m
+iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[637-509] [32mPASSED[0m[33m [  9%][0m
+iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[639-511] [32mPASSED[0m[33m [ 12%][0m
+iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[2-509] [32mPASSED[0m[33m [ 16%][0m
+iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[637-2] [32mPASSED[0m[33m [ 19%][0m
+iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[320-1] [32mPASSED[0m[33m [ 22%][0m
+iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[320-510] [32mPASSED[0m[33m [ 25%][0m
+iqa_v2/test_iqa_v2.py::test_tiny_target_regions_still_valid [32mPASSED[0m[33m       [ 29%][0m
+iqa_v2/test_iqa_v2.py::test_infrared_polarity_symmetry_local_scr [32mPASSED[0m[33m  [ 32%][0m
+iqa_v2/test_iqa_v2.py::test_infrared_polarity_symmetry_on_real_frame [32mPASSED[0m[33m [ 35%][0m
+iqa_v2/test_iqa_v2.py::test_dataset_manifest_is_ir_only_and_single_target [32mPASSED[0m[33m [ 38%][0m
+iqa_v2/test_iqa_v2.py::test_all_windows_are_valid_five_frame_targets [32mPASSED[0m[33m [ 41%][0m
+iqa_v2/test_iqa_v2.py::test_no_visible_modality_file_is_referenced [32mPASSED[0m[33m [ 45%][0m
+iqa_v2/test_iqa_v2.py::test_degradation_metrics_move_monotonically [32mPASSED[0m[33m [ 48%][0m
+iqa_v2/test_iqa_v2.py::test_jpeg_and_white_noise_axes_are_removed [32mPASSED[0m[33m [ 51%][0m
+iqa_v2/test_iqa_v2.py::test_good_segment_threshold_is_task_book_3px [32mPASSED[0m[33m [ 54%][0m
+iqa_v2/test_iqa_v2.py::test_sequence_level_split_is_disjoint_and_reproducible [32mPASSED[0m[33m [ 58%][0m
+iqa_v2/test_iqa_v2.py::test_pillarbox_crop_removes_black_border [32mPASSED[0m[33m   [ 61%][0m
+iqa_v2/test_iqa_v2.py::test_simulation_base_is_pure_and_holdout_never_simulated [31mFAILED[0m[31m [ 64%][0m
+iqa_v2/test_iqa_v2.py::test_constraint_lines_only_cover_three_core_metrics [32mPASSED[0m[31m [ 67%][0m
+iqa_v2/test_iqa_v2.py::test_regression_covers_three_way_sets [32mPASSED[0m[31m      [ 70%][0m
+iqa_v2/test_iqa_v2.py::test_degradation_worsens_tracking_cle_on_real_window [32mPASSED[0m[31m [ 74%][0m
+iqa_v2/test_iqa_v2.py::test_legacy_kcf_update_lags_one_frame [32mPASSED[0m[31m      [ 77%][0m
+iqa_v2/test_iqa_v2.py::test_legacy_kcf_tracks_moving_target [32mPASSED[0m[31m       [ 80%][0m
+iqa_v2/test_iqa_v2.py::test_legacy_kcf_detect_thresh_high_collapses_to_origin [32mPASSED[0m[31m [ 83%][0m
+iqa_v2/test_iqa_v2.py::test_csrt_follows_moving_target [32mPASSED[0m[31m            [ 87%][0m
+iqa_v2/test_iqa_v2.py::test_conditions_cover_three_degradation_families [32mPASSED[0m[31m [ 90%][0m
+iqa_v2/test_iqa_v2.py::test_motion_angle_is_deterministic_and_in_range [32mPASSED[0m[31m [ 93%][0m
+iqa_v2/test_iqa_v2.py::test_output_manifest_md5_all_ok [31mFAILED[0m[31m            [ 96%][0m
+iqa_v2/test_iqa_v2.py::test_small_target_threshold_constant [32mPASSED[0m[31m       [100%][0m
+
+=================================== FAILURES ===================================
+[31m[1m___________ test_simulation_base_is_pure_and_holdout_never_simulated ___________[0m
+
+    [0m[94mdef[39;49;00m[90m [39;49;00m[92mtest_simulation_base_is_pure_and_holdout_never_simulated[39;49;00m():[90m[39;49;00m
+    [90m    [39;49;00m[33m"""**G2/G3：仿真底座纯净度 + 留出集零参与**（读产物做机器校验）。"""[39;49;00m[90m[39;49;00m
+        knee_path = OUTPUT_DIR / [33m"[39;49;00m[33mknee_thresholds_v2.csv[39;49;00m[33m"[39;49;00m[90m[39;49;00m
+        class_path = OUTPUT_DIR / [33m"[39;49;00m[33msegment_class_v2.csv[39;49;00m[33m"[39;49;00m[90m[39;49;00m
+        split_path = OUTPUT_DIR / [33m"[39;49;00m[33msplit_v2.csv[39;49;00m[33m"[39;49;00m[90m[39;49;00m
+        [94mif[39;49;00m [95mnot[39;49;00m (knee_path.is_file() [95mand[39;49;00m class_path.is_file() [95mand[39;49;00m split_path.is_file()):[90m[39;49;00m
+            pytest.skip([33m"[39;49;00m[33m还没跑完整流水线（缺膝点 / 分类 / 切分表）[39;49;00m[33m"[39;49;00m)[90m[39;49;00m
+        knees = [96mlist[39;49;00m(csv.DictReader([96mopen[39;49;00m(knee_path, encoding=[33m"[39;49;00m[33mutf-8[39;49;00m[33m"[39;49;00m)))[90m[39;49;00m
+        [94massert[39;49;00m knees, [33m"[39;49;00m[33m膝点表为空[39;49;00m[33m"[39;49;00m[90m[39;49;00m
+        impure = [row [94mfor[39;49;00m row [95min[39;49;00m knees [94mif[39;49;00m [96mfloat[39;49;00m(row[[33m"[39;49;00m[33mclean_success_rate[39;49;00m[33m"[39;49;00m]) < [94m0.999[39;49;00m][90m[39;49;00m
+>       [94massert[39;49;00m [95mnot[39;49;00m impure, [33m"[39;49;00m[33m退化曲线的 clean 档起点必须 ≈ 100[39;49;00m[33m%%[39;49;00m[33m（底座不纯）：[39;49;00m[33m%s[39;49;00m[33m"[39;49;00m % impure[:[94m3[39;49;00m][90m[39;49;00m
+[1m[31mE       AssertionError: 退化曲线的 clean 档起点必须 ≈ 100%（底座不纯）：[{'tracker': 'kcf_legacy', 'curve_set': 'own_good', 'degradation_family': 'blur', 'metric': 'local_scr', 'stratum': 'small', 'n_windows': '2778', 'n_bins': '12', 'curve_y_span': '0.08855291576673863', 'curve_monotone': '1', 'metric_monotone': '1', 'knee_x_kneedle': '1.8368028241484335', 'knee_y_kneedle': '0.9682975070906105', 'knee_x_pchip': '1.342776067237076', 'knee_y_pchip': '0.9609444278296738', 'knee_x_candidate': '1.8368028241484335', 'delta_pct_of_span': '2.42663043250334', 'knee_reliable': '1', 'method_used': 'kneedle', 'knee_x_final': '1.8368028241484335', 'knee_y_final': '0.9682975070906105', 'x_at_y50': 'nan', 'clean_success_rate': '0.99784'}, {'tracker': 'kcf_legacy', 'curve_set': 'own_good', 'degradation_family': 'blur', 'metric': 'target_local_contrast', 'stratum': 'small', 'n_windows': '2778', 'n_bins': '12', 'curve_y_span': '0.08855291576673863', 'curve_monotone': '1', 'metric_monotone': '1', 'knee_x_kneedle': '0.07115188446400347', 'knee_y_kneedle': '0.9653679653679653', 'knee_x_pchip': '0.07101441933268224', 'knee_y_pchip': '0.9653599416461776', 'knee_x_candidate': '0.07115188446400347', 'delta_pct_of_span': '0.038979843125655014', 'knee_reliable': '1', 'method_used': 'kneedle', 'knee_x_final': '0.07115188446400347', 'knee_y_final': '0.9653679653679653', 'x_at_y50': 'nan', 'clean_success_rate': '0.99784'}, {'tracker': 'kcf_legacy', 'curve_set': 'own_good', 'degradation_family': 'blur', 'metric': 'target_lap_var', 'stratum': 'small', 'n_windows': '2778', 'n_bins': '12', 'curve_y_span': '0.08855291576673863', 'curve_monotone': '1', 'metric_monotone': '1', 'knee_x_kneedle': '1730.1832037799115', 'knee_y_kneedle': '0.9805474697716077', 'knee_x_pchip': '89.7349170250001', 'knee_y_pchip': '0.9428720458405256', 'knee_x_candidate': '1730.1832037799115', 'delta_pct_of_span': '7.186103764694337', 'knee_reliable': '1', 'method_used': 'kneedle', 'knee_x_final': '1730.1832037799115', 'knee_y_final': '0.9805474697716077', 'x_at_y50': 'nan', 'clean_success_rate': '0.99784'}][0m
+[1m[31mE       assert not [{'tracker': 'kcf_legacy', 'curve_set': 'own_good', 'degradation_family': 'blur', 'metric': 'local_scr', ...}, {'tracker': 'kcf_legacy', 'curve_set': 'own_good', 'degradation_family': 'blur', 'metric': 'target_local_contrast', ...}, {'tracker': 'kcf_legacy', 'curve_set': 'own_good', 'degradation_family': 'blur', 'metric': 'target_lap_var', ...}, {'tracker': 'kcf_legacy', 'curve_set': 'own_good', 'degradation_family': 'blur', 'metric': 'target_grad_mean', ...}, {'tracker': 'kcf_legacy', 'curve_set': 'own_good', 'degradation_family': 'blur', 'metric': 'surround_std', ...}, {'tracker': 'kcf_legacy', 'curve_set': 'own_good', 'degradation_family': 'blur', 'metric': 'surround_edge_density', ...}, ...][0m
+
+[1m[31miqa_v2/test_iqa_v2.py[0m:397: AssertionError
+[31m[1m_______________________ test_output_manifest_md5_all_ok ________________________[0m
+
+    [0m[94mdef[39;49;00m[90m [39;49;00m[92mtest_output_manifest_md5_all_ok[39;49;00m():[90m[39;49;00m
+        manifest_path = OUTPUT_DIR / [33m"[39;49;00m[33mmanifest_v2.md5[39;49;00m[33m"[39;49;00m[90m[39;49;00m
+        [94mif[39;49;00m [95mnot[39;49;00m manifest_path.is_file():[90m[39;49;00m
+            pytest.skip([33m"[39;49;00m[33m还没生成 [39;49;00m[33m%s[39;49;00m[33m"[39;49;00m % manifest_path)[90m[39;49;00m
+        result = subprocess.run([[33m"[39;49;00m[33mmd5sum[39;49;00m[33m"[39;49;00m, [33m"[39;49;00m[33m-c[39;49;00m[33m"[39;49;00m, [96mstr[39;49;00m(manifest_path)], cwd=[96mstr[39;49;00m(REPO),[90m[39;49;00m
+                                capture_output=[94mTrue[39;49;00m, text=[94mTrue[39;49;00m)[90m[39;49;00m
+>       [94massert[39;49;00m result.returncode == [94m0[39;49;00m, [33m"[39;49;00m[33mmd5sum -c 失败：[39;49;00m[33m\n[39;49;00m[33m%s[39;49;00m[33m"[39;49;00m % result.stdout[-[94m2000[39;49;00m:][90m[39;49;00m
+[1m[31mE       AssertionError: md5sum -c 失败：[0m
+[1m[31mE         iqa_v2/dataset_anti_uav.py: OK[0m
+[1m[31mE         iqa_v2/degradation_4d.py: FAILED[0m
+[1m[31mE         iqa_v2/make_manifest_v2.py: FAILED[0m
+[1m[31mE         iqa_v2/run_eval_v2.py: FAILED[0m
+[1m[31mE         iqa_v2/target_roi_metrics.py: OK[0m
+[1m[31mE         iqa_v2/test_iqa_v2.py: FAILED[0m
+[1m[31mE         iqa_v2/verify_recalc_v2.py: FAILED[0m
+[1m[31mE         iqa_v2/output/correlations_v2.csv: FAILED[0m
+[1m[31mE         iqa_v2/output/knee_thresholds_v2.csv: FAILED[0m
+[1m[31mE         iqa_v2/output/tail_analysis_v2.csv: OK[0m
+[1m[31mE         iqa_v2/output/windows.csv: OK[0m
+[1m[31mE         iqa_v2/output/dataset_manifest.json: FAILED[0m
+[1m[31mE         iqa_v2/REPORT_V2_ANTIUAV.md: FAILED[0m
+[1m[31mE         /tmp/iqa_v2_cache/degrade_detail.csv: FAILED[0m
+[1m[31mE         [0m
+[1m[31mE       assert 1 == 0[0m
+[1m[31mE        +  where 1 = CompletedProcess(args=['md5sum', '-c', '/tmp/pycharm_project_a7d966e6/iqa_v2/output/manifest_v2.md5'], returncode=1, stdout='iqa_v2/dataset_anti_uav.py: OK\niqa_v2/degradation_4d.py: FAILED\niqa_v2/make_manifest_v2.py: FAILED\niqa_v2/run_eval_v2.py: FAILED\niqa_v2/target_roi_metrics.py: OK\niqa_v2/test_iqa_v2.py: FAILED\niqa_v2/verify_recalc_v2.py: FAILED\niqa_v2/output/correlations_v2.csv: FAILED\niqa_v2/output/knee_thresholds_v2.csv: FAILED\niqa_v2/output/tail_analysis_v2.csv: OK\niqa_v2/output/windows.csv: OK\niqa_v2/output/dataset_manifest.json: FAILED\niqa_v2/REPORT_V2_ANTIUAV.md: FAILED\n/tmp/iqa_v2_cache/degrade_detail.csv: FAILED\n', stderr='md5sum: WARNING: 10 computed checksums did NOT match\n').returncode[0m
+
+[1m[31miqa_v2/test_iqa_v2.py[0m:583: AssertionError
+[33m=============================== warnings summary ===============================[0m
+../../home/huangzhe/anaconda3/envs/uav/lib/python3.10/site-packages/anyio/pytest_plugin.py:14
+  /home/huangzhe/anaconda3/envs/uav/lib/python3.10/site-packages/anyio/pytest_plugin.py:14: PytestRemovedIn10Warning: _pytest.python.CallSpec2 has been renamed to CallSpec.
+  The CallSpec2 alias will be removed in pytest 10.
+  Update imports to use CallSpec instead.
+  See https://docs.pytest.org/en/stable/deprecations.html#callspec2-renamed
+    from _pytest.python import CallSpec2
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+============================= slowest 30 durations =============================
+3.34s setup    iqa_v2/test_iqa_v2.py::test_infrared_polarity_symmetry_on_real_frame
+0.40s call     iqa_v2/test_iqa_v2.py::test_legacy_kcf_update_lags_one_frame
+0.37s call     iqa_v2/test_iqa_v2.py::test_degradation_worsens_tracking_cle_on_real_window
+0.25s call     iqa_v2/test_iqa_v2.py::test_csrt_follows_moving_target
+0.17s call     iqa_v2/test_iqa_v2.py::test_degradation_metrics_move_monotonically
+0.04s call     iqa_v2/test_iqa_v2.py::test_infrared_polarity_symmetry_on_real_frame
+0.04s call     iqa_v2/test_iqa_v2.py::test_infrared_polarity_symmetry_local_scr
+0.04s call     iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[2-2]
+0.04s call     iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[0-0]
+0.03s call     iqa_v2/test_iqa_v2.py::test_output_manifest_md5_all_ok
+0.03s call     iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[2-509]
+0.03s call     iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[637-509]
+0.03s call     iqa_v2/test_iqa_v2.py::test_tiny_target_regions_still_valid
+0.03s call     iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[320-510]
+0.03s call     iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[637-2]
+0.03s call     iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[639-511]
+0.02s call     iqa_v2/test_iqa_v2.py::test_boundary_safety_no_nan_and_no_overlap[320-1]
+0.01s call     iqa_v2/test_iqa_v2.py::test_all_windows_are_valid_five_frame_targets
+0.01s call     iqa_v2/test_iqa_v2.py::test_legacy_kcf_tracks_moving_target
+0.01s call     iqa_v2/test_iqa_v2.py::test_legacy_kcf_detect_thresh_high_collapses_to_origin
+0.01s call     iqa_v2/test_iqa_v2.py::test_small_target_threshold_constant
+
+(9 durations < 0.005s hidden.  Use -vv to show these durations.)
+[36m[1m=========================== short test summary info ============================[0m
+[31mFAILED[0m iqa_v2/test_iqa_v2.py::[1mtest_simulation_base_is_pure_and_holdout_never_simulated[0m - AssertionError: 退化曲线的 clean 档起点必须 ≈ 100%（底座不纯）：[{'tracker'...
+[31mFAILED[0m iqa_v2/test_iqa_v2.py::[1mtest_output_manifest_md5_all_ok[0m - AssertionError: md5sum -c 失败：
+[31m=================== [31m[1m2 failed[0m, [32m29 passed[0m, [33m1 warning[0m[31m in 5.23s[0m[31m ====================[0m

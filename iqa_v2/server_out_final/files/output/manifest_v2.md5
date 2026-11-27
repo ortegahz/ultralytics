@@ -1,0 +1,34 @@
+# 红外图像质量评估 v2（Target-Centric，Anti-UAV 红外）—— 产物 MD5 清单
+#
+# 生成脚本：iqa_v2/make_manifest_v2.py（仓库根执行）
+# 校验命令：md5sum -c iqa_v2/output/manifest_v2.md5（路径相对仓库根）
+#
+# 覆盖：代码 + 结论级产物(csv/json + 报告正文) + 大体量明细(绝对路径，位于 cache 侧)
+# ⚠️ 明细 CSV 按「中间产物不入库」口径不入库，只在本清单里登记 md5 作为证据链。
+#
+# md5
+e5d5c67a576447ea6775885cbaa77c95  iqa_v2/audit_final.py
+cc66815f9ac302d3a2aa8603210d4196  iqa_v2/dataset_anti_uav.py
+c17c82791a7e1e5babcdc9502b6163ba  iqa_v2/degradation_4d.py
+d86483b640f62281ff3f128b9636c0a0  iqa_v2/make_manifest_v2.py
+f5b0949f0f1e8423f3bd47bb7008992b  iqa_v2/recheck_curves.py
+ba98cbc778330367866d008e286af9d1  iqa_v2/regression_v2.py
+b45b41be520f87dd4b1f6ffe174547e5  iqa_v2/run_eval_v2.py
+8622fc0c82342592a40a5e7bfcef8fdd  iqa_v2/target_roi_metrics.py
+3cae0c00781b4b03639f3a58b462f41a  iqa_v2/test_iqa_v2.py
+1833cec3b06a22ddf97d65d6c112758e  iqa_v2/verify_recalc_v2.py
+420d7337cb0a5d9b3dda553de5830744  iqa_v2/output/blind_real_v2.csv
+e3d7d690236248ae400342b1f4075dd5  iqa_v2/output/constraint_lines_v2.csv
+bb1511a6f9a352e62b3f07ca236c97d9  iqa_v2/output/correlations_v2.csv
+df0728b69c5dc1954decb0f3d018822b  iqa_v2/output/degrade_detail_v2.csv
+ac94954391195409a4b5906460f3c01e  iqa_v2/output/knee_thresholds_v2.csv
+ec0cafa1bcc62a50ae5b4dd8db8651fc  iqa_v2/output/regression_v2.csv
+671a6f15ede8a18d507ddd4df16c4e12  iqa_v2/output/segment_class_v2.csv
+ba1fcfcfa8d87d8de310b3dc1a2485c7  iqa_v2/output/split_v2.csv
+ab4899a8d3d9580f0c9661a6f4ea236d  iqa_v2/output/tail_analysis_v2.csv
+90fe248469e231c00e5160f1844b8818  iqa_v2/output/windows.csv
+a47bec0ef31b9594b7d19564b60f088b  iqa_v2/output/dataset_manifest.json
+dbcfbedd9114d13a95538319bc7d8a22  iqa_v2/REPORT_V2_FINAL.md
+79aa021584b011f91f3c56dd04f2a34a  iqa_v2/REPORT_V2_ANTIUAV.md
+a6bf9a81a5aedfa803153a02e1e505f6  iqa_v2/MEMORY_SECTION.md
+df0728b69c5dc1954decb0f3d018822b  /tmp/iqa_v2_cache/degrade_detail.csv

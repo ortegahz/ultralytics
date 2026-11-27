@@ -1,0 +1,4 @@
+metric,line_value,deciding_tracker,deciding_family,curve_set,stratum,xcorr_line,kcf_legacy_line,csrt_line,cross_arm_dev_pct,xcorr_ref,kcf_legacy_ref,csrt_ref,n_candidates,note
+target_local_contrast,0.10056221586659723,kcf_legacy,blur,common_good,all,0.21857865074229677,0.10056221586659723,0.05885589491877143,53.99266327013811,0.05885589491877143,0.10056221586659723,0.05885589491877143,3,每族膝点取最小值（最严的一族说了算）；跨臂线位不合并求平均；CSRT 为同族对照臂，只作参照不参与取值
+target_lap_var,220.61511928541879,xcorr,blur,common_good,all,220.61511928541879,359.8504865693544,141.7701370550641,38.69256051626893,220.61511928541879,359.8504865693544,141.7701370550641,2,每族膝点取最小值（最严的一族说了算）；跨臂线位不合并求平均；CSRT 为同族对照臂，只作参照不参与取值
+local_scr,nan,,,common_good,all,nan,nan,nan,nan,8.029360923693313,12.218647662790161,2.066008095412493,0,本轮无有效红线：退化守卫（分箱曲线跨度 ≤ 5pp / 逐档跨度 ≤ 5pp / 单调性不成立）或双算法门禁（偏差 > 15%）未过 ⇒ 按任务书 §二.3 降级为物理参照（见报告 §5.3），不进入约束线与免责声明

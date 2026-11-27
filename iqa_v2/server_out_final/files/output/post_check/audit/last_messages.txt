@@ -1,0 +1,6 @@
+"type":"agent_message","text":"全部核对完毕。现在写 PROGRESS_SERVER.md 留痕。"
+"type":"agent_message","text":"留痕写完（506 行）。现在最后一步：重建 MD5 清单 → 全量门禁。"
+"type":"agent_message","text":"44 条全过。修正 MEMORY_SECTION 与 PROGRESS 里的用例计数（MEMORY 在清单内，需重建清单）。"
+"type":"agent_message","text":"清单 25/25 OK。最终跑一遍完整门禁确认。"
+"type":"agent_message","text":"全部门禁通过。最后做一遍收尾核查（未越界、交付物完整、章节结构正确）。"
+"type":"agent_message","text":"全部完成。服务器自检收口轮已交付。\n\n## 交付物\n\n| 文件 | 规模 | 说明 |\n|:--|:--|:--|\n| `iqa_v2/REPORT_V2_FINAL.md` | 12 章 / 626 行 | 主交付物，数字**全部现场读 `output/*.csv`**（零手抄） |\n| `iqa_v2/MEMORY_SECTION.md`

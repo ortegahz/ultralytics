@@ -1,0 +1,4 @@
+[VERIFY][MANIFEST] 窗口 2442、小目标 1031、exist 全为 1、尺寸全为正 ⇒ 一致
+[VERIFY][ROI] 抽样 120 行，最大绝对误差 1.388e-17（wg2022_ir_022_split_02/blur_sigma2.2 target_local_contrast）
+[VERIFY][KNEE] 复算 13 个膝点，最大绝对误差 0.000e+00
+[VERIFY] 全部通过（容差 1e-06）
